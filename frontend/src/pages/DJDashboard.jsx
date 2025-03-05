@@ -248,6 +248,79 @@ export default function DJDashboard() {
             </div>
           </div>
           
+          {/* Recent Chat Messages */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
+                Recent Chat Messages
+              </h2>
+              
+              <div className="max-h-48 overflow-y-auto">
+                {chatMessages.length > 0 ? (
+                  <ul className="space-y-3">
+                    {chatMessages.map((msg) => (
+                      <li key={msg.id} className="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
+                        <div className="flex justify-between">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">{msg.user}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{msg.time}</p>
+                        </div>
+                        <p className="text-sm text-gray-700 dark:text-gray-300">{msg.message}</p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-gray-500 dark:text-gray-400 text-center py-4">No chat messages yet</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Right Column - Analytics and Server Management */}
+        <div>
+          {/* Live Analytics */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
+                Live Analytics
+              </h2>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-blue-600 dark:text-blue-200">Current Listeners</p>
+                    <UserGroupIcon className="h-5 w-5 text-blue-600 dark:text-blue-200" />
+                  </div>
+                  <p className="text-2xl font-semibold text-blue-700 dark:text-blue-100 mt-2">{analytics.viewerCount}</p>
+                </div>
+                
+                <div className="p-4 bg-purple-50 dark:bg-purple-900 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-purple-600 dark:text-purple-200">Peak Listeners</p>
+                    <ChartBarIcon className="h-5 w-5 text-purple-600 dark:text-purple-200" />
+                  </div>
+                  <p className="text-2xl font-semibold text-purple-700 dark:text-purple-100 mt-2">{analytics.peakViewers}</p>
+                </div>
+                
+                <div className="p-4 bg-green-50 dark:bg-green-900 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-green-600 dark:text-green-200">Chat Messages</p>
+                    <ChatBubbleLeftRightIcon className="h-5 w-5 text-green-600 dark:text-green-200" />
+                  </div>
+                  <p className="text-2xl font-semibold text-green-700 dark:text-green-100 mt-2">{analytics.chatMessages}</p>
+                </div>
+                
+                <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-red-600 dark:text-red-200">Song Requests</p>
+                    <MicrophoneIcon className="h-5 w-5 text-red-600 dark:text-red-200" />
+                  </div>
+                  <p className="text-2xl font-semibold text-red-700 dark:text-red-100 mt-2">{analytics.songRequests}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          
           {/* Server Schedule Management */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
             <div className="p-6">
@@ -324,111 +397,6 @@ export default function DJDashboard() {
                   </button>
                 </div>
               </form>
-            </div>
-          </div>
-        </div>
-        
-        {/* Right Column - Analytics */}
-        <div>
-          {/* Live Analytics */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
-            <div className="p-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
-                Live Analytics
-              </h2>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-blue-600 dark:text-blue-200">Current Listeners</p>
-                    <UserGroupIcon className="h-5 w-5 text-blue-600 dark:text-blue-200" />
-                  </div>
-                  <p className="text-2xl font-semibold text-blue-700 dark:text-blue-100 mt-2">{analytics.viewerCount}</p>
-                </div>
-                
-                <div className="p-4 bg-purple-50 dark:bg-purple-900 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-purple-600 dark:text-purple-200">Peak Listeners</p>
-                    <ChartBarIcon className="h-5 w-5 text-purple-600 dark:text-purple-200" />
-                  </div>
-                  <p className="text-2xl font-semibold text-purple-700 dark:text-purple-100 mt-2">{analytics.peakViewers}</p>
-                </div>
-                
-                <div className="p-4 bg-green-50 dark:bg-green-900 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-green-600 dark:text-green-200">Chat Messages</p>
-                    <ChatBubbleLeftRightIcon className="h-5 w-5 text-green-600 dark:text-green-200" />
-                  </div>
-                  <p className="text-2xl font-semibold text-green-700 dark:text-green-100 mt-2">{analytics.chatMessages}</p>
-                </div>
-                
-                <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-red-600 dark:text-red-200">Song Requests</p>
-                    <MicrophoneIcon className="h-5 w-5 text-red-600 dark:text-red-200" />
-                  </div>
-                  <p className="text-2xl font-semibold text-red-700 dark:text-red-100 mt-2">{analytics.songRequests}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          {/* Chat Messages */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
-            <div className="p-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
-                Recent Chat Messages
-              </h2>
-              
-              <div className="max-h-48 overflow-y-auto">
-                {chatMessages.length > 0 ? (
-                  <ul className="space-y-3">
-                    {chatMessages.map((msg) => (
-                      <li key={msg.id} className="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
-                        <div className="flex justify-between">
-                          <p className="text-sm font-medium text-gray-900 dark:text-white">{msg.user}</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">{msg.time}</p>
-                        </div>
-                        <p className="text-sm text-gray-700 dark:text-gray-300">{msg.message}</p>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-gray-500 dark:text-gray-400 text-center py-4">No chat messages yet</p>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          {/* Song Requests */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
-            <div className="p-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
-                Song Requests
-              </h2>
-              
-              <div className="max-h-64 overflow-y-auto">
-                {songRequests.length > 0 ? (
-                  <ul className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {songRequests.map((request) => (
-                      <li key={request.id} className="py-3">
-                        <div className="flex justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">{request.song}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">by {request.artist}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs text-gray-500 dark:text-gray-400">Requested by {request.requestedBy}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">{request.time}</p>
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-gray-500 dark:text-gray-400 text-center py-4">No song requests yet</p>
-                )}
-              </div>
             </div>
           </div>
         </div>
