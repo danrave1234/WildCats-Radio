@@ -1,0 +1,8 @@
+package com.wildcastradio.StreamingConfig;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface StreamingConfigRepository extends JpaRepository<StreamingConfigEntity, Long> {
+} 

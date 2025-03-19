@@ -1,159 +1,333 @@
 import { useState } from 'react';
-import { RadioIcon } from '@heroicons/react/24/outline';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
-export default function Login({ onLogin, testCredentials }) {
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-  });
-  const [error, setError] = useState('');
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData({
-      ...formData,
-      [name]: value,
-    });
+const Login = () => {
+  const navigate = useNavigate();
+  const { login, register, sendVerificationCode, verifyEmail, error } = useAuth();
+  
+  const [activeTab, setActiveTab] = useState('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [localError, setLocalError] = useState('');
+  
+  // Use these for testing without connecting to backend initially
+  const testCredentials = {
+    admin: { email: 'admin@wildcats.edu', password: 'admin123', role: 'ADMIN' },
+    dj: { email: 'dj@wildcats.edu', password: 'dj123', role: 'DJ' },
+    listener: { email: 'listener@wildcats.edu', password: 'listener123', role: 'LISTENER' }
   };
 
-  const handleSubmit = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    setError('');
-
-    // In a real app, you would validate credentials against your backend
-    // For demo purposes, we'll use hardcoded credentials
-    if (formData.email === testCredentials.admin.email && formData.password === testCredentials.admin.password) {
-      onLogin('ADMIN');
-    } else if (formData.email === testCredentials.dj.email && formData.password === testCredentials.dj.password) {
-      onLogin('DJ');
-    } else if (formData.email === testCredentials.listener.email && formData.password === testCredentials.listener.password) {
-      onLogin('LISTENER');
-    } else {
-      setError('Invalid email or password');
+    setIsLoading(true);
+    setLocalError('');
+    
+    try {
+      // For development/testing without backend
+      if (process.env.NODE_ENV === 'development' && email in testCredentials) {
+        const testUser = testCredentials[email.split('@')[0]];
+        if (password === testUser.password) {
+          // Mock successful login
+          localStorage.setItem('token', 'mock-jwt-token');
+          localStorage.setItem('userId', '1');
+          localStorage.setItem('userRole', testUser.role);
+          navigate(testUser.role === 'DJ' ? '/dj-dashboard' : 
+                   testUser.role === 'ADMIN' ? '/admin' : '/dashboard');
+          return;
+        }
+      }
+      
+      // Actual login with backend
+      const user = await login({ email, password });
+      
+      // Navigate based on role
+      if (user.role === 'DJ') {
+        navigate('/dj-dashboard');
+      } else if (user.role === 'ADMIN') {
+        navigate('/admin');
+      } else {
+        navigate('/dashboard');
+      }
+    } catch (err) {
+      setLocalError(err.response?.data?.message || 'Login failed. Please check your credentials.');
+      console.error('Login error:', err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const fillTestCredentials = (role) => {
-    setFormData({
-      email: testCredentials[role].email,
-      password: testCredentials[role].password
-    });
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setLocalError('');
+    
+    try {
+      await register({ name, email, password, role: 'LISTENER' });
+      // Move to verification step
+      setIsVerifying(true);
+      // Send verification code
+      await sendVerificationCode(email);
+    } catch (err) {
+      setLocalError(err.response?.data?.message || 'Registration failed. Please try again.');
+      console.error('Registration error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setLocalError('');
+    
+    try {
+      await verifyEmail(email, verificationCode);
+      setActiveTab('login');
+      setIsVerifying(false);
+      setLocalError('');
+      // Show success message
+      alert('Registration successful! Please login.');
+    } catch (err) {
+      setLocalError(err.response?.data?.message || 'Verification failed. Please try again.');
+      console.error('Verification error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const resendVerificationCode = async () => {
+    setIsLoading(true);
+    setLocalError('');
+    
+    try {
+      await sendVerificationCode(email);
+      alert('Verification code has been sent to your email.');
+    } catch (err) {
+      setLocalError(err.response?.data?.message || 'Failed to send verification code. Please try again.');
+      console.error('Send code error:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <div className="flex justify-center">
-            <RadioIcon className="h-16 w-16 text-blue-600 dark:text-blue-400" />
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 to-purple-900 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full bg-white rounded-lg shadow-xl overflow-hidden">
+        <div className="px-6 py-8">
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-extrabold text-gray-900 mb-2">WildCats Radio</h2>
+            <p className="text-sm text-gray-600">Your campus radio station</p>
           </div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
-            WildCats Radio
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
-            Sign in to access your account
-          </p>
-        </div>
-        
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
-              <label htmlFor="email" className="sr-only">Email address</label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={formData.email}
-                onChange={handleChange}
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 dark:text-white dark:bg-gray-700 dark:border-gray-600 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Email address"
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="sr-only">Password</label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={formData.password}
-                onChange={handleChange}
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 dark:text-white dark:bg-gray-700 dark:border-gray-600 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Password"
-              />
-            </div>
-          </div>
-
-          {error && (
-            <div className="rounded-md bg-red-50 dark:bg-red-900/30 p-4">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-red-800 dark:text-red-200">{error}</h3>
-                </div>
+          
+          {!isVerifying ? (
+            <>
+              <div className="flex border-b border-gray-200 mb-6">
+                <button
+                  className={`flex-1 py-2 px-4 text-center ${
+                    activeTab === 'login'
+                      ? 'border-b-2 border-blue-500 text-blue-600'
+                      : 'text-gray-500'
+                  }`}
+                  onClick={() => setActiveTab('login')}
+                >
+                  Login
+                </button>
+                <button
+                  className={`flex-1 py-2 px-4 text-center ${
+                    activeTab === 'register'
+                      ? 'border-b-2 border-blue-500 text-blue-600'
+                      : 'text-gray-500'
+                  }`}
+                  onClick={() => setActiveTab('register')}
+                >
+                  Register
+                </button>
               </div>
-            </div>
+              
+              {activeTab === 'login' ? (
+                <form onSubmit={handleLogin} className="space-y-6">
+                  <div>
+                    <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                      Email Address
+                    </label>
+                    <input
+                      id="email"
+                      name="email"
+                      type="email"
+                      autoComplete="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                      Password
+                    </label>
+                    <input
+                      id="password"
+                      name="password"
+                      type="password"
+                      autoComplete="current-password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  
+                  {(error || localError) && (
+                    <div className="text-red-500 text-sm">
+                      {error || localError}
+                    </div>
+                  )}
+                  
+                  <div>
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                        isLoading ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {isLoading ? 'Logging in...' : 'Login'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <form onSubmit={handleRegister} className="space-y-6">
+                  <div>
+                    <label htmlFor="name" className="block text-sm font-medium text-gray-700">
+                      Full Name
+                    </label>
+                    <input
+                      id="name"
+                      name="name"
+                      type="text"
+                      autoComplete="name"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="register-email" className="block text-sm font-medium text-gray-700">
+                      Email Address
+                    </label>
+                    <input
+                      id="register-email"
+                      name="email"
+                      type="email"
+                      autoComplete="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="register-password" className="block text-sm font-medium text-gray-700">
+                      Password
+                    </label>
+                    <input
+                      id="register-password"
+                      name="password"
+                      type="password"
+                      autoComplete="new-password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  
+                  {(error || localError) && (
+                    <div className="text-red-500 text-sm">
+                      {error || localError}
+                    </div>
+                  )}
+                  
+                  <div>
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                        isLoading ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {isLoading ? 'Registering...' : 'Register'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </>
+          ) : (
+            <form onSubmit={handleVerify} className="space-y-6">
+              <div className="text-center mb-4">
+                <h3 className="text-lg font-medium text-gray-900">Verify Your Email</h3>
+                <p className="text-sm text-gray-600">
+                  We've sent a verification code to {email}. Please enter it below.
+                </p>
+              </div>
+              
+              <div>
+                <label htmlFor="verification-code" className="block text-sm font-medium text-gray-700">
+                  Verification Code
+                </label>
+                <input
+                  id="verification-code"
+                  name="code"
+                  type="text"
+                  required
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value)}
+                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              
+              {(error || localError) && (
+                <div className="text-red-500 text-sm">
+                  {error || localError}
+                </div>
+              )}
+              
+              <div>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                    isLoading ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                >
+                  {isLoading ? 'Verifying...' : 'Verify Email'}
+                </button>
+              </div>
+              
+              <div className="text-center mt-4">
+                <button
+                  type="button"
+                  onClick={resendVerificationCode}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
+                  Didn't receive the code? Resend
+                </button>
+              </div>
+            </form>
           )}
-
-          <div>
-            <button
-              type="submit"
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Sign in
-            </button>
-          </div>
-        </form>
-        
-        <div className="mt-6">
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-gray-100 dark:bg-gray-900 text-gray-500 dark:text-gray-400">
-                Test Accounts
-              </span>
-            </div>
-          </div>
-          
-          <div className="mt-6 grid grid-cols-1 gap-3">
-            <button
-              type="button"
-              onClick={() => fillTestCredentials('admin')}
-              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              <span>Admin: {testCredentials.admin.email}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => fillTestCredentials('dj')}
-              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              <span>DJ: {testCredentials.dj.email}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => fillTestCredentials('listener')}
-              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              <span>Listener: {testCredentials.listener.email}</span>
-            </button>
-          </div>
-          
-          <div className="mt-4 text-center text-xs text-gray-500 dark:text-gray-400">
-            <p>Click on a test account to auto-fill credentials</p>
-            <p className="mt-1">Password will be auto-filled when you click a test account</p>
-          </div>
         </div>
       </div>
     </div>
   );
-} 
+};
+
+export default Login; 
