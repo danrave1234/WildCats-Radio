@@ -277,7 +277,7 @@ export default function Schedule() {
               {canScheduleBroadcasts && (
                   <button
                       onClick={() => setShowScheduleForm(!showScheduleForm)}
-                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium flex items-center"
+                      className="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg text-sm font-medium flex items-center"
                   >
                     <CalendarIcon className="h-5 w-5 mr-1" />
                     {showScheduleForm ? "Cancel" : "Schedule Broadcast"}

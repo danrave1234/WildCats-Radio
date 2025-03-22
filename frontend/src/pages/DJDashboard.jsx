@@ -170,7 +170,7 @@ export default function DJDashboard() {
                       className={`px-4 py-2 rounded-md text-white font-medium ${
                         isBroadcasting
                           ? 'bg-red-600 hover:bg-red-700'
-                          : 'bg-green-600 hover:bg-green-700'
+                          : 'bg-yellow-500 hover:bg-yellow-600'
                       }`}
                     >
                       <span className="flex items-center">
@@ -192,7 +192,7 @@ export default function DJDashboard() {
                       className={`px-4 py-2 rounded-md font-medium ${
                         testMode
                           ? 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900 dark:text-red-200'
-                          : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200'
+                          : 'text-maroon-700 bg-maroon-100 hover:bg-maroon-200 dark:bg-maroon-900/30 dark:text-yellow-400 dark:hover:bg-maroon-900/50'
                       }`}
                     >
                       {testMode ? 'Stop Test' : 'Test Audio'}
@@ -350,7 +350,7 @@ export default function DJDashboard() {
                   className={`px-4 py-2 rounded-md text-white font-medium ${
                     serverRunning
                       ? 'bg-red-600 hover:bg-red-700'
-                      : 'bg-green-600 hover:bg-green-700'
+                      : 'bg-yellow-500 hover:bg-yellow-600'
                   }`}
                 >
                   {serverRunning ? 'Stop Server' : 'Start Server'}
@@ -390,7 +390,7 @@ export default function DJDashboard() {
                 <div className="mt-6 flex justify-end">
                   <button
                     type="submit"
-                    className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600"
                   >
                     <ClockIcon className="h-5 w-5 mr-1" />
                     Update Schedule
