@@ -18,7 +18,7 @@ export default function Profile() {
       [name]: value,
     })
   }
-
+//ddddd
   const handleProfileSubmit = (e) => {
     e.preventDefault()
     console.log("Profile data submitted:", formData)
