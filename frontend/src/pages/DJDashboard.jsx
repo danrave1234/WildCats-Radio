@@ -209,7 +209,7 @@ export default function DJDashboard() {
                     id="audioDevice"
                     value={audioInputDevice}
                     onChange={handleAudioDeviceChange}
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-500 focus:ring-maroon-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
                   >
                     {availableAudioDevices.map(device => (
                       <option key={device.id} value={device.id}>
@@ -286,28 +286,28 @@ export default function DJDashboard() {
               </h2>
               
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
+                <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-blue-600 dark:text-blue-200">Current Listeners</p>
-                    <UserGroupIcon className="h-5 w-5 text-blue-600 dark:text-blue-200" />
+                    <p className="text-sm font-medium text-red-600 dark:text-red-200">Current Listeners</p>
+                    <UserGroupIcon className="h-5 w-5 text-red-600 dark:text-red-200" />
                   </div>
-                  <p className="text-2xl font-semibold text-blue-700 dark:text-blue-100 mt-2">{analytics.viewerCount}</p>
+                  <p className="text-2xl font-semibold text-red-700 dark:text-red-100 mt-2">{analytics.viewerCount}</p>
                 </div>
                 
-                <div className="p-4 bg-purple-50 dark:bg-purple-900 rounded-lg">
+                <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-purple-600 dark:text-purple-200">Peak Listeners</p>
-                    <ChartBarIcon className="h-5 w-5 text-purple-600 dark:text-purple-200" />
+                    <p className="text-sm font-medium text-red-600 dark:text-red-200">Peak Listeners</p>
+                    <ChartBarIcon className="h-5 w-5 text-red-600 dark:text-red-200" />
                   </div>
-                  <p className="text-2xl font-semibold text-purple-700 dark:text-purple-100 mt-2">{analytics.peakViewers}</p>
+                  <p className="text-2xl font-semibold text-red-700 dark:text-red-100 mt-2">{analytics.peakViewers}</p>
                 </div>
                 
-                <div className="p-4 bg-green-50 dark:bg-green-900 rounded-lg">
+                <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-green-600 dark:text-green-200">Chat Messages</p>
-                    <ChatBubbleLeftRightIcon className="h-5 w-5 text-green-600 dark:text-green-200" />
+                    <p className="text-sm font-medium text-red-600 dark:text-red-200">Chat Messages</p>
+                    <ChatBubbleLeftRightIcon className="h-5 w-5 text-red-600 dark:text-red-200" />
                   </div>
-                  <p className="text-2xl font-semibold text-green-700 dark:text-green-100 mt-2">{analytics.chatMessages}</p>
+                  <p className="text-2xl font-semibold text-red-700 dark:text-red-100 mt-2">{analytics.chatMessages}</p>
                 </div>
                 
                 <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
