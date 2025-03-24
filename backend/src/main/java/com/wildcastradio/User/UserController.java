@@ -82,7 +82,7 @@ public class UserController {
     }
 
     @GetMapping("/getAll")
-//    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<UserDTO>> getAllUsers() {
         List<UserDTO> users = userService.findAllUsers().stream()
                 .map(UserDTO::fromEntity)
@@ -91,7 +91,7 @@ public class UserController {
     }
 
     @GetMapping("/by-role/{role}")
-//    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<UserDTO>> getUsersByRole(@PathVariable UserEntity.UserRole role) {
         List<UserDTO> users = userService.findUsersByRole(role).stream()
                 .map(UserDTO::fromEntity)
@@ -100,7 +100,7 @@ public class UserController {
     }
 
     @GetMapping("/by-email")
-//    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserDTO> getUserByEmail(@RequestParam String email) {
         return userService.getUserByEmail(email)
                 .map(user -> ResponseEntity.ok(UserDTO.fromEntity(user)))
@@ -108,7 +108,7 @@ public class UserController {
     }
 
     @GetMapping("/exists")
-//    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Boolean> checkEmailExists(@RequestParam String email) {
         boolean exists = userService.existsByEmail(email);
         return ResponseEntity.ok(exists);
