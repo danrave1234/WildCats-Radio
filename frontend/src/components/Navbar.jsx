@@ -8,6 +8,7 @@ import {
   MoonIcon,
   Cog6ToothIcon
 } from '@heroicons/react/24/outline';
+import NotificationBell from './NotificationBell';
 
 const Navbar = () => {
   const location = useLocation();
@@ -114,6 +115,7 @@ const Navbar = () => {
           
           <div className="hidden md:block">
             <div className="ml-4 flex items-center md:ml-6">
+              <NotificationBell />
               <div className="text-white mr-4">
                 {currentUser?.name || 'User'}
                 {userRole && <span className="ml-2 text-xs bg-blue-600 px-2 py-1 rounded">{userRole}</span>}
@@ -167,7 +169,7 @@ const Navbar = () => {
         <div className="md:hidden">
           <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
             {filteredNavItems.map((item) => (
-              <Link
+                  <Link
                 key={item.name}
                 to={item.path}
                 className={`${
@@ -183,7 +185,7 @@ const Navbar = () => {
               <div className="text-white px-3 py-2">
                 {currentUser?.name || 'User'}
                 {userRole && <span className="ml-2 text-xs bg-blue-600 px-2 py-1 rounded">{userRole}</span>}
-              </div>
+                    </div>
               
               <button
                 onClick={handleLogout}

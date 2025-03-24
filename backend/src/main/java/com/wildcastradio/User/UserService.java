@@ -70,25 +70,7 @@ public class UserService implements UserDetailsService {
         
         return savedUser;
     }
-    
-    public UserEntity registerUser(String email, String password, String name) {
-        if (userRepository.existsByEmail(email)) {
-            throw new IllegalArgumentException("Email already in use");
-        }
 
-        UserEntity user = new UserEntity();
-        user.setEmail(email);
-        user.setPassword(passwordEncoder.encode(password));
-        user.setName(name);
-        user.setRole(UserEntity.UserRole.LISTENER); // Default role
-        user.setVerified(false);
-        user.setVerificationCode(generateVerificationCode());
-
-        UserEntity savedUser = userRepository.save(user);
-        sendVerificationCode(email);
-        
-        return savedUser;
-    }
     
     public LoginResponse loginUser(LoginRequest request) {
         Optional<UserEntity> userOpt = userRepository.findByEmail(request.getEmail());
@@ -104,19 +86,6 @@ public class UserService implements UserDetailsService {
         }
         
         throw new IllegalArgumentException("Invalid credentials");
-    }
-    
-    public Optional<UserEntity> loginUser(String email, String password) {
-        Optional<UserEntity> userOpt = userRepository.findByEmail(email);
-        
-        if (userOpt.isPresent()) {
-            UserEntity user = userOpt.get();
-            if (passwordEncoder.matches(password, user.getPassword())) {
-                return Optional.of(user);
-            }
-        }
-        
-        return Optional.empty();
     }
     
     public String sendVerificationCode(String email) {
@@ -166,16 +135,9 @@ public class UserService implements UserDetailsService {
         return userRepository.save(user);
     }
     
-    public UserEntity updateProfile(Long userId, UserEntity updatedInfo) {
+    public UserEntity updateUserRole(Long userId, UserEntity.UserRole newRole) {
         UserEntity user = findById(userId);
-        
-        if (updatedInfo.getName() != null) {
-            user.setName(updatedInfo.getName());
-        }
-        
-        // Don't update email here for security reasons
-        // Don't update password here for security reasons
-        
+        user.setRole(newRole);
         return userRepository.save(user);
     }
     

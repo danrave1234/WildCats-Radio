@@ -9,6 +9,7 @@ import DJDashboard from './pages/DJDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import Settings from './pages/Settings';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { NotificationProvider } from './context/NotificationContext';
 import './App.css';
 
 // Test credentials for different roles
@@ -156,11 +157,13 @@ const AppRoutes = () => {
 
 function App() {
   return (
-    <AuthProvider>
-      <Router>
-        <AppRoutes />
-      </Router>
-    </AuthProvider>
+    <Router>
+      <AuthProvider>
+        <NotificationProvider>
+          <AppRoutes />
+        </NotificationProvider>
+      </AuthProvider>
+    </Router>
   );
 }
 

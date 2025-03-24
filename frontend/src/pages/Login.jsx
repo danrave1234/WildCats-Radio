@@ -50,7 +50,7 @@ const Login = () => {
         navigate('/dj-dashboard');
       } else if (user.role === 'ADMIN') {
         navigate('/admin');
-      } else {
+    } else {
         navigate('/dashboard');
       }
     } catch (err) {
@@ -147,41 +147,41 @@ const Login = () => {
                 >
                   Register
                 </button>
-              </div>
-              
+        </div>
+        
               {activeTab === 'login' ? (
                 <form onSubmit={handleLogin} className="space-y-6">
-                  <div>
+            <div>
                     <label htmlFor="email" className="block text-sm font-medium text-gray-700">
                       Email Address
                     </label>
-                    <input
-                      id="email"
-                      name="email"
-                      type="email"
-                      autoComplete="email"
-                      required
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
+              />
+            </div>
                   
-                  <div>
+            <div>
                     <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                       Password
                     </label>
-                    <input
-                      id="password"
-                      name="password"
-                      type="password"
-                      autoComplete="current-password"
-                      required
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
+              />
+            </div>
                   
                   {(error || localError) && (
                     <div className="text-red-500 text-sm">
@@ -217,8 +217,8 @@ const Login = () => {
                       onChange={(e) => setName(e.target.value)}
                       className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                     />
-                  </div>
-                  
+          </div>
+
                   <div>
                     <label htmlFor="register-email" className="block text-sm font-medium text-gray-700">
                       Email Address
@@ -233,7 +233,7 @@ const Login = () => {
                       onChange={(e) => setEmail(e.target.value)}
                       className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                     />
-                  </div>
+                </div>
                   
                   <div>
                     <label htmlFor="register-password" className="block text-sm font-medium text-gray-700">
@@ -249,26 +249,26 @@ const Login = () => {
                       onChange={(e) => setPassword(e.target.value)}
                       className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                     />
-                  </div>
+                </div>
                   
                   {(error || localError) && (
                     <div className="text-red-500 text-sm">
                       {error || localError}
-                    </div>
-                  )}
-                  
-                  <div>
-                    <button
-                      type="submit"
+            </div>
+          )}
+
+          <div>
+            <button
+              type="submit"
                       disabled={isLoading}
                       className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
                         isLoading ? 'opacity-50 cursor-not-allowed' : ''
                       }`}
-                    >
+            >
                       {isLoading ? 'Registering...' : 'Register'}
-                    </button>
-                  </div>
-                </form>
+            </button>
+          </div>
+        </form>
               )}
             </>
           ) : (
@@ -293,8 +293,8 @@ const Login = () => {
                   onChange={(e) => setVerificationCode(e.target.value)}
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                 />
-              </div>
-              
+          </div>
+          
               {(error || localError) && (
                 <div className="text-red-500 text-sm">
                   {error || localError}
@@ -302,7 +302,7 @@ const Login = () => {
               )}
               
               <div>
-                <button
+            <button
                   type="submit"
                   disabled={isLoading}
                   className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
@@ -310,18 +310,18 @@ const Login = () => {
                   }`}
                 >
                   {isLoading ? 'Verifying...' : 'Verify Email'}
-                </button>
+            </button>
               </div>
               
               <div className="text-center mt-4">
-                <button
-                  type="button"
+            <button
+              type="button"
                   onClick={resendVerificationCode}
                   className="text-sm text-blue-600 hover:text-blue-800"
                 >
                   Didn't receive the code? Resend
-                </button>
-              </div>
+            </button>
+          </div>
             </form>
           )}
         </div>

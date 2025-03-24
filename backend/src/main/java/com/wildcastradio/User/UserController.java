@@ -1,6 +1,10 @@
 package com.wildcastradio.User;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -61,10 +65,52 @@ public class UserController {
         return ResponseEntity.ok(UserDTO.fromEntity(updated));
     }
 
+    @PutMapping("/{id}/role")
+//    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<UserDTO> updateUserRole(
+            @PathVariable Long id,
+            @RequestParam UserEntity.UserRole newRole) {
+        UserEntity updated = userService.updateUserRole(id, newRole);
+        return ResponseEntity.ok(UserDTO.fromEntity(updated));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<UserDTO> getUserById(@PathVariable Long id) {
         return userService.getUserById(id)
                 .map(user -> ResponseEntity.ok(UserDTO.fromEntity(user)))
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/getAll")
+//    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<UserDTO>> getAllUsers() {
+        List<UserDTO> users = userService.findAllUsers().stream()
+                .map(UserDTO::fromEntity)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(users);
+    }
+
+    @GetMapping("/by-role/{role}")
+//    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<UserDTO>> getUsersByRole(@PathVariable UserEntity.UserRole role) {
+        List<UserDTO> users = userService.findUsersByRole(role).stream()
+                .map(UserDTO::fromEntity)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(users);
+    }
+
+    @GetMapping("/by-email")
+//    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<UserDTO> getUserByEmail(@RequestParam String email) {
+        return userService.getUserByEmail(email)
+                .map(user -> ResponseEntity.ok(UserDTO.fromEntity(user)))
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/exists")
+//    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Boolean> checkEmailExists(@RequestParam String email) {
+        boolean exists = userService.existsByEmail(email);
+        return ResponseEntity.ok(exists);
     }
 } 
