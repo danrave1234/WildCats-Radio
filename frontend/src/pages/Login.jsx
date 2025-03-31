@@ -55,19 +55,16 @@ export default function Login({
     ) {
       onLogin("LISTENER")
     } else {
-      setError("Invalid email or password")
+      setError('Invalid email or password');
     }
   }
 
-  // Update the fillTestCredentials function to safely handle missing testCredentials
   const fillTestCredentials = (role) => {
-    if (testCredentials && testCredentials[role]) {
-      setFormData({
-        email: testCredentials[role].email || "",
-        password: testCredentials[role].password || "",
-      })
-    }
-  }
+    setFormData({
+      email: testCredentials[role].email,
+      password: testCredentials[role].password
+    });
+  };
 
   return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
@@ -141,63 +138,58 @@ export default function Login({
                 </div>
             )}
 
-            <div>
-              <button
-                  type="submit"
-                  className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600"
-              >
-                Sign in
-              </button>
+          <div>
+            <button
+              type="submit"
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Sign in
+            </button>
+          </div>
+        </form>
+        
+        <div className="mt-6">
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
             </div>
-          </form>
-
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-gray-100 dark:bg-gray-900 text-gray-500 dark:text-gray-400">Test Accounts</span>
-              </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-gray-100 dark:bg-gray-900 text-gray-500 dark:text-gray-400">
+                Test Accounts
+              </span>
             </div>
-
-            <div className="mt-6 grid grid-cols-1 gap-3">
-              {testCredentials && testCredentials.admin && (
-                  <button
-                      type="button"
-                      onClick={() => fillTestCredentials("admin")}
-                      className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-yellow-50 dark:hover:bg-maroon-900/50"
-                  >
-                    <span>Admin: {testCredentials.admin.email}</span>
-                  </button>
-              )}
-              {testCredentials && testCredentials.dj && (
-                  <button
-                      type="button"
-                      onClick={() => fillTestCredentials("dj")}
-                      className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-yellow-50 dark:hover:bg-maroon-900/50"
-                  >
-                    <span>DJ: {testCredentials.dj.email}</span>
-                  </button>
-              )}
-              {testCredentials && testCredentials.listener && (
-                  <button
-                      type="button"
-                      onClick={() => fillTestCredentials("listener")}
-                      className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-yellow-50 dark:hover:bg-maroon-900/50"
-                  >
-                    <span>Listener: {testCredentials.listener.email}</span>
-                  </button>
-              )}
-            </div>
-
-            <div className="mt-4 text-center text-xs text-gray-500 dark:text-gray-400">
-              <p>Click on a test account to auto-fill credentials</p>
-              <p className="mt-1">Password will be auto-filled when you click a test account</p>
-            </div>
+          </div>
+          
+          <div className="mt-6 grid grid-cols-1 gap-3">
+            <button
+              type="button"
+              onClick={() => fillTestCredentials('admin')}
+              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              <span>Admin: {testCredentials.admin.email}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => fillTestCredentials('dj')}
+              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              <span>DJ: {testCredentials.dj.email}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => fillTestCredentials('listener')}
+              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+            >
+              <span>Listener: {testCredentials.listener.email}</span>
+            </button>
+          </div>
+          
+          <div className="mt-4 text-center text-xs text-gray-500 dark:text-gray-400">
+            <p>Click on a test account to auto-fill credentials</p>
+            <p className="mt-1">Password will be auto-filled when you click a test account</p>
           </div>
         </div>
       </div>
-  )
-}
-
+    </div>
+  );
+} 
