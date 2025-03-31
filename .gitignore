@@ -1,137 +1,33 @@
-# Java
-*.class
-*.log
-*.ctxt
-.mtj.tmp/
-*.jar
-*.war
-*.nar
-*.ear
-*.zip
-*.tar.gz
-*.rar
-hs_err_pid*
-replay_pid*
-
-# Maven
+HELP.md
 target/
-pom.xml.tag
-pom.xml.releaseBackup
-pom.xml.versionsBackup
-pom.xml.next
-release.properties
-dependency-reduced-pom.xml
-buildNumber.properties
-.mvn/timing.properties
-.mvn/wrapper/maven-wrapper.jar
+!../.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
 
-# Gradle
-.gradle/
-build/
-!gradle/wrapper/gradle-wrapper.jar
-!**/src/main/**/build/
-!**/src/test/**/build/
-
-# Spring Boot
-*.properties
-!**/src/main/resources/application*.properties
-!**/src/test/resources/application*.properties
-.spring-dependencies
-spring-test/
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
 .springBeans
-.sts4-cache/
+.sts4-cache
 
-# IntelliJ
-.idea/
+### IntelliJ IDEA ###
+.idea
 *.iws
 *.iml
 *.ipr
-out/
-!**/src/main/**/out/
-!**/src/test/**/out/
 
-# VSCode
-.vscode/
-*.code-workspace
-.history/
-.settings/
-.classpath
-.project
-.factorypath
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
 
-# Cursor Editor
-.cursor/
-.cursor-server/
-.cursor.json
-
-# Node.js
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-.npm/
-.yarn/
-.pnp.*
-
-# React / JavaScript
-/build
-/dist
-.DS_Store
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-coverage/
-.next/
-.nuxt/
-.cache/
-.parcel-cache/
-
-# IDE-specific files
-*.swp
-*.swo
-*~
-.*.swp
-.*.swo
-*.sublime-workspace
-*.sublime-project
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Logs and databases
-*.log
-*.sqlite
-*.sqlite3
-*.db
-
-# Compiled output
-/dist
-/tmp
-/out-tsc
-
-# Dependencies
-/.pnp
-.pnp.js
-
-# Testing
-/coverage
-.nyc_output
-
-# Production
-/build
-
-# Misc
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.eslintcache
+### VS Code ###
+../.vscode/

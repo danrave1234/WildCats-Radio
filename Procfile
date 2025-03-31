@@ -1,1 +1,1 @@
-web: java -jar backend/target/wildcats-radio-0.0.1-SNAPSHOT-exec.jar
+web: java -jar target/wildcats-radio-0.0.1-SNAPSHOT-exec.jar
