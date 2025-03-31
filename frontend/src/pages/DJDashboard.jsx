@@ -170,7 +170,7 @@ export default function DJDashboard() {
                       className={`px-4 py-2 rounded-md text-white font-medium ${
                         isBroadcasting
                           ? 'bg-red-600 hover:bg-red-700'
-                          : 'bg-green-600 hover:bg-green-700'
+                          : 'bg-yellow-500 hover:bg-yellow-600'
                       }`}
                     >
                       <span className="flex items-center">
@@ -192,7 +192,7 @@ export default function DJDashboard() {
                       className={`px-4 py-2 rounded-md font-medium ${
                         testMode
                           ? 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900 dark:text-red-200'
-                          : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200'
+                          : 'text-maroon-700 bg-maroon-100 hover:bg-maroon-200 dark:bg-maroon-900/30 dark:text-yellow-400 dark:hover:bg-maroon-900/50'
                       }`}
                     >
                       {testMode ? 'Stop Test' : 'Test Audio'}
@@ -209,7 +209,7 @@ export default function DJDashboard() {
                     id="audioDevice"
                     value={audioInputDevice}
                     onChange={handleAudioDeviceChange}
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-500 focus:ring-maroon-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
                   >
                     {availableAudioDevices.map(device => (
                       <option key={device.id} value={device.id}>
@@ -286,28 +286,28 @@ export default function DJDashboard() {
               </h2>
               
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
+                <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-blue-600 dark:text-blue-200">Current Listeners</p>
-                    <UserGroupIcon className="h-5 w-5 text-blue-600 dark:text-blue-200" />
+                    <p className="text-sm font-medium text-red-600 dark:text-red-200">Current Listeners</p>
+                    <UserGroupIcon className="h-5 w-5 text-red-600 dark:text-red-200" />
                   </div>
-                  <p className="text-2xl font-semibold text-blue-700 dark:text-blue-100 mt-2">{analytics.viewerCount}</p>
+                  <p className="text-2xl font-semibold text-red-700 dark:text-red-100 mt-2">{analytics.viewerCount}</p>
                 </div>
                 
-                <div className="p-4 bg-purple-50 dark:bg-purple-900 rounded-lg">
+                <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-purple-600 dark:text-purple-200">Peak Listeners</p>
-                    <ChartBarIcon className="h-5 w-5 text-purple-600 dark:text-purple-200" />
+                    <p className="text-sm font-medium text-red-600 dark:text-red-200">Peak Listeners</p>
+                    <ChartBarIcon className="h-5 w-5 text-red-600 dark:text-red-200" />
                   </div>
-                  <p className="text-2xl font-semibold text-purple-700 dark:text-purple-100 mt-2">{analytics.peakViewers}</p>
+                  <p className="text-2xl font-semibold text-red-700 dark:text-red-100 mt-2">{analytics.peakViewers}</p>
                 </div>
                 
-                <div className="p-4 bg-green-50 dark:bg-green-900 rounded-lg">
+                <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-green-600 dark:text-green-200">Chat Messages</p>
-                    <ChatBubbleLeftRightIcon className="h-5 w-5 text-green-600 dark:text-green-200" />
+                    <p className="text-sm font-medium text-red-600 dark:text-red-200">Chat Messages</p>
+                    <ChatBubbleLeftRightIcon className="h-5 w-5 text-red-600 dark:text-red-200" />
                   </div>
-                  <p className="text-2xl font-semibold text-green-700 dark:text-green-100 mt-2">{analytics.chatMessages}</p>
+                  <p className="text-2xl font-semibold text-red-700 dark:text-red-100 mt-2">{analytics.chatMessages}</p>
                 </div>
                 
                 <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
@@ -350,7 +350,7 @@ export default function DJDashboard() {
                   className={`px-4 py-2 rounded-md text-white font-medium ${
                     serverRunning
                       ? 'bg-red-600 hover:bg-red-700'
-                      : 'bg-green-600 hover:bg-green-700'
+                      : 'bg-yellow-500 hover:bg-yellow-600'
                   }`}
                 >
                   {serverRunning ? 'Stop Server' : 'Start Server'}
@@ -390,7 +390,7 @@ export default function DJDashboard() {
                 <div className="mt-6 flex justify-end">
                   <button
                     type="submit"
-                    className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600"
                   >
                     <ClockIcon className="h-5 w-5 mr-1" />
                     Update Schedule

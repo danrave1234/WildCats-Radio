@@ -118,7 +118,7 @@ export default function Settings() {
               <div className="flex justify-end">
                 <button
                   type="submit"
-                  className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600"
                 >
                   Update Password
                 </button>
@@ -154,7 +154,7 @@ export default function Settings() {
                     <label
                       htmlFor="broadcastStart"
                       className={`block overflow-hidden h-6 rounded-full cursor-pointer ${
-                        notifications.broadcastStart ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+                        notifications.broadcastStart ? 'bg-yellow-400' : 'bg-gray-300 dark:bg-gray-600'
                       }`}
                     >
                       <span 
@@ -184,7 +184,7 @@ export default function Settings() {
                     <label
                       htmlFor="broadcastReminders"
                       className={`block overflow-hidden h-6 rounded-full cursor-pointer ${
-                        notifications.broadcastReminders ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+                        notifications.broadcastReminders ? 'bg-yellow-400' : 'bg-gray-300 dark:bg-gray-600'
                       }`}
                     >
                       <span 
@@ -214,7 +214,7 @@ export default function Settings() {
                     <label
                       htmlFor="newSchedule"
                       className={`block overflow-hidden h-6 rounded-full cursor-pointer ${
-                        notifications.newSchedule ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+                        notifications.newSchedule ? 'bg-yellow-400' : 'bg-gray-300 dark:bg-gray-600'
                       }`}
                     >
                       <span 
@@ -244,7 +244,7 @@ export default function Settings() {
                     <label
                       htmlFor="systemUpdates"
                       className={`block overflow-hidden h-6 rounded-full cursor-pointer ${
-                        notifications.systemUpdates ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+                        notifications.systemUpdates ? 'bg-yellow-400' : 'bg-gray-300 dark:bg-gray-600'
                       }`}
                     >
                       <span 
@@ -260,7 +260,7 @@ export default function Settings() {
               <div className="flex justify-end">
                 <button
                   type="submit"
-                  className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600"
                 >
                   Save Preferences
                 </button>
