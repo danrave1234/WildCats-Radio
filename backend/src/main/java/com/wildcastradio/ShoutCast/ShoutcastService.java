@@ -1,19 +1,20 @@
 package com.wildcastradio.ShoutCast;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
 
 import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.StreamingConfig.StreamingConfigEntity;
@@ -22,33 +23,31 @@ import com.wildcastradio.StreamingConfig.StreamingConfigService;
 @Service
 public class ShoutcastService {
     private static final Logger logger = LoggerFactory.getLogger(ShoutcastService.class);
-    
+
     @Value("${shoutcast.server.url:localhost}")
     private String serverUrl;
-    
+
     @Value("${shoutcast.server.port:8000}")
     private int serverPort;
-    
+
     @Value("${shoutcast.server.admin.password:admin}")
     private String adminPassword;
-    
+
     @Value("${shoutcast.server.source.password:hackme}")
     private String sourcePassword;
-    
+
     @Value("${shoutcast.server.mount:/stream/1}")
     private String mountPoint;
-    
+
     @Autowired
     private StreamingConfigService streamingConfigService;
-    
-    private final HttpClient httpClient;
-    
+
+    private final RestTemplate restTemplate;
+
     public ShoutcastService() {
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
+        this.restTemplate = new RestTemplate();
     }
-    
+
     /**
      * Starts a stream on the Shoutcast DNAS server
      * 
@@ -61,40 +60,49 @@ public class ShoutcastService {
             // This is a simplified example - real implementation would depend on Shoutcast API
             String startStreamUrl = String.format("http://%s:%d/admin.cgi", 
                     serverUrl, serverPort);
-            
-            String requestBody = String.format("action=startstream&mount=%s&password=%s",
-                    URLEncoder.encode(mountPoint, StandardCharsets.UTF_8),
-                    URLEncoder.encode(adminPassword, StandardCharsets.UTF_8));
-            
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(startStreamUrl))
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                    .build();
-            
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            
+
+            // Create headers
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+
+            // Create form data
+            MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+            formData.add("action", "startstream");
+            formData.add("mount", mountPoint);
+            formData.add("password", adminPassword);
+
+            // Create the request entity
+            HttpEntity<MultiValueMap<String, String>> requestEntity = new HttpEntity<>(formData, headers);
+
+            // Make the request
+            ResponseEntity<String> response = restTemplate.exchange(
+                    startStreamUrl,
+                    HttpMethod.POST,
+                    requestEntity,
+                    String.class
+            );
+
             // Log response for debugging
-            logger.info("Shoutcast stream start response: {}", response.statusCode());
-            
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+            logger.info("Shoutcast stream start response: {}", response.getStatusCode());
+
+            if (response.getStatusCode().is2xxSuccessful()) {
                 String streamUrl = String.format("http://%s:%d%s", serverUrl, serverPort, mountPoint);
                 logger.info("Stream started successfully: {}", streamUrl);
-                
+
                 // Update StreamingConfig in database for persistence
                 updateStreamingConfig();
-                
+
                 return streamUrl;
             } else {
-                logger.error("Failed to start Shoutcast stream: {}", response.body());
+                logger.error("Failed to start Shoutcast stream: {}", response.getBody());
                 throw new RuntimeException("Failed to start Shoutcast stream");
             }
-        } catch (IOException | InterruptedException e) {
+        } catch (RestClientException e) {
             logger.error("Error starting Shoutcast stream", e);
             throw new RuntimeException("Error starting Shoutcast stream", e);
         }
     }
-    
+
     /**
      * Ends a stream on the Shoutcast DNAS server
      * 
@@ -105,34 +113,43 @@ public class ShoutcastService {
             // For Shoutcast, typically we need to make an admin request to stop the stream
             String stopStreamUrl = String.format("http://%s:%d/admin.cgi", 
                     serverUrl, serverPort);
-            
-            String requestBody = String.format("action=stopstream&mount=%s&password=%s",
-                    URLEncoder.encode(mountPoint, StandardCharsets.UTF_8),
-                    URLEncoder.encode(adminPassword, StandardCharsets.UTF_8));
-            
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(stopStreamUrl))
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                    .build();
-            
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            
+
+            // Create headers
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+
+            // Create form data
+            MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+            formData.add("action", "stopstream");
+            formData.add("mount", mountPoint);
+            formData.add("password", adminPassword);
+
+            // Create the request entity
+            HttpEntity<MultiValueMap<String, String>> requestEntity = new HttpEntity<>(formData, headers);
+
+            // Make the request
+            ResponseEntity<String> response = restTemplate.exchange(
+                    stopStreamUrl,
+                    HttpMethod.POST,
+                    requestEntity,
+                    String.class
+            );
+
             // Log response for debugging
-            logger.info("Shoutcast stream stop response: {}", response.statusCode());
-            
-            if (response.statusCode() >= 400) {
-                logger.error("Failed to stop Shoutcast stream: {}", response.body());
+            logger.info("Shoutcast stream stop response: {}", response.getStatusCode());
+
+            if (response.getStatusCode().is4xxClientError()) {
+                logger.error("Failed to stop Shoutcast stream: {}", response.getBody());
                 throw new RuntimeException("Failed to stop Shoutcast stream");
             }
-            
+
             logger.info("Stream stopped successfully");
-        } catch (IOException | InterruptedException e) {
+        } catch (RestClientException e) {
             logger.error("Error stopping Shoutcast stream", e);
             throw new RuntimeException("Error stopping Shoutcast stream", e);
         }
     }
-    
+
     /**
      * Checks if the Shoutcast server is running and accessible
      * 
@@ -141,15 +158,10 @@ public class ShoutcastService {
     public boolean isServerAccessible() {
         try {
             String statusUrl = String.format("http://%s:%d/7.html", serverUrl, serverPort);
-            
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(statusUrl))
-                    .GET()
-                    .build();
-            
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            
-            boolean isAccessible = response.statusCode() >= 200 && response.statusCode() < 300;
+
+            ResponseEntity<String> response = restTemplate.getForEntity(statusUrl, String.class);
+
+            boolean isAccessible = response.getStatusCode().is2xxSuccessful();
             logger.info("Shoutcast server accessible: {}", isAccessible);
             return isAccessible;
         } catch (Exception e) {
@@ -157,7 +169,7 @@ public class ShoutcastService {
             return false;
         }
     }
-    
+
     /**
      * Updates the StreamingConfig entity in the database with the current property values
      */

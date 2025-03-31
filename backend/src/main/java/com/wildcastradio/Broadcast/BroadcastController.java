@@ -1,5 +1,6 @@
 package com.wildcastradio.Broadcast;
 
+import java.util.Collections;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,7 +36,7 @@ public class BroadcastController {
     @GetMapping
     public ResponseEntity<List<BroadcastDTO>> getAllBroadcasts() {
         // This would call a service method to get all broadcasts
-        return ResponseEntity.ok(List.of());
+        return ResponseEntity.ok(Collections.emptyList());
     }
 
     @GetMapping("/{id}")
