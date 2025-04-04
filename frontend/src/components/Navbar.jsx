@@ -66,7 +66,7 @@ const Navbar = ({ userRole }) => {
         <div className="flex justify-between h-16">
           <div className="flex items-center">
             <Link to="/" className="flex-shrink-0 flex items-center">
-              <span className="text-blue-600 dark:text-blue-400 text-xl font-bold">WildCats Radio</span>
+              <span className="text-maroon-700 dark:text-maroon-400 text-xl font-bold">WildCats Radio</span>
             </Link>
             <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
               {/* Show navigation links based on user role */}
@@ -75,7 +75,7 @@ const Navbar = ({ userRole }) => {
                 to="/dashboard"
                 className={`${
                   location.pathname === '/dashboard'
-                    ? 'border-blue-500 text-gray-900 dark:text-white'
+                    ? 'border-maroon-500 text-gray-900 dark:text-white'
                     : 'border-transparent text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200'
                 } inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium`}
               >
@@ -87,7 +87,7 @@ const Navbar = ({ userRole }) => {
                       to="/dj-dashboard"
                       className={`${
                           location.pathname === '/dj-dashboard'
-                              ? 'border-blue-500 text-gray-900 dark:text-white'
+                              ? 'border-maroon-500 text-gray-900 dark:text-white'
                               : 'border-transparent text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200'
                       } inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium`}
                   >
@@ -100,7 +100,7 @@ const Navbar = ({ userRole }) => {
                       to="/admin"
                       className={`${
                           location.pathname === '/admin'
-                              ? 'border-blue-500 text-gray-900 dark:text-white'
+                              ? 'border-maroon-500 text-gray-900 dark:text-white'
                               : 'border-transparent text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200'
                       } inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium`}
                   >
@@ -111,7 +111,7 @@ const Navbar = ({ userRole }) => {
                 to="/schedule"
                 className={`${
                   location.pathname === '/schedule'
-                    ? 'border-blue-500 text-gray-900 dark:text-white'
+                    ? 'border-maroon-500 text-gray-900 dark:text-white'
                     : 'border-transparent text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200'
                 } inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium`}
               >
@@ -128,7 +128,7 @@ const Navbar = ({ userRole }) => {
               <div>
                 <button
                   onClick={() => setIsProfileOpen(!isProfileOpen)}
-                  className="flex text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  className="flex text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-500"
                   id="user-menu"
                   aria-expanded="false"
                   aria-haspopup="true"

@@ -2,7 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
-
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --primary: 349 89% 34%;
+    --primary-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 346 77.2% 49.8%;
+  }
+  
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --primary: 349 89% 34%;
+    --primary-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 346 77.2% 49.8%;
+  }
+}
 
 @media (prefers-color-scheme: light) {
   :root {
