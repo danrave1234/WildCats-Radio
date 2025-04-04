@@ -1,9 +1,17 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { RadioIcon } from "@heroicons/react/24/outline"
 import { useAuth } from "../context/AuthContext"
 import { Link } from "react-router-dom"
+
+// Cookie helper functions
+const getCookie = (name) => {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
+  return null;
+};
 
 export default function Login() {
   const { login, loading, error: authError } = useAuth()
@@ -12,6 +20,63 @@ export default function Login() {
     password: "",
   })
   const [error, setError] = useState("")
+
+  // Check if system prefers dark mode
+  const systemPrefersDark = () => {
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+
+  // Apply dark mode to document
+  const applyDarkMode = (isDark) => {
+    if (isDark) {
+      document.documentElement.classList.add("dark")
+    } else {
+      document.documentElement.classList.remove("dark")
+    }
+  }
+
+  // Check for saved theme preference on component mount and set up system preference listener
+  useEffect(() => {
+    const hasUserPreference = getCookie("userPreference") === "true"
+    const savedDarkMode = getCookie("darkMode") === "true"
+
+    if (hasUserPreference) {
+      // User has set a preference, use it
+      applyDarkMode(savedDarkMode)
+    } else {
+      // No user preference, follow system preference
+      const systemDark = systemPrefersDark()
+      applyDarkMode(systemDark)
+    }
+
+    // Set up listener for system preference changes
+    const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const handleSystemPreferenceChange = (e) => {
+      // Only update if user hasn't set a preference
+      if (!getCookie("userPreference")) {
+        const systemDark = e.matches
+        applyDarkMode(systemDark)
+      }
+    }
+
+    // Add listener for system preference changes
+    if (darkModeMediaQuery.addEventListener) {
+      darkModeMediaQuery.addEventListener('change', handleSystemPreferenceChange)
+    } else if (darkModeMediaQuery.addListener) {
+      // For older browsers
+      darkModeMediaQuery.addListener(handleSystemPreferenceChange)
+    }
+
+    // Clean up
+    return () => {
+      if (darkModeMediaQuery.removeEventListener) {
+        darkModeMediaQuery.removeEventListener('change', handleSystemPreferenceChange)
+      } else if (darkModeMediaQuery.removeListener) {
+        // For older browsers
+        darkModeMediaQuery.removeListener(handleSystemPreferenceChange)
+      }
+    }
+  }, [])
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -120,7 +185,7 @@ export default function Login() {
               {loading ? 'Signing in...' : 'Sign in'}
             </button>
           </div>
-          
+
           <div className="text-center">
             <p className="text-sm text-gray-600 dark:text-gray-400">
               Don't have an account?{' '}

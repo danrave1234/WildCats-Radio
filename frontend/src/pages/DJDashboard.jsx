@@ -22,7 +22,6 @@ export default function DJDashboard() {
   const [availableAudioDevices, setAvailableAudioDevices] = useState([]);
   const [currentBroadcastId, setCurrentBroadcastId] = useState(null);
   const [broadcasts, setBroadcasts] = useState([]);
-  const [otherLiveBroadcasts, setOtherLiveBroadcasts] = useState([]);
 
   // Server schedule state
   const [serverSchedules, setServerSchedules] = useState([]);
@@ -121,16 +120,6 @@ export default function DJDashboard() {
         const liveResponse = await broadcastService.getLive();
         const liveBroadcasts = liveResponse.data;
 
-        // Filter out broadcasts that belong to the current DJ
-        // This assumes that each broadcast has a createdBy field with the DJ's info
-        // You might need to adjust this based on your actual data structure
-        const otherLive = liveBroadcasts.filter(broadcast => {
-          // This is a placeholder condition - adjust based on how you identify the current user
-          // For example, you might compare broadcast.createdBy.id with the current user's ID
-          return !currentBroadcastId || broadcast.id !== currentBroadcastId;
-        });
-
-        setOtherLiveBroadcasts(otherLive);
 
         // Check if the current DJ has a live broadcast
         const myLiveBroadcast = liveBroadcasts.find(broadcast => {
@@ -647,43 +636,6 @@ export default function DJDashboard() {
                   <p className="text-2xl font-semibold text-red-700 dark:text-red-100 mt-2">{analytics.songRequests}</p>
                 </div>
               </div>
-            </div>
-          </div>
-
-          {/* Other Live Broadcasts */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
-            <div className="p-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
-                Other Live Broadcasts
-              </h2>
-
-              {otherLiveBroadcasts.length > 0 ? (
-                <div className="space-y-4">
-                  {otherLiveBroadcasts.map(broadcast => (
-                    <div key={broadcast.id} className="p-4 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="text-md font-medium text-gray-900 dark:text-white">{broadcast.title}</h3>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">
-                            DJ: {broadcast.createdBy?.name || 'Unknown DJ'}
-                          </p>
-                          {broadcast.actualStart && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              Started: {new Date(broadcast.actualStart).toLocaleTimeString()}
-                            </p>
-                          )}
-                        </div>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
-                          <span className="h-2 w-2 rounded-full bg-red-500 mr-1 animate-pulse"></span>
-                          LIVE
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-gray-500 dark:text-gray-400 text-center py-4">No other DJs are currently broadcasting</p>
-              )}
             </div>
           </div>
 
