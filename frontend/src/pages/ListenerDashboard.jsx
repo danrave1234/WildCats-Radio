@@ -11,6 +11,7 @@ import {
   ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/solid"
 import AudioVisualizer from "../components/AudioVisualizer"
+import { broadcastService, chatService, songRequestService } from "../services/api"
 
 export default function ListenerDashboard() {
   const [isPlaying, setIsPlaying] = useState(false)
@@ -18,6 +19,7 @@ export default function ListenerDashboard() {
   const [volume, setVolume] = useState(80)
   const [isLive, setIsLive] = useState(false)
   const [nextBroadcast, setNextBroadcast] = useState(null)
+  const [currentBroadcastId, setCurrentBroadcastId] = useState(null)
 
   // Chat state
   const [chatMessage, setChatMessage] = useState("")
@@ -34,8 +36,46 @@ export default function ListenerDashboard() {
 
   // Check if a broadcast is live
   useEffect(() => {
-    const checkBroadcastStatus = () => {
-      // Should fetch broadcast status from API
+    const checkBroadcastStatus = async () => {
+      try {
+        // Fetch live broadcasts from API
+        const response = await broadcastService.getLive();
+        const liveBroadcasts = response.data;
+
+        // If there are any live broadcasts, set isLive to true
+        if (liveBroadcasts && liveBroadcasts.length > 0) {
+          setIsLive(true);
+          // Set the first live broadcast as the current one
+          // You could add more logic here to select a specific broadcast if needed
+          const currentBroadcast = liveBroadcasts[0];
+          setCurrentBroadcastId(currentBroadcast.id);
+          console.log("Live broadcast:", currentBroadcast);
+        } else {
+          setIsLive(false);
+          // If no live broadcasts, check for upcoming broadcasts
+          try {
+            const upcomingResponse = await broadcastService.getUpcoming();
+            const upcomingBroadcasts = upcomingResponse.data;
+
+            if (upcomingBroadcasts && upcomingBroadcasts.length > 0) {
+              // Set the next broadcast
+              const next = upcomingBroadcasts[0];
+              setNextBroadcast({
+                title: next.title,
+                date: new Date(next.scheduledStart).toLocaleDateString(),
+                time: new Date(next.scheduledStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              });
+            } else {
+              setNextBroadcast(null);
+            }
+          } catch (error) {
+            console.error("Error fetching upcoming broadcasts:", error);
+          }
+        }
+      } catch (error) {
+        console.error("Error checking broadcast status:", error);
+        setIsLive(false);
+      }
     }
 
     checkBroadcastStatus()
@@ -43,6 +83,30 @@ export default function ListenerDashboard() {
 
     return () => clearInterval(interval)
   }, [])
+
+  // Fetch chat messages when broadcast ID changes
+  useEffect(() => {
+    if (currentBroadcastId) {
+      const fetchChatMessages = async () => {
+        try {
+          const response = await chatService.getMessages(currentBroadcastId);
+          setChatMessages(response.data);
+        } catch (error) {
+          console.error("Error fetching chat messages:", error);
+        }
+      };
+
+      fetchChatMessages();
+
+      // Set up interval to periodically fetch new messages
+      const interval = setInterval(fetchChatMessages, 5000); // Check every 5 seconds
+
+      return () => clearInterval(interval);
+    } else {
+      // Reset chat messages when no broadcast is live
+      setChatMessages([]);
+    }
+  }, [currentBroadcastId]);
 
   const togglePlay = () => {
     if (!isLive) return
@@ -64,32 +128,55 @@ export default function ListenerDashboard() {
   }
 
   // Handle chat submission
-  const handleChatSubmit = (e) => {
+  const handleChatSubmit = async (e) => {
     e.preventDefault()
-    if (!chatMessage.trim()) return
+    if (!chatMessage.trim() || !currentBroadcastId) return
 
-    const newMessage = {
-      id: chatMessages.length + 1,
-      user: "You",
-      message: chatMessage,
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    try {
+      // Create message object to send to the server
+      const messageData = {
+        content: chatMessage
+      };
+
+      // Send message to the server
+      await chatService.sendMessage(currentBroadcastId, messageData);
+
+      // Clear the input field
+      setChatMessage("");
+
+      // Fetch the latest messages (the server will have our new message)
+      const response = await chatService.getMessages(currentBroadcastId);
+      setChatMessages(response.data);
+    } catch (error) {
+      console.error("Error sending chat message:", error);
+      alert("Failed to send message. Please try again.");
     }
-
-    setChatMessages([...chatMessages, newMessage])
-    setChatMessage("")
   }
 
   // Handle song request submission
-  const handleSongRequestSubmit = (e) => {
+  const handleSongRequestSubmit = async (e) => {
     e.preventDefault()
-    if (!songRequest.song.trim() || !songRequest.artist.trim()) return
+    if (!songRequest.song.trim() || !songRequest.artist.trim() || !currentBroadcastId) return
 
-    // Here you would send the request to your backend
-    console.log("Song request submitted:", songRequest)
-    alert(`Song request submitted: "${songRequest.song}" by ${songRequest.artist}`)
+    try {
+      // Create song request object to send to the server
+      const requestData = {
+        songTitle: songRequest.song,
+        artist: songRequest.artist
+      };
 
-    // Reset the form
-    setSongRequest({ song: "", artist: "" })
+      // Send song request to the server
+      await songRequestService.createRequest(currentBroadcastId, requestData);
+
+      // Show success message
+      alert(`Song request submitted: "${songRequest.song}" by ${songRequest.artist}`);
+
+      // Reset the form
+      setSongRequest({ song: "", artist: "" });
+    } catch (error) {
+      console.error("Error submitting song request:", error);
+      alert("Failed to submit song request. Please try again.");
+    }
   }
 
   // Handle poll vote
@@ -117,18 +204,31 @@ export default function ListenerDashboard() {
   // Render chat messages
   const renderChatMessages = () => (
       <div className="max-h-60 overflow-y-auto space-y-3 mb-4">
-        {chatMessages.map((msg) => (
-            <div
+        {chatMessages.length === 0 ? (
+          <p className="text-center text-gray-500 dark:text-gray-400 py-4">No messages yet</p>
+        ) : (
+          chatMessages.map((msg) => {
+            // Check if the message is from the current user
+            const isCurrentUser = msg.sender && msg.sender.email === localStorage.getItem('userEmail');
+
+            return (
+              <div
                 key={msg.id}
-                className={`p-2 rounded-lg ${msg.user === "You" ? "bg-maroon-100 dark:bg-maroon-900/30 ml-8" : "bg-gray-100 dark:bg-gray-700 mr-8"}`}
-            >
-              <div className="flex justify-between">
-                <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">{msg.user}</span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">{msg.time}</span>
+                className={`p-2 rounded-lg ${isCurrentUser ? "bg-maroon-100 dark:bg-maroon-900/30 ml-8" : "bg-gray-100 dark:bg-gray-700 mr-8"}`}
+              >
+                <div className="flex justify-between">
+                  <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                    {isCurrentUser ? "You" : (msg.sender ? msg.sender.name : "Unknown")}
+                  </span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-700 dark:text-gray-300">{msg.content}</p>
               </div>
-              <p className="text-sm text-gray-700 dark:text-gray-300">{msg.message}</p>
-            </div>
-        ))}
+            );
+          })
+        )}
       </div>
   )
 

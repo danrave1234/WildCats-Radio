@@ -101,4 +101,17 @@ export const activityLogService = {
   getUserLogs: (userId) => api.get(`/activity-logs/user/${userId}`),
 };
 
-export default api; 
+// Services for polls
+export const pollService = {
+  createPoll: (pollData) => api.post('/polls', pollData),
+  getPollsForBroadcast: (broadcastId) => api.get(`/polls/broadcast/${broadcastId}`),
+  getActivePollsForBroadcast: (broadcastId) => api.get(`/polls/broadcast/${broadcastId}/active`),
+  getPoll: (pollId) => api.get(`/polls/${pollId}`),
+  vote: (pollId, voteData) => api.post(`/polls/${pollId}/vote`, voteData),
+  getPollResults: (pollId) => api.get(`/polls/${pollId}/results`),
+  endPoll: (pollId) => api.post(`/polls/${pollId}/end`),
+  hasUserVoted: (pollId) => api.get(`/polls/${pollId}/has-voted`),
+  getUserVote: (pollId) => api.get(`/polls/${pollId}/user-vote`),
+};
+
+export default api;

@@ -11,6 +11,7 @@ import {
   CheckCircleIcon,
   XCircleIcon
 } from '@heroicons/react/24/outline';
+import { broadcastService, serverService, pollService } from '../services/api';
 
 export default function DJDashboard() {
   // Broadcast state
@@ -19,6 +20,9 @@ export default function DJDashboard() {
   const [audioInputLevel, setAudioInputLevel] = useState(0);
   const [audioInputDevice, setAudioInputDevice] = useState('default');
   const [availableAudioDevices, setAvailableAudioDevices] = useState([]);
+  const [currentBroadcastId, setCurrentBroadcastId] = useState(null);
+  const [broadcasts, setBroadcasts] = useState([]);
+  const [otherLiveBroadcasts, setOtherLiveBroadcasts] = useState([]);
 
   // Server schedule state
   const [serverSchedule, setServerSchedule] = useState({
@@ -41,6 +45,16 @@ export default function DJDashboard() {
   // Song requests state
   const [songRequests, setSongRequests] = useState([]);
 
+  // Poll state
+  const [polls, setPolls] = useState([]);
+  const [newPoll, setNewPoll] = useState({
+    question: '',
+    options: ['', ''],
+    broadcastId: null
+  });
+  const [pollResults, setPollResults] = useState({});
+  const [activePoll, setActivePoll] = useState(null);
+
   // Check for audio input devices and fetch analytics
   useEffect(() => {
     // Should fetch available audio devices from the browser's API
@@ -52,11 +66,62 @@ export default function DJDashboard() {
       interval = setInterval(() => {
         // Should get real audio input level
         // Should fetch real analytics data if broadcasting
+        if (isBroadcasting) {
+          // Simulate audio level changes for demo purposes
+          setAudioInputLevel(Math.floor(Math.random() * 100));
+        }
       }, 1000);
     }
 
     return () => clearInterval(interval);
   }, [isBroadcasting, testMode]);
+
+  // Fetch broadcasts and check for live broadcasts
+  useEffect(() => {
+    const fetchBroadcasts = async () => {
+      try {
+        // Fetch all broadcasts
+        const response = await broadcastService.getAll();
+        setBroadcasts(response.data);
+
+        // Check for live broadcasts
+        const liveResponse = await broadcastService.getLive();
+        const liveBroadcasts = liveResponse.data;
+
+        // Filter out broadcasts that belong to the current DJ
+        // This assumes that each broadcast has a createdBy field with the DJ's info
+        // You might need to adjust this based on your actual data structure
+        const otherLive = liveBroadcasts.filter(broadcast => {
+          // This is a placeholder condition - adjust based on how you identify the current user
+          // For example, you might compare broadcast.createdBy.id with the current user's ID
+          return !currentBroadcastId || broadcast.id !== currentBroadcastId;
+        });
+
+        setOtherLiveBroadcasts(otherLive);
+
+        // Check if the current DJ has a live broadcast
+        const myLiveBroadcast = liveBroadcasts.find(broadcast => {
+          // This is a placeholder condition - adjust based on how you identify the current user
+          return currentBroadcastId && broadcast.id === currentBroadcastId;
+        });
+
+        // Update broadcasting state based on whether the DJ has a live broadcast
+        if (myLiveBroadcast) {
+          setIsBroadcasting(true);
+          setCurrentBroadcastId(myLiveBroadcast.id);
+        }
+      } catch (error) {
+        console.error("Error fetching broadcasts:", error);
+      }
+    };
+
+    fetchBroadcasts();
+
+    // Set up interval to periodically check for live broadcasts
+    const interval = setInterval(fetchBroadcasts, 30000); // Check every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [currentBroadcastId]);
 
   // Handle audio device change
   const handleAudioDeviceChange = (e) => {
@@ -73,22 +138,61 @@ export default function DJDashboard() {
   };
 
   // Handle start/stop broadcast
-  const toggleBroadcast = () => {
-    if (isBroadcasting) {
-      // End broadcast
-      setIsBroadcasting(false);
-      setTestMode(false);
+  const toggleBroadcast = async () => {
+    try {
+      if (isBroadcasting && currentBroadcastId) {
+        // End broadcast
+        await broadcastService.end(currentBroadcastId);
+        setIsBroadcasting(false);
+        setTestMode(false);
+        setCurrentBroadcastId(null);
+        console.log('Ending broadcast');
+      } else {
+        // Check if server is running
+        const serverStatusResponse = await serverService.getStatus();
+        const isServerRunning = serverStatusResponse.data && serverStatusResponse.data.running;
 
-      // In a real app, you would send a request to your backend to stop the broadcast
-      console.log('Ending broadcast');
-    } else {
-      // Start broadcast
-      setIsBroadcasting(true);
-      setTestMode(false);
+        if (!isServerRunning) {
+          alert('Server is not running. Please start the server before broadcasting.');
+          return;
+        }
 
-      // In a real app, you would send a request to your backend to start the broadcast
-      console.log('Starting broadcast');
-      console.log('Using audio device:', audioInputDevice);
+        // Find a scheduled broadcast to start, or create a new one
+        let broadcastToStart;
+
+        // Look for a scheduled broadcast that hasn't started yet
+        if (broadcasts.length > 0) {
+          broadcastToStart = broadcasts.find(b => b.status === 'SCHEDULED');
+        }
+
+        if (broadcastToStart) {
+          // Start an existing scheduled broadcast
+          const response = await broadcastService.start(broadcastToStart.id);
+          setCurrentBroadcastId(broadcastToStart.id);
+        } else {
+          // Create and start a new broadcast
+          const newBroadcast = {
+            title: 'Live Broadcast',
+            description: 'Started from DJ Dashboard',
+            scheduledStart: new Date().toISOString(),
+            scheduledEnd: new Date(Date.now() + 3600000).toISOString() // 1 hour from now
+          };
+
+          const scheduleResponse = await broadcastService.schedule(newBroadcast);
+          const createdBroadcast = scheduleResponse.data;
+
+          const startResponse = await broadcastService.start(createdBroadcast.id);
+          setCurrentBroadcastId(createdBroadcast.id);
+        }
+
+        setIsBroadcasting(true);
+        setTestMode(false);
+        console.log('Starting broadcast');
+        console.log('Using audio device:', audioInputDevice);
+      }
+    } catch (error) {
+      console.error('Error toggling broadcast:', error);
+      alert('There was an error with the broadcast. Please try again.');
     }
   };
 
@@ -115,6 +219,134 @@ export default function DJDashboard() {
     // In a real app, you would send this to your backend
     console.log('Server schedule:', serverSchedule);
     alert('Server schedule updated!');
+  };
+
+  // Poll functions
+  const fetchPolls = async () => {
+    if (!currentBroadcastId) return;
+
+    try {
+      const response = await pollService.getPollsForBroadcast(currentBroadcastId);
+      setPolls(response.data);
+
+      // Check for active polls
+      const activePolls = response.data.filter(poll => poll.active);
+      if (activePolls.length > 0) {
+        setActivePoll(activePolls[0]);
+        fetchPollResults(activePolls[0].id);
+      } else {
+        setActivePoll(null);
+      }
+    } catch (error) {
+      console.error('Error fetching polls:', error);
+    }
+  };
+
+  const fetchPollResults = async (pollId) => {
+    try {
+      const response = await pollService.getPollResults(pollId);
+      setPollResults(prev => ({
+        ...prev,
+        [pollId]: response.data
+      }));
+    } catch (error) {
+      console.error('Error fetching poll results:', error);
+    }
+  };
+
+  const handlePollChange = (e) => {
+    const { name, value } = e.target;
+    setNewPoll(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const handleOptionChange = (index, value) => {
+    setNewPoll(prev => {
+      const updatedOptions = [...prev.options];
+      updatedOptions[index] = value;
+      return {
+        ...prev,
+        options: updatedOptions
+      };
+    });
+  };
+
+  const addOption = () => {
+    setNewPoll(prev => ({
+      ...prev,
+      options: [...prev.options, '']
+    }));
+  };
+
+  const removeOption = (index) => {
+    if (newPoll.options.length <= 2) return; // Minimum 2 options
+
+    setNewPoll(prev => {
+      const updatedOptions = [...prev.options];
+      updatedOptions.splice(index, 1);
+      return {
+        ...prev,
+        options: updatedOptions
+      };
+    });
+  };
+
+  const createPoll = async (e) => {
+    e.preventDefault();
+
+    if (!currentBroadcastId) {
+      alert('You must be broadcasting to create a poll');
+      return;
+    }
+
+    // Validate poll data
+    if (!newPoll.question.trim()) {
+      alert('Please enter a question');
+      return;
+    }
+
+    const validOptions = newPoll.options.filter(option => option.trim());
+    if (validOptions.length < 2) {
+      alert('Please enter at least 2 options');
+      return;
+    }
+
+    try {
+      const pollData = {
+        question: newPoll.question,
+        broadcastId: currentBroadcastId,
+        options: validOptions
+      };
+
+      await pollService.createPoll(pollData);
+
+      // Reset form
+      setNewPoll({
+        question: '',
+        options: ['', ''],
+        broadcastId: currentBroadcastId
+      });
+
+      // Fetch updated polls
+      fetchPolls();
+
+      alert('Poll created successfully!');
+    } catch (error) {
+      console.error('Error creating poll:', error);
+      alert('Failed to create poll. Please try again.');
+    }
+  };
+
+  const endPoll = async (pollId) => {
+    try {
+      await pollService.endPoll(pollId);
+      fetchPolls();
+    } catch (error) {
+      console.error('Error ending poll:', error);
+      alert('Failed to end poll. Please try again.');
+    }
   };
 
   return (
@@ -298,6 +530,43 @@ export default function DJDashboard() {
                   <p className="text-2xl font-semibold text-red-700 dark:text-red-100 mt-2">{analytics.songRequests}</p>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Other Live Broadcasts */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
+                Other Live Broadcasts
+              </h2>
+
+              {otherLiveBroadcasts.length > 0 ? (
+                <div className="space-y-4">
+                  {otherLiveBroadcasts.map(broadcast => (
+                    <div key={broadcast.id} className="p-4 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-md font-medium text-gray-900 dark:text-white">{broadcast.title}</h3>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                            DJ: {broadcast.createdBy?.name || 'Unknown DJ'}
+                          </p>
+                          {broadcast.actualStart && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              Started: {new Date(broadcast.actualStart).toLocaleTimeString()}
+                            </p>
+                          )}
+                        </div>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                          <span className="h-2 w-2 rounded-full bg-red-500 mr-1 animate-pulse"></span>
+                          LIVE
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500 dark:text-gray-400 text-center py-4">No other DJs are currently broadcasting</p>
+              )}
             </div>
           </div>
 

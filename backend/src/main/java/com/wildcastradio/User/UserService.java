@@ -14,6 +14,8 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import com.wildcastradio.ActivityLog.ActivityLogEntity;
+import com.wildcastradio.ActivityLog.ActivityLogService;
 import com.wildcastradio.User.DTO.LoginRequest;
 import com.wildcastradio.User.DTO.LoginResponse;
 import com.wildcastradio.User.DTO.RegisterRequest;
@@ -26,12 +28,14 @@ public class UserService implements UserDetailsService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final ActivityLogService activityLogService;
     private final Random random = new Random();
 
-    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtil jwtUtil) {
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtUtil jwtUtil, ActivityLogService activityLogService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
+        this.activityLogService = activityLogService;
     }
 
     @Override
@@ -68,6 +72,13 @@ public class UserService implements UserDetailsService {
         UserEntity savedUser = userRepository.save(user);
         sendVerificationCode(request.getEmail());
 
+        // Log the activity
+        activityLogService.logActivity(
+            savedUser,
+            ActivityLogEntity.ActivityType.USER_REGISTER,
+            "User registered with email: " + savedUser.getEmail()
+        );
+
         return savedUser;
     }
 
@@ -81,6 +92,14 @@ public class UserService implements UserDetailsService {
                 // Generate real JWT token
                 UserDetails userDetails = loadUserByUsername(user.getEmail());
                 String token = jwtUtil.generateToken(userDetails);
+
+                // Log the activity
+                activityLogService.logActivity(
+                    user,
+                    ActivityLogEntity.ActivityType.LOGIN,
+                    "User logged in: " + user.getEmail()
+                );
+
                 return new LoginResponse(token, UserDTO.fromEntity(user));
             }
         }
@@ -115,6 +134,14 @@ public class UserService implements UserDetailsService {
                 user.setVerified(true);
                 user.setVerificationCode(null);
                 userRepository.save(user);
+
+                // Log the activity
+                activityLogService.logActivity(
+                    user,
+                    ActivityLogEntity.ActivityType.EMAIL_VERIFY,
+                    "Email verified for user: " + user.getEmail()
+                );
+
                 return true;
             }
         }
@@ -137,8 +164,18 @@ public class UserService implements UserDetailsService {
 
     public UserEntity updateUserRole(Long userId, UserEntity.UserRole newRole) {
         UserEntity user = findById(userId);
+        UserEntity.UserRole oldRole = user.getRole();
         user.setRole(newRole);
-        return userRepository.save(user);
+        UserEntity updatedUser = userRepository.save(user);
+
+        // Log the activity
+        activityLogService.logActivity(
+            updatedUser,
+            ActivityLogEntity.ActivityType.USER_ROLE_CHANGE,
+            "User role changed from " + oldRole + " to " + newRole + " for user: " + updatedUser.getEmail()
+        );
+
+        return updatedUser;
     }
 
     public UserEntity findById(Long userId) {
@@ -173,16 +210,16 @@ public class UserService implements UserDetailsService {
 
     public boolean changePassword(Long userId, String currentPassword, String newPassword) {
         UserEntity user = findById(userId);
-        
+
         // Verify the current password
         if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
             return false;
         }
-        
+
         // Update with the new password
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
-        
+
         return true;
     }
 } 

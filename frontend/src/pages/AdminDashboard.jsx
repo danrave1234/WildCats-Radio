@@ -6,7 +6,7 @@ import {
   UserIcon,
   ShieldCheckIcon
 } from '@heroicons/react/24/outline';
-import { authService } from '../services/api';
+import { authService, broadcastService } from '../services/api';
 
 const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
@@ -35,10 +35,50 @@ const AdminDashboard = () => {
     password: ''
   });
 
+  // State for live broadcasts
+  const [liveBroadcasts, setLiveBroadcasts] = useState([]);
+
   // Fetch users when component mounts
   useEffect(() => {
     if (activeTab === 'users') {
       fetchUsers();
+    }
+  }, [activeTab]);
+
+  // Fetch live broadcasts and update stats
+  useEffect(() => {
+    const fetchLiveBroadcasts = async () => {
+      try {
+        // Fetch live broadcasts
+        const response = await broadcastService.getLive();
+        const broadcasts = response.data;
+        setLiveBroadcasts(broadcasts);
+
+        // Update stats
+        setStats(prev => ({
+          ...prev,
+          activeBroadcasts: broadcasts.length
+        }));
+
+        // Fetch upcoming broadcasts to update scheduledBroadcasts count
+        const upcomingResponse = await broadcastService.getUpcoming();
+        const upcomingBroadcasts = upcomingResponse.data;
+
+        setStats(prev => ({
+          ...prev,
+          scheduledBroadcasts: upcomingBroadcasts.length,
+          totalBroadcasts: broadcasts.length + upcomingBroadcasts.length
+        }));
+      } catch (error) {
+        console.error('Error fetching broadcasts:', error);
+      }
+    };
+
+    // Fetch broadcasts when dashboard tab is active or every minute
+    if (activeTab === 'dashboard' || activeTab === 'broadcasts') {
+      fetchLiveBroadcasts();
+      const interval = setInterval(fetchLiveBroadcasts, 60000); // Check every minute
+      return () => clearInterval(interval);
     }
   }, [activeTab]);
 
@@ -486,7 +526,74 @@ const AdminDashboard = () => {
               {activeTab === 'broadcasts' && (
                 <div className="p-6">
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Broadcast Management</h2>
-                  <p className="text-gray-600 dark:text-gray-300">Manage all broadcasts, including live and scheduled broadcasts.</p>
+
+                  {/* Live Broadcasts Section */}
+                  <div className="mb-8">
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4 flex items-center">
+                      <span className="inline-flex items-center mr-2 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                        <span className="h-2 w-2 rounded-full bg-red-500 mr-1 animate-pulse"></span>
+                        LIVE
+                      </span>
+                      Currently Live Broadcasts
+                    </h3>
+
+                    {liveBroadcasts.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {liveBroadcasts.map(broadcast => (
+                          <div key={broadcast.id} className="bg-white dark:bg-gray-700 shadow rounded-lg p-4 border-l-4 border-red-500">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h4 className="text-md font-medium text-gray-900 dark:text-white">{broadcast.title}</h4>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">
+                                  DJ: {broadcast.createdBy?.name || 'Unknown DJ'}
+                                </p>
+                                {broadcast.actualStart && (
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Started: {new Date(broadcast.actualStart).toLocaleString()}
+                                  </p>
+                                )}
+                                {broadcast.description && (
+                                  <p className="text-sm text-gray-600 dark:text-gray-300 mt-2">
+                                    {broadcast.description}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex flex-col items-end">
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                                  <span className="h-2 w-2 rounded-full bg-red-500 mr-1 animate-pulse"></span>
+                                  LIVE
+                                </span>
+                                <button 
+                                  className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                                  onClick={() => window.open(broadcast.streamUrl, '_blank')}
+                                  disabled={!broadcast.streamUrl}
+                                >
+                                  {broadcast.streamUrl ? 'Open Stream' : 'No Stream URL'}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg text-center">
+                        <p className="text-gray-500 dark:text-gray-400">No broadcasts are currently live</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Scheduled Broadcasts Section */}
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Scheduled Broadcasts</h3>
+                    <p className="text-gray-600 dark:text-gray-300 mb-4">
+                      View and manage upcoming scheduled broadcasts. You can also create new broadcast schedules.
+                    </p>
+
+                    {/* This would be replaced with actual scheduled broadcasts data */}
+                    <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg text-center">
+                      <p className="text-gray-500 dark:text-gray-400">No scheduled broadcasts found</p>
+                    </div>
+                  </div>
                 </div>
               )}
 
