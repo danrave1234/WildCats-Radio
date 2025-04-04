@@ -3,59 +3,51 @@ package com.wildcastradio.ChatMessage;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.Broadcast.BroadcastRepository;
-import com.wildcastradio.ChatMessage.DTO.ChatMessageDTO;
 import com.wildcastradio.User.UserEntity;
 
 @Service
 public class ChatMessageService {
 
-    private final ChatMessageRepository chatMessageRepository;
-    private final BroadcastRepository broadcastRepository;
-    private final SimpMessagingTemplate messagingTemplate;
+    @Autowired
+    private ChatMessageRepository chatMessageRepository;
 
-    public ChatMessageService(
-            ChatMessageRepository chatMessageRepository,
-            BroadcastRepository broadcastRepository,
-            SimpMessagingTemplate messagingTemplate) {
-        this.chatMessageRepository = chatMessageRepository;
-        this.broadcastRepository = broadcastRepository;
-        this.messagingTemplate = messagingTemplate;
-    }
+    @Autowired
+    private BroadcastRepository broadcastRepository;
 
-    public ChatMessageEntity sendMessage(Long broadcastId, UserEntity sender, String content) {
-        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
-
-        ChatMessageEntity chatMessage = new ChatMessageEntity(content, sender, broadcast);
-        ChatMessageEntity savedMessage = chatMessageRepository.save(chatMessage);
-        
-        // Broadcast the message to all subscribed clients
-        messagingTemplate.convertAndSend(
-                "/topic/broadcast/" + broadcastId + "/chat",
-                ChatMessageDTO.fromEntity(savedMessage)
-        );
-        
-        return savedMessage;
-    }
-
+    /**
+     * Get all messages for a specific broadcast
+     * 
+     * @param broadcastId The ID of the broadcast
+     * @return List of chat message DTOs
+     */
     public List<ChatMessageDTO> getMessagesForBroadcast(Long broadcastId) {
-        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
-                
-        return chatMessageRepository.findByBroadcastOrderByTimestampAsc(broadcast).stream()
+        List<ChatMessageEntity> messages = chatMessageRepository.findByBroadcastIdOrderByCreatedAtAsc(broadcastId);
+        return messages.stream()
                 .map(ChatMessageDTO::fromEntity)
                 .collect(Collectors.toList());
     }
 
-    public long countMessagesForBroadcast(Long broadcastId) {
+    /**
+     * Create a new chat message
+     * 
+     * @param broadcastId The ID of the broadcast
+     * @param sender The user sending the message
+     * @param content The content of the message
+     * @return The created chat message entity
+     * @throws IllegalArgumentException if the broadcast with the given ID doesn't exist
+     */
+    public ChatMessageEntity createMessage(Long broadcastId, UserEntity sender, String content) {
+        // Fetch the broadcast entity
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
-                
-        return chatMessageRepository.countByBroadcast(broadcast);
+            .orElseThrow(() -> new IllegalArgumentException("Broadcast not found with ID: " + broadcastId));
+
+        // Create the message with the broadcast entity
+        ChatMessageEntity message = new ChatMessageEntity(broadcast, sender, content);
+        return chatMessageRepository.save(message);
     }
-} 
+}

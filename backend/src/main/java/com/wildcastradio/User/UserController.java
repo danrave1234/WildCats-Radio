@@ -5,6 +5,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -113,4 +114,15 @@ public class UserController {
         boolean exists = userService.existsByEmail(email);
         return ResponseEntity.ok(exists);
     }
-} 
+
+    @GetMapping("/me")
+    public ResponseEntity<UserDTO> getCurrentUser(Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        return userService.getUserByEmail(authentication.getName())
+                .map(user -> ResponseEntity.ok(UserDTO.fromEntity(user)))
+                .orElse(ResponseEntity.notFound().build());
+    }
+}

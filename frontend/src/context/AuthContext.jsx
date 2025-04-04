@@ -17,14 +17,17 @@ export const AuthProvider = ({ children }) => {
     // Check if user is already logged in
     const checkAuthStatus = async () => {
       const storedToken = localStorage.getItem('token');
-      const storedUserId = localStorage.getItem('userId');
-      
-      if (storedToken && storedUserId) {
+
+      if (storedToken) {
         try {
-          // Validate token by getting user profile
-          const response = await authService.getProfile(storedUserId);
+          // Validate token by getting current user profile
+          const response = await authService.getCurrentUser();
           setCurrentUser(response.data);
           setToken(storedToken);
+
+          // Update stored user ID and role from the current user data
+          localStorage.setItem('userId', response.data.id);
+          localStorage.setItem('userRole', response.data.role);
         } catch (err) {
           // Token is invalid or expired
           localStorage.removeItem('token');
@@ -35,7 +38,7 @@ export const AuthProvider = ({ children }) => {
           setError('Session expired. Please log in again.');
         }
       }
-      
+
       setLoading(false);
     };
 
@@ -47,17 +50,17 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await authService.login(credentials);
       const { token, user } = response.data;
-      
+
       localStorage.setItem('token', token);
       localStorage.setItem('userId', user.id);
       localStorage.setItem('userRole', user.role);
-      
+
       setToken(token);
       setCurrentUser(user);
-      
+
       return user;
     } catch (err) {
       setError(err.response?.data?.message || 'Login failed. Please try again.');
@@ -72,7 +75,7 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await authService.register(userData);
       return response.data;
     } catch (err) {
@@ -88,7 +91,7 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await authService.verify(email, code);
       return response.data;
     } catch (err) {
@@ -104,7 +107,7 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await authService.sendCode(email);
       return response.data;
     } catch (err) {
@@ -120,7 +123,7 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await authService.updateProfile(id, data);
       setCurrentUser(response.data);
       return response.data;

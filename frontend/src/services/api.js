@@ -36,6 +36,7 @@ export const authService = {
   verify: (email, code) => api.post(`/auth/verify?email=${email}&code=${code}`),
   sendCode: (email) => api.post(`/auth/send-code?email=${email}`),
   getProfile: (id) => api.get(`/auth/${id}`),
+  getCurrentUser: () => api.get('/auth/me'),
   updateProfile: (id, data) => api.put(`/auth/${id}`, data),
 };
 
@@ -60,8 +61,8 @@ export const chatService = {
 
 // Services for song requests
 export const songRequestService = {
-  getRequests: (broadcastId) => api.get(`/song-requests/${broadcastId}`),
-  createRequest: (broadcastId, request) => api.post(`/song-requests/${broadcastId}`, request),
+  getRequests: (broadcastId) => api.get(`/broadcasts/${broadcastId}/song-requests`),
+  createRequest: (broadcastId, request) => api.post(`/broadcasts/${broadcastId}/song-requests`, request),
 };
 
 // Services for notifications

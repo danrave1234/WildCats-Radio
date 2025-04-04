@@ -22,29 +22,44 @@ public class ChatMessageEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
-    private String content;
-
-    @Column(nullable = false)
-    private LocalDateTime timestamp;
-
-    @ManyToOne
-    @JoinColumn(name = "sender_id", nullable = false)
-    private UserEntity sender;
+    @Column(name = "broadcast_id", insertable = false, updatable = false)
+    private Long broadcastId;
 
     @ManyToOne
     @JoinColumn(name = "broadcast_id", nullable = false)
     private BroadcastEntity broadcast;
 
-    // Constructors
+    @ManyToOne
+    @JoinColumn(name = "user_id", nullable = false)
+    private UserEntity sender;
+
+    @Column(nullable = false)
+    private String content;
+
+    @Column(name = "created_at", nullable = false)
+    private LocalDateTime createdAt;
+
+    // Default constructor
     public ChatMessageEntity() {
+        this.createdAt = LocalDateTime.now();
     }
 
-    public ChatMessageEntity(String content, UserEntity sender, BroadcastEntity broadcast) {
-        this.content = content;
+    // Constructor with fields
+    public ChatMessageEntity(Long broadcastId, UserEntity sender, String content) {
+        this.broadcastId = broadcastId;
         this.sender = sender;
+        this.content = content;
+        this.createdAt = LocalDateTime.now();
+        // Note: broadcast field must be set separately when using this constructor
+    }
+
+    // Constructor with BroadcastEntity
+    public ChatMessageEntity(BroadcastEntity broadcast, UserEntity sender, String content) {
         this.broadcast = broadcast;
-        this.timestamp = LocalDateTime.now();
+        this.broadcastId = broadcast != null ? broadcast.getId() : null;
+        this.sender = sender;
+        this.content = content;
+        this.createdAt = LocalDateTime.now();
     }
 
     // Getters and Setters
@@ -56,20 +71,12 @@ public class ChatMessageEntity {
         this.id = id;
     }
 
-    public String getContent() {
-        return content;
+    public Long getBroadcastId() {
+        return broadcastId;
     }
 
-    public void setContent(String content) {
-        this.content = content;
-    }
-
-    public LocalDateTime getTimestamp() {
-        return timestamp;
-    }
-
-    public void setTimestamp(LocalDateTime timestamp) {
-        this.timestamp = timestamp;
+    public void setBroadcastId(Long broadcastId) {
+        this.broadcastId = broadcastId;
     }
 
     public UserEntity getSender() {
@@ -80,11 +87,28 @@ public class ChatMessageEntity {
         this.sender = sender;
     }
 
+    public String getContent() {
+        return content;
+    }
+
+    public void setContent(String content) {
+        this.content = content;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
     public BroadcastEntity getBroadcast() {
         return broadcast;
     }
 
     public void setBroadcast(BroadcastEntity broadcast) {
         this.broadcast = broadcast;
+        this.broadcastId = broadcast != null ? broadcast.getId() : null;
     }
-} 
+}
