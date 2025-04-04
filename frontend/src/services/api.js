@@ -47,6 +47,10 @@ export const authService = {
   getCurrentUser: () => api.get('/auth/me'),
   updateProfile: (id, data) => api.put(`/auth/${id}`, data),
   changePassword: (id, data) => api.post(`/auth/${id}/change-password`, data),
+  // Admin-specific methods
+  getAllUsers: () => api.get('/auth/getAll'),
+  getUsersByRole: (role) => api.get(`/auth/by-role/${role}`),
+  updateUserRole: (id, newRole) => api.put(`/auth/${id}/role?newRole=${newRole}`),
 };
 
 // Services for broadcasts

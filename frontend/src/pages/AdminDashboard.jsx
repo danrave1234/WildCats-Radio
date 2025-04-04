@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   UserGroupIcon, 
   RadioIcon, 
@@ -6,9 +6,17 @@ import {
   UserIcon,
   ShieldCheckIcon
 } from '@heroicons/react/24/outline';
+import { authService } from '../services/api';
 
 const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // State for editing user role
+  const [editingUser, setEditingUser] = useState(null);
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [selectedRole, setSelectedRole] = useState('');
 
   const [stats, setStats] = useState({
     totalUsers: 0,
@@ -27,6 +35,83 @@ const AdminDashboard = () => {
     password: ''
   });
 
+  // Fetch users when component mounts
+  useEffect(() => {
+    if (activeTab === 'users') {
+      fetchUsers();
+    }
+  }, [activeTab]);
+
+  // Fetch users from the backend
+  const fetchUsers = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await authService.getAllUsers();
+      setUsers(response.data);
+
+      // Update stats
+      const djCount = response.data.filter(user => user.role === 'DJ').length;
+      const listenerCount = response.data.filter(user => user.role === 'LISTENER').length;
+
+      setStats(prev => ({
+        ...prev,
+        totalUsers: response.data.length,
+        totalDJs: djCount,
+        totalListeners: listenerCount
+      }));
+    } catch (err) {
+      console.error('Error fetching users:', err);
+      setError('Failed to fetch users. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Open role edit modal
+  const handleEditRole = (user) => {
+    setEditingUser(user);
+    setSelectedRole(user.role);
+    setShowRoleModal(true);
+  };
+
+  // Update user role
+  const handleRoleUpdate = async () => {
+    if (!editingUser || !selectedRole) return;
+
+    setLoading(true);
+    try {
+      await authService.updateUserRole(editingUser.id, selectedRole);
+
+      // Update local state
+      setUsers(users.map(user => 
+        user.id === editingUser.id ? { ...user, role: selectedRole } : user
+      ));
+
+      // Close modal
+      setShowRoleModal(false);
+      setEditingUser(null);
+
+      // Update stats
+      const updatedUsers = users.map(user => 
+        user.id === editingUser.id ? { ...user, role: selectedRole } : user
+      );
+      const djCount = updatedUsers.filter(user => user.role === 'DJ').length;
+      const listenerCount = updatedUsers.filter(user => user.role === 'LISTENER').length;
+
+      setStats(prev => ({
+        ...prev,
+        totalDJs: djCount,
+        totalListeners: listenerCount
+      }));
+    } catch (err) {
+      console.error('Error updating user role:', err);
+      setError('Failed to update user role. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Handle new user form changes
   const handleNewUserChange = (e) => {
     const { name, value } = e.target;
@@ -37,26 +122,55 @@ const AdminDashboard = () => {
   };
 
   // Handle new user submission
-  const handleNewUserSubmit = (e) => {
+  const handleNewUserSubmit = async (e) => {
     e.preventDefault();
-    // In a real app, you would send this to your backend
-    const newUserId = users.length + 1;
-    const createdUser = {
-      id: newUserId,
-      username: newUser.username,
-      email: newUser.email,
-      role: newUser.role
-    };
+    setLoading(true);
+    setError(null);
 
-    setUsers([...users, createdUser]);
-    setNewUser({
-      username: '',
-      email: '',
-      role: 'LISTENER',
-      password: ''
-    });
+    try {
+      // Create user registration request
+      const registerRequest = {
+        name: newUser.username,
+        email: newUser.email,
+        password: newUser.password
+      };
 
-    alert('User created successfully!');
+      // Register the user
+      const response = await authService.register(registerRequest);
+      const createdUser = response.data;
+
+      // If the role is not LISTENER (default), update the role
+      if (newUser.role !== 'LISTENER') {
+        await authService.updateUserRole(createdUser.id, newUser.role);
+        createdUser.role = newUser.role;
+      }
+
+      // Update local state
+      setUsers([...users, createdUser]);
+
+      // Reset form
+      setNewUser({
+        username: '',
+        email: '',
+        role: 'LISTENER',
+        password: ''
+      });
+
+      // Update stats
+      setStats(prev => ({
+        ...prev,
+        totalUsers: prev.totalUsers + 1,
+        totalDJs: newUser.role === 'DJ' ? prev.totalDJs + 1 : prev.totalDJs,
+        totalListeners: newUser.role === 'LISTENER' ? prev.totalListeners + 1 : prev.totalListeners
+      }));
+
+      alert('User created successfully!');
+    } catch (err) {
+      console.error('Error creating user:', err);
+      setError('Failed to create user. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -271,61 +385,100 @@ const AdminDashboard = () => {
 
                   {/* User Table */}
                   <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                      <thead className="bg-gray-50 dark:bg-gray-700">
-                        <tr>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                            ID
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                            Username
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                            Email
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                            Role
-                          </th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                        {users.map((user) => (
-                          <tr key={user.id}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                              {user.id}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                              {user.username}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                              {user.email}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                user.role === 'ADMIN' 
-                                  ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
-                                  : user.role === 'DJ'
-                                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-                                    : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                              }`}>
-                                {user.role}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                              <button className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-200 mr-3">
-                                Edit
-                              </button>
-                              <button className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-200">
-                                Delete
-                              </button>
-                            </td>
+                    {error && (
+                      <div className="bg-red-50 dark:bg-red-900/30 p-4 rounded-lg mb-6">
+                        <div className="flex">
+                          <div className="flex-shrink-0">
+                            <svg className="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                          <div className="ml-3">
+                            <h3 className="text-sm font-medium text-red-800 dark:text-red-200">Error</h3>
+                            <div className="mt-2 text-sm text-red-700 dark:text-red-300">
+                              <p>{error}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {loading ? (
+                      <div className="flex justify-center items-center py-10">
+                        <svg className="animate-spin -ml-1 mr-3 h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span className="text-lg font-medium text-gray-700 dark:text-gray-300">Loading users...</span>
+                      </div>
+                    ) : (
+                      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead className="bg-gray-50 dark:bg-gray-700">
+                          <tr>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                              ID
+                            </th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                              Username
+                            </th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                              Email
+                            </th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                              Role
+                            </th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                              Actions
+                            </th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                          {users.length === 0 ? (
+                            <tr>
+                              <td colSpan="5" className="px-6 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                                No users found
+                              </td>
+                            </tr>
+                          ) : (
+                            users.map((user) => (
+                              <tr key={user.id}>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                  {user.id}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                  {user.name || user.username}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                  {user.email}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                    user.role === 'ADMIN' 
+                                      ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                                      : user.role === 'DJ'
+                                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                                        : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                  }`}>
+                                    {user.role}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                  <button 
+                                    onClick={() => handleEditRole(user)}
+                                    className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-200 mr-3"
+                                  >
+                                    Edit Role
+                                  </button>
+                                  <button className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-200">
+                                    Delete
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
                 </div>
               )}
@@ -377,6 +530,67 @@ const AdminDashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* Role Edit Modal */}
+      {showRoleModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50">
+          <div className="relative mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
+            <div className="mt-3 text-center">
+              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">
+                Update User Role
+              </h3>
+              <div className="mt-2 px-7 py-3">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                  Change role for user: {editingUser?.name || editingUser?.email}
+                </p>
+
+                <div className="mb-4">
+                  <label htmlFor="role" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 text-left">
+                    Role
+                  </label>
+                  <select
+                    id="role"
+                    value={selectedRole}
+                    onChange={(e) => setSelectedRole(e.target.value)}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+                  >
+                    <option value="LISTENER">Listener</option>
+                    <option value="DJ">DJ</option>
+                    <option value="ADMIN">Admin</option>
+                  </select>
+                </div>
+
+                {error && (
+                  <div className="mb-4 text-sm text-red-600 dark:text-red-400">
+                    {error}
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-end space-x-3 px-4 py-3 bg-gray-50 dark:bg-gray-700 text-right sm:px-6 rounded-b-md">
+                <button
+                  onClick={() => {
+                    setShowRoleModal(false);
+                    setEditingUser(null);
+                    setError(null);
+                  }}
+                  className="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-white dark:border-gray-500 dark:hover:bg-gray-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRoleUpdate}
+                  disabled={loading}
+                  className={`inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                    loading ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                >
+                  {loading ? 'Updating...' : 'Update Role'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

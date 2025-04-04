@@ -66,13 +66,13 @@ public class UserController {
             Authentication authentication) {
         // Get the email of the currently authenticated user
         String currentUserEmail = authentication.getName();
-        
+
         // Check if the user is attempting to change their own password
         UserEntity user = userService.findById(id);
         if (!user.getEmail().equals(currentUserEmail)) {
             return ResponseEntity.status(403).body("You are not authorized to change this user's password");
         }
-        
+
         boolean success = userService.changePassword(id, request.getCurrentPassword(), request.getNewPassword());
         if (success) {
             return ResponseEntity.ok("Password changed successfully");
@@ -90,7 +90,7 @@ public class UserController {
     }
 
     @PutMapping("/{id}/role")
-//    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserDTO> updateUserRole(
             @PathVariable Long id,
             @RequestParam UserEntity.UserRole newRole) {
