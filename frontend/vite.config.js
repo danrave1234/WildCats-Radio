@@ -7,9 +7,9 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'https://wildcat-radio-f05d362144e6.herokuapp.com',
         changeOrigin: true,
-        secure: false
+        secure: true
       }
     }
   }
