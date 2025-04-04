@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   KeyIcon,
   BellIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../context/AuthContext';
 
@@ -14,6 +15,7 @@ export default function Settings() {
     confirmPassword: '',
   });
   const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
+  const [showModal, setShowModal] = useState(false);
 
   const [notifications, setNotifications] = useState({
     broadcastStart: true,
@@ -21,6 +23,17 @@ export default function Settings() {
     newSchedule: false,
     systemUpdates: true,
   });
+
+  // Auto-dismiss modal after 2 seconds
+  useEffect(() => {
+    if (showModal) {
+      const timer = setTimeout(() => {
+        setShowModal(false);
+      }, 2000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [showModal]);
 
   const handlePasswordChange = (e) => {
     const { name, value } = e.target;
@@ -44,12 +57,14 @@ export default function Settings() {
     // Validate passwords match
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       setPasswordMessage({ type: 'error', text: 'New passwords do not match!' });
+      setShowModal(true);
       return;
     }
 
     // Validate password length
     if (passwordData.newPassword.length < 6) {
       setPasswordMessage({ type: 'error', text: 'New password must be at least 6 characters long' });
+      setShowModal(true);
       return;
     }
 
@@ -60,9 +75,10 @@ export default function Settings() {
           currentPassword: passwordData.currentPassword,
           newPassword: passwordData.newPassword
         });
-        
+
         setPasswordMessage({ type: 'success', text: 'Password changed successfully!' });
-        
+        setShowModal(true);
+
         // Clear form
         setPasswordData({
           currentPassword: '',
@@ -71,12 +87,14 @@ export default function Settings() {
         });
       } else {
         setPasswordMessage({ type: 'error', text: 'User information not available. Please try again later.' });
+        setShowModal(true);
       }
     } catch (error) {
       setPasswordMessage({ 
         type: 'error', 
         text: error.response?.data?.message || 'Failed to change password. Please verify your current password is correct.'
       });
+      setShowModal(true);
     }
   };
 
@@ -89,9 +107,40 @@ export default function Settings() {
 
   return (
     <div className="container mx-auto px-4">
+      {/* Password Change Modal */}
+      {showModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black opacity-50"></div>
+          <div className={`relative bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full transform transition-all ${
+            passwordMessage.type === 'success' 
+              ? 'border-l-4 border-green-500' 
+              : 'border-l-4 border-red-500'
+          }`}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className={`text-lg font-medium ${
+                passwordMessage.type === 'success' 
+                  ? 'text-green-700 dark:text-green-300' 
+                  : 'text-red-700 dark:text-red-300'
+              }`}>
+                {passwordMessage.type === 'success' ? 'Success' : 'Error'}
+              </h3>
+              <button 
+                onClick={() => setShowModal(false)}
+                className="text-gray-400 hover:text-gray-500 focus:outline-none"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-gray-700 dark:text-gray-300">
+              {passwordMessage.text}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-3xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">Settings</h1>
-        
+
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
           <div className="p-6">
             <form onSubmit={handlePasswordSubmit}>
@@ -99,17 +148,7 @@ export default function Settings() {
                 <KeyIcon className="h-5 w-5 mr-2 text-gray-500 dark:text-gray-400" />
                 Change Password
               </h3>
-              
-              {passwordMessage.text && (
-                <div className={`mb-4 p-3 rounded-md ${
-                  passwordMessage.type === 'success' 
-                    ? 'bg-green-50 text-green-800 dark:bg-green-900/30 dark:text-green-200' 
-                    : 'bg-red-50 text-red-800 dark:bg-red-900/30 dark:text-red-200'
-                }`}>
-                  {passwordMessage.text}
-                </div>
-              )}
-              
+
               <div className="space-y-4 mb-6">
                 <div>
                   <label htmlFor="currentPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -154,7 +193,7 @@ export default function Settings() {
                   />
                 </div>
               </div>
-              
+
               <div className="flex justify-end">
                 <button
                   type="submit"
@@ -177,7 +216,7 @@ export default function Settings() {
                 <BellIcon className="h-5 w-5 mr-2 text-gray-500 dark:text-gray-400" />
                 Notification Preferences
               </h3>
-              
+
               <div className="space-y-4 mb-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -208,7 +247,7 @@ export default function Settings() {
                     </label>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="text-sm font-medium text-gray-900 dark:text-white">Broadcast Reminders</h4>
@@ -238,7 +277,7 @@ export default function Settings() {
                     </label>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="text-sm font-medium text-gray-900 dark:text-white">New Schedule Updates</h4>
@@ -268,7 +307,7 @@ export default function Settings() {
                     </label>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="text-sm font-medium text-gray-900 dark:text-white">System Updates</h4>
@@ -299,7 +338,7 @@ export default function Settings() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="flex justify-end">
                 <button
                   type="submit"
