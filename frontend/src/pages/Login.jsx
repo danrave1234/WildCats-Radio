@@ -2,16 +2,17 @@
 
 import { useState } from "react"
 import { RadioIcon } from "@heroicons/react/24/outline"
+import { useAuth } from "../context/AuthContext"
 
 // Add default props at the beginning of the component
 export default function Login({
-                                onLogin = () => {},
                                 testCredentials = {
-                                  admin: { email: "admin@example.com", password: "admin123" },
-                                  dj: { email: "dj@example.com", password: "dj123" },
-                                  listener: { email: "listener@example.com", password: "listener123" },
+                                  admin: { email: "admin@wildcats.edu", password: "admin123" },
+                                  dj: { email: "dj@wildcats.edu", password: "dj123" },
+                                  listener: { email: "listener@wildcats.edu", password: "listener123" },
                                 },
                               }) {
+  const { login, loading, error: authError } = useAuth()
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -26,36 +27,18 @@ export default function Login({
     })
   }
 
-  // Add safety checks in the handleSubmit function
-  const handleSubmit = (e) => {
+  // Handle form submission with backend integration
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError("")
 
-    // In a real app, you would validate credentials against your backend
-    // For demo purposes, we'll use hardcoded credentials
-    if (
-        testCredentials &&
-        testCredentials.admin &&
-        formData.email === testCredentials.admin.email &&
-        formData.password === testCredentials.admin.password
-    ) {
-      onLogin("ADMIN")
-    } else if (
-        testCredentials &&
-        testCredentials.dj &&
-        formData.email === testCredentials.dj.email &&
-        formData.password === testCredentials.dj.password
-    ) {
-      onLogin("DJ")
-    } else if (
-        testCredentials &&
-        testCredentials.listener &&
-        formData.email === testCredentials.listener.email &&
-        formData.password === testCredentials.listener.password
-    ) {
-      onLogin("LISTENER")
-    } else {
-      setError('Invalid email or password');
+    try {
+      // Call the login function from AuthContext
+      await login(formData)
+      // No need to call onLogin as the AuthContext will handle the authentication state
+    } catch (err) {
+      // Error handling is done by AuthContext, but we can add additional handling here if needed
+      setError(err.response?.data?.message || 'Login failed. Please try again.');
     }
   }
 
@@ -113,7 +96,7 @@ export default function Login({
               </div>
             </div>
 
-            {error && (
+            {(error || authError) && (
                 <div className="rounded-md bg-red-50 dark:bg-red-900/30 p-4">
                   <div className="flex">
                     <div className="flex-shrink-0">
@@ -132,7 +115,7 @@ export default function Login({
                       </svg>
                     </div>
                     <div className="ml-3">
-                      <h3 className="text-sm font-medium text-red-800 dark:text-red-200">{error}</h3>
+                      <h3 className="text-sm font-medium text-red-800 dark:text-red-200">{error || authError}</h3>
                     </div>
                   </div>
                 </div>
@@ -141,13 +124,16 @@ export default function Login({
           <div>
             <button
               type="submit"
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              disabled={loading}
+              className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white ${
+                loading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+              } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500`}
             >
-              Sign in
+              {loading ? 'Signing in...' : 'Sign in'}
             </button>
           </div>
         </form>
-        
+
         <div className="mt-6">
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
@@ -159,7 +145,7 @@ export default function Login({
               </span>
             </div>
           </div>
-          
+
           <div className="mt-6 grid grid-cols-1 gap-3">
             <button
               type="button"
@@ -183,7 +169,12 @@ export default function Login({
               <span>Listener: {testCredentials.listener.email}</span>
             </button>
           </div>
-          
+
+          <div className="mt-4 text-center text-xs text-gray-500 dark:text-gray-400">
+            <p>Note: The test accounts above are for demonstration only.</p>
+            <p>The login now connects to the backend authentication system.</p>
+          </div>
+
           <div className="mt-4 text-center text-xs text-gray-500 dark:text-gray-400">
             <p>Click on a test account to auto-fill credentials</p>
             <p className="mt-1">Password will be auto-filled when you click a test account</p>
