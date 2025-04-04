@@ -27,6 +27,17 @@ public class ServerScheduleService {
     }
 
     public ServerScheduleEntity scheduleServerRun(ServerScheduleEntity serverSchedule, UserEntity dj) {
+        // Validate required fields
+        if (serverSchedule.getDayOfWeek() == null) {
+            throw new IllegalArgumentException("Day of week is required");
+        }
+        if (serverSchedule.getScheduledStart() == null) {
+            throw new IllegalArgumentException("Scheduled start time is required");
+        }
+        if (serverSchedule.getScheduledEnd() == null) {
+            throw new IllegalArgumentException("Scheduled end time is required");
+        }
+
         serverSchedule.setCreatedBy(dj);
         serverSchedule.setStatus(ServerScheduleEntity.ServerStatus.SCHEDULED);
         ServerScheduleEntity savedSchedule = serverScheduleRepository.save(serverSchedule);
@@ -211,5 +222,32 @@ public class ServerScheduleService {
 
     public Optional<ServerScheduleEntity> getScheduleById(Long id) {
         return serverScheduleRepository.findById(id);
+    }
+
+    public ServerScheduleEntity updateSchedule(Long id, ServerScheduleEntity updatedSchedule, UserEntity user) {
+        // Validate required fields
+        if (updatedSchedule.getDayOfWeek() == null) {
+            throw new IllegalArgumentException("Day of week is required");
+        }
+        if (updatedSchedule.getScheduledStart() == null) {
+            throw new IllegalArgumentException("Scheduled start time is required");
+        }
+        if (updatedSchedule.getScheduledEnd() == null) {
+            throw new IllegalArgumentException("Scheduled end time is required");
+        }
+
+        // Find the existing schedule
+        ServerScheduleEntity existingSchedule = serverScheduleRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Schedule not found with id: " + id));
+
+        // Update the fields
+        existingSchedule.setDayOfWeek(updatedSchedule.getDayOfWeek());
+        existingSchedule.setScheduledStart(updatedSchedule.getScheduledStart());
+        existingSchedule.setScheduledEnd(updatedSchedule.getScheduledEnd());
+        existingSchedule.setAutomatic(updatedSchedule.isAutomatic());
+        existingSchedule.setCreatedBy(user);
+
+        // Save and return the updated schedule
+        return serverScheduleRepository.save(existingSchedule);
     }
 } 

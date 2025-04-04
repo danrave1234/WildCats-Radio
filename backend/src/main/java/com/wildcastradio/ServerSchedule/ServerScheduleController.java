@@ -52,14 +52,23 @@ public class ServerScheduleController {
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN') or hasRole('DJ')")
-    public ResponseEntity<ServerScheduleDTO> createSchedule(
+    public ResponseEntity<?> createSchedule(
             @RequestBody ServerScheduleEntity schedule,
             Authentication authentication) {
-        UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+        try {
+            UserEntity user = userService.getUserByEmail(authentication.getName())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
-        ServerScheduleEntity savedSchedule = serverScheduleService.scheduleServerRun(schedule, user);
-        return ResponseEntity.ok(ServerScheduleDTO.fromEntity(savedSchedule));
+            ServerScheduleEntity savedSchedule = serverScheduleService.scheduleServerRun(schedule, user);
+            return ResponseEntity.ok(ServerScheduleDTO.fromEntity(savedSchedule));
+        } catch (IllegalArgumentException e) {
+            // Return a bad request response with the error message
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            // Log the error and return a generic error message
+            System.err.println("Error creating schedule: " + e.getMessage());
+            return ResponseEntity.status(500).body("An error occurred while saving the schedule. Please try again.");
+        }
     }
 
     @PutMapping("/{id}/start")
@@ -74,6 +83,28 @@ public class ServerScheduleController {
     public ResponseEntity<ServerScheduleDTO> stopServer(@PathVariable Long id) {
         ServerScheduleEntity schedule = serverScheduleService.stopServer(id);
         return ResponseEntity.ok(ServerScheduleDTO.fromEntity(schedule));
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('DJ')")
+    public ResponseEntity<?> updateSchedule(
+            @PathVariable Long id,
+            @RequestBody ServerScheduleEntity schedule,
+            Authentication authentication) {
+        try {
+            UserEntity user = userService.getUserByEmail(authentication.getName())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            ServerScheduleEntity updatedSchedule = serverScheduleService.updateSchedule(id, schedule, user);
+            return ResponseEntity.ok(ServerScheduleDTO.fromEntity(updatedSchedule));
+        } catch (IllegalArgumentException e) {
+            // Return a bad request response with the error message
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            // Log the error and return a generic error message
+            System.err.println("Error updating schedule: " + e.getMessage());
+            return ResponseEntity.status(500).body("An error occurred while updating the schedule. Please try again.");
+        }
     }
 
     @PostMapping("/manual-start")
