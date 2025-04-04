@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.wildcastradio.User.DTO.ChangePasswordRequest;
 import com.wildcastradio.User.DTO.LoginRequest;
 import com.wildcastradio.User.DTO.LoginResponse;
 import com.wildcastradio.User.DTO.RegisterRequest;
@@ -56,6 +57,28 @@ public class UserController {
     public ResponseEntity<String> sendVerificationCode(@RequestParam String email) {
         String code = userService.sendVerificationCode(email);
         return ResponseEntity.ok("Verification code sent to " + email);
+    }
+
+    @PostMapping("/{id}/change-password")
+    public ResponseEntity<String> changePassword(
+            @PathVariable Long id,
+            @RequestBody ChangePasswordRequest request,
+            Authentication authentication) {
+        // Get the email of the currently authenticated user
+        String currentUserEmail = authentication.getName();
+        
+        // Check if the user is attempting to change their own password
+        UserEntity user = userService.findById(id);
+        if (!user.getEmail().equals(currentUserEmail)) {
+            return ResponseEntity.status(403).body("You are not authorized to change this user's password");
+        }
+        
+        boolean success = userService.changePassword(id, request.getCurrentPassword(), request.getNewPassword());
+        if (success) {
+            return ResponseEntity.ok("Password changed successfully");
+        } else {
+            return ResponseEntity.badRequest().body("Current password is incorrect");
+        }
     }
 
     @PutMapping("/{id}")
@@ -117,11 +140,8 @@ public class UserController {
 
     @GetMapping("/me")
     public ResponseEntity<UserDTO> getCurrentUser(Authentication authentication) {
-        if (authentication == null) {
-            return ResponseEntity.status(401).build();
-        }
-
-        return userService.getUserByEmail(authentication.getName())
+        String email = authentication.getName();
+        return userService.getUserByEmail(email)
                 .map(user -> ResponseEntity.ok(UserDTO.fromEntity(user)))
                 .orElse(ResponseEntity.notFound().build());
     }

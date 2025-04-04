@@ -135,6 +135,22 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Change password function
+  const changePassword = async (id, passwordData) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await authService.changePassword(id, passwordData);
+      return response.data;
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to change password. Please try again.');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Logout function
   const logout = () => {
     localStorage.removeItem('token');
@@ -155,6 +171,7 @@ export const AuthProvider = ({ children }) => {
     verifyEmail,
     sendVerificationCode,
     updateProfile,
+    changePassword,
     logout,
     isAuthenticated: !!token
   };

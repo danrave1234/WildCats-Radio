@@ -38,6 +38,7 @@ export const authService = {
   getProfile: (id) => api.get(`/auth/${id}`),
   getCurrentUser: () => api.get('/auth/me'),
   updateProfile: (id, data) => api.put(`/auth/${id}`, data),
+  changePassword: (id, data) => api.post(`/auth/${id}/change-password`, data),
 };
 
 // Services for broadcasts

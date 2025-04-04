@@ -170,4 +170,19 @@ public class UserService implements UserDetailsService {
         int code = 100000 + random.nextInt(900000); // 6-digit code
         return String.valueOf(code);
     }
+
+    public boolean changePassword(Long userId, String currentPassword, String newPassword) {
+        UserEntity user = findById(userId);
+        
+        // Verify the current password
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            return false;
+        }
+        
+        // Update with the new password
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        
+        return true;
+    }
 } 
