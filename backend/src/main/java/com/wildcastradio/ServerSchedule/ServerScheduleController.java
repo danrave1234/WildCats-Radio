@@ -1,7 +1,5 @@
 package com.wildcastradio.ServerSchedule;
 
-import java.time.DayOfWeek;
-import java.time.LocalTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -109,22 +107,34 @@ public class ServerScheduleController {
 
     @PostMapping("/manual-start")
     @PreAuthorize("hasRole('ADMIN') or hasRole('DJ')")
-    public ResponseEntity<ServerScheduleDTO> manualStartServer(Authentication authentication) {
-        UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+    public ResponseEntity<?> manualStartServer(Authentication authentication) {
+        try {
+            UserEntity user = userService.getUserByEmail(authentication.getName())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
-        ServerScheduleEntity schedule = serverScheduleService.manualStartServer(user);
-        return ResponseEntity.ok(ServerScheduleDTO.fromEntity(schedule));
+            ServerScheduleEntity schedule = serverScheduleService.manualStartServer(user);
+            return ResponseEntity.ok(ServerScheduleDTO.fromEntity(schedule));
+        } catch (Exception e) {
+            // Log the error and return a generic error message
+            System.err.println("Error starting server manually: " + e.getMessage());
+            return ResponseEntity.status(500).body("An error occurred while starting the server. Please try again.");
+        }
     }
 
     @PostMapping("/manual-stop")
     @PreAuthorize("hasRole('ADMIN') or hasRole('DJ')")
-    public ResponseEntity<ServerScheduleDTO> manualStopServer(Authentication authentication) {
-        UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+    public ResponseEntity<?> manualStopServer(Authentication authentication) {
+        try {
+            UserEntity user = userService.getUserByEmail(authentication.getName())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
-        ServerScheduleEntity schedule = serverScheduleService.manualStopServer(user);
-        return ResponseEntity.ok(ServerScheduleDTO.fromEntity(schedule));
+            ServerScheduleEntity schedule = serverScheduleService.manualStopServer(user);
+            return ResponseEntity.ok(ServerScheduleDTO.fromEntity(schedule));
+        } catch (Exception e) {
+            // Log the error and return a generic error message
+            System.err.println("Error stopping server manually: " + e.getMessage());
+            return ResponseEntity.status(500).body("An error occurred while stopping the server. Please try again.");
+        }
     }
 
     @GetMapping("/status")
