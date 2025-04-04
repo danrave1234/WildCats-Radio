@@ -1,6 +1,7 @@
 package com.wildcastradio.ServerSchedule.DTO;
 
 import java.time.DayOfWeek;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 
 import com.wildcastradio.ServerSchedule.ServerScheduleEntity;
@@ -41,11 +42,14 @@ public class ServerScheduleDTO {
             return null;
         }
 
+        LocalTime startTime = serverSchedule.getScheduledStart() != null ? serverSchedule.getScheduledStart().toLocalTime() : null;
+        LocalTime endTime = serverSchedule.getScheduledEnd() != null ? serverSchedule.getScheduledEnd().toLocalTime() : null;
+
         return new ServerScheduleDTO(
             serverSchedule.getId(),
             serverSchedule.getDayOfWeek(),
-            serverSchedule.getScheduledStart(),
-            serverSchedule.getScheduledEnd(),
+            startTime,
+            endTime,
             serverSchedule.getStatus().toString(),
             serverSchedule.isAutomatic(),
             serverSchedule.getRedundantStatus().toString(),
