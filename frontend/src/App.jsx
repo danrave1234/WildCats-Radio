@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'r
 import { useEffect } from 'react';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import Register from './pages/Register';
 import ListenerDashboard from './pages/ListenerDashboard';
 import Schedule from './pages/Schedule';
 import Profile from './pages/Profile';
@@ -81,6 +82,14 @@ const AppRoutes = () => {
           <Navigate to={currentUser?.role === 'DJ' ? '/dj-dashboard' : currentUser?.role === 'ADMIN' ? '/admin' : '/dashboard'} replace />
         ) : (
           <Login />
+        )
+      } />
+      
+      <Route path="/register" element={
+        isAuthenticated ? (
+          <Navigate to={currentUser?.role === 'DJ' ? '/dj-dashboard' : currentUser?.role === 'ADMIN' ? '/admin' : '/dashboard'} replace />
+        ) : (
+          <Register />
         )
       } />
       

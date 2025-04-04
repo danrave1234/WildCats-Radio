@@ -3,15 +3,9 @@
 import { useState } from "react"
 import { RadioIcon } from "@heroicons/react/24/outline"
 import { useAuth } from "../context/AuthContext"
+import { Link } from "react-router-dom"
 
-// Add default props at the beginning of the component
-export default function Login({
-                                testCredentials = {
-                                  admin: { email: "admin@wildcats.edu", password: "admin123" },
-                                  dj: { email: "dj@wildcats.edu", password: "dj123" },
-                                  listener: { email: "listener@wildcats.edu", password: "listener123" },
-                                },
-                              }) {
+export default function Login() {
   const { login, loading, error: authError } = useAuth()
   const [formData, setFormData] = useState({
     email: "",
@@ -42,12 +36,6 @@ export default function Login({
     }
   }
 
-  const fillTestCredentials = (role) => {
-    setFormData({
-      email: testCredentials[role].email,
-      password: testCredentials[role].password
-    });
-  };
 
   return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
@@ -132,54 +120,17 @@ export default function Login({
               {loading ? 'Signing in...' : 'Sign in'}
             </button>
           </div>
+          
+          <div className="text-center">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Don't have an account?{' '}
+              <Link to="/register" className="font-medium text-maroon-600 hover:text-maroon-500">
+                Sign up
+              </Link>
+            </p>
+          </div>
         </form>
 
-        <div className="mt-6">
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-gray-100 dark:bg-gray-900 text-gray-500 dark:text-gray-400">
-                Test Accounts
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-6 grid grid-cols-1 gap-3">
-            <button
-              type="button"
-              onClick={() => fillTestCredentials('admin')}
-              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              <span>Admin: {testCredentials.admin.email}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => fillTestCredentials('dj')}
-              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              <span>DJ: {testCredentials.dj.email}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => fillTestCredentials('listener')}
-              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              <span>Listener: {testCredentials.listener.email}</span>
-            </button>
-          </div>
-
-          <div className="mt-4 text-center text-xs text-gray-500 dark:text-gray-400">
-            <p>Note: The test accounts above are for demonstration only.</p>
-            <p>The login now connects to the backend authentication system.</p>
-          </div>
-
-          <div className="mt-4 text-center text-xs text-gray-500 dark:text-gray-400">
-            <p>Click on a test account to auto-fill credentials</p>
-            <p className="mt-1">Password will be auto-filled when you click a test account</p>
-          </div>
-        </div>
       </div>
     </div>
   );

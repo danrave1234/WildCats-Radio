@@ -537,53 +537,76 @@ export default function Schedule() {
                         </div>
                     ))}
                   </div>
+
+                  {/* No broadcasts placeholder */}
+                  {upcomingBroadcasts.length === 0 && (
+                    <div className="mt-6 text-center py-8 px-4 border-t border-gray-200 dark:border-gray-700">
+                      <MicrophoneIcon className="h-12 w-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No broadcasts scheduled</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
+                        There are currently no broadcasts scheduled for this month. Check back later or 
+                        {canScheduleBroadcasts ? " use the plus icons on dates to schedule broadcasts." : " contact a DJ or admin to schedule a broadcast."}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
           ) : (
               // List View - Keep as is
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
-                <ul className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {upcomingBroadcasts.map((broadcast) => (
-                      <li
-                          key={broadcast.id}
-                          className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
-                          onClick={() => handleViewBroadcastDetails(broadcast)}
-                      >
-                        <div className="flex items-start">
-                          <div className="flex-shrink-0 pt-1">
-                            <MicrophoneIcon className="h-6 w-6 text-maroon-600 dark:text-yellow-400" />
-                          </div>
-                          <div className="ml-4 flex-1">
-                            <div className="flex justify-between">
-                              <h3 className="text-lg font-medium text-gray-900 dark:text-white">{broadcast.title}</h3>
-                              <p className="text-sm text-gray-500 dark:text-gray-400">
-                                {new Date(broadcast.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                              </p>
+                {upcomingBroadcasts.length > 0 ? (
+                  <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {upcomingBroadcasts.map((broadcast) => (
+                        <li
+                            key={broadcast.id}
+                            className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                            onClick={() => handleViewBroadcastDetails(broadcast)}
+                        >
+                          <div className="flex items-start">
+                            <div className="flex-shrink-0 pt-1">
+                              <MicrophoneIcon className="h-6 w-6 text-maroon-600 dark:text-yellow-400" />
                             </div>
-                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{broadcast.description}</p>
-                            <div className="mt-2 flex items-center text-sm text-gray-600 dark:text-gray-300">
-                              <ClockIcon className="h-4 w-4 mr-1" />
-                              <span>
-                          {broadcast.startTime} - {broadcast.endTime}
-                        </span>
-                              <span className="mx-2">•</span>
-                              <UserIcon className="h-4 w-4 mr-1" />
-                              <span>{broadcast.dj}</span>
-                              {canScheduleBroadcasts && broadcast.details && (
-                                  <>
-                                    <span className="mx-2">•</span>
-                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-maroon-100 text-maroon-800 dark:bg-maroon-900/50 dark:text-yellow-300">
-                              <InformationCircleIcon className="h-3 w-3 mr-1" />
-                              Staff Details
-                            </span>
-                                  </>
-                              )}
+                            <div className="ml-4 flex-1">
+                              <div className="flex justify-between">
+                                <h3 className="text-lg font-medium text-gray-900 dark:text-white">{broadcast.title}</h3>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">
+                                  {new Date(broadcast.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                </p>
+                              </div>
+                              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{broadcast.description}</p>
+                              <div className="mt-2 flex items-center text-sm text-gray-600 dark:text-gray-300">
+                                <ClockIcon className="h-4 w-4 mr-1" />
+                                <span>
+                            {broadcast.startTime} - {broadcast.endTime}
+                          </span>
+                                <span className="mx-2">•</span>
+                                <UserIcon className="h-4 w-4 mr-1" />
+                                <span>{broadcast.dj}</span>
+                                {canScheduleBroadcasts && broadcast.details && (
+                                    <>
+                                      <span className="mx-2">•</span>
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-maroon-100 text-maroon-800 dark:bg-maroon-900/50 dark:text-yellow-300">
+                                <InformationCircleIcon className="h-3 w-3 mr-1" />
+                                Staff Details
+                              </span>
+                                    </>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </li>
-                  ))}
-                </ul>
+                        </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="py-12 px-4 text-center">
+                    <MicrophoneIcon className="h-12 w-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No broadcasts scheduled</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      There are currently no broadcasts scheduled. Check back later or {canScheduleBroadcasts && "schedule a broadcast using the button above."}
+                      {!canScheduleBroadcasts && "contact a DJ or admin to schedule a broadcast."}
+                    </p>
+                  </div>
+                )}
               </div>
           )}
         </div>
