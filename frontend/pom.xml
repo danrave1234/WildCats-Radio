@@ -2,24 +2,24 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    
+
     <parent>
         <groupId>com.wildcastradio</groupId>
         <artifactId>wildcats-radio-parent</artifactId>
         <version>0.0.1-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
-    
+
     <artifactId>wildcats-radio-frontend</artifactId>
     <name>WildCats Radio Frontend</name>
     <description>Frontend for the WildCats Radio application</description>
-    
+
     <properties>
         <node.version>v18.16.0</node.version>
         <npm.version>9.5.1</npm.version>
         <frontend-maven-plugin.version>1.12.1</frontend-maven-plugin.version>
     </properties>
-    
+
     <build>
         <plugins>
             <plugin>
@@ -68,6 +68,22 @@
                         </goals>
                         <configuration>
                             <outputDirectory>${project.build.directory}/classes/static</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/dist</directory>
+                                    <filtering>false</filtering>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>copy-resources-to-backend</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.parent.basedir}/backend/src/main/resources/static</outputDirectory>
                             <resources>
                                 <resource>
                                     <directory>${project.basedir}/dist</directory>
