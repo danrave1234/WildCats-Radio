@@ -6,7 +6,7 @@ import {
   UserIcon,
   ShieldCheckIcon
 } from '@heroicons/react/24/outline';
-import { authService, broadcastService } from '../services/api';
+import { authService, broadcastService, serverService } from '../services/api';
 
 const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
@@ -37,6 +37,17 @@ const AdminDashboard = () => {
 
   // State for live broadcasts
   const [liveBroadcasts, setLiveBroadcasts] = useState([]);
+
+  // Server schedule state
+  const [serverSchedules, setServerSchedules] = useState([]);
+  const [newSchedule, setNewSchedule] = useState({
+    dayOfWeek: 'MONDAY',
+    scheduledStart: '',
+    scheduledEnd: '',
+    automatic: true
+  });
+  const [serverRunning, setServerRunning] = useState(false);
+  const [selectedDay, setSelectedDay] = useState('MONDAY');
 
   // Fetch users when component mounts
   useEffect(() => {
@@ -78,6 +89,50 @@ const AdminDashboard = () => {
     if (activeTab === 'dashboard' || activeTab === 'broadcasts') {
       fetchLiveBroadcasts();
       const interval = setInterval(fetchLiveBroadcasts, 60000); // Check every minute
+      return () => clearInterval(interval);
+    }
+  }, [activeTab]);
+
+  // Fetch server schedules and check server status
+  useEffect(() => {
+    const fetchServerSchedules = async () => {
+      try {
+        const schedulesResponse = await serverService.getSchedules();
+        setServerSchedules(schedulesResponse.data);
+
+        const statusResponse = await serverService.getStatus();
+        setServerRunning(statusResponse.data);
+
+        // Update server status in stats
+        setStats(prev => ({
+          ...prev,
+          serverStatus: statusResponse.data ? 'Online' : 'Offline'
+        }));
+      } catch (error) {
+        console.error('Error fetching server schedules:', error);
+      }
+    };
+
+    // Fetch schedules when schedule tab is active or dashboard tab is active
+    if (activeTab === 'schedule' || activeTab === 'dashboard') {
+      fetchServerSchedules();
+
+      // Refresh server status every 30 seconds
+      const interval = setInterval(async () => {
+        try {
+          const statusResponse = await serverService.getStatus();
+          setServerRunning(statusResponse.data);
+
+          // Update server status in stats
+          setStats(prev => ({
+            ...prev,
+            serverStatus: statusResponse.data ? 'Online' : 'Offline'
+          }));
+        } catch (error) {
+          console.error('Error checking server status:', error);
+        }
+      }, 30000);
+
       return () => clearInterval(interval);
     }
   }, [activeTab]);
@@ -159,6 +214,126 @@ const AdminDashboard = () => {
       ...newUser,
       [name]: value
     });
+  };
+
+  // Handle form changes for new schedule
+  const handleNewScheduleChange = (e) => {
+    const { name, value } = e.target;
+    setNewSchedule(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  // Handle day selection change
+  const handleDayChange = (e) => {
+    setSelectedDay(e.target.value);
+
+    // Update new schedule with selected day
+    setNewSchedule(prev => ({
+      ...prev,
+      dayOfWeek: e.target.value
+    }));
+  };
+
+  // Handle automatic toggle
+  const handleAutomaticToggle = (e) => {
+    setNewSchedule(prev => ({
+      ...prev,
+      automatic: e.target.checked
+    }));
+  };
+
+  // Handle server start/stop
+  const toggleServer = async () => {
+    try {
+      if (serverRunning) {
+        // Stop the server
+        await serverService.manualStop();
+        setServerRunning(false);
+        console.log('Stopping server');
+
+        // Update stats
+        setStats(prev => ({
+          ...prev,
+          serverStatus: 'Offline'
+        }));
+      } else {
+        // Start the server
+        await serverService.manualStart();
+        setServerRunning(true);
+        console.log('Starting server');
+
+        // Update stats
+        setStats(prev => ({
+          ...prev,
+          serverStatus: 'Online'
+        }));
+      }
+    } catch (error) {
+      console.error('Error toggling server:', error);
+      alert('There was an error controlling the server. Please try again.');
+    }
+  };
+
+  // Handle server schedule submission
+  const handleServerScheduleSubmit = async (e) => {
+    e.preventDefault();
+
+    try {
+      // Validate the form
+      if (!newSchedule.scheduledStart || !newSchedule.scheduledEnd) {
+        alert('Please enter both start and end times');
+        return;
+      }
+
+      // Check if we're updating an existing schedule for this day
+      const existingSchedule = serverSchedules.find(
+        schedule => schedule.dayOfWeek === newSchedule.dayOfWeek
+      );
+
+      if (existingSchedule) {
+        // Update existing schedule
+        const updatedSchedule = {
+          ...existingSchedule,
+          scheduledStart: newSchedule.scheduledStart,
+          scheduledEnd: newSchedule.scheduledEnd,
+          automatic: newSchedule.automatic
+        };
+
+        await serverService.updateSchedule(existingSchedule.id, updatedSchedule);
+
+        // Update local state
+        setServerSchedules(serverSchedules.map(schedule => 
+          schedule.id === existingSchedule.id ? updatedSchedule : schedule
+        ));
+
+        console.log('Updated server schedule:', updatedSchedule);
+        alert('Server schedule updated!');
+      } else {
+        // Create new schedule
+        const response = await serverService.createSchedule(newSchedule);
+        const createdSchedule = response.data;
+
+        // Update local state
+        setServerSchedules([...serverSchedules, createdSchedule]);
+
+        console.log('Created server schedule:', createdSchedule);
+        alert('Server schedule created!');
+      }
+
+      // Reset form
+      setNewSchedule({
+        dayOfWeek: selectedDay,
+        scheduledStart: '',
+        scheduledEnd: '',
+        automatic: true
+      });
+
+    } catch (error) {
+      console.error('Error saving server schedule:', error);
+      alert('There was an error saving the schedule. Please try again.');
+    }
   };
 
   // Handle new user submission
@@ -601,29 +776,200 @@ const AdminDashboard = () => {
                 <div className="p-6">
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Schedule Management</h2>
 
-                  <div className="bg-yellow-50 dark:bg-yellow-900/30 p-4 rounded-lg mb-6">
-                    <div className="flex items-start">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <h3 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">Note about DJ Scheduling</h3>
-                        <div className="mt-2 text-sm text-yellow-700 dark:text-yellow-300">
-                          <p>
-                            DJs can create and manage their own schedules without admin approval. This shared schedule system allows both admins and DJs to coordinate broadcasts efficiently.
+                  {/* Server Schedule Management */}
+                  <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
+                    <div className="p-6">
+                      <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
+                        Server Schedule Management
+                      </h3>
+
+                      <div className="flex items-center justify-between mb-6">
+                        <div>
+                          <h4 className="text-md font-medium text-gray-900 dark:text-white">Server Status</h4>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center">
+                            {serverRunning ? (
+                              <>
+                                <svg className="h-4 w-4 text-green-500 mr-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                                Running
+                              </>
+                            ) : (
+                              <>
+                                <svg className="h-4 w-4 text-red-500 mr-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                                </svg>
+                                Stopped
+                              </>
+                            )}
                           </p>
                         </div>
+                        <button
+                          onClick={toggleServer}
+                          className={`px-4 py-2 rounded-md text-white font-medium ${
+                            serverRunning
+                              ? 'bg-red-600 hover:bg-red-700'
+                              : 'bg-yellow-500 hover:bg-yellow-600'
+                          }`}
+                        >
+                          {serverRunning ? 'Stop Server' : 'Start Server'}
+                        </button>
                       </div>
+
+                      {/* Weekly Schedule Overview */}
+                      <div className="mb-6">
+                        <h4 className="text-md font-medium text-gray-900 dark:text-white mb-3">Weekly Schedule</h4>
+                        <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                          {serverSchedules.length > 0 ? (
+                            <div className="grid grid-cols-1 gap-3">
+                              {['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'].map(day => {
+                                const daySchedule = serverSchedules.find(schedule => schedule.dayOfWeek === day);
+                                return (
+                                  <div key={day} className="flex justify-between items-center p-2 border-b border-gray-200 dark:border-gray-600">
+                                    <div className="flex-1">
+                                      <p className="font-medium text-gray-700 dark:text-gray-300">{day.charAt(0) + day.slice(1).toLowerCase()}</p>
+                                    </div>
+                                    <div className="flex-1">
+                                      {daySchedule ? (
+                                        <div className="text-sm">
+                                          <p className="text-gray-600 dark:text-gray-400">
+                                            {daySchedule.scheduledStart} - {daySchedule.scheduledEnd}
+                                          </p>
+                                          <p className="text-xs text-gray-500 dark:text-gray-500">
+                                            {daySchedule.automatic ? 'Automatic' : 'Manual'} | 
+                                            {daySchedule.status === 'RUNNING' ? (
+                                              <span className="text-green-500 ml-1">Running</span>
+                                            ) : daySchedule.status === 'SCHEDULED' ? (
+                                              <span className="text-yellow-500 ml-1">Scheduled</span>
+                                            ) : (
+                                              <span className="text-red-500 ml-1">Off</span>
+                                            )}
+                                          </p>
+                                        </div>
+                                      ) : (
+                                        <p className="text-sm text-gray-500 dark:text-gray-400">No schedule</p>
+                                      )}
+                                    </div>
+                                    <div className="flex-none">
+                                      <button
+                                        onClick={() => {
+                                          setSelectedDay(day);
+                                          if (daySchedule) {
+                                            setNewSchedule({
+                                              dayOfWeek: day,
+                                              scheduledStart: daySchedule.scheduledStart,
+                                              scheduledEnd: daySchedule.scheduledEnd,
+                                              automatic: daySchedule.automatic
+                                            });
+                                          } else {
+                                            setNewSchedule({
+                                              dayOfWeek: day,
+                                              scheduledStart: '',
+                                              scheduledEnd: '',
+                                              automatic: true
+                                            });
+                                          }
+                                        }}
+                                        className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm"
+                                      >
+                                        {daySchedule ? 'Edit' : 'Add'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-center text-gray-500 dark:text-gray-400">No schedules configured yet</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Schedule Form */}
+                      <form onSubmit={handleServerScheduleSubmit} className="mt-6 bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                        <h4 className="text-md font-medium text-gray-900 dark:text-white mb-3">
+                          {serverSchedules.find(s => s.dayOfWeek === selectedDay) ? 'Edit' : 'Add'} Schedule for {selectedDay.charAt(0) + selectedDay.slice(1).toLowerCase()}
+                        </h4>
+
+                        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 mb-4">
+                          <div>
+                            <label htmlFor="dayOfWeek" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Day of Week
+                            </label>
+                            <select
+                              id="dayOfWeek"
+                              name="dayOfWeek"
+                              value={selectedDay}
+                              onChange={handleDayChange}
+                              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+                            >
+                              <option value="MONDAY">Monday</option>
+                              <option value="TUESDAY">Tuesday</option>
+                              <option value="WEDNESDAY">Wednesday</option>
+                              <option value="THURSDAY">Thursday</option>
+                              <option value="FRIDAY">Friday</option>
+                              <option value="SATURDAY">Saturday</option>
+                              <option value="SUNDAY">Sunday</option>
+                            </select>
+                          </div>
+
+                          <div className="flex items-center mt-6">
+                            <input
+                              type="checkbox"
+                              id="automatic"
+                              name="automatic"
+                              checked={newSchedule.automatic}
+                              onChange={handleAutomaticToggle}
+                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            />
+                            <label htmlFor="automatic" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
+                              Automatic (server will start/stop according to schedule)
+                            </label>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                          <div>
+                            <label htmlFor="scheduledStart" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Start Time
+                            </label>
+                            <input
+                              type="time"
+                              name="scheduledStart"
+                              id="scheduledStart"
+                              value={newSchedule.scheduledStart}
+                              onChange={handleNewScheduleChange}
+                              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor="scheduledEnd" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              End Time
+                            </label>
+                            <input
+                              type="time"
+                              name="scheduledEnd"
+                              id="scheduledEnd"
+                              value={newSchedule.scheduledEnd}
+                              onChange={handleNewScheduleChange}
+                              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-6 flex justify-end">
+                          <button
+                            type="submit"
+                            className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                          >
+                            {serverSchedules.find(s => s.dayOfWeek === selectedDay) ? 'Update' : 'Add'} Schedule
+                          </button>
+                        </div>
+                      </form>
                     </div>
                   </div>
 
-                  <p className="text-gray-600 dark:text-gray-300 mb-6">
-                    As an admin, you can create and manage broadcast schedules. The schedule is shared with DJs, who can also add their own broadcasts.
-                  </p>
-
-                  {/* Schedule management interface would go here */}
+                  {/* Broadcast Schedules */}
                   <div className="bg-white dark:bg-gray-700 shadow rounded-lg p-4">
                     <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Upcoming Broadcasts</h3>
                     <div className="space-y-4">

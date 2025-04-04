@@ -1,5 +1,7 @@
 package com.wildcastradio.ServerSchedule;
 
+import java.time.DayOfWeek;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -55,7 +57,7 @@ public class ServerScheduleController {
             Authentication authentication) {
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        
+
         ServerScheduleEntity savedSchedule = serverScheduleService.scheduleServerRun(schedule, user);
         return ResponseEntity.ok(ServerScheduleDTO.fromEntity(savedSchedule));
     }
@@ -79,7 +81,7 @@ public class ServerScheduleController {
     public ResponseEntity<ServerScheduleDTO> manualStartServer(Authentication authentication) {
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        
+
         ServerScheduleEntity schedule = serverScheduleService.manualStartServer(user);
         return ResponseEntity.ok(ServerScheduleDTO.fromEntity(schedule));
     }
@@ -89,7 +91,7 @@ public class ServerScheduleController {
     public ResponseEntity<ServerScheduleDTO> manualStopServer(Authentication authentication) {
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        
+
         ServerScheduleEntity schedule = serverScheduleService.manualStopServer(user);
         return ResponseEntity.ok(ServerScheduleDTO.fromEntity(schedule));
     }

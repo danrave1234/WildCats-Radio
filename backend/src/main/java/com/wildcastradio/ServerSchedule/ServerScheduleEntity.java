@@ -1,6 +1,7 @@
 package com.wildcastradio.ServerSchedule;
 
-import java.time.LocalDateTime;
+import java.time.DayOfWeek;
+import java.time.LocalTime;
 
 import com.wildcastradio.User.UserEntity;
 
@@ -23,11 +24,15 @@ public class ServerScheduleEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column
-    private LocalDateTime scheduledStart;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private DayOfWeek dayOfWeek;
 
     @Column
-    private LocalDateTime scheduledEnd;
+    private LocalTime scheduledStart;
+
+    @Column
+    private LocalTime scheduledEnd;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -51,10 +56,11 @@ public class ServerScheduleEntity {
     public ServerScheduleEntity() {
     }
 
-    public ServerScheduleEntity(LocalDateTime scheduledStart, LocalDateTime scheduledEnd, 
+    public ServerScheduleEntity(DayOfWeek dayOfWeek, LocalTime scheduledStart, LocalTime scheduledEnd, 
                                ServerStatus status, boolean automatic, 
                                ServerStatus redundantStatus, boolean redundantEnabled, 
                                UserEntity createdBy) {
+        this.dayOfWeek = dayOfWeek;
         this.scheduledStart = scheduledStart;
         this.scheduledEnd = scheduledEnd;
         this.status = status;
@@ -73,19 +79,27 @@ public class ServerScheduleEntity {
         this.id = id;
     }
 
-    public LocalDateTime getScheduledStart() {
+    public DayOfWeek getDayOfWeek() {
+        return dayOfWeek;
+    }
+
+    public void setDayOfWeek(DayOfWeek dayOfWeek) {
+        this.dayOfWeek = dayOfWeek;
+    }
+
+    public LocalTime getScheduledStart() {
         return scheduledStart;
     }
 
-    public void setScheduledStart(LocalDateTime scheduledStart) {
+    public void setScheduledStart(LocalTime scheduledStart) {
         this.scheduledStart = scheduledStart;
     }
 
-    public LocalDateTime getScheduledEnd() {
+    public LocalTime getScheduledEnd() {
         return scheduledEnd;
     }
 
-    public void setScheduledEnd(LocalDateTime scheduledEnd) {
+    public void setScheduledEnd(LocalTime scheduledEnd) {
         this.scheduledEnd = scheduledEnd;
     }
 
