@@ -1,8 +1,6 @@
 package com.wildcastradio.ServerSchedule.DTO;
 
 import java.time.DayOfWeek;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
 
 import com.wildcastradio.ServerSchedule.ServerScheduleEntity;
 import com.wildcastradio.User.DTO.UserDTO;
@@ -10,8 +8,8 @@ import com.wildcastradio.User.DTO.UserDTO;
 public class ServerScheduleDTO {
     private Long id;
     private DayOfWeek dayOfWeek;
-    private LocalTime scheduledStart;
-    private LocalTime scheduledEnd;
+    private String scheduledStart;
+    private String scheduledEnd;
     private String status;
     private boolean automatic;
     private String redundantStatus;
@@ -22,7 +20,7 @@ public class ServerScheduleDTO {
     public ServerScheduleDTO() {
     }
 
-    public ServerScheduleDTO(Long id, DayOfWeek dayOfWeek, LocalTime scheduledStart, LocalTime scheduledEnd,
+    public ServerScheduleDTO(Long id, DayOfWeek dayOfWeek, String scheduledStart, String scheduledEnd,
                             String status, boolean automatic, String redundantStatus,
                             boolean redundantEnabled, UserDTO createdBy) {
         this.id = id;
@@ -42,8 +40,10 @@ public class ServerScheduleDTO {
             return null;
         }
 
-        LocalTime startTime = serverSchedule.getScheduledStart() != null ? serverSchedule.getScheduledStart().toLocalTime() : null;
-        LocalTime endTime = serverSchedule.getScheduledEnd() != null ? serverSchedule.getScheduledEnd().toLocalTime() : null;
+        String startTime = serverSchedule.getScheduledStart() != null ? 
+            serverSchedule.getScheduledStart().toLocalTime().toString() : null;
+        String endTime = serverSchedule.getScheduledEnd() != null ? 
+            serverSchedule.getScheduledEnd().toLocalTime().toString() : null;
 
         return new ServerScheduleDTO(
             serverSchedule.getId(),
@@ -75,19 +75,19 @@ public class ServerScheduleDTO {
         this.dayOfWeek = dayOfWeek;
     }
 
-    public LocalTime getScheduledStart() {
+    public String getScheduledStart() {
         return scheduledStart;
     }
 
-    public void setScheduledStart(LocalTime scheduledStart) {
+    public void setScheduledStart(String scheduledStart) {
         this.scheduledStart = scheduledStart;
     }
 
-    public LocalTime getScheduledEnd() {
+    public String getScheduledEnd() {
         return scheduledEnd;
     }
 
-    public void setScheduledEnd(LocalTime scheduledEnd) {
+    public void setScheduledEnd(String scheduledEnd) {
         this.scheduledEnd = scheduledEnd;
     }
 

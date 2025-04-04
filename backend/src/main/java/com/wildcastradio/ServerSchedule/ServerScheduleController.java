@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.wildcastradio.ServerSchedule.DTO.ServerScheduleDTO;
+import com.wildcastradio.ServerSchedule.DTO.ServerScheduleInputDTO;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
 
@@ -51,12 +52,13 @@ public class ServerScheduleController {
     @PostMapping
     @PreAuthorize("hasRole('ADMIN') or hasRole('DJ')")
     public ResponseEntity<?> createSchedule(
-            @RequestBody ServerScheduleEntity schedule,
+            @RequestBody ServerScheduleInputDTO inputDTO,
             Authentication authentication) {
         try {
             UserEntity user = userService.getUserByEmail(authentication.getName())
                     .orElseThrow(() -> new RuntimeException("User not found"));
 
+            ServerScheduleEntity schedule = inputDTO.toEntity();
             ServerScheduleEntity savedSchedule = serverScheduleService.scheduleServerRun(schedule, user);
             return ResponseEntity.ok(ServerScheduleDTO.fromEntity(savedSchedule));
         } catch (IllegalArgumentException e) {
@@ -87,12 +89,15 @@ public class ServerScheduleController {
     @PreAuthorize("hasRole('ADMIN') or hasRole('DJ')")
     public ResponseEntity<?> updateSchedule(
             @PathVariable Long id,
-            @RequestBody ServerScheduleEntity schedule,
+            @RequestBody ServerScheduleInputDTO inputDTO,
             Authentication authentication) {
         try {
             UserEntity user = userService.getUserByEmail(authentication.getName())
                     .orElseThrow(() -> new RuntimeException("User not found"));
-
+                
+            ServerScheduleEntity schedule = inputDTO.toEntity();
+            schedule.setId(id); // Ensure correct ID
+            
             ServerScheduleEntity updatedSchedule = serverScheduleService.updateSchedule(id, schedule, user);
             return ResponseEntity.ok(ServerScheduleDTO.fromEntity(updatedSchedule));
         } catch (IllegalArgumentException e) {
