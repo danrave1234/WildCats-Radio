@@ -37,6 +37,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configure(http))
                 .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/verify", "/api/auth/send-code").permitAll()
+                .requestMatchers("/api/auth/{id}").permitAll() // Allow public access to user profiles
                 .requestMatchers("/api/broadcasts/live").permitAll() // Allow public access to check live broadcasts
                 .requestMatchers("/api/broadcasts/upcoming").permitAll() // Allow public access to upcoming schedule
                 .requestMatchers("/error").permitAll() // Allow public access to error pages
