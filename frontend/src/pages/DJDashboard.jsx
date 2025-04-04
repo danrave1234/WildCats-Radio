@@ -19,14 +19,14 @@ export default function DJDashboard() {
   const [audioInputLevel, setAudioInputLevel] = useState(0);
   const [audioInputDevice, setAudioInputDevice] = useState('default');
   const [availableAudioDevices, setAvailableAudioDevices] = useState([]);
-  
+
   // Server schedule state
   const [serverSchedule, setServerSchedule] = useState({
     scheduledStart: '',
     scheduledEnd: '',
   });
   const [serverRunning, setServerRunning] = useState(false);
-  
+
   // Analytics state
   const [analytics, setAnalytics] = useState({
     viewerCount: 0,
@@ -34,47 +34,27 @@ export default function DJDashboard() {
     chatMessages: 0,
     songRequests: 0,
   });
-  
-  // Chat messages state (mock)
-  const [chatMessages, setChatMessages] = useState([
-    { id: 1, user: 'listener123', message: 'Great song choice!', time: '3:42 PM' },
-    { id: 2, user: 'musicfan45', message: 'Can you play some jazz next?', time: '3:44 PM' },
-    { id: 3, user: 'student2024', message: 'Shoutout to the bio department!', time: '3:47 PM' },
-  ]);
-  
-  // Song requests state (mock)
-  const [songRequests, setSongRequests] = useState([
-    { id: 1, song: 'Blinding Lights', artist: 'The Weeknd', requestedBy: 'listener123', time: '3:43 PM' },
-    { id: 2, song: 'As It Was', artist: 'Harry Styles', requestedBy: 'musiclover99', time: '3:46 PM' },
-  ]);
 
-  // Check for audio input devices
+  // Chat messages state
+  const [chatMessages, setChatMessages] = useState([]);
+
+  // Song requests state
+  const [songRequests, setSongRequests] = useState([]);
+
+  // Check for audio input devices and fetch analytics
   useEffect(() => {
-    // Mock audio devices for demo
-    setAvailableAudioDevices([
-      { id: 'default', label: 'Default Microphone' },
-      { id: 'mic1', label: 'Headset Microphone' },
-      { id: 'mic2', label: 'Built-in Microphone' },
-    ]);
-    
-    // Simulate audio input levels if broadcasting or testing
+    // Should fetch available audio devices from the browser's API
+    // For example: navigator.mediaDevices.enumerateDevices()
+
+    // Audio level monitoring and analytics should be implemented with real data
     let interval;
     if (isBroadcasting || testMode) {
       interval = setInterval(() => {
-        setAudioInputLevel(Math.random() * 100);
-        
-        // Update mock analytics if broadcasting
-        if (isBroadcasting) {
-          setAnalytics(prev => ({
-            viewerCount: Math.floor(Math.random() * 20) + 10,
-            peakViewers: Math.max(prev.peakViewers, prev.viewerCount),
-            chatMessages: prev.chatMessages + (Math.random() > 0.7 ? 1 : 0),
-            songRequests: prev.songRequests + (Math.random() > 0.9 ? 1 : 0),
-          }));
-        }
+        // Should get real audio input level
+        // Should fetch real analytics data if broadcasting
       }, 1000);
     }
-    
+
     return () => clearInterval(interval);
   }, [isBroadcasting, testMode]);
 
@@ -98,14 +78,14 @@ export default function DJDashboard() {
       // End broadcast
       setIsBroadcasting(false);
       setTestMode(false);
-      
+
       // In a real app, you would send a request to your backend to stop the broadcast
       console.log('Ending broadcast');
     } else {
       // Start broadcast
       setIsBroadcasting(true);
       setTestMode(false);
-      
+
       // In a real app, you would send a request to your backend to start the broadcast
       console.log('Starting broadcast');
       console.log('Using audio device:', audioInputDevice);
@@ -140,7 +120,7 @@ export default function DJDashboard() {
   return (
     <div className="container mx-auto px-4 py-6">
       <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">DJ Dashboard</h1>
-      
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column - Broadcast Controls */}
         <div className="lg:col-span-2">
@@ -149,7 +129,7 @@ export default function DJDashboard() {
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
                 Broadcast Controls
               </h2>
-              
+
               <div className="space-y-6">
                 {/* Broadcast Status */}
                 <div className="flex items-center justify-between">
@@ -199,7 +179,7 @@ export default function DJDashboard() {
                     </button>
                   </div>
                 </div>
-                
+
                 {/* Audio Input Selector */}
                 <div>
                   <label htmlFor="audioDevice" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -218,7 +198,7 @@ export default function DJDashboard() {
                     ))}
                   </select>
                 </div>
-                
+
                 {/* Audio Level Meter */}
                 {(isBroadcasting || testMode) && (
                   <div>
@@ -247,14 +227,14 @@ export default function DJDashboard() {
               </div>
             </div>
           </div>
-          
+
           {/* Recent Chat Messages */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
             <div className="p-6">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
                 Recent Chat Messages
               </h2>
-              
+
               <div className="max-h-48 overflow-y-auto">
                 {chatMessages.length > 0 ? (
                   <ul className="space-y-3">
@@ -275,7 +255,7 @@ export default function DJDashboard() {
             </div>
           </div>
         </div>
-        
+
         {/* Right Column - Analytics and Server Management */}
         <div>
           {/* Live Analytics */}
@@ -284,7 +264,7 @@ export default function DJDashboard() {
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
                 Live Analytics
               </h2>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
                   <div className="flex items-center justify-between">
@@ -293,7 +273,7 @@ export default function DJDashboard() {
                   </div>
                   <p className="text-2xl font-semibold text-red-700 dark:text-red-100 mt-2">{analytics.viewerCount}</p>
                 </div>
-                
+
                 <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium text-red-600 dark:text-red-200">Peak Listeners</p>
@@ -301,7 +281,7 @@ export default function DJDashboard() {
                   </div>
                   <p className="text-2xl font-semibold text-red-700 dark:text-red-100 mt-2">{analytics.peakViewers}</p>
                 </div>
-                
+
                 <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium text-red-600 dark:text-red-200">Chat Messages</p>
@@ -309,7 +289,7 @@ export default function DJDashboard() {
                   </div>
                   <p className="text-2xl font-semibold text-red-700 dark:text-red-100 mt-2">{analytics.chatMessages}</p>
                 </div>
-                
+
                 <div className="p-4 bg-red-50 dark:bg-red-900 rounded-lg">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium text-red-600 dark:text-red-200">Song Requests</p>
@@ -320,14 +300,14 @@ export default function DJDashboard() {
               </div>
             </div>
           </div>
-          
+
           {/* Server Schedule Management */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
             <div className="p-6">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
                 Server Schedule Management
               </h2>
-              
+
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="text-lg font-medium text-gray-900 dark:text-white">Server Status</h3>
@@ -356,7 +336,7 @@ export default function DJDashboard() {
                   {serverRunning ? 'Stop Server' : 'Start Server'}
                 </button>
               </div>
-              
+
               <form onSubmit={handleServerScheduleSubmit}>
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                   <div>
@@ -386,7 +366,7 @@ export default function DJDashboard() {
                     />
                   </div>
                 </div>
-                
+
                 <div className="mt-6 flex justify-end">
                   <button
                     type="submit"

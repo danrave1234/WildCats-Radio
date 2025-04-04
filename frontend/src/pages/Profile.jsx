@@ -1,15 +1,30 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { UserCircleIcon, Cog6ToothIcon } from "@heroicons/react/24/solid"
 import { Link } from "react-router-dom"
+import { useAuth } from "../context/AuthContext"
 
 export default function Profile() {
+  const { currentUser, updateProfile } = useAuth()
   const [formData, setFormData] = useState({
-    firstName: "John",
-    lastName: "Doe",
-    email: "john.doe@university.edu",
+    firstName: "",
+    lastName: "",
+    email: "",
   })
+  const [isLoading, setIsLoading] = useState(false)
+  const [message, setMessage] = useState({ type: '', text: '' })
+
+  // Initialize form data with current user info when it's available
+  useEffect(() => {
+    if (currentUser) {
+      setFormData({
+        firstName: currentUser.firstName || "",
+        lastName: currentUser.lastName || "",
+        email: currentUser.email || "",
+      })
+    }
+  }, [currentUser])
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
@@ -18,12 +33,28 @@ export default function Profile() {
       [name]: value,
     })
   }
-//ddddd
-  const handleProfileSubmit = (e) => {
+
+  const handleProfileSubmit = async (e) => {
     e.preventDefault()
-    console.log("Profile data submitted:", formData)
-    // Here you would send the data to your backend
-    alert("Profile updated successfully!")
+    setIsLoading(true)
+    setMessage({ type: '', text: '' })
+    
+    try {
+      // Only update if we have a currentUser and an ID
+      if (currentUser && currentUser.id) {
+        await updateProfile(currentUser.id, {
+          firstName: formData.firstName,
+          lastName: formData.lastName
+        })
+        setMessage({ type: 'success', text: 'Profile updated successfully!' })
+      } else {
+        setMessage({ type: 'error', text: 'User information not available. Please try again later.' })
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message || 'Failed to update profile. Please try again.' })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -41,6 +72,7 @@ export default function Profile() {
                       {formData.firstName} {formData.lastName}
                     </h2>
                     <p className="text-gray-600 dark:text-gray-400">{formData.email}</p>
+                    {currentUser && <p className="text-xs text-maroon-600 dark:text-maroon-400 mt-1">Role: {currentUser.role}</p>}
                   </div>
                 </div>
                 <Link
@@ -51,6 +83,12 @@ export default function Profile() {
                   Settings
                 </Link>
               </div>
+
+              {message.text && (
+                <div className={`mb-4 p-3 rounded-md ${message.type === 'success' ? 'bg-green-50 text-green-800 dark:bg-green-900/30 dark:text-green-200' : 'bg-red-50 text-red-800 dark:bg-red-900/30 dark:text-red-200'}`}>
+                  {message.text}
+                </div>
+              )}
 
               <form onSubmit={handleProfileSubmit}>
                 <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
@@ -109,9 +147,10 @@ export default function Profile() {
                 <div className="flex justify-end">
                   <button
                       type="submit"
-                      className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600"
+                      className={`inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600 ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                      disabled={isLoading}
                   >
-                    Save Changes
+                    {isLoading ? 'Saving...' : 'Save Changes'}
                   </button>
                 </div>
               </form>

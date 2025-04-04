@@ -17,47 +17,25 @@ export default function ListenerDashboard() {
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(80)
   const [isLive, setIsLive] = useState(false)
-  const [nextBroadcast, setNextBroadcast] = useState({
-    title: "Morning Show with DJ Smith",
-    date: "2025-03-05",
-    time: "10:00 AM",
-  })
+  const [nextBroadcast, setNextBroadcast] = useState(null)
 
   // Chat state
   const [chatMessage, setChatMessage] = useState("")
-  const [chatMessages, setChatMessages] = useState([
-    { id: 1, user: "listener123", message: "Great song choice!", time: "3:42 PM" },
-    { id: 2, user: "musicfan45", message: "Can you play some jazz next?", time: "3:44 PM" },
-    { id: 3, user: "WildcatsFan", message: "Go Wildcats!", time: "3:47 PM" },
-  ])
+  const [chatMessages, setChatMessages] = useState([])
 
   // Song request state
   const [songRequest, setSongRequest] = useState({ song: "", artist: "" })
 
   // Poll state
-  const [currentPoll, setCurrentPoll] = useState({
-    question: "What genre should we play next?",
-    options: [
-      { id: 1, text: "Pop", votes: 7 },
-      { id: 2, text: "Rock", votes: 5 },
-      { id: 3, text: "Hip Hop", votes: 12 },
-      { id: 4, text: "Electronic", votes: 3 },
-    ],
-    totalVotes: 27,
-    userVoted: false,
-    userVotedFor: null,
-  })
+  const [currentPoll, setCurrentPoll] = useState(null)
 
   // Tabs state for interaction section
   const [activeTab, setActiveTab] = useState("chat") // 'chat', 'request', 'poll'
 
-  // Check if a broadcast is live (this would come from your backend in a real app)
+  // Check if a broadcast is live
   useEffect(() => {
     const checkBroadcastStatus = () => {
-      // Mock API call to check if broadcast is live
-      setTimeout(() => {
-        setIsLive(Math.random() > 0.5) // Randomly set live status for demo
-      }, 1000)
+      // Should fetch broadcast status from API
     }
 
     checkBroadcastStatus()
@@ -116,10 +94,12 @@ export default function ListenerDashboard() {
 
   // Handle poll vote
   const handlePollVote = (optionId) => {
-    if (currentPoll.userVoted) return
+    if (!currentPoll || currentPoll.userVoted) return
 
     // In a real app, you would send this to your backend
     setCurrentPoll((prev) => {
+      if (!prev) return prev;
+
       const updatedOptions = prev.options.map((option) =>
           option.id === optionId ? { ...option, votes: option.votes + 1 } : option,
       )
@@ -202,9 +182,13 @@ export default function ListenerDashboard() {
                 ) : (
                     <div>
                       <p>No broadcast currently active</p>
-                      <p className="mt-2 text-sm">
-                        Next broadcast: {nextBroadcast.title} on {nextBroadcast.date} at {nextBroadcast.time}
-                      </p>
+                      {nextBroadcast ? (
+                        <p className="mt-2 text-sm">
+                          Next broadcast: {nextBroadcast.title} on {nextBroadcast.date} at {nextBroadcast.time}
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-sm">No upcoming broadcasts scheduled</p>
+                      )}
                     </div>
                 )}
               </div>
@@ -399,51 +383,55 @@ export default function ListenerDashboard() {
                   {activeTab === "poll" && (
                       <div>
                         <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">DJ Poll</h3>
-                        <div className="mb-6">
-                          <h4 className="text-md font-medium text-gray-800 dark:text-gray-200 mb-3">
-                            {currentPoll.question}
-                          </h4>
-                          <div className="space-y-3">
-                            {currentPoll.options.map((option) => {
-                              const percentage = Math.round((option.votes / currentPoll.totalVotes) * 100) || 0
-                              return (
-                                  <div key={option.id} className="space-y-1">
-                                    <button
-                                        onClick={() => handlePollVote(option.id)}
-                                        disabled={currentPoll.userVoted || !isLive}
-                                        className={`w-full text-left p-2 rounded-md ${
-                                            currentPoll.userVotedFor === option.id
-                                                ? "bg-maroon-100 dark:bg-maroon-900/30 border border-maroon-500"
-                                                : currentPoll.userVoted
-                                                    ? "bg-gray-100 dark:bg-gray-700"
-                                                    : isLive
-                                                        ? "bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"
-                                                        : "bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
-                                        }`}
-                                    >
-                                      <div className="flex justify-between items-center">
-                                  <span className="text-sm font-medium text-gray-900 dark:text-white">
-                                    {option.text}
-                                  </span>
-                                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                                    {percentage}% ({option.votes})
-                                  </span>
+                        {currentPoll ? (
+                          <div className="mb-6">
+                            <h4 className="text-md font-medium text-gray-800 dark:text-gray-200 mb-3">
+                              {currentPoll.question}
+                            </h4>
+                            <div className="space-y-3">
+                              {currentPoll.options.map((option) => {
+                                const percentage = Math.round((option.votes / currentPoll.totalVotes) * 100) || 0
+                                return (
+                                    <div key={option.id} className="space-y-1">
+                                      <button
+                                          onClick={() => handlePollVote(option.id)}
+                                          disabled={currentPoll.userVoted || !isLive}
+                                          className={`w-full text-left p-2 rounded-md ${
+                                              currentPoll.userVotedFor === option.id
+                                                  ? "bg-maroon-100 dark:bg-maroon-900/30 border border-maroon-500"
+                                                  : currentPoll.userVoted
+                                                      ? "bg-gray-100 dark:bg-gray-700"
+                                                      : isLive
+                                                          ? "bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                                          : "bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
+                                          }`}
+                                      >
+                                        <div className="flex justify-between items-center">
+                                    <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                      {option.text}
+                                    </span>
+                                          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                                      {percentage}% ({option.votes})
+                                    </span>
+                                        </div>
+                                      </button>
+                                      <div className="h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-maroon-700 dark:bg-yellow-500"
+                                            style={{ width: `${percentage}%` }}
+                                        ></div>
                                       </div>
-                                    </button>
-                                    <div className="h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
-                                      <div
-                                          className="h-full bg-maroon-700 dark:bg-yellow-500"
-                                          style={{ width: `${percentage}%` }}
-                                      ></div>
                                     </div>
-                                  </div>
-                              )
-                            })}
+                                )
+                              })}
+                            </div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-right">
+                              Total votes: {currentPoll.totalVotes}
+                            </p>
                           </div>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-right">
-                            Total votes: {currentPoll.totalVotes}
-                          </p>
-                        </div>
+                        ) : (
+                          <p className="text-gray-500 dark:text-gray-400 text-center py-4">No active polls</p>
+                        )}
                         {!isLive && (
                             <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
                               Active polls will appear during live broadcasts

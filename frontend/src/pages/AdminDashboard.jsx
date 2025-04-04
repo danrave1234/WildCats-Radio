@@ -8,23 +8,17 @@ import {
 } from '@heroicons/react/24/outline';
 
 const AdminDashboard = () => {
-  const [users, setUsers] = useState([
-    { id: 1, username: 'admin', email: 'admin@wildcats.edu', role: 'ADMIN' },
-    { id: 2, username: 'dj_smith', email: 'dj.smith@wildcats.edu', role: 'DJ' },
-    { id: 3, username: 'dj_chen', email: 'dj.chen@wildcats.edu', role: 'DJ' },
-    { id: 4, username: 'listener123', email: 'listener123@wildcats.edu', role: 'LISTENER' },
-    { id: 5, username: 'musicfan45', email: 'musicfan45@wildcats.edu', role: 'LISTENER' },
-  ]);
-  
+  const [users, setUsers] = useState([]);
+
   const [stats, setStats] = useState({
-    totalUsers: 5,
-    totalDJs: 2,
-    totalListeners: 2,
-    totalBroadcasts: 12,
-    activeBroadcasts: 1,
-    scheduledBroadcasts: 4
+    totalUsers: 0,
+    totalDJs: 0,
+    totalListeners: 0,
+    totalBroadcasts: 0,
+    activeBroadcasts: 0,
+    scheduledBroadcasts: 0
   });
-  
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [newUser, setNewUser] = useState({
     username: '',
@@ -53,7 +47,7 @@ const AdminDashboard = () => {
       email: newUser.email,
       role: newUser.role
     };
-    
+
     setUsers([...users, createdUser]);
     setNewUser({
       username: '',
@@ -61,7 +55,7 @@ const AdminDashboard = () => {
       role: 'LISTENER',
       password: ''
     });
-    
+
     alert('User created successfully!');
   };
 
@@ -69,7 +63,7 @@ const AdminDashboard = () => {
     <div className="container mx-auto px-4">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">Admin Dashboard</h1>
-        
+
         <div className="flex flex-col md:flex-row gap-8">
           {/* Sidebar */}
           <div className="md:w-64 flex-shrink-0">
@@ -130,14 +124,14 @@ const AdminDashboard = () => {
               </nav>
             </div>
           </div>
-          
+
           {/* Main Content */}
           <div className="flex-1">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
               {activeTab === 'dashboard' && (
                 <div className="p-6">
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">System Overview</h2>
-                  
+
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg">
                       <div className="flex items-center justify-between">
@@ -148,7 +142,7 @@ const AdminDashboard = () => {
                         <UserGroupIcon className="h-10 w-10 text-blue-500 dark:text-blue-300" />
                       </div>
                     </div>
-                    
+
                     <div className="bg-purple-50 dark:bg-purple-900 p-4 rounded-lg">
                       <div className="flex items-center justify-between">
                         <div>
@@ -158,7 +152,7 @@ const AdminDashboard = () => {
                         <UserIcon className="h-10 w-10 text-purple-500 dark:text-purple-300" />
                       </div>
                     </div>
-                    
+
                     <div className="bg-green-50 dark:bg-green-900 p-4 rounded-lg">
                       <div className="flex items-center justify-between">
                         <div>
@@ -169,7 +163,7 @@ const AdminDashboard = () => {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
                     <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">System Status</h3>
                     <div className="space-y-4">
@@ -195,11 +189,11 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               )}
-              
+
               {activeTab === 'users' && (
                 <div className="p-6">
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">User Management</h2>
-                  
+
                   {/* Create New User Form */}
                   <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg mb-6">
                     <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Create New User</h3>
@@ -274,7 +268,7 @@ const AdminDashboard = () => {
                       </div>
                     </form>
                   </div>
-                  
+
                   {/* User Table */}
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -335,18 +329,18 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               )}
-              
+
               {activeTab === 'broadcasts' && (
                 <div className="p-6">
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Broadcast Management</h2>
                   <p className="text-gray-600 dark:text-gray-300">Manage all broadcasts, including live and scheduled broadcasts.</p>
                 </div>
               )}
-              
+
               {activeTab === 'schedule' && (
                 <div className="p-6">
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Schedule Management</h2>
-                  
+
                   <div className="bg-yellow-50 dark:bg-yellow-900/30 p-4 rounded-lg mb-6">
                     <div className="flex items-start">
                       <div className="flex-shrink-0">
@@ -364,39 +358,17 @@ const AdminDashboard = () => {
                       </div>
                     </div>
                   </div>
-                  
+
                   <p className="text-gray-600 dark:text-gray-300 mb-6">
                     As an admin, you can create and manage broadcast schedules. The schedule is shared with DJs, who can also add their own broadcasts.
                   </p>
-                  
+
                   {/* Schedule management interface would go here */}
                   <div className="bg-white dark:bg-gray-700 shadow rounded-lg p-4">
                     <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Upcoming Broadcasts</h3>
                     <div className="space-y-4">
-                      <div className="border-l-4 border-green-500 pl-4 py-2">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">Morning Show with DJ Smith</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">Monday, 8:00 AM - 10:00 AM</p>
-                          </div>
-                          <div className="flex space-x-2">
-                            <button className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300">Edit</button>
-                            <button className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300">Delete</button>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="border-l-4 border-blue-500 pl-4 py-2">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">Jazz Hour with DJ Chen</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">Tuesday, 6:00 PM - 7:00 PM</p>
-                          </div>
-                          <div className="flex space-x-2">
-                            <button className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300">Edit</button>
-                            <button className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300">Delete</button>
-                          </div>
-                        </div>
-                      </div>
+                      {/* Broadcasts should be fetched from API and mapped here */}
+                      <p className="text-gray-500 dark:text-gray-400 text-center py-4">No broadcasts scheduled</p>
                     </div>
                   </div>
                 </div>

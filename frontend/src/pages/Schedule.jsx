@@ -20,49 +20,8 @@ export default function Schedule() {
   const [showBroadcastDetails, setShowBroadcastDetails] = useState(false)
   const [currentMonth, setCurrentMonth] = useState(new Date())
 
-  // Mock data for upcoming broadcasts
-  const [upcomingBroadcasts, setUpcomingBroadcasts] = useState([
-    {
-      id: 1,
-      title: "Morning Show with DJ Smith",
-      description: "Wake up with the latest hits and campus news!",
-      dj: "Alex Smith",
-      date: "2025-03-05",
-      startTime: "10:00 AM",
-      endTime: "12:00 PM",
-      details: "Will be playing top 40 hits and taking requests. Special segment on campus events at 11:00 AM.",
-    },
-    {
-      id: 2,
-      title: "Afternoon Chill",
-      description: "Relax with smooth beats and minimal talk.",
-      dj: "Jamie Chen",
-      date: "2025-03-05",
-      startTime: "2:00 PM",
-      endTime: "4:00 PM",
-      details: "Lo-fi and chill beats. Will feature a 30-minute deep focus mix at 3:00 PM.",
-    },
-    {
-      id: 3,
-      title: "Evening Sports Talk",
-      description: "Discussing the latest in college sports.",
-      dj: "Chris Johnson",
-      date: "2025-03-06",
-      startTime: "6:00 PM",
-      endTime: "8:00 PM",
-      details: "Covering the basketball tournament and taking calls from listeners about predictions.",
-    },
-    {
-      id: 4,
-      title: "Late Night Study Beats",
-      description: "Focus music to help you study through the night.",
-      dj: "Taylor Wong",
-      date: "2025-03-07",
-      startTime: "10:00 PM",
-      endTime: "1:00 AM",
-      details: "Three hours of uninterrupted instrumental music. Perfect for late-night study sessions.",
-    },
-  ])
+  // Broadcasts data - should be fetched from API
+  const [upcomingBroadcasts, setUpcomingBroadcasts] = useState([])
 
   // Broadcast details form state
   const [broadcastDetails, setBroadcastDetails] = useState({
@@ -74,16 +33,12 @@ export default function Schedule() {
     details: "",
   })
 
-  // Check user role (in a real app, this would be from authentication)
+  // Check user role from authentication
   useEffect(() => {
-    // Mock check - in a real app, this would come from your auth system
     const checkUserRole = async () => {
-      // Simulate API call
-      setTimeout(() => {
-        // Get role from localStorage (set during login)
-        const role = localStorage.getItem("userRole") || "LISTENER"
-        setUserRole(role)
-      }, 500)
+      // Get role from localStorage (set during login)
+      const role = localStorage.getItem("userRole") || "LISTENER"
+      setUserRole(role)
     }
 
     checkUserRole()
@@ -635,4 +590,3 @@ export default function Schedule() {
       </div>
   )
 }
-
