@@ -39,7 +39,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/verify", "/api/auth/send-code").permitAll()
                 .requestMatchers("/api/broadcasts/live").permitAll() // Allow public access to check live broadcasts
                 .requestMatchers("/api/broadcasts/upcoming").permitAll() // Allow public access to upcoming schedule
-                .requestMatchers("/favicon.ico", "/error").permitAll() // Allow public access to favicon.ico and error pages
+                .requestMatchers("/error").permitAll() // Allow public access to error pages
                 .anyRequest().authenticated()
             )
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
