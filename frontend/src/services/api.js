@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { handleSecuritySoftwareErrors } from './errorHandler';
 
 // Create axios instance with base URL pointing to our backend
 const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.herokuapp.com/api';
@@ -20,6 +21,12 @@ api.interceptors.request.use(
     return config;
   },
   (error) => Promise.reject(error)
+);
+
+// Add a response interceptor to handle errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => handleSecuritySoftwareErrors(error)
 );
 
 // Services for user authentication
