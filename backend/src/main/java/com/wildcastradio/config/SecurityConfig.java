@@ -24,12 +24,12 @@ public class SecurityConfig {
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
-    
+
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration) throws Exception {
         return authenticationConfiguration.getAuthenticationManager();
     }
-    
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         // Disable CSRF for API calls and configure stateless session management
@@ -39,13 +39,14 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/verify", "/api/auth/send-code").permitAll()
                 .requestMatchers("/api/broadcasts/live").permitAll() // Allow public access to check live broadcasts
                 .requestMatchers("/api/broadcasts/upcoming").permitAll() // Allow public access to upcoming schedule
+                .requestMatchers("/favicon.ico", "/error").permitAll() // Allow public access to favicon.ico and error pages
                 .anyRequest().authenticated()
             )
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
-            
+
         // Add JWT filter before the standard authentication filter
         http.addFilterBefore(jwtRequestFilter, UsernamePasswordAuthenticationFilter.class);
-                
+
         return http.build();
     }
 } 
