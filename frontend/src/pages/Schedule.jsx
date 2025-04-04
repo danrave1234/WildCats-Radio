@@ -12,6 +12,14 @@ import {
   PlusCircleIcon,
 } from "@heroicons/react/24/outline"
 
+// Cookie helper function
+const getCookie = (name) => {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
+  return null;
+};
+
 export default function Schedule() {
   const [viewType, setViewType] = useState("calendar") // 'calendar' or 'list'
   const [userRole, setUserRole] = useState("LISTENER") // In a real app, this would come from auth state
@@ -36,8 +44,8 @@ export default function Schedule() {
   // Check user role from authentication
   useEffect(() => {
     const checkUserRole = async () => {
-      // Get role from localStorage (set during login)
-      const role = localStorage.getItem("userRole") || "LISTENER"
+      // Get role from cookies (set during login)
+      const role = getCookie("userRole") || "LISTENER"
       setUserRole(role)
     }
 

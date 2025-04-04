@@ -4,6 +4,14 @@ import { handleSecuritySoftwareErrors } from './errorHandler';
 // Create axios instance with base URL pointing to our backend
 const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.herokuapp.com/api';
 
+// Cookie helper function
+const getCookie = (name) => {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
+  return null;
+};
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -14,7 +22,7 @@ const api = axios.create({
 // Add a request interceptor to include authentication token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = getCookie('token');
     if (token) {
       config.headers['Authorization'] = `Bearer ${token}`;
     }

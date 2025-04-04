@@ -7,16 +7,33 @@ export const AuthContext = createContext();
 // Custom hook to use the auth context
 export const useAuth = () => useContext(AuthContext);
 
+// Cookie helper functions
+const setCookie = (name, value, days = 7) => {
+  const expires = new Date(Date.now() + days * 864e5).toUTCString();
+  document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + expires + '; path=/; SameSite=Strict';
+};
+
+const getCookie = (name) => {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
+  return null;
+};
+
+const removeCookie = (name) => {
+  document.cookie = name + '=; Max-Age=-99999999; path=/';
+};
+
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token') || null);
+  const [token, setToken] = useState(getCookie('token') || null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     // Check if user is already logged in
     const checkAuthStatus = async () => {
-      const storedToken = localStorage.getItem('token');
+      const storedToken = getCookie('token');
 
       if (storedToken) {
         try {
@@ -26,13 +43,13 @@ export const AuthProvider = ({ children }) => {
           setToken(storedToken);
 
           // Update stored user ID and role from the current user data
-          localStorage.setItem('userId', response.data.id);
-          localStorage.setItem('userRole', response.data.role);
+          setCookie('userId', response.data.id);
+          setCookie('userRole', response.data.role);
         } catch (err) {
           // Token is invalid or expired
-          localStorage.removeItem('token');
-          localStorage.removeItem('userId');
-          localStorage.removeItem('userRole');
+          removeCookie('token');
+          removeCookie('userId');
+          removeCookie('userRole');
           setToken(null);
           setCurrentUser(null);
           setError('Session expired. Please log in again.');
@@ -54,9 +71,9 @@ export const AuthProvider = ({ children }) => {
       const response = await authService.login(credentials);
       const { token, user } = response.data;
 
-      localStorage.setItem('token', token);
-      localStorage.setItem('userId', user.id);
-      localStorage.setItem('userRole', user.role);
+      setCookie('token', token);
+      setCookie('userId', user.id);
+      setCookie('userRole', user.role);
 
       setToken(token);
       setCurrentUser(user);
@@ -153,10 +170,10 @@ export const AuthProvider = ({ children }) => {
 
   // Logout function
   const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('userId');
-    localStorage.removeItem('userRole');
-    localStorage.removeItem('isAuthenticated');
+    removeCookie('token');
+    removeCookie('userId');
+    removeCookie('userRole');
+    removeCookie('isAuthenticated');
     setToken(null);
     setCurrentUser(null);
   };
