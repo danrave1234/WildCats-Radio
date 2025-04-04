@@ -1,7 +1,7 @@
 package com.wildcastradio.ServerSchedule;
 
 import java.time.DayOfWeek;
-import java.time.LocalTime;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,8 +14,8 @@ public interface ServerScheduleRepository extends JpaRepository<ServerScheduleEn
     List<ServerScheduleEntity> findByCreatedBy(UserEntity createdBy);
     List<ServerScheduleEntity> findByStatus(ServerScheduleEntity.ServerStatus status);
     List<ServerScheduleEntity> findByDayOfWeek(DayOfWeek dayOfWeek);
-    List<ServerScheduleEntity> findByDayOfWeekAndScheduledStartBefore(DayOfWeek dayOfWeek, LocalTime time);
-    List<ServerScheduleEntity> findByDayOfWeekAndScheduledEndBefore(DayOfWeek dayOfWeek, LocalTime time);
-    List<ServerScheduleEntity> findByDayOfWeekAndScheduledStartBetween(DayOfWeek dayOfWeek, LocalTime start, LocalTime end);
+    List<ServerScheduleEntity> findByDayOfWeekAndScheduledStartBefore(DayOfWeek dayOfWeek, LocalDateTime time);
+    List<ServerScheduleEntity> findByDayOfWeekAndScheduledEndBefore(DayOfWeek dayOfWeek, LocalDateTime time);
+    List<ServerScheduleEntity> findByDayOfWeekAndScheduledStartBetween(DayOfWeek dayOfWeek, LocalDateTime start, LocalDateTime end);
     List<ServerScheduleEntity> findByStatusAndAutomaticIsTrue(ServerScheduleEntity.ServerStatus status);
 }

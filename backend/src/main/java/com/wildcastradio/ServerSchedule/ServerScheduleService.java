@@ -2,7 +2,6 @@ package com.wildcastradio.ServerSchedule;
 
 import java.time.DayOfWeek;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -100,10 +99,11 @@ public class ServerScheduleService {
 
     public ServerScheduleEntity manualStartServer(UserEntity user) {
         // Create an ad-hoc schedule for manual start
+        LocalDateTime now = LocalDateTime.now();
         ServerScheduleEntity schedule = new ServerScheduleEntity();
-        schedule.setDayOfWeek(LocalDateTime.now().getDayOfWeek());
-        schedule.setScheduledStart(LocalTime.now());
-        schedule.setScheduledEnd(LocalTime.now().plusHours(1)); // Default to 1 hour duration
+        schedule.setDayOfWeek(now.getDayOfWeek());
+        schedule.setScheduledStart(now);
+        schedule.setScheduledEnd(now.plusHours(1)); // Default to 1 hour duration
         schedule.setStatus(ServerScheduleEntity.ServerStatus.RUNNING);
         schedule.setAutomatic(false);
         schedule.setCreatedBy(user);
@@ -131,10 +131,11 @@ public class ServerScheduleService {
         }
 
         // Create a record of manual stop
+        LocalDateTime now = LocalDateTime.now();
         ServerScheduleEntity manualStop = new ServerScheduleEntity();
-        manualStop.setDayOfWeek(LocalDateTime.now().getDayOfWeek());
-        manualStop.setScheduledStart(LocalTime.now());
-        manualStop.setScheduledEnd(LocalTime.now());
+        manualStop.setDayOfWeek(now.getDayOfWeek());
+        manualStop.setScheduledStart(now);
+        manualStop.setScheduledEnd(now);
         manualStop.setStatus(ServerScheduleEntity.ServerStatus.OFF);
         manualStop.setAutomatic(false);
         manualStop.setCreatedBy(user);
@@ -157,8 +158,8 @@ public class ServerScheduleService {
 
     @Scheduled(fixedRate = 60000) // Run every minute
     public void checkSchedules() {
-        LocalTime now = LocalTime.now();
-        DayOfWeek today = LocalDateTime.now().getDayOfWeek();
+        LocalDateTime now = LocalDateTime.now();
+        DayOfWeek today = now.getDayOfWeek();
 
         // Find schedules for today that should be started
         List<ServerScheduleEntity> schedulesToStart = serverScheduleRepository.findByDayOfWeek(today);

@@ -1,7 +1,7 @@
 package com.wildcastradio.ServerSchedule;
 
 import java.time.DayOfWeek;
-import java.time.LocalTime;
+import java.time.LocalDateTime;
 
 import com.wildcastradio.User.UserEntity;
 
@@ -29,10 +29,10 @@ public class ServerScheduleEntity {
     private DayOfWeek dayOfWeek;
 
     @Column
-    private LocalTime scheduledStart;
+    private LocalDateTime scheduledStart;
 
     @Column
-    private LocalTime scheduledEnd;
+    private LocalDateTime scheduledEnd;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -56,7 +56,7 @@ public class ServerScheduleEntity {
     public ServerScheduleEntity() {
     }
 
-    public ServerScheduleEntity(DayOfWeek dayOfWeek, LocalTime scheduledStart, LocalTime scheduledEnd, 
+    public ServerScheduleEntity(DayOfWeek dayOfWeek, LocalDateTime scheduledStart, LocalDateTime scheduledEnd, 
                                ServerStatus status, boolean automatic, 
                                ServerStatus redundantStatus, boolean redundantEnabled, 
                                UserEntity createdBy) {
@@ -87,19 +87,19 @@ public class ServerScheduleEntity {
         this.dayOfWeek = dayOfWeek;
     }
 
-    public LocalTime getScheduledStart() {
+    public LocalDateTime getScheduledStart() {
         return scheduledStart;
     }
 
-    public void setScheduledStart(LocalTime scheduledStart) {
+    public void setScheduledStart(LocalDateTime scheduledStart) {
         this.scheduledStart = scheduledStart;
     }
 
-    public LocalTime getScheduledEnd() {
+    public LocalDateTime getScheduledEnd() {
         return scheduledEnd;
     }
 
-    public void setScheduledEnd(LocalTime scheduledEnd) {
+    public void setScheduledEnd(LocalDateTime scheduledEnd) {
         this.scheduledEnd = scheduledEnd;
     }
 
