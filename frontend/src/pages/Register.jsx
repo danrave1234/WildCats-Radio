@@ -29,9 +29,9 @@ export default function Register() {
     e.preventDefault()
     setError("")
 
-    // Validate email is from wildcats.edu domain
-    if (!formData.email.endsWith('@wildcats.edu')) {
-      setError('Only wildcats.edu email addresses are allowed to register')
+    // Validate email is from cit.edu domain
+    if (!formData.email.endsWith('@cit.edu')) {
+      setError('Only cit.edu email addresses are allowed to register')
       return
     }
 
@@ -50,10 +50,10 @@ export default function Register() {
     try {
       // Remove confirmPassword before sending to backend
       const { confirmPassword, ...registerData } = formData
-      
+
       // Call the register function from AuthContext
       await register(registerData)
-      
+
       // Redirect to login page after successful registration
       navigate('/login')
     } catch (err) {
@@ -103,7 +103,7 @@ export default function Register() {
                 value={formData.email}
                 onChange={handleChange}
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 dark:text-white dark:bg-gray-700 dark:border-gray-600 focus:outline-none focus:ring-maroon-600 focus:border-maroon-600 focus:z-10 sm:text-sm"
-                placeholder="Email address (wildcats.edu domain only)"
+                placeholder="Email address (cit.edu domain only)"
               />
             </div>
             <div>
@@ -176,7 +176,7 @@ export default function Register() {
               {loading ? 'Creating account...' : 'Sign up'}
             </button>
           </div>
-          
+
           <div className="text-center">
             <p className="text-sm text-gray-600 dark:text-gray-400">
               Already have an account?{' '}
