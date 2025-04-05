@@ -5,6 +5,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -14,6 +16,7 @@ import com.wildcastradio.User.UserEntity;
 
 @Service
 public class ServerScheduleService {
+    private static final Logger logger = LoggerFactory.getLogger(ServerScheduleService.class);
 
     private final ServerScheduleRepository serverScheduleRepository;
     private final ActivityLogService activityLogService;
@@ -26,14 +29,20 @@ public class ServerScheduleService {
     }
 
     public ServerScheduleEntity scheduleServerRun(ServerScheduleEntity serverSchedule, UserEntity dj) {
+        logger.info("Scheduling server run for day: {}, start: {}, end: {}", 
+                serverSchedule.getDayOfWeek(), serverSchedule.getScheduledStart(), serverSchedule.getScheduledEnd());
+
         // Validate required fields
         if (serverSchedule.getDayOfWeek() == null) {
+            logger.error("Failed to schedule server run: Day of week is required");
             throw new IllegalArgumentException("Day of week is required");
         }
         if (serverSchedule.getScheduledStart() == null) {
+            logger.error("Failed to schedule server run: Scheduled start time is required");
             throw new IllegalArgumentException("Scheduled start time is required");
         }
         if (serverSchedule.getScheduledEnd() == null) {
+            logger.error("Failed to schedule server run: Scheduled end time is required");
             throw new IllegalArgumentException("Scheduled end time is required");
         }
 
@@ -42,6 +51,8 @@ public class ServerScheduleService {
         // Ensure all schedules are automatic
         serverSchedule.setAutomatic(true);
         ServerScheduleEntity savedSchedule = serverScheduleRepository.save(serverSchedule);
+
+        logger.info("Server run scheduled successfully with ID: {}", savedSchedule.getId());
 
         // Log the activity
         activityLogService.logActivity(
@@ -55,16 +66,24 @@ public class ServerScheduleService {
     }
 
     public ServerScheduleEntity startServer(Long scheduleId) {
+        logger.info("Starting server for schedule ID: {}", scheduleId);
+
         ServerScheduleEntity schedule = serverScheduleRepository.findById(scheduleId)
-                .orElseThrow(() -> new RuntimeException("Schedule not found"));
+                .orElseThrow(() -> {
+                    logger.error("Failed to start server: Schedule not found with ID: {}", scheduleId);
+                    return new RuntimeException("Schedule not found");
+                });
 
         schedule.setStatus(ServerScheduleEntity.ServerStatus.RUNNING);
+        logger.info("Setting server status to RUNNING for schedule ID: {}", scheduleId);
 
         if (schedule.isRedundantEnabled()) {
             schedule.setRedundantStatus(ServerScheduleEntity.ServerStatus.RUNNING);
+            logger.info("Redundant server is enabled, setting redundant status to RUNNING");
         }
 
         ServerScheduleEntity updatedSchedule = serverScheduleRepository.save(schedule);
+        logger.info("Server started successfully for schedule ID: {}", scheduleId);
 
         // Log the activity
         if (schedule.getCreatedBy() != null) {
@@ -79,13 +98,20 @@ public class ServerScheduleService {
     }
 
     public ServerScheduleEntity stopServer(Long scheduleId) {
+        logger.info("Stopping server for schedule ID: {}", scheduleId);
+
         ServerScheduleEntity schedule = serverScheduleRepository.findById(scheduleId)
-                .orElseThrow(() -> new RuntimeException("Schedule not found"));
+                .orElseThrow(() -> {
+                    logger.error("Failed to stop server: Schedule not found with ID: {}", scheduleId);
+                    return new RuntimeException("Schedule not found");
+                });
 
         schedule.setStatus(ServerScheduleEntity.ServerStatus.OFF);
         schedule.setRedundantStatus(ServerScheduleEntity.ServerStatus.OFF);
+        logger.info("Setting server status and redundant status to OFF for schedule ID: {}", scheduleId);
 
         ServerScheduleEntity updatedSchedule = serverScheduleRepository.save(schedule);
+        logger.info("Server stopped successfully for schedule ID: {}", scheduleId);
 
         // Log the activity
         if (schedule.getCreatedBy() != null) {
@@ -155,35 +181,46 @@ public class ServerScheduleService {
 
     public boolean isServerRunning() {
         List<ServerScheduleEntity> runningSchedules = serverScheduleRepository.findByStatus(ServerScheduleEntity.ServerStatus.RUNNING);
-        return !runningSchedules.isEmpty();
+        boolean isRunning = !runningSchedules.isEmpty();
+        logger.info("Checking if server is running: {}", isRunning);
+        return isRunning;
     }
 
     @Scheduled(fixedRate = 60000) // Run every minute
     public void checkSchedules() {
+        logger.debug("Running scheduled check for server schedules");
         LocalDateTime now = LocalDateTime.now();
         DayOfWeek today = now.getDayOfWeek();
 
         // Find schedules for today that should be started
         List<ServerScheduleEntity> schedulesToStart = serverScheduleRepository.findByDayOfWeek(today);
+        logger.debug("Found {} schedules for today ({})", schedulesToStart.size(), today);
+
         for (ServerScheduleEntity schedule : schedulesToStart) {
             if (schedule.getStatus() == ServerScheduleEntity.ServerStatus.SCHEDULED &&
                 schedule.isAutomatic() &&
                 schedule.getScheduledStart() != null && 
                 schedule.getScheduledStart().isBefore(now)) {
+                logger.info("Auto-starting scheduled server with ID: {}", schedule.getId());
                 startServer(schedule.getId());
             }
         }
 
         // Find schedules for today that should be stopped
         List<ServerScheduleEntity> schedulesToStop = serverScheduleRepository.findByStatus(ServerScheduleEntity.ServerStatus.RUNNING);
+        logger.debug("Found {} running schedules to check for auto-stop", schedulesToStop.size());
+
         for (ServerScheduleEntity schedule : schedulesToStop) {
             if (schedule.getDayOfWeek() == today &&
                 schedule.getScheduledEnd() != null && 
                 schedule.getScheduledEnd().isBefore(now) && 
                 schedule.isAutomatic()) {
+                logger.info("Auto-stopping scheduled server with ID: {}", schedule.getId());
                 stopServer(schedule.getId());
             }
         }
+
+        logger.debug("Completed scheduled check for server schedules");
     }
 
     @Scheduled(fixedRate = 30000) // Run health check every 30 seconds

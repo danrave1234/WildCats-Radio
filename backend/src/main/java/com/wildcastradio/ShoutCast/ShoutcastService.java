@@ -48,15 +48,15 @@ public class ShoutcastService {
     }
 
     /**
-     * Starts a stream on the Shoutcast DNAS server
+     * Starts a stream on the ShoutCast DNAS server
      * 
      * @param broadcast The broadcast entity for which to start the stream
      * @return The stream URL that clients can use to connect
      */
     public String startStream(BroadcastEntity broadcast) {
         try {
-            // For Shoutcast, typically we need to make an admin request to start the stream
-            // This is a simplified example - real implementation would depend on Shoutcast API
+            // For ShoutCast, typically we need to make an admin request to start the stream
+            // This is a simplified example - real implementation would depend on ShoutCast API
             String startStreamUrl = String.format("http://%s:%d/admin.cgi", 
                     serverUrl, serverPort);
 
@@ -82,7 +82,7 @@ public class ShoutcastService {
             );
 
             // Log response for debugging
-            logger.info("Shoutcast stream start response: {}", response.getStatusCode());
+            logger.info("ShoutCast stream start response: {}", response.getStatusCode());
 
             if (response.getStatusCode().is2xxSuccessful()) {
                 String streamUrl = String.format("http://%s:%d%s", serverUrl, serverPort, mountPoint);
@@ -93,23 +93,23 @@ public class ShoutcastService {
 
                 return streamUrl;
             } else {
-                logger.error("Failed to start Shoutcast stream: {}", response.getBody());
-                throw new RuntimeException("Failed to start Shoutcast stream");
+                logger.error("Failed to start ShoutCast stream: {}", response.getBody());
+                throw new RuntimeException("Failed to start ShoutCast stream");
             }
         } catch (RestClientException e) {
-            logger.error("Error starting Shoutcast stream", e);
-            throw new RuntimeException("Error starting Shoutcast stream", e);
+            logger.error("Error starting ShoutCast stream", e);
+            throw new RuntimeException("Error starting ShoutCast stream", e);
         }
     }
 
     /**
-     * Ends a stream on the Shoutcast DNAS server
+     * Ends a stream on the ShoutCast DNAS server
      * 
      * @param broadcast The broadcast entity for which to end the stream
      */
     public void endStream(BroadcastEntity broadcast) {
         try {
-            // For Shoutcast, typically we need to make an admin request to stop the stream
+            // For ShoutCast, typically we need to make an admin request to stop the stream
             String stopStreamUrl = String.format("http://%s:%d/admin.cgi", 
                     serverUrl, serverPort);
 
@@ -135,22 +135,22 @@ public class ShoutcastService {
             );
 
             // Log response for debugging
-            logger.info("Shoutcast stream stop response: {}", response.getStatusCode());
+            logger.info("ShoutCast stream stop response: {}", response.getStatusCode());
 
             if (response.getStatusCode().is4xxClientError()) {
-                logger.error("Failed to stop Shoutcast stream: {}", response.getBody());
-                throw new RuntimeException("Failed to stop Shoutcast stream");
+                logger.error("Failed to stop ShoutCast stream: {}", response.getBody());
+                throw new RuntimeException("Failed to stop ShoutCast stream");
             }
 
             logger.info("Stream stopped successfully");
         } catch (RestClientException e) {
-            logger.error("Error stopping Shoutcast stream", e);
-            throw new RuntimeException("Error stopping Shoutcast stream", e);
+            logger.error("Error stopping ShoutCast stream", e);
+            throw new RuntimeException("Error stopping ShoutCast stream", e);
         }
     }
 
     /**
-     * Checks if the Shoutcast server is running and accessible
+     * Checks if the ShoutCast server is running and accessible
      * 
      * @return true if the server is accessible, false otherwise
      */
@@ -161,10 +161,10 @@ public class ShoutcastService {
             ResponseEntity<String> response = restTemplate.getForEntity(statusUrl, String.class);
 
             boolean isAccessible = response.getStatusCode().is2xxSuccessful();
-            logger.info("Shoutcast server accessible: {}", isAccessible);
+            logger.info("ShoutCast server accessible: {}", isAccessible);
             return isAccessible;
         } catch (Exception e) {
-            logger.warn("Shoutcast server not accessible", e);
+            logger.warn("ShoutCast server not accessible", e);
             return false;
         }
     }
@@ -182,23 +182,23 @@ public class ShoutcastService {
         );
         streamingConfigService.updateConfig(config);
     }
-    
+
     /**
-     * Test mode method that doesn't try to connect to the actual Shoutcast server.
-     * For use during development when Shoutcast integration is not available.
+     * Test mode method that doesn't try to connect to the actual ShoutCast server.
+     * For use during development when ShoutCast integration is not available.
      * 
      * @param broadcast The broadcast entity for which to simulate starting a stream
      * @return A mock stream URL
      */
     public String getTestStreamUrl(BroadcastEntity broadcast) {
         logger.info("Getting test stream URL for broadcast: {}", broadcast.getTitle());
-        
+
         // Generate a mock stream URL
         String testStreamUrl = String.format("http://test-stream.wildcastradio.example.com/stream/%d", broadcast.getId());
-        
+
         // Log the operation
         logger.info("Test stream URL generated: {}", testStreamUrl);
-        
+
         return testStreamUrl;
     }
 }

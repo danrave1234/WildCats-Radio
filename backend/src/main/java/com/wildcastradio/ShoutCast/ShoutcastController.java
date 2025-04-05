@@ -16,26 +16,26 @@ import org.springframework.web.bind.annotation.RestController;
 public class ShoutcastController {
 
     @Autowired
-    private ShoutcastService shoutcastService;
+    private ShoutcastService shoutCastService;
 
     /**
-     * Check if the Shoutcast server is accessible
+     * Check if the ShoutCast server is accessible
      * 
-     * @return Status of the Shoutcast server
+     * @return Status of the ShoutCast server
      */
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getServerStatus() {
-        boolean isAccessible = shoutcastService.isServerAccessible();
-        
+        boolean isAccessible = shoutCastService.isServerAccessible();
+
         Map<String, Object> response = new HashMap<>();
         response.put("accessible", isAccessible);
         response.put("status", isAccessible ? "UP" : "DOWN");
-        
+
         return ResponseEntity.ok(response);
     }
 
     /**
-     * Test the Shoutcast server by starting a test stream
+     * Test the ShoutCast server by starting a test stream
      * Only accessible to ADMIN or DJ roles
      * 
      * @return Result of the test stream operation
@@ -47,24 +47,24 @@ public class ShoutcastController {
             // Create a dummy broadcast for testing
             com.wildcastradio.Broadcast.BroadcastEntity testBroadcast = new com.wildcastradio.Broadcast.BroadcastEntity();
             testBroadcast.setTitle("Test Stream");
-            
-            String streamUrl = shoutcastService.startStream(testBroadcast);
-            
+
+            String streamUrl = shoutCastService.startStream(testBroadcast);
+
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("streamUrl", streamUrl);
             response.put("message", "Test stream started successfully");
-            
+
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             Map<String, Object> response = new HashMap<>();
             response.put("success", false);
             response.put("error", e.getMessage());
-            
+
             return ResponseEntity.badRequest().body(response);
         }
     }
-    
+
     /**
      * Stop any active test streams
      * Only accessible to ADMIN or DJ roles
@@ -78,20 +78,20 @@ public class ShoutcastController {
             // Create a dummy broadcast for stopping
             com.wildcastradio.Broadcast.BroadcastEntity testBroadcast = new com.wildcastradio.Broadcast.BroadcastEntity();
             testBroadcast.setTitle("Test Stream");
-            
-            shoutcastService.endStream(testBroadcast);
-            
+
+            shoutCastService.endStream(testBroadcast);
+
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("message", "Test stream stopped successfully");
-            
+
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             Map<String, Object> response = new HashMap<>();
             response.put("success", false);
             response.put("error", e.getMessage());
-            
+
             return ResponseEntity.badRequest().body(response);
         }
     }
-} 
+}

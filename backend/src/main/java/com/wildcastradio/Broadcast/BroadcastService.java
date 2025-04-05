@@ -26,7 +26,7 @@ public class BroadcastService {
     private BroadcastRepository broadcastRepository;
 
     @Autowired
-    private ShoutcastService shoutcastService;
+    private ShoutcastService shoutCastService;
 
     @Autowired
     private ServerScheduleService serverScheduleService;
@@ -58,30 +58,28 @@ public class BroadcastService {
             throw new AccessDeniedException("Only the creator DJ can start this broadcast");
         }
 
-        // First check if the Shoutcast server is accessible
-        boolean shoutcastServerAccessible = shoutcastService.isServerAccessible();
+        // Check if the ShoutCast server is accessible
+        boolean shoutCastServerAccessible = shoutCastService.isServerAccessible();
+        // Check if the server schedule is running
+        boolean serverScheduleRunning = serverScheduleService.isServerRunning();
 
-        if (shoutcastServerAccessible) {
-            // If the Shoutcast server is accessible, we can proceed with the broadcast
-            logger.info("Shoutcast server is accessible, proceeding with broadcast");
+        // If either the ShoutCast server is accessible or the server schedule is running, we can proceed
+        if (shoutCastServerAccessible || serverScheduleRunning) {
+            logger.info("Server is available (ShoutCast accessible: {}, Server schedule running: {}), proceeding with broadcast", 
+                    shoutCastServerAccessible, serverScheduleRunning);
 
             // If the server is accessible but not tracked in the database, create a record
-            if (!serverScheduleService.isServerRunning()) {
+            if (shoutCastServerAccessible && !serverScheduleRunning) {
                 logger.info("Creating server schedule record for manually started server");
                 serverScheduleService.startServerNow(dj);
             }
         } else {
-            // If the Shoutcast server is not accessible, check if the server schedule is running
-            boolean serverScheduleRunning = serverScheduleService.isServerRunning();
-
-            if (!serverScheduleRunning) {
-                // If neither the Shoutcast server is accessible nor the server schedule is running, throw an exception
-                throw new IllegalStateException("Server is not running. Please start the server before broadcasting.");
-            }
+            // If neither the ShoutCast server is accessible nor the server schedule is running, throw an exception
+            throw new IllegalStateException("Server is not running. Please start the server before broadcasting.");
         }
 
-        // Start the stream using ShoutcastService
-        String streamUrl = shoutcastService.startStream(broadcast);
+        // Start the stream using ShoutCastService
+        String streamUrl = shoutCastService.startStream(broadcast);
         broadcast.setStreamUrl(streamUrl);
         broadcast.setActualStart(LocalDateTime.now());
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
@@ -110,11 +108,11 @@ public class BroadcastService {
             throw new AccessDeniedException("Only the creator DJ can start this broadcast");
         }
 
-        // Bypass Shoutcast server checks
-        logger.info("Starting broadcast in TEST MODE (Shoutcast integration bypassed)");
+        // Bypass ShoutCast server checks
+        logger.info("Starting broadcast in TEST MODE (ShoutCast integration bypassed)");
 
         // Set a mock stream URL using the test mode method
-        String testStreamUrl = shoutcastService.getTestStreamUrl(broadcast);
+        String testStreamUrl = shoutCastService.getTestStreamUrl(broadcast);
         broadcast.setStreamUrl(testStreamUrl);
         broadcast.setActualStart(LocalDateTime.now());
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
@@ -139,8 +137,8 @@ public class BroadcastService {
             throw new AccessDeniedException("Only the creator DJ can end this broadcast");
         }
 
-        // End the stream using ShoutcastService
-        shoutcastService.endStream(broadcast);
+        // End the stream using ShoutCastService
+        shoutCastService.endStream(broadcast);
         broadcast.setActualEnd(LocalDateTime.now());
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
 
