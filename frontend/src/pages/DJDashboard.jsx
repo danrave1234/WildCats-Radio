@@ -237,6 +237,55 @@ export default function DJDashboard() {
     }
   };
 
+  // Start test broadcast using test mode endpoint
+  const startTestBroadcast = async () => {
+    try {
+      // Check if server is running (even in test mode, we still want to check)
+      const serverStatusResponse = await serverService.getStatus();
+      const isServerRunning = serverStatusResponse.data && serverStatusResponse.data.running;
+
+      if (!isServerRunning) {
+        alert('Server is not running. Please start the server before testing broadcast.');
+        return;
+      }
+
+      // Find a scheduled broadcast to start, or create a new one
+      let broadcastToStart;
+
+      // Look for a scheduled broadcast that hasn't started yet
+      if (broadcasts.length > 0) {
+        broadcastToStart = broadcasts.find(b => b.status === 'SCHEDULED');
+      }
+
+      if (broadcastToStart) {
+        // Start an existing scheduled broadcast in test mode
+        const response = await broadcastService.startTest(broadcastToStart.id);
+        setCurrentBroadcastId(broadcastToStart.id);
+      } else {
+        // Create and start a new broadcast in test mode
+        const newBroadcast = {
+          title: 'Test Broadcast',
+          description: 'Test broadcast started from DJ Dashboard',
+          scheduledStart: new Date().toISOString(),
+          scheduledEnd: new Date(Date.now() + 3600000).toISOString() // 1 hour from now
+        };
+
+        const scheduleResponse = await broadcastService.schedule(newBroadcast);
+        const createdBroadcast = scheduleResponse.data;
+
+        const startResponse = await broadcastService.startTest(createdBroadcast.id);
+        setCurrentBroadcastId(createdBroadcast.id);
+      }
+
+      setIsBroadcasting(true);
+      console.log('Starting TEST broadcast');
+      console.log('Using audio device:', audioInputDevice);
+    } catch (error) {
+      console.error('Error starting test broadcast:', error);
+      alert('There was an error starting the test broadcast. Please try again.');
+    }
+  };
+
   // Handle test broadcast
   const toggleTestMode = () => {
     if (testMode) {
@@ -486,38 +535,50 @@ export default function DJDashboard() {
                     </p>
                   </div>
                   <div className="flex space-x-4">
-                    <button
-                      onClick={toggleBroadcast}
-                      className={`px-4 py-2 rounded-md text-white font-medium ${
-                        isBroadcasting
-                          ? 'bg-red-600 hover:bg-red-700'
-                          : 'bg-yellow-500 hover:bg-yellow-600'
-                      }`}
-                    >
-                      <span className="flex items-center">
-                        {isBroadcasting ? (
-                          <>
-                            <StopIcon className="h-5 w-5 mr-1" />
-                            End Broadcast
-                          </>
-                        ) : (
-                          <>
+                    {isBroadcasting ? (
+                      <button
+                        onClick={toggleBroadcast}
+                        className="px-4 py-2 rounded-md text-white font-medium bg-red-600 hover:bg-red-700"
+                      >
+                        <span className="flex items-center">
+                          <StopIcon className="h-5 w-5 mr-1" />
+                          End Broadcast
+                        </span>
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={toggleBroadcast}
+                          className="px-4 py-2 rounded-md text-white font-medium bg-yellow-500 hover:bg-yellow-600"
+                          disabled={testMode}
+                        >
+                          <span className="flex items-center">
                             <PlayIcon className="h-5 w-5 mr-1" />
                             Start Broadcast
-                          </>
-                        )}
-                      </span>
-                    </button>
-                    <button
-                      onClick={toggleTestMode}
-                      className={`px-4 py-2 rounded-md font-medium ${
-                        testMode
-                          ? 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900 dark:text-red-200'
-                          : 'text-maroon-700 bg-maroon-100 hover:bg-maroon-200 dark:bg-maroon-900/30 dark:text-yellow-400 dark:hover:bg-maroon-900/50'
-                      }`}
-                    >
-                      {testMode ? 'Stop Test' : 'Test Audio'}
-                    </button>
+                          </span>
+                        </button>
+                        <button
+                          onClick={startTestBroadcast}
+                          className="px-4 py-2 rounded-md text-white font-medium bg-purple-500 hover:bg-purple-600"
+                          disabled={testMode}
+                        >
+                          <span className="flex items-center">
+                            <PlayIcon className="h-5 w-5 mr-1" />
+                            Test Broadcast
+                          </span>
+                        </button>
+                        <button
+                          onClick={toggleTestMode}
+                          className={`px-4 py-2 rounded-md font-medium ${
+                            testMode
+                              ? 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900 dark:text-red-200'
+                              : 'text-maroon-700 bg-maroon-100 hover:bg-maroon-200 dark:bg-maroon-900/30 dark:text-yellow-400 dark:hover:bg-maroon-900/50'
+                          }`}
+                        >
+                          {testMode ? 'Stop Test' : 'Test Audio'}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 

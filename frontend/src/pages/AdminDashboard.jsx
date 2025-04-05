@@ -391,6 +391,19 @@ const AdminDashboard = () => {
     }
   };
 
+  // Handle starting a test broadcast
+  const startTestBroadcast = async (broadcastId) => {
+    try {
+      await broadcastService.startTest(broadcastId);
+      // Refresh the live broadcasts list
+      fetchLiveBroadcasts();
+      alert('Test broadcast started successfully');
+    } catch (error) {
+      console.error('Error starting test broadcast:', error);
+      alert('There was an error starting the test broadcast: ' + error.message);
+    }
+  };
+
   return (
     <div className="container mx-auto px-4">
       <div className="max-w-7xl mx-auto">
@@ -741,13 +754,21 @@ const AdminDashboard = () => {
                                   <span className="h-2 w-2 rounded-full bg-red-500 mr-1 animate-pulse"></span>
                                   LIVE
                                 </span>
-                                <button 
-                                  className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                                  onClick={() => window.open(broadcast.streamUrl, '_blank')}
-                                  disabled={!broadcast.streamUrl}
-                                >
-                                  {broadcast.streamUrl ? 'Open Stream' : 'No Stream URL'}
-                                </button>
+                                <div className="mt-2 flex flex-col space-y-2">
+                                  <button 
+                                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                                    onClick={() => window.open(broadcast.streamUrl, '_blank')}
+                                    disabled={!broadcast.streamUrl}
+                                  >
+                                    {broadcast.streamUrl ? 'Open Stream' : 'No Stream URL'}
+                                  </button>
+                                  <button 
+                                    className="text-xs text-purple-600 dark:text-purple-400 hover:underline"
+                                    onClick={() => startTestBroadcast(broadcast.id)}
+                                  >
+                                    Start Test Broadcast
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>

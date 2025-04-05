@@ -94,4 +94,29 @@ public class ShoutcastController {
             return ResponseEntity.badRequest().body(response);
         }
     }
+
+    @GetMapping("/test-mode")
+    public ResponseEntity<Map<String, Boolean>> getTestModeStatus() {
+        Map<String, Boolean> response = new HashMap<>();
+        response.put("testMode", shoutCastService.isInTestMode());
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/enable-test-mode")
+    @PreAuthorize("hasRole('ROLE_DJ') or hasRole('ROLE_ADMIN')")
+    public ResponseEntity<Map<String, Boolean>> enableTestMode() {
+        shoutCastService.setTestMode(true);
+        Map<String, Boolean> response = new HashMap<>();
+        response.put("testMode", true);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/disable-test-mode")
+    @PreAuthorize("hasRole('ROLE_DJ') or hasRole('ROLE_ADMIN')")
+    public ResponseEntity<Map<String, Boolean>> disableTestMode() {
+        shoutCastService.setTestMode(false);
+        Map<String, Boolean> response = new HashMap<>();
+        response.put("testMode", false);
+        return ResponseEntity.ok(response);
+    }
 }
