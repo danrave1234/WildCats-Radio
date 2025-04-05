@@ -240,15 +240,6 @@ export default function DJDashboard() {
   // Start test broadcast using test mode endpoint
   const startTestBroadcast = async () => {
     try {
-      // Check if server is running (even in test mode, we still want to check)
-      const serverStatusResponse = await serverService.getStatus();
-      const isServerRunning = serverStatusResponse.data && serverStatusResponse.data.running;
-
-      if (!isServerRunning) {
-        alert('Server is not running. Please start the server before testing broadcast.');
-        return;
-      }
-
       // Find a scheduled broadcast to start, or create a new one
       let broadcastToStart;
 
