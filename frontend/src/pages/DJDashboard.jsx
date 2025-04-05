@@ -255,23 +255,11 @@ export default function DJDashboard() {
         await serverService.stopNow();
         setServerRunning(false);
         console.log('Stopping server');
-
-        // Update stats
-        setStats(prev => ({
-          ...prev,
-          serverStatus: 'Offline'
-        }));
       } else {
         // Start the server
         await serverService.startNow();
         setServerRunning(true);
         console.log('Starting server');
-
-        // Update stats
-        setStats(prev => ({
-          ...prev,
-          serverStatus: 'Online'
-        }));
       }
     } catch (error) {
       console.error('Error toggling server:', error);

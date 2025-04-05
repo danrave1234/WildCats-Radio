@@ -4,18 +4,18 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-import com.wildcastradio.ActivityLog.ActivityLogEntity;
-import com.wildcastradio.ActivityLog.ActivityLogService;
-import com.wildcastradio.ShoutCast.ShoutcastService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
+import com.wildcastradio.ActivityLog.ActivityLogEntity;
+import com.wildcastradio.ActivityLog.ActivityLogService;
 import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 import com.wildcastradio.Broadcast.DTO.CreateBroadcastRequest;
 import com.wildcastradio.ServerSchedule.ServerScheduleService;
+import com.wildcastradio.ShoutCast.ShoutcastService;
 import com.wildcastradio.User.UserEntity;
 
 @Service
@@ -68,7 +68,7 @@ public class BroadcastService {
             // If the server is accessible but not tracked in the database, create a record
             if (!serverScheduleService.isServerRunning()) {
                 logger.info("Creating server schedule record for manually started server");
-                serverScheduleService.manualStartServer(dj);
+                serverScheduleService.startServerNow(dj);
             }
         } else {
             // If the Shoutcast server is not accessible, check if the server schedule is running
