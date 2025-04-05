@@ -58,29 +58,12 @@ public class BroadcastService {
             throw new AccessDeniedException("Only the creator DJ can start this broadcast");
         }
 
-        // Check if the ShoutCast server is accessible
-        boolean shoutCastServerAccessible = shoutCastService.isServerAccessible();
-        // Check if the server schedule is running
-        boolean serverScheduleRunning = serverScheduleService.isServerRunning();
+        // TEMPORARY: Bypass all server checks for testing
+        logger.info("Starting broadcast in TEST MODE (ShoutCast integration bypassed)");
 
-        // If either the ShoutCast server is accessible or the server schedule is running, we can proceed
-        if (shoutCastServerAccessible || serverScheduleRunning) {
-            logger.info("Server is available (ShoutCast accessible: {}, Server schedule running: {}), proceeding with broadcast", 
-                    shoutCastServerAccessible, serverScheduleRunning);
-
-            // If the server is accessible but not tracked in the database, create a record
-            if (shoutCastServerAccessible && !serverScheduleRunning) {
-                logger.info("Creating server schedule record for manually started server");
-                serverScheduleService.startServerNow(dj);
-            }
-        } else {
-            // If neither the ShoutCast server is accessible nor the server schedule is running, throw an exception
-            throw new IllegalStateException("Server is not running. Please start the server before broadcasting.");
-        }
-
-        // Start the stream using ShoutCastService
-        String streamUrl = shoutCastService.startStream(broadcast);
-        broadcast.setStreamUrl(streamUrl);
+        // Set a mock stream URL for testing
+        String testStreamUrl = shoutCastService.getTestStreamUrl(broadcast);
+        broadcast.setStreamUrl(testStreamUrl);
         broadcast.setActualStart(LocalDateTime.now());
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
 
@@ -90,7 +73,7 @@ public class BroadcastService {
         activityLogService.logActivity(
             dj,
             ActivityLogEntity.ActivityType.BROADCAST_START,
-            "Broadcast started: " + savedBroadcast.getTitle()
+            "TEST MODE: Broadcast started: " + savedBroadcast.getTitle()
         );
 
         return savedBroadcast;
