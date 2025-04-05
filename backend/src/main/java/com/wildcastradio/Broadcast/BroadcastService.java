@@ -62,9 +62,8 @@ public class BroadcastService {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new RuntimeException("Broadcast not found"));
 
-        if (!broadcast.getCreatedBy().getId().equals(dj.getId())) {
-            throw new AccessDeniedException("Only the creator DJ can start this broadcast");
-        }
+        // Allow any DJ to start a broadcast, not just the creator
+        // This enables site-wide broadcast control
 
         if (testMode) {
             // Test mode - bypass server checks
@@ -122,9 +121,8 @@ public class BroadcastService {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new RuntimeException("Broadcast not found"));
 
-        if (!broadcast.getCreatedBy().getId().equals(dj.getId())) {
-            throw new AccessDeniedException("Only the creator DJ can end this broadcast");
-        }
+        // Allow any DJ to end a broadcast, not just the creator
+        // This enables site-wide broadcast control
 
         // End the stream using ShoutCastService
         shoutCastService.endStream(broadcast);
@@ -147,9 +145,8 @@ public class BroadcastService {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new RuntimeException("Broadcast not found"));
 
-        if (!broadcast.getCreatedBy().getId().equals(dj.getId())) {
-            throw new AccessDeniedException("Only the creator DJ can test this broadcast");
-        }
+        // Allow any DJ to test a broadcast, not just the creator
+        // This enables site-wide broadcast control
 
         // Use startBroadcastTestMode to bypass server checks and start a test broadcast
         return startBroadcastTestMode(broadcastId, dj);

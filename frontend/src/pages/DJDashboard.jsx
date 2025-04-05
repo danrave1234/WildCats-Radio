@@ -11,7 +11,7 @@ import {
   CheckCircleIcon,
   XCircleIcon
 } from '@heroicons/react/24/outline';
-import { broadcastService, serverService, pollService } from '../services/api';
+import { broadcastService, serverService, pollService, chatService } from '../services/api';
 
 export default function DJDashboard() {
   // Broadcast state
@@ -120,17 +120,14 @@ export default function DJDashboard() {
         const liveResponse = await broadcastService.getLive();
         const liveBroadcasts = liveResponse.data;
 
-
-        // Check if the current DJ has a live broadcast
-        const myLiveBroadcast = liveBroadcasts.find(broadcast => {
-          // This is a placeholder condition - adjust based on how you identify the current user
-          return currentBroadcastId && broadcast.id === currentBroadcastId;
-        });
-
-        // Update broadcasting state based on whether the DJ has a live broadcast
-        if (myLiveBroadcast) {
+        // If there are any live broadcasts, set isBroadcasting to true
+        // and use the first live broadcast's ID as the current broadcast ID
+        if (liveBroadcasts.length > 0) {
           setIsBroadcasting(true);
-          setCurrentBroadcastId(myLiveBroadcast.id);
+          setCurrentBroadcastId(liveBroadcasts[0].id);
+        } else {
+          setIsBroadcasting(false);
+          setCurrentBroadcastId(null);
         }
       } catch (error) {
         console.error("Error fetching broadcasts:", error);
@@ -141,6 +138,46 @@ export default function DJDashboard() {
 
     // Set up interval to periodically check for live broadcasts
     const interval = setInterval(fetchBroadcasts, 30000); // Check every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [currentBroadcastId]);
+
+  // Fetch chat messages for the current broadcast
+  useEffect(() => {
+    const fetchChatMessages = async () => {
+      if (!currentBroadcastId) return;
+
+      try {
+        const response = await chatService.getMessages(currentBroadcastId);
+        setChatMessages(response.data);
+
+        // Update analytics with the number of chat messages
+        setAnalytics(prev => ({
+          ...prev,
+          chatMessages: response.data.length
+        }));
+      } catch (error) {
+        console.error('Error fetching chat messages:', error);
+      }
+    };
+
+    fetchChatMessages();
+
+    // Set up interval to periodically refresh chat messages
+    const interval = setInterval(fetchChatMessages, 5000); // Refresh every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [currentBroadcastId]);
+
+  // Fetch polls for the current broadcast
+  useEffect(() => {
+    if (!currentBroadcastId) return;
+
+    // Fetch polls when component mounts or when currentBroadcastId changes
+    fetchPolls();
+
+    // Set up interval to periodically refresh polls
+    const interval = setInterval(fetchPolls, 10000); // Refresh every 10 seconds
 
     return () => clearInterval(interval);
   }, [currentBroadcastId]);
@@ -645,6 +682,127 @@ export default function DJDashboard() {
                   <p className="text-gray-500 dark:text-gray-400 text-center py-4">No chat messages yet</p>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* Create Poll */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
+                Create Poll
+              </h2>
+
+              <form onSubmit={createPoll} className="space-y-4">
+                <div>
+                  <label htmlFor="question" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Poll Question
+                  </label>
+                  <input
+                    type="text"
+                    id="question"
+                    name="question"
+                    value={newPoll.question}
+                    onChange={handlePollChange}
+                    placeholder="Enter your question here"
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-500 focus:ring-maroon-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Poll Options
+                  </label>
+                  {newPoll.options.map((option, index) => (
+                    <div key={index} className="flex items-center mb-2">
+                      <input
+                        type="text"
+                        value={option}
+                        onChange={(e) => handleOptionChange(index, e.target.value)}
+                        placeholder={`Option ${index + 1}`}
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-500 focus:ring-maroon-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border mr-2"
+                        required
+                      />
+                      {index > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeOption(index)}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addOption}
+                    className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm"
+                  >
+                    + Add Option
+                  </button>
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600"
+                    disabled={!isBroadcasting}
+                  >
+                    Create Poll
+                  </button>
+                </div>
+              </form>
+
+              {/* Active Polls */}
+              {polls.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-3">Active Polls</h3>
+                  <div className="space-y-4">
+                    {polls.map(poll => (
+                      <div key={poll.id} className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                        <div className="flex justify-between items-center mb-2">
+                          <h4 className="font-medium text-gray-900 dark:text-white">{poll.question}</h4>
+                          {poll.active && (
+                            <button
+                              onClick={() => endPoll(poll.id)}
+                              className="text-red-600 hover:text-red-800 text-sm"
+                            >
+                              End Poll
+                            </button>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          {poll.options.map((option, index) => {
+                            const results = pollResults[poll.id] || {};
+                            const votes = results[option] || 0;
+                            const totalVotes = Object.values(results).reduce((sum, count) => sum + count, 0);
+                            const percentage = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
+
+                            return (
+                              <div key={index} className="text-sm">
+                                <div className="flex justify-between mb-1">
+                                  <span className="text-gray-700 dark:text-gray-300">{option}</span>
+                                  <span className="text-gray-500 dark:text-gray-400">{votes} votes ({percentage}%)</span>
+                                </div>
+                                <div className="h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-maroon-500"
+                                    style={{ width: `${percentage}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                          {poll.active ? 'Active' : 'Ended'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
