@@ -1,10 +1,8 @@
 package com.wildcastradio.config;
 
-import org.springframework.context.annotation.Condition;
-import org.springframework.context.annotation.ConditionContext;
-import org.springframework.context.annotation.Conditional;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.type.AnnotatedTypeMetadata;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
@@ -13,21 +11,29 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * This allows us to disable scheduling when the server is started manually.
  */
 @Configuration
-@EnableScheduling
-@Conditional(SchedulingConfig.SchedulingEnabledCondition.class)
 public class SchedulingConfig {
 
-    /**
-     * Condition that checks if scheduling is enabled using the SchedulingStateService.
-     */
-    public static class SchedulingEnabledCondition implements Condition {
+    @Autowired
+    private SchedulingStateService schedulingStateService;
 
-        @Override
-        public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
-            // Get the SchedulingStateService bean from the application context
-            SchedulingStateService schedulingStateService = context.getBeanFactory().getBean(SchedulingStateService.class);
-            // Return true if scheduling is enabled, false otherwise
-            return schedulingStateService.isSchedulingEnabled();
+    /**
+     * Bean that conditionally enables scheduling based on the state of the SchedulingStateService.
+     * This avoids the circular dependency issue by using a bean method instead of a condition.
+     */
+    @Bean
+    public SchedulingEnabler schedulingEnabler() {
+        boolean enabled = schedulingStateService.isSchedulingEnabled();
+        if (enabled) {
+            return new SchedulingEnabler();
         }
+        return null;
+    }
+
+    /**
+     * Helper class that enables scheduling when instantiated.
+     */
+    @EnableScheduling
+    public static class SchedulingEnabler {
+        // This class doesn't need any methods, its presence is enough to enable scheduling
     }
 }
