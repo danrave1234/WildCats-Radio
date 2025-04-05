@@ -87,7 +87,7 @@ public class BroadcastService {
                     logger.info("Creating server schedule record for manually started server");
                     serverScheduleService.startServerNow(dj);
                 }
-                
+
                 // Start the stream using ShoutCastService
                 String streamUrl = shoutCastService.startStream(broadcast);
                 broadcast.setStreamUrl(streamUrl);
@@ -147,8 +147,8 @@ public class BroadcastService {
             throw new AccessDeniedException("Only the creator DJ can test this broadcast");
         }
 
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.TESTING);
-        return broadcastRepository.save(broadcast);
+        // Use startBroadcastTestMode to bypass server checks and start a test broadcast
+        return startBroadcastTestMode(broadcastId, dj);
     }
 
     public Optional<BroadcastEntity> getBroadcastById(Long id) {
