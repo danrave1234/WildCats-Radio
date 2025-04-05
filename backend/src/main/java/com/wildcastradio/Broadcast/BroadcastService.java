@@ -69,9 +69,13 @@ public class BroadcastService {
         if (testMode) {
             // Test mode - bypass server checks
             logger.info("Starting broadcast in TEST MODE (ShoutCast integration bypassed)");
+            // Set the ShoutcastService to test mode
+            shoutCastService.setTestMode(true);
             String testStreamUrl = shoutCastService.getTestStreamUrl(broadcast);
             broadcast.setStreamUrl(testStreamUrl);
         } else {
+            // Reset ShoutcastService test mode
+            shoutCastService.setTestMode(false);
             // Check if the ShoutCast server is accessible
             boolean shoutCastServerAccessible = shoutCastService.isServerAccessible();
             // Check if the server schedule is running
