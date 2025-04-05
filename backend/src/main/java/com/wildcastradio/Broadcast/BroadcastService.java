@@ -7,6 +7,8 @@ import java.util.Optional;
 import com.wildcastradio.ActivityLog.ActivityLogEntity;
 import com.wildcastradio.ActivityLog.ActivityLogService;
 import com.wildcastradio.ShoutCast.ShoutcastService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -18,6 +20,7 @@ import com.wildcastradio.User.UserEntity;
 
 @Service
 public class BroadcastService {
+    private static final Logger logger = LoggerFactory.getLogger(BroadcastService.class);
 
     @Autowired
     private BroadcastRepository broadcastRepository;
@@ -55,12 +58,26 @@ public class BroadcastService {
             throw new AccessDeniedException("Only the creator DJ can start this broadcast");
         }
 
-        // Check if either the server schedule is running or the Shoutcast server is accessible
-        boolean serverScheduleRunning = serverScheduleService.isServerRunning();
+        // First check if the Shoutcast server is accessible
         boolean shoutcastServerAccessible = shoutcastService.isServerAccessible();
 
-        if (!serverScheduleRunning && !shoutcastServerAccessible) {
-            throw new IllegalStateException("Server is not running. Please ensure the server is active.");
+        if (shoutcastServerAccessible) {
+            // If the Shoutcast server is accessible, we can proceed with the broadcast
+            logger.info("Shoutcast server is accessible, proceeding with broadcast");
+
+            // If the server is accessible but not tracked in the database, create a record
+            if (!serverScheduleService.isServerRunning()) {
+                logger.info("Creating server schedule record for manually started server");
+                serverScheduleService.manualStartServer(dj);
+            }
+        } else {
+            // If the Shoutcast server is not accessible, check if the server schedule is running
+            boolean serverScheduleRunning = serverScheduleService.isServerRunning();
+
+            if (!serverScheduleRunning) {
+                // If neither the Shoutcast server is accessible nor the server schedule is running, throw an exception
+                throw new IllegalStateException("Server is not running. Please start the server before broadcasting.");
+            }
         }
 
         // Start the stream using ShoutcastService
