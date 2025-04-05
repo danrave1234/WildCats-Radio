@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   PlayIcon,
   PauseIcon,
@@ -129,29 +129,36 @@ export default function ListenerDashboard() {
 
   // Handle chat submission
   const handleChatSubmit = async (e) => {
-    e.preventDefault()
-    if (!chatMessage.trim() || !currentBroadcastId) return
+    e.preventDefault();
+    if (!chatMessage.trim() || !currentBroadcastId) return;
+
+    const messageToSend = chatMessage.trim();
+    setChatMessage(''); // Clear input immediately for better UX
 
     try {
       // Create message object to send to the server
       const messageData = {
-        content: chatMessage
+        content: messageToSend
       };
 
       // Send message to the server
       await chatService.sendMessage(currentBroadcastId, messageData);
 
-      // Clear the input field
-      setChatMessage("");
-
       // Fetch the latest messages (the server will have our new message)
       const response = await chatService.getMessages(currentBroadcastId);
       setChatMessages(response.data);
+
+      // Scroll to bottom
+      const chatContainer = document.querySelector('.chat-messages-container');
+      if (chatContainer) {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
     } catch (error) {
       console.error("Error sending chat message:", error);
       alert("Failed to send message. Please try again.");
+      setChatMessage(messageToSend); // Restore the message if sending failed
     }
-  }
+  };
 
   // Handle song request submission
   const handleSongRequestSubmit = async (e) => {
@@ -203,57 +210,59 @@ export default function ListenerDashboard() {
 
   // Render chat messages
   const renderChatMessages = () => (
-      <div className="max-h-60 overflow-y-auto space-y-3 mb-4">
-        {chatMessages.length === 0 ? (
-          <p className="text-center text-gray-500 dark:text-gray-400 py-4">No messages yet</p>
-        ) : (
-          chatMessages.map((msg) => {
-            // Check if the message is from the current user
-            const isCurrentUser = msg.sender && msg.sender.email === localStorage.getItem('userEmail');
+    <div className="max-h-60 overflow-y-auto space-y-3 mb-4 chat-messages-container scrollbar-thin scrollbar-thumb-maroon-500 dark:scrollbar-thumb-maroon-700 scrollbar-track-gray-200 dark:scrollbar-track-gray-700">
+      {chatMessages.length === 0 ? (
+        <p className="text-center text-gray-500 dark:text-gray-400 py-4">No messages yet</p>
+      ) : (
+        chatMessages.map((msg) => {
+          // Check if the message is from the current user
+          const isCurrentUser = msg.sender && msg.sender.email === localStorage.getItem('userEmail');
 
-            return (
-              <div
-                key={msg.id}
-                className={`p-2 rounded-lg ${isCurrentUser ? "bg-maroon-100 dark:bg-maroon-900/30 ml-8" : "bg-gray-100 dark:bg-gray-700 mr-8"}`}
-              >
-                <div className="flex justify-between">
-                  <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">
-                    {isCurrentUser ? "You" : (msg.sender ? msg.sender.name : "Unknown")}
-                  </span>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                    {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-700 dark:text-gray-300">{msg.content}</p>
+          return (
+            <div
+              key={msg.id}
+              className={`p-2 rounded-lg ${isCurrentUser ? "bg-maroon-100 dark:bg-maroon-900/30 ml-8" : "bg-gray-100 dark:bg-gray-700 mr-8"}`}
+            >
+              <div className="flex justify-between">
+                <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                  {isCurrentUser ? "You" : (msg.sender ? msg.sender.name : "Unknown")}
+                </span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                </span>
               </div>
-            );
-          })
-        )}
-      </div>
-  )
+              <p className="text-sm text-gray-700 dark:text-gray-300">{msg.content}</p>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
 
   // Render chat input
   const renderChatInput = () => (
-      <form onSubmit={handleChatSubmit} className="flex items-center">
-        <input
-            type="text"
-            value={chatMessage}
-            onChange={(e) => setChatMessage(e.target.value)}
-            placeholder="Type a message..."
-            className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            disabled={!isLive}
-        />
-        <button
-            type="submit"
-            disabled={!isLive}
-            className={`p-2 rounded-r-md ${
-                isLive ? "bg-maroon-700 hover:bg-maroon-800 text-white" : "bg-gray-300 text-gray-500 cursor-not-allowed"
-            }`}
-        >
-          <PaperAirplaneIcon className="h-5 w-5" />
-        </button>
-      </form>
-  )
+    <form onSubmit={handleChatSubmit} className="flex items-center">
+      <input
+        type="text"
+        value={chatMessage}
+        onChange={(e) => setChatMessage(e.target.value)}
+        placeholder="Type a message..."
+        className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 focus:border-transparent"
+        disabled={!isLive}
+      />
+      <button
+        type="submit"
+        disabled={!isLive || !chatMessage.trim()}
+        className={`p-2 rounded-r-md ${
+          isLive && chatMessage.trim()
+            ? "bg-maroon-700 hover:bg-maroon-800 text-white"
+            : "bg-gray-300 text-gray-500 cursor-not-allowed"
+        }`}
+      >
+        <PaperAirplaneIcon className="h-5 w-5" />
+      </button>
+    </form>
+  );
 
   return (
       <div className="container mx-auto px-4">

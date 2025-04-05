@@ -665,16 +665,18 @@ export default function DJDashboard() {
                 Recent Chat Messages
               </h2>
 
-              <div className="max-h-48 overflow-y-auto">
+              <div className="max-h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-maroon-500 dark:scrollbar-thumb-maroon-700 scrollbar-track-gray-200 dark:scrollbar-track-gray-700">
                 {chatMessages.length > 0 ? (
                   <ul className="space-y-3">
                     {chatMessages.map((msg) => (
                       <li key={msg.id} className="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
                         <div className="flex justify-between">
-                          <p className="text-sm font-medium text-gray-900 dark:text-white">{msg.user}</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">{msg.time}</p>
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">{msg.sender ? msg.sender.name : 'Unknown'}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                          </p>
                         </div>
-                        <p className="text-sm text-gray-700 dark:text-gray-300">{msg.message}</p>
+                        <p className="text-sm text-gray-700 dark:text-gray-300">{msg.content}</p>
                       </li>
                     ))}
                   </ul>
