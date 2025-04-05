@@ -7,7 +7,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -182,5 +181,24 @@ public class ShoutcastService {
                 "SHOUTCAST"
         );
         streamingConfigService.updateConfig(config);
+    }
+    
+    /**
+     * Test mode method that doesn't try to connect to the actual Shoutcast server.
+     * For use during development when Shoutcast integration is not available.
+     * 
+     * @param broadcast The broadcast entity for which to simulate starting a stream
+     * @return A mock stream URL
+     */
+    public String getTestStreamUrl(BroadcastEntity broadcast) {
+        logger.info("Getting test stream URL for broadcast: {}", broadcast.getTitle());
+        
+        // Generate a mock stream URL
+        String testStreamUrl = String.format("http://test-stream.wildcastradio.example.com/stream/%d", broadcast.getId());
+        
+        // Log the operation
+        logger.info("Test stream URL generated: {}", testStreamUrl);
+        
+        return testStreamUrl;
     }
 }

@@ -59,6 +59,7 @@ export const broadcastService = {
   getById: (id) => api.get(`/broadcasts/${id}`),
   schedule: (broadcastData) => api.post('/broadcasts/schedule', broadcastData),
   start: (id) => api.post(`/broadcasts/${id}/start`),
+  startTest: (id) => api.post(`/broadcasts/${id}/start-test`),
   end: (id) => api.post(`/broadcasts/${id}/end`),
   test: (id) => api.post(`/broadcasts/${id}/test`),
   getAnalytics: (id) => api.get(`/broadcasts/${id}/analytics`),

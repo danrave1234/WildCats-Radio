@@ -98,6 +98,39 @@ public class BroadcastService {
         return savedBroadcast;
     }
 
+    /**
+     * Temporary method to start a broadcast in test mode without checking Shoutcast integration.
+     * Use this method for testing other features before Shoutcast integration is complete.
+     */
+    public BroadcastEntity startBroadcastTestMode(Long broadcastId, UserEntity dj) {
+        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+
+        if (!broadcast.getCreatedBy().getId().equals(dj.getId())) {
+            throw new AccessDeniedException("Only the creator DJ can start this broadcast");
+        }
+
+        // Bypass Shoutcast server checks
+        logger.info("Starting broadcast in TEST MODE (Shoutcast integration bypassed)");
+
+        // Set a mock stream URL using the test mode method
+        String testStreamUrl = shoutcastService.getTestStreamUrl(broadcast);
+        broadcast.setStreamUrl(testStreamUrl);
+        broadcast.setActualStart(LocalDateTime.now());
+        broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
+
+        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+
+        // Log the activity
+        activityLogService.logActivity(
+            dj,
+            ActivityLogEntity.ActivityType.BROADCAST_START,
+            "TEST MODE: Broadcast started: " + savedBroadcast.getTitle()
+        );
+
+        return savedBroadcast;
+    }
+
     public BroadcastEntity endBroadcast(Long broadcastId, UserEntity dj) {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new RuntimeException("Broadcast not found"));

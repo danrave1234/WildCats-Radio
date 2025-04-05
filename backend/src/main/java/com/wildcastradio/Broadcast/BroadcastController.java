@@ -1,7 +1,5 @@
 package com.wildcastradio.Broadcast;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -139,5 +137,24 @@ public class BroadcastController {
                 .map(BroadcastDTO::fromEntity)
                 .collect(java.util.stream.Collectors.toList());
         return ResponseEntity.ok(broadcasts);
+    }
+
+    /**
+     * Temporary endpoint to start broadcasts in test mode without Shoutcast integration.
+     */
+    @PostMapping("/{id}/start-test")
+    public ResponseEntity<BroadcastDTO> startBroadcastTestMode(
+            @PathVariable Long id,
+            Authentication authentication) {
+
+        if (authentication == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        UserEntity user = userService.getUserByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        BroadcastEntity broadcast = broadcastService.startBroadcastTestMode(id, user);
+        return ResponseEntity.ok(BroadcastDTO.fromEntity(broadcast));
     }
 }
