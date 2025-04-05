@@ -90,8 +90,8 @@ export const serverService = {
   getSchedules: () => api.get('/server-schedules'),
   createSchedule: (scheduleData) => api.post('/server-schedules', scheduleData),
   updateSchedule: (id, scheduleData) => api.put(`/server-schedules/${id}`, scheduleData),
-  manualStart: () => api.post('/server-schedules/manual-start'),
-  manualStop: () => api.post('/server-schedules/manual-stop'),
+  startNow: () => api.post('/server-schedules/manual-start'),
+  stopNow: () => api.post('/server-schedules/manual-stop'),
   getStatus: () => api.get('/server-schedules/status'),
 };
 

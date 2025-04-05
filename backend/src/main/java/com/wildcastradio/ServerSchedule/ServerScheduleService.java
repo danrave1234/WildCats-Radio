@@ -39,6 +39,8 @@ public class ServerScheduleService {
 
         serverSchedule.setCreatedBy(dj);
         serverSchedule.setStatus(ServerScheduleEntity.ServerStatus.SCHEDULED);
+        // Ensure all schedules are automatic
+        serverSchedule.setAutomatic(true);
         ServerScheduleEntity savedSchedule = serverScheduleRepository.save(serverSchedule);
 
         // Log the activity
@@ -97,15 +99,15 @@ public class ServerScheduleService {
         return updatedSchedule;
     }
 
-    public ServerScheduleEntity manualStartServer(UserEntity user) {
-        // Create an ad-hoc schedule for manual start
+    public ServerScheduleEntity startServerNow(UserEntity user) {
+        // Create an ad-hoc schedule for start
         LocalDateTime now = LocalDateTime.now();
         ServerScheduleEntity schedule = new ServerScheduleEntity();
         schedule.setDayOfWeek(now.getDayOfWeek());
         schedule.setScheduledStart(now);
         schedule.setScheduledEnd(now.plusHours(1)); // Default to 1 hour duration
         schedule.setStatus(ServerScheduleEntity.ServerStatus.RUNNING);
-        schedule.setAutomatic(false);
+        schedule.setAutomatic(true); // Set to automatic instead of manual
         schedule.setCreatedBy(user);
 
         ServerScheduleEntity savedSchedule = serverScheduleRepository.save(schedule);
@@ -114,13 +116,13 @@ public class ServerScheduleService {
         activityLogService.logActivity(
                 user,
                 ActivityLogEntity.ActivityType.SERVER_START,
-                "Manually started server on " + schedule.getDayOfWeek() + " at " + schedule.getScheduledStart()
+                "Started server on " + schedule.getDayOfWeek() + " at " + schedule.getScheduledStart()
         );
 
         return savedSchedule;
     }
 
-    public ServerScheduleEntity manualStopServer(UserEntity user) {
+    public ServerScheduleEntity stopServerNow(UserEntity user) {
         // Find all currently running schedules and stop them
         List<ServerScheduleEntity> runningSchedules = serverScheduleRepository.findByStatus(ServerScheduleEntity.ServerStatus.RUNNING);
 
@@ -130,22 +132,22 @@ public class ServerScheduleService {
             serverScheduleRepository.save(schedule);
         }
 
-        // Create a record of manual stop
+        // Create a record of stop
         LocalDateTime now = LocalDateTime.now();
-        ServerScheduleEntity manualStop = new ServerScheduleEntity();
-        manualStop.setDayOfWeek(now.getDayOfWeek());
-        manualStop.setScheduledStart(now);
-        manualStop.setScheduledEnd(now);
-        manualStop.setStatus(ServerScheduleEntity.ServerStatus.OFF);
-        manualStop.setAutomatic(false);
-        manualStop.setCreatedBy(user);
-        ServerScheduleEntity savedStop = serverScheduleRepository.save(manualStop);
+        ServerScheduleEntity stopRecord = new ServerScheduleEntity();
+        stopRecord.setDayOfWeek(now.getDayOfWeek());
+        stopRecord.setScheduledStart(now);
+        stopRecord.setScheduledEnd(now);
+        stopRecord.setStatus(ServerScheduleEntity.ServerStatus.OFF);
+        stopRecord.setAutomatic(true); // Set to automatic instead of manual
+        stopRecord.setCreatedBy(user);
+        ServerScheduleEntity savedStop = serverScheduleRepository.save(stopRecord);
 
         // Log the activity
         activityLogService.logActivity(
                 user,
                 ActivityLogEntity.ActivityType.SERVER_STOP,
-                "Manually stopped server"
+                "Stopped server"
         );
 
         return savedStop;
@@ -245,7 +247,8 @@ public class ServerScheduleService {
         existingSchedule.setDayOfWeek(updatedSchedule.getDayOfWeek());
         existingSchedule.setScheduledStart(updatedSchedule.getScheduledStart());
         existingSchedule.setScheduledEnd(updatedSchedule.getScheduledEnd());
-        existingSchedule.setAutomatic(updatedSchedule.isAutomatic());
+        // Ensure all schedules are automatic
+        existingSchedule.setAutomatic(true);
         existingSchedule.setCreatedBy(user);
 
         // Save and return the updated schedule

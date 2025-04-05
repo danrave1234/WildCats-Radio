@@ -238,10 +238,10 @@ const AdminDashboard = () => {
 
   // Handle automatic toggle
   const handleAutomaticToggle = (e) => {
-    setNewSchedule(prev => ({
-      ...prev,
-      automatic: e.target.checked
-    }));
+    setNewSchedule({
+      ...newSchedule,
+      automatic: true
+    });
   };
 
   // Handle server start/stop
@@ -249,7 +249,7 @@ const AdminDashboard = () => {
     try {
       if (serverRunning) {
         // Stop the server
-        await serverService.manualStop();
+        await serverService.stopNow();
         setServerRunning(false);
         console.log('Stopping server');
 
@@ -260,7 +260,7 @@ const AdminDashboard = () => {
         }));
       } else {
         // Start the server
-        await serverService.manualStart();
+        await serverService.startNow();
         setServerRunning(true);
         console.log('Starting server');
 
@@ -312,7 +312,10 @@ const AdminDashboard = () => {
         alert('Server schedule updated!');
       } else {
         // Create new schedule
-        const response = await serverService.createSchedule(newSchedule);
+        const response = await serverService.createSchedule({
+          ...newSchedule,
+          automatic: true
+        });
         const createdSchedule = response.data;
 
         // Update local state
@@ -836,13 +839,12 @@ const AdminDashboard = () => {
                                             {daySchedule.scheduledStart} - {daySchedule.scheduledEnd}
                                           </p>
                                           <p className="text-xs text-gray-500 dark:text-gray-500">
-                                            {daySchedule.automatic ? 'Automatic' : 'Manual'} | 
                                             {daySchedule.status === 'RUNNING' ? (
-                                              <span className="text-green-500 ml-1">Running</span>
+                                              <span className="text-green-500">Running</span>
                                             ) : daySchedule.status === 'SCHEDULED' ? (
-                                              <span className="text-yellow-500 ml-1">Scheduled</span>
+                                              <span className="text-yellow-500">Scheduled</span>
                                             ) : (
-                                              <span className="text-red-500 ml-1">Off</span>
+                                              <span className="text-red-500">Off</span>
                                             )}
                                           </p>
                                         </div>
@@ -859,7 +861,7 @@ const AdminDashboard = () => {
                                               dayOfWeek: day,
                                               scheduledStart: daySchedule.scheduledStart,
                                               scheduledEnd: daySchedule.scheduledEnd,
-                                              automatic: daySchedule.automatic
+                                              automatic: true
                                             });
                                           } else {
                                             setNewSchedule({
@@ -918,8 +920,8 @@ const AdminDashboard = () => {
                               type="checkbox"
                               id="automatic"
                               name="automatic"
-                              checked={newSchedule.automatic}
-                              onChange={handleAutomaticToggle}
+                              checked={true}
+                              readOnly
                               className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                             />
                             <label htmlFor="automatic" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
