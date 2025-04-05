@@ -55,8 +55,12 @@ public class BroadcastService {
             throw new AccessDeniedException("Only the creator DJ can start this broadcast");
         }
 
-        if (!serverScheduleService.isServerRunning()) {
-            throw new IllegalStateException("Server is not running. Please ensure the server schedule is active.");
+        // Check if either the server schedule is running or the Shoutcast server is accessible
+        boolean serverScheduleRunning = serverScheduleService.isServerRunning();
+        boolean shoutcastServerAccessible = shoutcastService.isServerAccessible();
+
+        if (!serverScheduleRunning && !shoutcastServerAccessible) {
+            throw new IllegalStateException("Server is not running. Please ensure the server is active.");
         }
 
         // Start the stream using ShoutcastService

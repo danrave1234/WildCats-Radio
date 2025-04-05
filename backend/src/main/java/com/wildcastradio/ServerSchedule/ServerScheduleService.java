@@ -11,18 +11,22 @@ import org.springframework.stereotype.Service;
 import com.wildcastradio.ActivityLog.ActivityLogEntity;
 import com.wildcastradio.ActivityLog.ActivityLogService;
 import com.wildcastradio.User.UserEntity;
+import com.wildcastradio.config.SchedulingStateService;
 
 @Service
 public class ServerScheduleService {
 
     private final ServerScheduleRepository serverScheduleRepository;
     private final ActivityLogService activityLogService;
+    private final SchedulingStateService schedulingStateService;
 
     public ServerScheduleService(
             ServerScheduleRepository serverScheduleRepository,
-            ActivityLogService activityLogService) {
+            ActivityLogService activityLogService,
+            SchedulingStateService schedulingStateService) {
         this.serverScheduleRepository = serverScheduleRepository;
         this.activityLogService = activityLogService;
+        this.schedulingStateService = schedulingStateService;
     }
 
     public ServerScheduleEntity scheduleServerRun(ServerScheduleEntity serverSchedule, UserEntity dj) {
@@ -98,6 +102,9 @@ public class ServerScheduleService {
     }
 
     public ServerScheduleEntity manualStartServer(UserEntity user) {
+        // Disable scheduling when starting the server manually
+        schedulingStateService.disableScheduling();
+
         // Create an ad-hoc schedule for manual start
         LocalDateTime now = LocalDateTime.now();
         ServerScheduleEntity schedule = new ServerScheduleEntity();
@@ -121,6 +128,9 @@ public class ServerScheduleService {
     }
 
     public ServerScheduleEntity manualStopServer(UserEntity user) {
+        // Enable scheduling when stopping the server manually
+        schedulingStateService.enableScheduling();
+
         // Find all currently running schedules and stop them
         List<ServerScheduleEntity> runningSchedules = serverScheduleRepository.findByStatus(ServerScheduleEntity.ServerStatus.RUNNING);
 
