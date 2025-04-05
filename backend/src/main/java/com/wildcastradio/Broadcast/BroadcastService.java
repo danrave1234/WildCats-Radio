@@ -51,39 +51,14 @@ public class BroadcastService {
     }
 
     public BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj) {
-        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
-
-        if (!broadcast.getCreatedBy().getId().equals(dj.getId())) {
-            throw new AccessDeniedException("Only the creator DJ can start this broadcast");
-        }
-
-        // TEMPORARY: Bypass all server checks for testing
-        logger.info("Starting broadcast in TEST MODE (ShoutCast integration bypassed)");
-
-        // Set a mock stream URL for testing
-        String testStreamUrl = shoutCastService.getTestStreamUrl(broadcast);
-        broadcast.setStreamUrl(testStreamUrl);
-        broadcast.setActualStart(LocalDateTime.now());
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
-
-        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
-
-        // Log the activity
-        activityLogService.logActivity(
-            dj,
-            ActivityLogEntity.ActivityType.BROADCAST_START,
-            "TEST MODE: Broadcast started: " + savedBroadcast.getTitle()
-        );
-
-        return savedBroadcast;
+        return startBroadcast(broadcastId, dj, false);
     }
 
-    /**
-     * Temporary method to start a broadcast in test mode without checking Shoutcast integration.
-     * Use this method for testing other features before Shoutcast integration is complete.
-     */
     public BroadcastEntity startBroadcastTestMode(Long broadcastId, UserEntity dj) {
+        return startBroadcast(broadcastId, dj, true);
+    }
+
+    private BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj, boolean testMode) {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new RuntimeException("Broadcast not found"));
 
@@ -91,12 +66,39 @@ public class BroadcastService {
             throw new AccessDeniedException("Only the creator DJ can start this broadcast");
         }
 
-        // Bypass ShoutCast server checks
-        logger.info("Starting broadcast in TEST MODE (ShoutCast integration bypassed)");
+        if (testMode) {
+            // Test mode - bypass server checks
+            logger.info("Starting broadcast in TEST MODE (ShoutCast integration bypassed)");
+            String testStreamUrl = shoutCastService.getTestStreamUrl(broadcast);
+            broadcast.setStreamUrl(testStreamUrl);
+        } else {
+            // Check if the ShoutCast server is accessible
+            boolean shoutCastServerAccessible = shoutCastService.isServerAccessible();
+            // Check if the server schedule is running
+            boolean serverScheduleRunning = serverScheduleService.isServerRunning();
 
-        // Set a mock stream URL using the test mode method
-        String testStreamUrl = shoutCastService.getTestStreamUrl(broadcast);
-        broadcast.setStreamUrl(testStreamUrl);
+            // If either the ShoutCast server is accessible or the server schedule is running, we can proceed
+            if (shoutCastServerAccessible || serverScheduleRunning) {
+                logger.info("Server is available (ShoutCast accessible: {}, Server schedule running: {}), proceeding with broadcast", 
+                        shoutCastServerAccessible, serverScheduleRunning);
+
+                // If the server is accessible but not tracked in the database, create a record
+                if (shoutCastServerAccessible && !serverScheduleRunning) {
+                    logger.info("Creating server schedule record for manually started server");
+                    serverScheduleService.startServerNow(dj);
+                }
+                
+                // Start the stream using ShoutCastService
+                String streamUrl = shoutCastService.startStream(broadcast);
+                broadcast.setStreamUrl(streamUrl);
+            } else {
+                // If neither the ShoutCast server is accessible nor the server schedule is running, throw an exception
+                logger.error("Failed to start broadcast: Server checks failed. ShoutCast accessible: {}, Server schedule running: {}", 
+                        shoutCastServerAccessible, serverScheduleRunning);
+                throw new IllegalStateException("Server is not running. Please start the server before broadcasting.");
+            }
+        }
+
         broadcast.setActualStart(LocalDateTime.now());
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
 
@@ -106,7 +108,7 @@ public class BroadcastService {
         activityLogService.logActivity(
             dj,
             ActivityLogEntity.ActivityType.BROADCAST_START,
-            "TEST MODE: Broadcast started: " + savedBroadcast.getTitle()
+            (testMode ? "TEST MODE: " : "") + "Broadcast started: " + savedBroadcast.getTitle()
         );
 
         return savedBroadcast;
