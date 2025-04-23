@@ -291,4 +291,33 @@ public class ServerScheduleService {
         // Save and return the updated schedule
         return serverScheduleRepository.save(existingSchedule);
     }
+
+    public void deleteSchedule(Long id, UserEntity user) {
+        logger.info("Deleting server schedule with ID: {}", id);
+        
+        // Find the existing schedule
+        ServerScheduleEntity schedule = serverScheduleRepository.findById(id)
+                .orElseThrow(() -> {
+                    logger.error("Failed to delete schedule: Schedule not found with ID: {}", id);
+                    return new RuntimeException("Schedule not found with id: " + id);
+                });
+        
+        // Check if schedule is currently running and stop it if needed
+        if (schedule.getStatus() == ServerScheduleEntity.ServerStatus.RUNNING) {
+            logger.info("Schedule is currently running, stopping it before deletion");
+            stopServer(id);
+        }
+        
+        // Delete the schedule
+        serverScheduleRepository.delete(schedule);
+        logger.info("Schedule with ID: {} deleted successfully", id);
+        
+        // Log the activity
+        activityLogService.logActivity(
+                user,
+                ActivityLogEntity.ActivityType.SERVER_STOP,
+                "Deleted server schedule for " + schedule.getDayOfWeek() + " " + 
+                schedule.getScheduledStart() + " - " + schedule.getScheduledEnd()
+        );
+    }
 } 

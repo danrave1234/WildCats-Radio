@@ -1,9 +1,10 @@
 package com.wildcastradio.Broadcast.DTO;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
 import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.User.DTO.UserDTO;
-
-import java.time.LocalDateTime;
 
 public class BroadcastDTO {
     private Long id;
@@ -16,6 +17,10 @@ public class BroadcastDTO {
     private String status;
     private String streamUrl;
     private UserDTO createdBy;
+    
+    // For displaying formatted dates in frontend
+    private String formattedStart;
+    private String formattedEnd;
     
     // Constructors
     public BroadcastDTO() {
@@ -34,6 +39,15 @@ public class BroadcastDTO {
         this.status = status;
         this.streamUrl = streamUrl;
         this.createdBy = createdBy;
+        
+        // Format the dates for frontend display
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        if (scheduledStart != null) {
+            this.formattedStart = scheduledStart.format(formatter);
+        }
+        if (scheduledEnd != null) {
+            this.formattedEnd = scheduledEnd.format(formatter);
+        }
     }
     
     // Convert from Entity to DTO
@@ -140,5 +154,21 @@ public class BroadcastDTO {
     
     public void setCreatedBy(UserDTO createdBy) {
         this.createdBy = createdBy;
+    }
+    
+    public String getFormattedStart() {
+        return formattedStart;
+    }
+    
+    public void setFormattedStart(String formattedStart) {
+        this.formattedStart = formattedStart;
+    }
+    
+    public String getFormattedEnd() {
+        return formattedEnd;
+    }
+    
+    public void setFormattedEnd(String formattedEnd) {
+        this.formattedEnd = formattedEnd;
     }
 } 

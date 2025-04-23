@@ -19,6 +19,7 @@ import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 import com.wildcastradio.Broadcast.DTO.CreateBroadcastRequest;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
+import com.wildcastradio.util.DateTimeUtil;
 
 import jakarta.validation.Valid;
 
@@ -31,6 +32,9 @@ public class BroadcastController {
 
     @Autowired
     private UserService userService;
+    
+    @Autowired
+    private DateTimeUtil dateTimeUtil;
 
     @PostMapping
     public ResponseEntity<BroadcastDTO> createBroadcast(@Valid @RequestBody CreateBroadcastRequest request) {
@@ -82,6 +86,9 @@ public class BroadcastController {
         BroadcastEntity broadcast = new BroadcastEntity();
         broadcast.setTitle(request.getTitle());
         broadcast.setDescription(request.getDescription());
+        
+        // Preserve the original times entered by the user
+        // This ensures that if a user selects 12:00 PM, it stays as 12:00 PM
         broadcast.setScheduledStart(request.getScheduledStart());
         broadcast.setScheduledEnd(request.getScheduledEnd());
 

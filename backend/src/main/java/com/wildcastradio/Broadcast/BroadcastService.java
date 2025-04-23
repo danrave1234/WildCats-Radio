@@ -7,7 +7,6 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
 import com.wildcastradio.ActivityLog.ActivityLogEntity;
@@ -218,6 +217,22 @@ public class BroadcastService {
     }
 
     public void deleteBroadcast(Long id) {
-        // Implementation would go here
+        logger.info("Deleting broadcast with ID: {}", id);
+        
+        // Check if the broadcast exists
+        BroadcastEntity broadcast = broadcastRepository.findById(id)
+                .orElseThrow(() -> {
+                    logger.error("Failed to delete broadcast: Broadcast not found with ID: {}", id);
+                    return new RuntimeException("Broadcast not found with id: " + id);
+                });
+        
+        try {
+            // Delete the broadcast
+            broadcastRepository.deleteById(id);
+            logger.info("Broadcast with ID: {} deleted successfully", id);
+        } catch (Exception e) {
+            logger.error("Error deleting broadcast with ID {}: {}", id, e.getMessage());
+            throw new RuntimeException("Failed to delete broadcast: " + e.getMessage());
+        }
     }
 } 

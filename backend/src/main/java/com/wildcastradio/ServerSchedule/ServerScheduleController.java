@@ -110,6 +110,23 @@ public class ServerScheduleController {
         }
     }
 
+    @PostMapping("/{id}/delete")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('DJ')")
+    public ResponseEntity<?> deleteSchedule(
+            @PathVariable Long id,
+            Authentication authentication) {
+        try {
+            UserEntity user = userService.getUserByEmail(authentication.getName())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+            
+            serverScheduleService.deleteSchedule(id, user);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            System.err.println("Error deleting schedule: " + e.getMessage());
+            return ResponseEntity.status(500).body("An error occurred while deleting the schedule. Please try again.");
+        }
+    }
+
     @PostMapping("/manual-start")
     @PreAuthorize("hasRole('ADMIN') or hasRole('DJ')")
     public ResponseEntity<?> startServer(Authentication authentication) {

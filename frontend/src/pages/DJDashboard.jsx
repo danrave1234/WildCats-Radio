@@ -9,9 +9,15 @@ import {
   UserGroupIcon,
   MicrophoneIcon,
   CheckCircleIcon,
-  XCircleIcon
+  XCircleIcon,
+  TrashIcon,
+  PlusCircleIcon,
+  PencilIcon
 } from '@heroicons/react/24/outline';
-import { broadcastService, serverService, pollService, chatService } from '../services/api';
+import { broadcastService, serverService, pollService, chatService, songRequestService } from '../services/api';
+import Toast from '../components/Toast';
+import Modal from '../components/Modal';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 export default function DJDashboard() {
   // Broadcast state
@@ -22,6 +28,10 @@ export default function DJDashboard() {
   const [availableAudioDevices, setAvailableAudioDevices] = useState([]);
   const [currentBroadcastId, setCurrentBroadcastId] = useState(null);
   const [broadcasts, setBroadcasts] = useState([]);
+  const [isPreviewingAudio, setIsPreviewingAudio] = useState(false);
+  const [audioStream, setAudioStream] = useState(null);
+  const [audioContext, setAudioContext] = useState(null);
+  const [audioAnalyser, setAudioAnalyser] = useState(null);
 
   // Server schedule state
   const [serverSchedules, setServerSchedules] = useState([]);
@@ -33,6 +43,15 @@ export default function DJDashboard() {
   });
   const [serverRunning, setServerRunning] = useState(false);
   const [selectedDay, setSelectedDay] = useState('MONDAY');
+  
+  // UI state for toasts and modals
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'success' });
+  const [scheduleToDelete, setScheduleToDelete] = useState(null);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [statusModal, setStatusModal] = useState({ isOpen: false, message: '', type: 'success' });
+  const [scheduleStatusModal, setScheduleStatusModal] = useState({ isOpen: false, message: '', type: 'success' });
+  const [scheduleFormModal, setScheduleFormModal] = useState({ isOpen: false, isEdit: false });
 
   // Analytics state
   const [analytics, setAnalytics] = useState({
@@ -58,26 +77,261 @@ export default function DJDashboard() {
   const [pollResults, setPollResults] = useState({});
   const [activePoll, setActivePoll] = useState(null);
 
-  // Check for audio input devices and fetch analytics
-  useEffect(() => {
-    // Should fetch available audio devices from the browser's API
-    // For example: navigator.mediaDevices.enumerateDevices()
+  // Additional states for DJ Dashboard
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [meterLevel, setMeterLevel] = useState(0);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [statusMessage, setStatusMessage] = useState('Standby');
+  const [isServerRunning, setIsServerRunning] = useState(false);
 
-    // Audio level monitoring and analytics should be implemented with real data
-    let interval;
-    if (isBroadcasting || testMode) {
-      interval = setInterval(() => {
-        // Should get real audio input level
-        // Should fetch real analytics data if broadcasting
-        if (isBroadcasting) {
-          // Simulate audio level changes for demo purposes
-          setAudioInputLevel(Math.floor(Math.random() * 100));
+  // Get available audio devices
+  const getAudioDevices = async () => {
+    try {
+      // Check if MediaDevices API is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        console.error('MediaDevices API not supported in this browser');
+        setToast({ 
+          visible: true, 
+          message: 'Audio input detection not supported in this browser', 
+          type: 'error' 
+        });
+        return;
+      }
+      
+      // Request audio permission
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Get all devices
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      
+      // Filter for audio input devices and map to our format
+      const audioInputs = devices
+        .filter(device => device.kind === 'audioinput')
+        .map(device => ({
+          id: device.deviceId,
+          label: device.label || `Microphone ${device.deviceId.slice(0, 5)}...`
+        }));
+      
+      if (audioInputs.length === 0) {
+        console.warn('No audio input devices detected');
+        setToast({ 
+          visible: true, 
+          message: 'No microphones detected. Please connect a microphone.', 
+          type: 'warning' 
+        });
+      } else {
+        console.log('Available audio devices:', audioInputs);
+        
+        // Update state with found devices
+        setAvailableAudioDevices(audioInputs);
+        
+        // Set default device if none is selected
+        if (audioInputDevice === 'default' && audioInputs.length > 0) {
+          setAudioInputDevice(audioInputs[0].id);
         }
-      }, 1000);
+      }
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+      
+      let errorMessage = 'Could not access microphone. ';
+      
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        errorMessage += 'Microphone permission was denied. Please check your browser settings.';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage += 'No microphone found. Please connect a microphone.';
+      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+        errorMessage += 'Microphone is already in use by another application.';
+      } else {
+        errorMessage += 'Please check your permissions and try again.';
+      }
+      
+      setToast({ 
+        visible: true, 
+        message: errorMessage, 
+        type: 'error' 
+      });
+      
+      setAvailableAudioDevices([]);
     }
+  };
 
-    return () => clearInterval(interval);
-  }, [isBroadcasting, testMode]);
+  // Start or stop audio preview
+  const toggleAudioPreview = async () => {
+    if (isPreviewingAudio) {
+      // Stop preview
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+        setAudioStream(null);
+      }
+      if (audioContext) {
+        audioContext.close();
+        setAudioContext(null);
+        setAudioAnalyser(null);
+      }
+      setIsPreviewingAudio(false);
+      setAudioInputLevel(0);
+      return;
+    }
+    
+    try {
+      // Start preview
+      const constraints = {
+        audio: {
+          deviceId: audioInputDevice !== 'default' ? { exact: audioInputDevice } : undefined,
+          echoCancellation: true,
+          noiseSuppression: true
+        }
+      };
+      
+      console.log("Starting audio preview with device:", audioInputDevice);
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      setAudioStream(stream);
+      
+      // Create audio context for level measurement
+      const context = new (window.AudioContext || window.webkitAudioContext)();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024; // Increased for better resolution
+      analyser.smoothingTimeConstant = 0.8; // Add smoothing
+      
+      const source = context.createMediaStreamSource(stream);
+      source.connect(analyser);
+      
+      // Connect to audio output so user can hear themselves
+      // Create a gain node to control volume and prevent feedback
+      const gainNode = context.createGain();
+      gainNode.gain.value = 0.5; // Set volume to 50%
+      
+      source.connect(gainNode);
+      gainNode.connect(context.destination);
+      
+      setAudioContext(context);
+      setAudioAnalyser(analyser);
+      setIsPreviewingAudio(true);
+      
+      // Start measuring audio levels
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      
+      const measureLevel = () => {
+        if (!analyser) return;
+        
+        try {
+          // Use getByteTimeDomainData for voice detection instead of frequency data
+          analyser.getByteTimeDomainData(dataArray);
+          
+          // Calculate RMS (root mean square) value for better level representation
+          let sumSquares = 0;
+          for (let i = 0; i < bufferLength; i++) {
+            // Normalize value to [-1, 1]
+            const normalizedValue = (dataArray[i] - 128) / 128;
+            // Sum of squares
+            sumSquares += normalizedValue * normalizedValue;
+          }
+          
+          // RMS is the square root of the average of the squares
+          const rms = Math.sqrt(sumSquares / bufferLength);
+          
+          // Convert to percentage with some scaling to make the meter more responsive
+          // Apply a logarithmic scale to better represent human perception of audio
+          let level = Math.min(100, Math.max(0, Math.round(rms * 200)));
+          
+          console.log("Audio level detected:", level, "RMS:", rms.toFixed(4));
+          
+          // Apply a minimum threshold to avoid small background noise showing on meter
+          if (level < 5) level = 0;
+          
+          setAudioInputLevel(level);
+        } catch (err) {
+          console.error("Error measuring audio level:", err);
+        }
+        
+        if (isPreviewingAudio) {
+          requestAnimationFrame(measureLevel);
+        }
+      };
+      
+      measureLevel();
+      
+      // Show success message
+      setToast({ 
+        visible: true, 
+        message: 'Audio preview started. You should hear your voice now.', 
+        type: 'success' 
+      });
+    } catch (error) {
+      console.error('Error starting audio preview:', error);
+      setToast({ 
+        visible: true, 
+        message: 'Could not start audio preview: ' + error.message, 
+        type: 'error' 
+      });
+    }
+  };
+
+  // Function to simulate audio level changes during broadcasting
+  useEffect(() => {
+    let audioLevelInterval;
+    
+    // If we're broadcasting but not previewing, simulate audio levels
+    if (isBroadcasting && !isPreviewingAudio && !audioAnalyser) {
+      console.log("Setting up simulated audio levels for broadcasting");
+      audioLevelInterval = setInterval(() => {
+        // Generate random audio levels that cluster around medium with occasional peaks
+        let baseLevel = 40 + (Math.random() * 20); // Base level between 40-60
+        
+        // Occasionally add a peak
+        if (Math.random() > 0.8) {
+          baseLevel += 20 + (Math.random() * 20); // Add 20-40 to create peaks
+        }
+        
+        // Occasionally have quiet moments
+        if (Math.random() > 0.9) {
+          baseLevel = Math.random() * 10; // Very low level 0-10
+        }
+        
+        baseLevel = Math.min(100, Math.round(baseLevel)); // Ensure we don't exceed 100
+        setAudioInputLevel(baseLevel);
+      }, 200); // Update every 200ms for smooth animation
+    }
+    
+    return () => {
+      if (audioLevelInterval) {
+        clearInterval(audioLevelInterval);
+      }
+    };
+  }, [isBroadcasting, isPreviewingAudio, audioAnalyser]);
+
+  useEffect(() => {
+    // Get server status
+    serverService.getStatus()
+      .then(response => {
+        setIsServerRunning(response.data.running);
+      })
+      .catch(error => {
+        console.error("Failed to get server status:", error);
+        toast.error("Failed to get server status");
+      });
+
+    // Set up time update
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
+    // Get audio devices
+    getAudioDevices();
+
+    // Clean up
+    return () => {
+      clearInterval(timer);
+      // Stop audio preview when component unmounts
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+      }
+      if (audioContext) {
+        audioContext.close();
+      }
+    };
+  }, [audioInputDevice]);
 
   // Fetch server schedules and check server status
   useEffect(() => {
@@ -169,6 +423,33 @@ export default function DJDashboard() {
     return () => clearInterval(interval);
   }, [currentBroadcastId]);
 
+  // Fetch song requests for the current broadcast
+  useEffect(() => {
+    const fetchSongRequests = async () => {
+      if (!currentBroadcastId) return;
+
+      try {
+        const response = await songRequestService.getRequests(currentBroadcastId);
+        setSongRequests(response.data);
+
+        // Update analytics with the number of song requests
+        setAnalytics(prev => ({
+          ...prev,
+          songRequests: response.data.length
+        }));
+      } catch (error) {
+        console.error('Error fetching song requests:', error);
+      }
+    };
+
+    fetchSongRequests();
+
+    // Set up interval to periodically refresh song requests
+    const interval = setInterval(fetchSongRequests, 10000); // Refresh every 10 seconds
+
+    return () => clearInterval(interval);
+  }, [currentBroadcastId]);
+
   // Fetch polls for the current broadcast
   useEffect(() => {
     if (!currentBroadcastId) return;
@@ -185,6 +466,21 @@ export default function DJDashboard() {
   // Handle audio device change
   const handleAudioDeviceChange = (e) => {
     setAudioInputDevice(e.target.value);
+    
+    // If previewing, restart preview with new device
+    if (isPreviewingAudio) {
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+      }
+      if (audioContext) {
+        audioContext.close();
+      }
+      
+      // Short delay to allow state to update
+      setTimeout(() => {
+        toggleAudioPreview();
+      }, 100);
+    }
   };
 
   // Handle form changes for new schedule
@@ -327,21 +623,44 @@ export default function DJDashboard() {
   // Handle server start/stop
   const toggleServer = async () => {
     try {
+      setIsLoading(true);
+      
       if (serverRunning) {
         // Stop the server
         await serverService.stopNow();
         setServerRunning(false);
         console.log('Stopping server');
+        setStatusModal({
+          isOpen: true,
+          message: 'Server stopped successfully',
+          type: 'success'
+        });
       } else {
         // Start the server
         await serverService.startNow();
         setServerRunning(true);
         console.log('Starting server');
+        setStatusModal({
+          isOpen: true,
+          message: 'Server started successfully',
+          type: 'success'
+        });
       }
     } catch (error) {
       console.error('Error toggling server:', error);
-      alert('There was an error controlling the server. Please try again.');
+      setStatusModal({
+        isOpen: true,
+        message: 'There was an error controlling the server. Please try again.',
+        type: 'error'
+      });
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  // Show toast notification
+  const showToast = (message, type = 'success') => {
+    setToast({ visible: true, message, type });
   };
 
   // Handle server schedule submission
@@ -351,9 +670,34 @@ export default function DJDashboard() {
     try {
       // Validate the form
       if (!newSchedule.scheduledStart || !newSchedule.scheduledEnd) {
-        alert('Please enter both start and end times');
+        showToast('Please enter both start and end times', 'error');
         return;
       }
+
+      // Validate that end time is after start time
+      if (newSchedule.scheduledStart >= newSchedule.scheduledEnd) {
+        showToast('End time must be after start time', 'error');
+        return;
+      }
+
+      // If scheduling for today, validate times are not in the past
+      const now = new Date();
+      const today = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      const daysOfWeek = { 'SUNDAY': 0, 'MONDAY': 1, 'TUESDAY': 2, 'WEDNESDAY': 3, 'THURSDAY': 4, 'FRIDAY': 5, 'SATURDAY': 6 };
+      const selectedDayNum = daysOfWeek[newSchedule.dayOfWeek];
+      
+      if (selectedDayNum === today) {
+        const [startHours, startMinutes] = newSchedule.scheduledStart.split(':').map(Number);
+        const scheduleStartTime = new Date();
+        scheduleStartTime.setHours(startHours, startMinutes, 0, 0);
+        
+        if (scheduleStartTime < now) {
+          showToast('Cannot schedule a broadcast in the past', 'error');
+          return;
+        }
+      }
+
+      setIsLoading(true);
 
       // Check if we're updating an existing schedule for this day
       const existingSchedule = serverSchedules.find(
@@ -377,7 +721,11 @@ export default function DJDashboard() {
         ));
 
         console.log('Updated server schedule:', updatedSchedule);
-        alert('Server schedule updated!');
+        setScheduleStatusModal({
+          isOpen: true,
+          message: 'Server schedule updated successfully!',
+          type: 'success'
+        });
       } else {
         // Create new schedule
         const response = await serverService.createSchedule({
@@ -390,7 +738,11 @@ export default function DJDashboard() {
         setServerSchedules([...serverSchedules, createdSchedule]);
 
         console.log('Created server schedule:', createdSchedule);
-        alert('Server schedule created!');
+        setScheduleStatusModal({
+          isOpen: true,
+          message: 'Server schedule created successfully!',
+          type: 'success'
+        });
       }
 
       // Reset form
@@ -403,7 +755,66 @@ export default function DJDashboard() {
 
     } catch (error) {
       console.error('Error saving server schedule:', error);
-      alert('There was an error saving the schedule. Please try again.');
+      setScheduleStatusModal({
+        isOpen: true,
+        message: 'There was an error saving the schedule. Please try again.',
+        type: 'error'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle schedule deletion
+  const confirmDeleteSchedule = (schedule) => {
+    setScheduleToDelete(schedule);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  const handleDeleteSchedule = async () => {
+    if (!scheduleToDelete) return;
+    
+    try {
+      setIsLoading(true);
+      
+      // Call the API to delete the schedule
+      await serverService.deleteSchedule(scheduleToDelete.id);
+      
+      // Remove the schedule from the local state
+      setServerSchedules(serverSchedules.filter(s => s.id !== scheduleToDelete.id));
+      
+      // Close the confirmation modal
+      setIsDeleteConfirmOpen(false);
+      setScheduleToDelete(null);
+      
+      // Show success message
+      setScheduleStatusModal({
+        isOpen: true,
+        message: 'Schedule deleted successfully!',
+        type: 'success'
+      });
+    } catch (error) {
+      console.error("Error deleting schedule:", error);
+      
+      // Show a more detailed error message based on the status code
+      let errorMessage = 'Failed to delete schedule. Please try again.';
+      if (error.response) {
+        if (error.response.status === 405) {
+          errorMessage = 'Server does not support schedule deletion. Please contact your administrator.';
+        } else if (error.response.status === 403) {
+          errorMessage = 'You do not have permission to delete this schedule.';
+        } else if (error.response.data && error.response.data.message) {
+          errorMessage = error.response.data.message;
+        }
+      }
+      
+      setScheduleStatusModal({
+        isOpen: true,
+        message: errorMessage,
+        type: 'error'
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -535,8 +946,201 @@ export default function DJDashboard() {
     }
   };
 
+  // Handle schedule editing
+  const handleEditSchedule = (schedule) => {
+    // Format times from schedule to match time input format (HH:MM)
+    const formatTime = (timeString) => {
+      if (!timeString) return '';
+      // If it's already in HH:MM format, return as is
+      if (timeString.match(/^\d{2}:\d{2}$/)) return timeString;
+      
+      try {
+        // If it's a date object or date string, format it
+        const date = new Date(timeString);
+        if (isNaN(date.getTime())) return '';
+        return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+      } catch (e) {
+        console.error('Error formatting time:', e);
+        return '';
+      }
+    };
+
+    setSelectedDay(schedule.dayOfWeek);
+    setNewSchedule({
+      dayOfWeek: schedule.dayOfWeek,
+      scheduledStart: formatTime(schedule.scheduledStart),
+      scheduledEnd: formatTime(schedule.scheduledEnd),
+      automatic: schedule.automatic
+    });
+    setScheduleFormModal({ isOpen: true, isEdit: true });
+  };
+  
+  // Handle opening the add schedule modal
+  const handleAddSchedule = (day) => {
+    setSelectedDay(day);
+    setNewSchedule({
+      dayOfWeek: day,
+      scheduledStart: '',
+      scheduledEnd: '',
+      automatic: true
+    });
+    setScheduleFormModal({ isOpen: true, isEdit: false });
+  };
+
   return (
     <div className="container mx-auto px-4 py-6">
+      {/* Toast Notifications */}
+      {toast.visible && (
+        <Toast 
+          message={toast.message} 
+          type={toast.type} 
+          onClose={() => setToast({ ...toast, visible: false })} 
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={isDeleteConfirmOpen}
+        onClose={() => setIsDeleteConfirmOpen(false)}
+        onConfirm={handleDeleteSchedule}
+        title="Delete Schedule"
+        message={`Are you sure you want to delete the schedule for ${scheduleToDelete?.dayOfWeek.charAt(0) + scheduleToDelete?.dayOfWeek.slice(1).toLowerCase()}?`}
+        confirmText="Delete"
+        confirmButtonType="danger"
+        isLoading={isLoading}
+      />
+
+      {/* Server Status Modal */}
+      <Modal
+        isOpen={statusModal.isOpen}
+        onClose={() => setStatusModal({ ...statusModal, isOpen: false })}
+        title={statusModal.type === 'success' ? 'Success' : 'Error'}
+        type={statusModal.type}
+        maxWidth="sm"
+      >
+        <p>{statusModal.message}</p>
+      </Modal>
+
+      {/* Schedule Status Modal */}
+      <Modal
+        isOpen={scheduleStatusModal.isOpen}
+        onClose={() => setScheduleStatusModal({ ...scheduleStatusModal, isOpen: false })}
+        title={scheduleStatusModal.type === 'success' ? 'Success' : 'Error'}
+        type={scheduleStatusModal.type}
+        maxWidth="sm"
+      >
+        <p>{scheduleStatusModal.message}</p>
+      </Modal>
+
+      {/* Schedule Form Modal */}
+      <Modal
+        isOpen={scheduleFormModal.isOpen}
+        onClose={() => setScheduleFormModal({ ...scheduleFormModal, isOpen: false })}
+        title={`${scheduleFormModal.isEdit ? 'Edit' : 'Add'} Schedule for ${selectedDay.charAt(0) + selectedDay.slice(1).toLowerCase()}`}
+        maxWidth="md"
+      >
+        <form onSubmit={(e) => {
+          handleServerScheduleSubmit(e); 
+          setScheduleFormModal({ ...scheduleFormModal, isOpen: false });
+        }}>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 mb-4">
+            <div>
+              <label htmlFor="dayOfWeek" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Day of Week
+              </label>
+              <select
+                id="dayOfWeek"
+                name="dayOfWeek"
+                value={selectedDay}
+                onChange={handleDayChange}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+              >
+                <option value="MONDAY">Monday</option>
+                <option value="TUESDAY">Tuesday</option>
+                <option value="WEDNESDAY">Wednesday</option>
+                <option value="THURSDAY">Thursday</option>
+                <option value="FRIDAY">Friday</option>
+                <option value="SATURDAY">Saturday</option>
+                <option value="SUNDAY">Sunday</option>
+              </select>
+            </div>
+
+            <div className="flex items-center mt-6">
+              <input
+                type="checkbox"
+                id="automatic"
+                name="automatic"
+                checked={true}
+                readOnly
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              />
+              <label htmlFor="automatic" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
+                Automatic (server will start/stop according to schedule)
+              </label>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div>
+              <label htmlFor="scheduledStart" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Start Time
+              </label>
+              <input
+                type="time"
+                name="scheduledStart"
+                id="scheduledStart"
+                value={newSchedule.scheduledStart}
+                onChange={handleNewScheduleChange}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+              />
+            </div>
+            <div>
+              <label htmlFor="scheduledEnd" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                End Time
+              </label>
+              <input
+                type="time"
+                name="scheduledEnd"
+                id="scheduledEnd"
+                value={newSchedule.scheduledEnd}
+                onChange={handleNewScheduleChange}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+              />
+            </div>
+          </div>
+
+          <div className="mt-6 flex justify-end space-x-3">
+            <button
+              type="button"
+              onClick={() => setScheduleFormModal({ ...scheduleFormModal, isOpen: false })}
+              className="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600"
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Saving...
+                </span>
+              ) : (
+                <>
+                  <ClockIcon className="h-5 w-5 mr-1" />
+                  {scheduleFormModal.isEdit ? 'Update' : 'Add'} Schedule
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
       <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">DJ Dashboard</h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -611,46 +1215,168 @@ export default function DJDashboard() {
                 </div>
 
                 {/* Audio Input Selector */}
-                <div>
-                  <label htmlFor="audioDevice" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Audio Input Device
-                  </label>
-                  <select
-                    id="audioDevice"
-                    value={audioInputDevice}
-                    onChange={handleAudioDeviceChange}
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-500 focus:ring-maroon-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
-                  >
-                    {availableAudioDevices.map(device => (
-                      <option key={device.id} value={device.id}>
-                        {device.label}
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label htmlFor="audioDevice" className="block text-base font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Audio Input Device
+                    </label>
+                    <div className="flex space-x-2">
+                      <button 
+                        type="button" 
+                        className="flex items-center text-sm px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 transition-colors"
+                        onClick={getAudioDevices}
+                        disabled={isBroadcasting}
+                        title="Refresh device list"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" className="bi bi-arrow-clockwise mr-1" viewBox="0 0 16 16">
+                          <path fillRule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+                          <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+                        </svg>
+                        Refresh
+                      </button>
+                      
+                      {availableAudioDevices.length > 0 && !isBroadcasting && !testMode && (
+                        <button 
+                          type="button" 
+                          className={`flex items-center text-sm px-2 py-1 rounded ${
+                            isPreviewingAudio 
+                              ? 'bg-maroon-100 text-maroon-800 hover:bg-maroon-200 dark:bg-maroon-900 dark:text-maroon-200 dark:hover:bg-maroon-800' 
+                              : 'bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:hover:bg-blue-800'
+                          } transition-colors`}
+                          onClick={toggleAudioPreview}
+                          disabled={!availableAudioDevices.length}
+                          title={isPreviewingAudio ? "Stop audio preview" : "Preview microphone levels"}
+                        >
+                          {isPreviewingAudio ? (
+                            <>
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />
+                              </svg>
+                              Stop Preview
+                            </>
+                          ) : (
+                            <>
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                              </svg>
+                              Preview
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <select
+                      id="audioDevice"
+                      className="block w-full rounded-md border-gray-300 bg-white dark:bg-gray-700 pl-3 pr-10 py-2 text-base focus:outline-none focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 dark:border-gray-600 dark:text-white shadow-sm disabled:opacity-70 disabled:cursor-not-allowed appearance-none"
+                      value={audioInputDevice}
+                      onChange={handleAudioDeviceChange}
+                      disabled={isBroadcasting}
+                    >
+                      {availableAudioDevices.length > 0 ? (
+                        availableAudioDevices.map((device) => (
+                          <option key={device.id} value={device.id}>
+                            {device.label}
+                          </option>
+                        ))
+                      ) : (
+                        <option value="default">No devices detected</option>
+                      )}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700 dark:text-gray-300">
+                      <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                  </div>
+                  
+                  {availableAudioDevices.length === 0 && (
+                    <div className="flex items-center mt-2 p-3 rounded-md bg-red-50 dark:bg-red-900/30 text-red-800 dark:text-red-200">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                      <span className="text-sm">
+                        No audio devices detected. Please check your microphone permissions and connections, then click refresh.
+                      </span>
+                    </div>
+                  )}
+                  
+                  {availableAudioDevices.length > 0 && !isBroadcasting && !testMode && (
+                    <div className="flex items-center mt-2 p-3 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                      </svg>
+                      <span className="text-sm">
+                        Click "Test Audio" to verify your microphone is working properly before broadcasting.
+                      </span>
+                    </div>
+                  )}
                 </div>
 
-                {/* Audio Level Meter */}
-                {(isBroadcasting || testMode) && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Audio Input Level
-                    </label>
-                    <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                {/* Audio Level Meter - show when previewing, broadcasting or in test mode */}
+                {(isBroadcasting || testMode || isPreviewingAudio) && (
+                  <div className="mt-4 p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Audio Input Level
+                      </label>
+                      {isPreviewingAudio && (
+                        <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                          Preview Mode
+                        </span>
+                      )}
+                      {isBroadcasting && !isPreviewingAudio && (
+                        <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                          Live
+                        </span>
+                      )}
+                      {testMode && !isPreviewingAudio && !isBroadcasting && (
+                        <span className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                          Test Mode
+                        </span>
+                      )}
+                    </div>
+                    
+                    <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden shadow-inner">
                       <div 
-                        className={`h-full ${
+                        className={`h-full transition-all duration-150 ${
                           audioInputLevel > 80 
-                            ? 'bg-red-500' 
+                            ? 'bg-gradient-to-r from-red-500 to-red-600' 
                             : audioInputLevel > 60 
-                              ? 'bg-yellow-500' 
-                              : 'bg-green-500'
+                              ? 'bg-gradient-to-r from-yellow-400 to-yellow-500' 
+                              : 'bg-gradient-to-r from-green-400 to-green-500'
                         }`}
                         style={{ width: `${audioInputLevel}%` }}
                       ></div>
                     </div>
-                    <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      <span>Low</span>
-                      <span>Medium</span>
-                      <span>High</span>
+                    <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-2">
+                      <div className="flex items-center">
+                        <span className="h-2 w-2 bg-green-500 rounded-full mr-1"></span>
+                        <span>Low</span>
+                      </div>
+                      <div className="flex items-center">
+                        <span className="h-2 w-2 bg-yellow-500 rounded-full mr-1"></span>
+                        <span>Medium</span>
+                      </div>
+                      <div className="flex items-center">
+                        <span className="h-2 w-2 bg-red-500 rounded-full mr-1"></span>
+                        <span>High ({audioInputLevel}%)</span>
+                      </div>
+                    </div>
+                    
+                    {isPreviewingAudio && (
+                      <div className="mt-3 text-sm bg-yellow-50 dark:bg-yellow-900/30 p-2 rounded text-yellow-800 dark:text-yellow-200 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                        </svg>
+                        If you experience audio feedback, try using headphones or lower your speaker volume.
+                      </div>
+                    )}
+                    
+                    <div className="mt-3 text-sm text-gray-600 dark:text-gray-400">
+                      <span className="font-medium">Device in use: </span>
+                      {availableAudioDevices.find(d => d.id === audioInputDevice)?.label || 'Default device'}
                     </div>
                   </div>
                 )}
@@ -682,6 +1408,39 @@ export default function DJDashboard() {
                   </ul>
                 ) : (
                   <p className="text-gray-500 dark:text-gray-400 text-center py-4">No chat messages yet</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Song Requests */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
+                Song Requests
+              </h2>
+
+              <div className="max-h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-maroon-500 dark:scrollbar-thumb-maroon-700 scrollbar-track-gray-200 dark:scrollbar-track-gray-700">
+                {songRequests.length > 0 ? (
+                  <ul className="space-y-3">
+                    {songRequests.map((request) => (
+                      <li key={request.id} className="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
+                        <div className="flex justify-between">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">
+                            {request.songTitle} {request.artist && <span>by {request.artist}</span>}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {request.timestamp ? new Date(request.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                          </p>
+                        </div>
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                          Requested by: {request.requestedBy ? request.requestedBy.name : 'Unknown'}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-gray-500 dark:text-gray-400 text-center py-4">No song requests yet</p>
                 )}
               </div>
             </div>
@@ -861,33 +1620,47 @@ export default function DJDashboard() {
                 Server Schedule Management
               </h2>
 
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h3 className="text-lg font-medium text-gray-900 dark:text-white">Server Status</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center">
-                    {serverRunning ? (
-                      <>
-                        <CheckCircleIcon className="h-4 w-4 text-green-500 mr-1" />
-                        Running
-                      </>
-                    ) : (
-                      <>
-                        <XCircleIcon className="h-4 w-4 text-red-500 mr-1" />
-                        Stopped
-                      </>
-                    )}
-                  </p>
+              {/* Server Status */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
+                <div className="p-6">
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
+                    Server Control
+                  </h3>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-gray-700 dark:text-gray-300 mb-1">Server Status</p>
+                      <div className="flex items-center">
+                        <span className={`h-3 w-3 rounded-full mr-2 ${serverRunning ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                          {serverRunning ? 'Running' : 'Stopped'}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={toggleServer}
+                      disabled={isLoading}
+                      className={`py-2 px-4 rounded-md text-white font-medium ${
+                        serverRunning 
+                          ? 'bg-red-600 hover:bg-red-700' 
+                          : 'bg-green-600 hover:bg-green-700'
+                      } ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {isLoading ? (
+                        <span className="flex items-center">
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          {serverRunning ? 'Stopping...' : 'Starting...'}
+                        </span>
+                      ) : (
+                        <>
+                          {serverRunning ? 'Stop Server' : 'Start Server'}
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={toggleServer}
-                  className={`px-4 py-2 rounded-md text-white font-medium ${
-                    serverRunning
-                      ? 'bg-red-600 hover:bg-red-700'
-                      : 'bg-yellow-500 hover:bg-yellow-600'
-                  }`}
-                >
-                  {serverRunning ? 'Stop Server' : 'Start Server'}
-                </button>
               </div>
 
               {/* Weekly Schedule Overview */}
@@ -905,141 +1678,59 @@ export default function DJDashboard() {
                             </div>
                             <div className="flex-1">
                               {daySchedule ? (
-                                <div className="text-sm">
-                                  <p className="text-gray-600 dark:text-gray-400">
-                                    {daySchedule.scheduledStart} - {daySchedule.scheduledEnd}
-                                  </p>
-                                  <p className="text-xs text-gray-500 dark:text-gray-500">
-                                    {daySchedule.status === 'RUNNING' ? (
-                                      <span className="text-green-500">Running</span>
-                                    ) : daySchedule.status === 'SCHEDULED' ? (
-                                      <span className="text-yellow-500">Scheduled</span>
-                                    ) : (
-                                      <span className="text-red-500">Off</span>
-                                    )}
-                                  </p>
+                                <div className="text-sm text-gray-600 dark:text-gray-400">
+                                  {daySchedule.scheduledStart} - {daySchedule.scheduledEnd}
                                 </div>
                               ) : (
-                                <p className="text-sm text-gray-500 dark:text-gray-400">No schedule</p>
+                                <div className="text-sm text-gray-500 dark:text-gray-500 italic">No schedule</div>
                               )}
                             </div>
-                            <div className="flex-none">
-                              <button
-                                onClick={() => {
-                                  setSelectedDay(day);
-                                  if (daySchedule) {
-                                    setNewSchedule({
-                                      dayOfWeek: day,
-                                      scheduledStart: daySchedule.scheduledStart,
-                                      scheduledEnd: daySchedule.scheduledEnd,
-                                      automatic: daySchedule.automatic
-                                    });
-                                  } else {
-                                    setNewSchedule({
-                                      dayOfWeek: day,
-                                      scheduledStart: '',
-                                      scheduledEnd: '',
-                                      automatic: true
-                                    });
-                                  }
-                                }}
-                                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm"
-                              >
-                                {daySchedule ? 'Edit' : 'Add'}
-                              </button>
+                            <div className="flex space-x-2">
+                              {daySchedule ? (
+                                <>
+                                  <button
+                                    onClick={() => handleEditSchedule(daySchedule)}
+                                    className="p-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                                    title="Edit schedule"
+                                  >
+                                    <PencilIcon className="h-5 w-5" />
+                                  </button>
+                                  <button
+                                    onClick={() => confirmDeleteSchedule(daySchedule)}
+                                    className="p-1 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                                    title="Delete schedule"
+                                  >
+                                    <TrashIcon className="h-5 w-5" />
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => handleAddSchedule(day)}
+                                  className="p-1 text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
+                                  title="Add schedule"
+                                >
+                                  <PlusCircleIcon className="h-5 w-5" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         );
                       })}
                     </div>
                   ) : (
-                    <p className="text-center text-gray-500 dark:text-gray-400">No schedules configured yet</p>
+                    <div className="text-center py-4">
+                      <p className="text-gray-500 dark:text-gray-400 mb-4">No schedules configured</p>
+                      <button
+                        onClick={() => handleAddSchedule('MONDAY')}
+                        className="inline-flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white rounded-md"
+                      >
+                        <PlusCircleIcon className="h-5 w-5 mr-2" />
+                        Add Schedule
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
-
-              {/* Schedule Form */}
-              <form onSubmit={handleServerScheduleSubmit}>
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-3">
-                  {serverSchedules.find(s => s.dayOfWeek === selectedDay) ? 'Edit' : 'Add'} Schedule for {selectedDay.charAt(0) + selectedDay.slice(1).toLowerCase()}
-                </h3>
-
-                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 mb-4">
-                  <div>
-                    <label htmlFor="dayOfWeek" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Day of Week
-                    </label>
-                    <select
-                      id="dayOfWeek"
-                      name="dayOfWeek"
-                      value={selectedDay}
-                      onChange={handleDayChange}
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
-                    >
-                      <option value="MONDAY">Monday</option>
-                      <option value="TUESDAY">Tuesday</option>
-                      <option value="WEDNESDAY">Wednesday</option>
-                      <option value="THURSDAY">Thursday</option>
-                      <option value="FRIDAY">Friday</option>
-                      <option value="SATURDAY">Saturday</option>
-                      <option value="SUNDAY">Sunday</option>
-                    </select>
-                  </div>
-
-                  <div className="flex items-center mt-6">
-                    <input
-                      type="checkbox"
-                      id="automatic"
-                      name="automatic"
-                      checked={true}
-                      readOnly
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                    />
-                    <label htmlFor="automatic" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
-                      Automatic (server will start/stop according to schedule)
-                    </label>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                  <div>
-                    <label htmlFor="scheduledStart" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Start Time
-                    </label>
-                    <input
-                      type="time"
-                      name="scheduledStart"
-                      id="scheduledStart"
-                      value={newSchedule.scheduledStart}
-                      onChange={handleNewScheduleChange}
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="scheduledEnd" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      End Time
-                    </label>
-                    <input
-                      type="time"
-                      name="scheduledEnd"
-                      id="scheduledEnd"
-                      value={newSchedule.scheduledEnd}
-                      onChange={handleNewScheduleChange}
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-6 flex justify-end">
-                  <button
-                    type="submit"
-                    className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600"
-                  >
-                    <ClockIcon className="h-5 w-5 mr-1" />
-                    {serverSchedules.find(s => s.dayOfWeek === selectedDay) ? 'Update' : 'Add'} Schedule
-                  </button>
-                </div>
-              </form>
             </div>
           </div>
         </div>
