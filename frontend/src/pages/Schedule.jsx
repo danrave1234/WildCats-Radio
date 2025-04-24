@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from 'react';
 import {
   CalendarDaysIcon,
   ViewColumnsIcon,
@@ -10,7 +10,11 @@ import {
   CalendarIcon,
   InformationCircleIcon,
   PlusCircleIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline"
+import { broadcastService } from "../services/api" // Import the broadcast service
+import Toast from "../components/Toast" // Import Toast component
+import { DateSelector, TimeSelector } from "../components/DateTimeSelector" // Import our custom date/time selectors
 
 // Cookie helper function
 const getCookie = (name) => {
@@ -27,8 +31,14 @@ export default function Schedule() {
   const [selectedBroadcast, setSelectedBroadcast] = useState(null)
   const [showBroadcastDetails, setShowBroadcastDetails] = useState(false)
   const [currentMonth, setCurrentMonth] = useState(new Date())
+  const [isLoading, setIsLoading] = useState(false) // Loading state for API calls
+  const [isEditMode, setIsEditMode] = useState(false) // Whether we're editing or creating
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false) // Confirmation modal for delete
 
-  // Broadcasts data - should be fetched from API
+  // Toast notification state
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'success' })
+
+  // Broadcasts data - fetched from API
   const [upcomingBroadcasts, setUpcomingBroadcasts] = useState([])
 
   // Broadcast details form state
@@ -41,6 +51,56 @@ export default function Schedule() {
     details: "",
   })
 
+  // Function to enter edit mode with a selected broadcast
+  const handleEditBroadcast = (broadcast) => {
+    // Populate form with the broadcast details
+    setBroadcastDetails({
+      id: broadcast.id,
+      title: broadcast.title,
+      description: broadcast.description,
+      date: broadcast.date,
+      startTime: broadcast.startTime.length === 7 ? broadcast.startTime.substring(0, 5) : broadcast.startTime,
+      endTime: broadcast.endTime.length === 7 ? broadcast.endTime.substring(0, 5) : broadcast.endTime,
+      details: broadcast.details || '',
+    })
+
+    // Set edit mode and show form
+    setIsEditMode(true)
+    setShowScheduleForm(true)
+    setShowBroadcastDetails(false)
+  }
+
+  // Function to handle deletion of a broadcast
+  const handleDeleteBroadcast = (broadcast) => {
+    setSelectedBroadcast(broadcast)
+    setIsDeleteConfirmOpen(true)
+    setShowBroadcastDetails(false)
+  }
+
+  // Function to reset form to creation mode
+  const resetToCreateMode = () => {
+    setBroadcastDetails({
+      title: "",
+      description: "",
+      date: "",
+      startTime: "",
+      endTime: "",
+      details: "",
+    })
+    setIsEditMode(false)
+  }
+
+  // Function to handle cancel of form
+  const handleCancelForm = () => {
+    setShowScheduleForm(false)
+    resetToCreateMode()
+  }
+
+  // Show toast notification
+  const showToast = (message, type = 'success') => {
+    setToast({ visible: true, message, type })
+  }
+
   // Check user role from authentication
   useEffect(() => {
     const checkUserRole = async () => {
@@ -50,6 +110,51 @@ export default function Schedule() {
     }
 
     checkUserRole()
+  }, [])
+
+  // Fetch upcoming broadcasts
+  useEffect(() => {
+    const fetchUpcomingBroadcasts = async () => {
+      try {
+        setIsLoading(true)
+        const response = await broadcastService.getUpcoming()
+
+        // Transform the data to match our expected format
+        const broadcasts = response.data.map(broadcast => {
+          // Parse dates using UTC to avoid timezone issues
+          const startDateTime = new Date(broadcast.scheduledStart)
+          const endDateTime = new Date(broadcast.scheduledEnd)
+
+          // Extract the date in YYYY-MM-DD format but respect the original date provided by backend
+          // This ensures we don't shift days due to timezone
+          const dateStr = broadcast.scheduledStart.split('T')[0]
+
+          return {
+            id: broadcast.id,
+            title: broadcast.title,
+            description: broadcast.description,
+            date: dateStr,
+            startTime: startDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            endTime: endDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            dj: broadcast.createdBy ? broadcast.createdBy.name : 'Unknown DJ',
+            details: broadcast.details || ''
+          }
+        })
+
+        setUpcomingBroadcasts(broadcasts)
+      } catch (error) {
+        console.error("Error fetching upcoming broadcasts:", error)
+        showToast("Failed to load broadcasts", "error")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchUpcomingBroadcasts()
+    // Refresh data every 5 minutes
+    const interval = setInterval(fetchUpcomingBroadcasts, 300000)
+
+    return () => clearInterval(interval)
   }, [])
 
   // Check if user can schedule broadcasts (admin or DJ)
@@ -74,35 +179,79 @@ export default function Schedule() {
   }
 
   // Handle broadcast details submission
-  const handleBroadcastScheduleSubmit = (e) => {
+  const handleBroadcastScheduleSubmit = async (e) => {
     e.preventDefault()
 
-    // Create a new broadcast with a unique ID
-    const newBroadcast = {
-      ...broadcastDetails,
-      id: Date.now(), // Use timestamp as a simple unique ID
-      dj: userRole === "DJ" ? "You (DJ)" : "Admin", // In a real app, this would be the current user's name
+    try {
+      setIsLoading(true)
+
+      // Format the date and time for the API
+      const date = broadcastDetails.date
+
+      // Create date objects preserving the exact date and time selected by user
+      // Format YYYY-MM-DDThh:mm ensures correct date parsing
+      const startDateTime = new Date(`${date}T${broadcastDetails.startTime}:00`)
+      const endDateTime = new Date(`${date}T${broadcastDetails.endTime}:00`)
+
+      // Create the request payload - use the dates exactly as selected
+      // Don't adjust for timezone as this would shift the date
+      const broadcastData = {
+        title: broadcastDetails.title,
+        description: broadcastDetails.description,
+        scheduledStart: startDateTime.toISOString(),
+        scheduledEnd: endDateTime.toISOString(),
+        details: broadcastDetails.details
+      }
+
+      let response
+      let successMessage
+
+      if (isEditMode) {
+        // Update existing broadcast
+        response = await broadcastService.update(broadcastDetails.id, broadcastData)
+        successMessage = "Broadcast updated successfully!"
+      } else {
+        // Create new broadcast
+        response = await broadcastService.schedule(broadcastData)
+        successMessage = "Broadcast scheduled successfully!"
+      }
+
+      // Transform the API response data to match our local format
+      const updatedBroadcast = {
+        id: response.data.id,
+        title: response.data.title,
+        description: response.data.description,
+        date: date, // Use the original date directly
+        startTime: new Date(`${date}T${broadcastDetails.startTime}`).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        endTime: new Date(`${date}T${broadcastDetails.endTime}`).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        dj: response.data.createdBy?.name || (userRole === "DJ" ? "You (DJ)" : "Admin"),
+        details: broadcastDetails.details,
+      }
+
+      // Update the broadcasts list accordingly
+      if (isEditMode) {
+        setUpcomingBroadcasts(upcomingBroadcasts.map(broadcast =>
+            broadcast.id === updatedBroadcast.id ? updatedBroadcast : broadcast
+        ))
+      } else {
+        setUpcomingBroadcasts([...upcomingBroadcasts, updatedBroadcast])
+      }
+
+      // Reset the form
+      resetToCreateMode()
+
+      // Close the form
+      setShowScheduleForm(false)
+
+      // Show success toast
+      showToast(successMessage)
+    } catch (error) {
+      console.error(`Error ${isEditMode ? "updating" : "scheduling"} broadcast:`, error)
+      // Show error toast
+      showToast(`Failed to ${isEditMode ? "update" : "schedule"} broadcast. Please try again.`, "error")
+    } finally {
+      setIsLoading(false)
     }
-
-    // Add to the list of broadcasts
-    setUpcomingBroadcasts([...upcomingBroadcasts, newBroadcast])
-
-    // Reset the form
-    setBroadcastDetails({
-      title: "",
-      description: "",
-      date: "",
-      startTime: "",
-      endTime: "",
-      details: "",
-    })
-
-    // Close the form
-    setShowScheduleForm(false)
-
-    // In a real app, you would send this to your backend
-    console.log("Scheduled broadcast:", newBroadcast)
-    alert("Broadcast scheduled successfully!")
   }
 
   // Handle viewing broadcast details
@@ -160,7 +309,10 @@ export default function Schedule() {
     // Add days from current month
     for (let i = 1; i <= lastDayOfMonth.getDate(); i++) {
       const date = new Date(year, month, i)
-      const dateString = date.toISOString().split("T")[0]
+
+      // Format date string in YYYY-MM-DD to match broadcast.date format
+      // Ensure we use padStart to get proper 2-digit months and days
+      const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`
 
       days.push({
         date,
@@ -203,6 +355,35 @@ export default function Schedule() {
   // Get calendar days
   const calendarDays = generateCalendarDays()
 
+  // Confirm and execute deletion of a broadcast
+  const confirmDeleteBroadcast = async () => {
+    if (!selectedBroadcast) return
+
+    try {
+      setIsLoading(true)
+
+      // Call the API to delete the broadcast
+      await broadcastService.delete(selectedBroadcast.id)
+
+      // Remove the broadcast from the local state
+      setUpcomingBroadcasts(upcomingBroadcasts.filter(broadcast =>
+          broadcast.id !== selectedBroadcast.id
+      ))
+
+      // Close the confirmation modal
+      setIsDeleteConfirmOpen(false)
+      setSelectedBroadcast(null)
+
+      // Show success message
+      showToast("Broadcast deleted successfully!")
+    } catch (error) {
+      console.error("Error deleting broadcast:", error)
+      showToast("Failed to delete broadcast. Please try again.", "error")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   return (
       <div className="container mx-auto px-4">
         <div className="max-w-5xl mx-auto">
@@ -241,6 +422,7 @@ export default function Schedule() {
                   <button
                       onClick={() => setShowScheduleForm(!showScheduleForm)}
                       className="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg text-sm font-medium flex items-center"
+                      disabled={isLoading}
                   >
                     <CalendarIcon className="h-5 w-5 mr-1" />
                     {showScheduleForm ? "Cancel" : "Schedule Broadcast"}
@@ -249,123 +431,155 @@ export default function Schedule() {
             </div>
           </div>
 
+          {/* Loading indicator */}
+          {isLoading && (
+              <div className="text-center py-4">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-maroon-700"></div>
+                <p className="mt-2 text-gray-600 dark:text-gray-400">Loading...</p>
+              </div>
+          )}
+
           {/* DJ/Admin Broadcast Scheduling Form */}
           {canScheduleBroadcasts && showScheduleForm && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
-                <div className="p-6">
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
-                    Schedule New Broadcast
-                  </h2>
-
-                  <form onSubmit={handleBroadcastScheduleSubmit}>
-                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                      <div className="sm:col-span-2">
-                        <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Broadcast Title
-                        </label>
-                        <input
-                            type="text"
-                            name="title"
-                            id="title"
-                            value={broadcastDetails.title}
-                            onChange={handleBroadcastDetailsChange}
-                            required
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
-                        />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <label
-                            htmlFor="description"
-                            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                        >
-                          Description
-                        </label>
-                        <textarea
-                            name="description"
-                            id="description"
-                            rows="3"
-                            value={broadcastDetails.description}
-                            onChange={handleBroadcastDetailsChange}
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
-                        ></textarea>
-                      </div>
-                      <div>
-                        <label htmlFor="date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Date
-                        </label>
-                        <input
-                            type="date"
-                            name="date"
-                            id="date"
-                            value={broadcastDetails.date}
-                            onChange={handleBroadcastDetailsChange}
-                            required
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
-                        />
-                      </div>
-                      <div>
-                        <label
-                            htmlFor="startTime"
-                            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                        >
-                          Start Time
-                        </label>
-                        <input
-                            type="time"
-                            name="startTime"
-                            id="startTime"
-                            value={broadcastDetails.startTime}
-                            onChange={handleBroadcastDetailsChange}
-                            required
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
-                        />
-                      </div>
-                      <div>
-                        <label
-                            htmlFor="endTime"
-                            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                        >
-                          End Time
-                        </label>
-                        <input
-                            type="time"
-                            name="endTime"
-                            id="endTime"
-                            value={broadcastDetails.endTime}
-                            onChange={handleBroadcastDetailsChange}
-                            required
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
-                        />
-                      </div>
-                      <div className="sm:col-span-2">
-                        <label
-                            htmlFor="details"
-                            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                        >
-                          Broadcast Details (Only visible to DJs and Admins)
-                        </label>
-                        <textarea
-                            name="details"
-                            id="details"
-                            rows="3"
-                            value={broadcastDetails.details}
-                            onChange={handleBroadcastDetailsChange}
-                            placeholder="Add any additional details about the broadcast that only DJs and admins should see"
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
-                        ></textarea>
-                      </div>
-                    </div>
-
-                    <div className="mt-6 flex justify-end">
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 my-8 overflow-auto max-h-[90vh]">
+                  <div className="p-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <h2 className="text-xl font-bold text-gray-900 dark:text-white border-b pb-2 border-gray-200 dark:border-gray-700">
+                        Schedule New Broadcast
+                      </h2>
                       <button
-                          type="submit"
-                          className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600"
+                          onClick={() => setShowScheduleForm(false)}
+                          className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                       >
-                        <CalendarIcon className="h-5 w-5 mr-1" />
-                        Schedule Broadcast
+                        <XMarkIcon className="h-6 w-6" />
                       </button>
                     </div>
-                  </form>
+
+                    <form onSubmit={handleBroadcastScheduleSubmit}>
+                      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                        <div className="sm:col-span-2">
+                          <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Broadcast Title
+                          </label>
+                          <input
+                              type="text"
+                              name="title"
+                              id="title"
+                              value={broadcastDetails.title}
+                              onChange={handleBroadcastDetailsChange}
+                              required
+                              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label
+                              htmlFor="description"
+                              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                          >
+                            Description
+                          </label>
+                          <textarea
+                              name="description"
+                              id="description"
+                              rows="3"
+                              value={broadcastDetails.description}
+                              onChange={handleBroadcastDetailsChange}
+                              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+                          ></textarea>
+                        </div>
+                        <div>
+                          <label htmlFor="date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Date
+                          </label>
+                          <DateSelector
+                              value={broadcastDetails.date}
+                              onChange={(date) => handleBroadcastDetailsChange({ target: { name: 'date', value: date } })}
+                              label="Date"
+                              id="date"
+                              required={true}
+                          />
+                        </div>
+                        <div>
+                          <label
+                              htmlFor="startTime"
+                              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                          >
+                            Start Time
+                          </label>
+                          <TimeSelector
+                              value={broadcastDetails.startTime}
+                              onChange={(time) => handleBroadcastDetailsChange({ target: { name: 'startTime', value: time } })}
+                              label="Start Time"
+                              id="startTime"
+                              required={true}
+                          />
+                        </div>
+                        <div>
+                          <label
+                              htmlFor="endTime"
+                              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                          >
+                            End Time
+                          </label>
+                          <TimeSelector
+                              value={broadcastDetails.endTime}
+                              onChange={(time) => handleBroadcastDetailsChange({ target: { name: 'endTime', value: time } })}
+                              label="End Time"
+                              id="endTime"
+                              required={true}
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label
+                              htmlFor="details"
+                              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                          >
+                            Broadcast Details (Only visible to DJs and Admins)
+                          </label>
+                          <textarea
+                              name="details"
+                              id="details"
+                              rows="3"
+                              value={broadcastDetails.details}
+                              onChange={handleBroadcastDetailsChange}
+                              placeholder="Add any additional details about the broadcast that only DJs and admins should see"
+                              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+                          ></textarea>
+                        </div>
+                      </div>
+
+                      <div className="mt-6 flex justify-end space-x-3">
+                        <button
+                            type="button"
+                            onClick={() => setShowScheduleForm(false)}
+                            className="px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 dark:bg-gray-700 dark:text-white dark:border-gray-600 dark:hover:bg-gray-600"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600"
+                            disabled={isLoading}
+                        >
+                          {isLoading ? (
+                              <>
+                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Scheduling...
+                              </>
+                          ) : (
+                              <>
+                                <CalendarIcon className="h-5 w-5 mr-1" />
+                                Schedule Broadcast
+                              </>
+                          )}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
                 </div>
               </div>
           )}
@@ -422,7 +636,23 @@ export default function Schedule() {
                       )}
                     </div>
 
-                    <div className="mt-6 flex justify-end">
+                    <div className="mt-6 flex justify-end space-x-2">
+                      {canScheduleBroadcasts && (
+                          <>
+                            <button
+                                onClick={() => handleDeleteBroadcast(selectedBroadcast)}
+                                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium"
+                            >
+                              Delete
+                            </button>
+                            <button
+                                onClick={() => handleEditBroadcast(selectedBroadcast)}
+                                className="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg text-sm font-medium"
+                            >
+                              Edit
+                            </button>
+                          </>
+                      )}
                       <button
                           onClick={() => setShowBroadcastDetails(false)}
                           className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-sm font-medium dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white"
@@ -430,6 +660,44 @@ export default function Schedule() {
                         Close
                       </button>
                     </div>
+                  </div>
+                </div>
+              </div>
+          )}
+
+          {/* Delete Confirmation Modal */}
+          {isDeleteConfirmOpen && selectedBroadcast && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Confirm Deletion</h3>
+                  <p className="text-gray-700 dark:text-gray-300 mb-6">
+                    Are you sure you want to delete the broadcast "{selectedBroadcast.title}" scheduled for {new Date(selectedBroadcast.date).toLocaleDateString()} at {selectedBroadcast.startTime}?
+                  </p>
+                  <div className="flex justify-end space-x-3">
+                    <button
+                        onClick={() => setIsDeleteConfirmOpen(false)}
+                        className="px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 dark:bg-gray-700 dark:text-white dark:border-gray-600 dark:hover:bg-gray-600"
+                        disabled={isLoading}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                        onClick={confirmDeleteBroadcast}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium"
+                        disabled={isLoading}
+                    >
+                      {isLoading ? (
+                          <>
+                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Deleting...
+                          </>
+                      ) : (
+                          "Delete Broadcast"
+                      )}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -548,14 +816,14 @@ export default function Schedule() {
 
                   {/* No broadcasts placeholder */}
                   {upcomingBroadcasts.length === 0 && (
-                    <div className="mt-6 text-center py-8 px-4 border-t border-gray-200 dark:border-gray-700">
-                      <MicrophoneIcon className="h-12 w-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
-                      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No broadcasts scheduled</h3>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-                        There are currently no broadcasts scheduled for this month. Check back later or 
-                        {canScheduleBroadcasts ? " use the plus icons on dates to schedule broadcasts." : " contact a DJ or admin to schedule a broadcast."}
-                      </p>
-                    </div>
+                      <div className="mt-6 text-center py-8 px-4 border-t border-gray-200 dark:border-gray-700">
+                        <MicrophoneIcon className="h-12 w-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No broadcasts scheduled</h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
+                          There are currently no broadcasts scheduled for this month. Check back later or
+                          {canScheduleBroadcasts ? " use the plus icons on dates to schedule broadcasts." : " contact a DJ or admin to schedule a broadcast."}
+                        </p>
+                      </div>
                   )}
                 </div>
               </div>
@@ -563,61 +831,70 @@ export default function Schedule() {
               // List View - Keep as is
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
                 {upcomingBroadcasts.length > 0 ? (
-                  <ul className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {upcomingBroadcasts.map((broadcast) => (
-                        <li
-                            key={broadcast.id}
-                            className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
-                            onClick={() => handleViewBroadcastDetails(broadcast)}
-                        >
-                          <div className="flex items-start">
-                            <div className="flex-shrink-0 pt-1">
-                              <MicrophoneIcon className="h-6 w-6 text-maroon-600 dark:text-yellow-400" />
-                            </div>
-                            <div className="ml-4 flex-1">
-                              <div className="flex justify-between">
-                                <h3 className="text-lg font-medium text-gray-900 dark:text-white">{broadcast.title}</h3>
-                                <p className="text-sm text-gray-500 dark:text-gray-400">
-                                  {new Date(broadcast.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                                </p>
+                    <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {upcomingBroadcasts.map((broadcast) => (
+                          <li
+                              key={broadcast.id}
+                              className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                              onClick={() => handleViewBroadcastDetails(broadcast)}
+                          >
+                            <div className="flex items-start">
+                              <div className="flex-shrink-0 pt-1">
+                                <MicrophoneIcon className="h-6 w-6 text-maroon-600 dark:text-yellow-400" />
                               </div>
-                              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{broadcast.description}</p>
-                              <div className="mt-2 flex items-center text-sm text-gray-600 dark:text-gray-300">
-                                <ClockIcon className="h-4 w-4 mr-1" />
-                                <span>
+                              <div className="ml-4 flex-1">
+                                <div className="flex justify-between">
+                                  <h3 className="text-lg font-medium text-gray-900 dark:text-white">{broadcast.title}</h3>
+                                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                                    {new Date(broadcast.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                  </p>
+                                </div>
+                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{broadcast.description}</p>
+                                <div className="mt-2 flex items-center text-sm text-gray-600 dark:text-gray-300">
+                                  <ClockIcon className="h-4 w-4 mr-1" />
+                                  <span>
                             {broadcast.startTime} - {broadcast.endTime}
                           </span>
-                                <span className="mx-2">•</span>
-                                <UserIcon className="h-4 w-4 mr-1" />
-                                <span>{broadcast.dj}</span>
-                                {canScheduleBroadcasts && broadcast.details && (
-                                    <>
-                                      <span className="mx-2">•</span>
-                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-maroon-100 text-maroon-800 dark:bg-maroon-900/50 dark:text-yellow-300">
+                                  <span className="mx-2">•</span>
+                                  <UserIcon className="h-4 w-4 mr-1" />
+                                  <span>{broadcast.dj}</span>
+                                  {canScheduleBroadcasts && broadcast.details && (
+                                      <>
+                                        <span className="mx-2">•</span>
+                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-maroon-100 text-maroon-800 dark:bg-maroon-900/50 dark:text-yellow-300">
                                 <InformationCircleIcon className="h-3 w-3 mr-1" />
                                 Staff Details
                               </span>
-                                    </>
-                                )}
+                                      </>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </li>
-                    ))}
-                  </ul>
+                          </li>
+                      ))}
+                    </ul>
                 ) : (
-                  <div className="py-12 px-4 text-center">
-                    <MicrophoneIcon className="h-12 w-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No broadcasts scheduled</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      There are currently no broadcasts scheduled. Check back later or {canScheduleBroadcasts && "schedule a broadcast using the button above."}
-                      {!canScheduleBroadcasts && "contact a DJ or admin to schedule a broadcast."}
-                    </p>
-                  </div>
+                    <div className="py-12 px-4 text-center">
+                      <MicrophoneIcon className="h-12 w-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No broadcasts scheduled</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        There are currently no broadcasts scheduled. Check back later or {canScheduleBroadcasts && "schedule a broadcast using the button above."}
+                        {!canScheduleBroadcasts && "contact a DJ or admin to schedule a broadcast."}
+                      </p>
+                    </div>
                 )}
               </div>
           )}
         </div>
+
+        {/* Toast notification */}
+        {toast.visible && (
+            <Toast
+                message={toast.message}
+                type={toast.type}
+                onClose={() => setToast({ ...toast, visible: false })}
+            />
+        )}
       </div>
   )
 }
