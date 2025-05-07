@@ -1,32 +1,62 @@
-import { Link, Stack } from 'expo-router';
-import { StyleSheet } from 'react-native';
-
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import React from 'react';
+import { StyleSheet, View, Text, SafeAreaView } from 'react-native';
+import { ColorPalette } from '@/constants/ColorPalette';
+import { StatusBar } from 'expo-status-bar';
 
 export default function NotFoundScreen() {
   return (
-    <>
-      <Stack.Screen options={{ title: 'Oops!' }} />
-      <ThemedView style={styles.container}>
-        <ThemedText type="title">This screen does not exist.</ThemedText>
-        <Link href="/" style={styles.link}>
-          <ThemedText type="link">Go to home screen!</ThemedText>
-        </Link>
-      </ThemedView>
-    </>
+    <SafeAreaView style={styles.container}>
+      <StatusBar style="dark" />
+      
+      <View style={styles.header}>
+        <Text style={styles.screenTitle}>Not Found</Text>
+        
+        <View style={styles.headerRight}>
+          {/* Empty space to match the schedule.tsx layout */}
+        </View>
+      </View>
+      
+      <View style={styles.content}>
+        <Text>The page you're looking for doesn't exist.</Text>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
+    backgroundColor: ColorPalette.antiFlashWhite.DEFAULT,
   },
-  link: {
-    marginTop: 15,
-    paddingVertical: 15,
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 16,
+    backgroundColor: ColorPalette.white.DEFAULT,
+    borderBottomWidth: 1,
+    borderBottomColor: ColorPalette.antiFlashWhite[400],
+    shadowColor: ColorPalette.black.DEFAULT,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  screenTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: ColorPalette.cordovan.DEFAULT,
+  },
+  content: {
+    flex: 1,
+    padding: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

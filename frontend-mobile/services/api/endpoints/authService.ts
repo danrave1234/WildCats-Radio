@@ -50,6 +50,33 @@ export const authService = {
   },
 
   /**
+   * Get current user profile
+   */
+  getCurrentUser: async (): Promise<User> => {
+    const response = await apiClient.get<User>('/auth/me');
+    return response.data;
+  },
+
+  /**
+   * Update user profile
+   */
+  updateProfile: async (userId: number, userData: Partial<User>): Promise<User> => {
+    const response = await apiClient.put<User>(`/auth/${userId}`, userData);
+    return response.data;
+  },
+
+  /**
+   * Change user password
+   */
+  changePassword: async (userId: number, currentPassword: string, newPassword: string): Promise<string> => {
+    const response = await apiClient.post<string>(`/auth/${userId}/change-password`, {
+      currentPassword,
+      newPassword
+    });
+    return response.data;
+  },
+
+  /**
    * Logout user
    */
   logout: async (): Promise<void> => {

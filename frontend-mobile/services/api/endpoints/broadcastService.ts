@@ -62,10 +62,26 @@ export const broadcastService = {
       return response.data;
     } catch (error) {
       // If no active broadcast, return null
-      if ((error as any).status === 404) {
+      if ((error as any).status === 400 || (error as any).status === 404) {
         return null;
       }
       throw error;
     }
+  },
+
+  /**
+   * Get all live broadcasts
+   */
+  getLiveBroadcasts: async (): Promise<Broadcast[]> => {
+    const response = await apiClient.get<Broadcast[]>('/broadcasts/live');
+    return response.data;
+  },
+
+  /**
+   * Get all upcoming broadcasts
+   */
+  getUpcomingBroadcasts: async (): Promise<Broadcast[]> => {
+    const response = await apiClient.get<Broadcast[]>('/broadcasts/upcoming');
+    return response.data;
   }
 }; 

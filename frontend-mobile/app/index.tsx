@@ -1,41 +1,25 @@
-import React, { useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
-import { useNavigation } from 'expo-router';
-import { getAuthToken } from '@/services/api';
+import React from 'react';
+import { StyleSheet, View, Text, SafeAreaView } from 'react-native';
+import { ColorPalette } from '@/constants/ColorPalette';
+import { Redirect } from 'expo-router';
 
-export default function Index() {
-  const navigation = useNavigation();
-  
-  useEffect(() => {
-    // Check if user is already logged in
-    async function checkAuthAndRedirect() {
-      try {
-        const token = await getAuthToken();
-        
-        if (token) {
-          // User is logged in, go to main app
-          // @ts-ignore - Ignoring TypeScript here as we know this is valid
-          navigation.navigate('(tabs)');
-        } else {
-          // User is not logged in, go to login
-          // @ts-ignore - Ignoring TypeScript here as we know this is valid
-          navigation.navigate('login');
-        }
-      } catch (error) {
-        console.error('Error checking auth:', error);
-        // Default to login on error
-        // @ts-ignore - Ignoring TypeScript here as we know this is valid
-        navigation.navigate('login');
-      }
-    }
-    
-    checkAuthAndRedirect();
-  }, [navigation]);
-  
-  // Show a loading indicator while checking auth state
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#181a20' }}>
-      <ActivityIndicator size="large" color="#6c5ce7" />
-    </View>
-  );
-} 
+export default function IndexScreen() {
+  // Redirect to homepage 
+  return <Redirect href="/(tabs)/homepage" />;
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: ColorPalette.antiFlashWhite.DEFAULT,
+  },
+  content: {
+    flex: 1,
+    padding: 20,
+  },
+  screenName: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: ColorPalette.cordovan.DEFAULT,
+  },
+}); 

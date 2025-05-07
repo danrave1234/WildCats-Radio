@@ -23,12 +23,36 @@ export const useBroadcasts = () => {
   };
 
   // Get the currently active broadcast
-  const useActiveBroadcast = () => {
+  const useActiveBroadcast = (enabled = true) => {
     return useQuery({
       queryKey: ['broadcasts', 'active'],
       queryFn: () => broadcastService.getActiveBroadcast(),
       // Poll for active broadcast every 30 seconds
       refetchInterval: 30000,
+      // Only run the query if enabled is true
+      enabled,
+      // Don't retry on error for this specific query
+      retry: false,
+    });
+  };
+
+  // Get live broadcasts
+  const useLiveBroadcasts = () => {
+    return useQuery({
+      queryKey: ['broadcasts', 'live'],
+      queryFn: () => broadcastService.getLiveBroadcasts(),
+      // Poll for live broadcasts every 30 seconds
+      refetchInterval: 30000,
+    });
+  };
+
+  // Get upcoming broadcasts
+  const useUpcomingBroadcasts = () => {
+    return useQuery({
+      queryKey: ['broadcasts', 'upcoming'],
+      queryFn: () => broadcastService.getUpcomingBroadcasts(),
+      // Poll less frequently for upcoming broadcasts
+      refetchInterval: 60000,
     });
   };
 
@@ -60,6 +84,7 @@ export const useBroadcasts = () => {
       queryClient.invalidateQueries({ queryKey: ['broadcasts', data.id] });
       queryClient.invalidateQueries({ queryKey: ['broadcasts'] });
       queryClient.invalidateQueries({ queryKey: ['broadcasts', 'active'] });
+      queryClient.invalidateQueries({ queryKey: ['broadcasts', 'live'] });
     },
   });
 
@@ -70,6 +95,8 @@ export const useBroadcasts = () => {
       queryClient.invalidateQueries({ queryKey: ['broadcasts', data.id] });
       queryClient.invalidateQueries({ queryKey: ['broadcasts'] });
       queryClient.invalidateQueries({ queryKey: ['broadcasts', 'active'] });
+      queryClient.invalidateQueries({ queryKey: ['broadcasts', 'live'] });
+      queryClient.invalidateQueries({ queryKey: ['broadcasts', 'upcoming'] });
     },
   });
 
@@ -77,6 +104,8 @@ export const useBroadcasts = () => {
     useAllBroadcasts,
     useBroadcast,
     useActiveBroadcast,
+    useLiveBroadcasts,
+    useUpcomingBroadcasts,
     createBroadcast: createBroadcastMutation,
     updateBroadcast: updateBroadcastMutation,
     startBroadcast: startBroadcastMutation,

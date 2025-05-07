@@ -1,49 +1,71 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { authService } from '../endpoints/authService';
-import { LoginRequest, RegisterRequest } from '../types';
+import { LoginRequest, RegisterRequest, User } from '../types';
 
+/**
+ * Hook for authentication operations
+ */
 export const useAuth = () => {
   const queryClient = useQueryClient();
 
   // Login mutation
-  const loginMutation = useMutation({
-    mutationFn: (credentials: LoginRequest) => authService.login(credentials),
+  const login = useMutation({
+    mutationFn: (data: LoginRequest) => authService.login(data),
     onSuccess: () => {
-      // Invalidate relevant queries when login is successful
+      // Invalidate and refetch user data upon successful login
       queryClient.invalidateQueries({ queryKey: ['user'] });
     },
   });
 
   // Register mutation
-  const registerMutation = useMutation({
-    mutationFn: (userData: RegisterRequest) => authService.register(userData),
+  const register = useMutation({
+    mutationFn: (data: RegisterRequest) => authService.register(data),
   });
 
   // Verify email mutation
-  const verifyEmailMutation = useMutation({
-    mutationFn: ({ email, code }: { email: string; code: string }) => 
+  const verifyEmail = useMutation({
+    mutationFn: ({ email, code }: { email: string; code: string }) =>
       authService.verifyEmail(email, code),
   });
 
-  // Send verification code mutation
-  const sendVerificationMutation = useMutation({
-    mutationFn: (email: string) => authService.sendVerificationCode(email),
-  });
-
   // Logout mutation
-  const logoutMutation = useMutation({
+  const logout = useMutation({
     mutationFn: () => authService.logout(),
     onSuccess: () => {
-      // Clear user data from React Query cache
-      queryClient.clear();
+      // Clear user data upon logout
+      queryClient.removeQueries({ queryKey: ['user'] });
     },
   });
 
+  // Update profile mutation
+  const updateProfile = useMutation({
+    mutationFn: ({ userId, userData }: { userId: number; userData: Partial<User> }) =>
+      authService.updateProfile(userId, userData),
+    onSuccess: () => {
+      // Invalidate and refetch user data upon successful update
+      queryClient.invalidateQueries({ queryKey: ['user'] });
+    },
+  });
+
+  // Change password mutation
+  const changePassword = useMutation({
+    mutationFn: ({ 
+      userId, 
+      currentPassword, 
+      newPassword 
+    }: { 
+      userId: number; 
+      currentPassword: string; 
+      newPassword: string 
+    }) => authService.changePassword(userId, currentPassword, newPassword),
+  });
+
   return {
-    login: loginMutation,
-    register: registerMutation,
-    verifyEmail: verifyEmailMutation,
-    sendVerification: sendVerificationMutation,
-    logout: logoutMutation,
+    login,
+    register,
+    verifyEmail,
+    logout,
+    updateProfile,
+    changePassword,
   };
 }; 

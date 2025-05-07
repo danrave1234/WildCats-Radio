@@ -6,6 +6,9 @@ import 'react-native-reanimated';
 import { useEffect, useState } from 'react';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ApiProvider, getAuthToken } from '@/services/api';
+import BottomNavigationView from '@/components/ui/BottomNavigationView';
+import TopBar from '@/components/ui/TopBar';
+import { View, Alert } from 'react-native';
 
 // Authentication context
 import { createContext, useContext } from 'react';
@@ -53,6 +56,10 @@ export default function RootLayout() {
     checkAuth();
   }, []);
 
+  const handleNotificationPress = () => {
+    Alert.alert('Notifications', 'You have new notifications!');
+  };
+
   // We'll let the login and home screens handle their own navigation
   // This simplifies our routing logic and avoids TypeScript issues
 
@@ -65,14 +72,20 @@ export default function RootLayout() {
     <AuthContext.Provider value={{ isLoggedIn, setIsLoggedIn }}>
       <ApiProvider>
         <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="index" options={{ headerShown: false }} />
-            <Stack.Screen name="login" options={{ headerShown: false }} />
-            <Stack.Screen name="register" options={{ headerShown: false }} />
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="+not-found" />
-          </Stack>
-          <StatusBar style="auto" />
+          <View style={{ flex: 1 }}>
+            <TopBar 
+              hideOnScreens={['/login']} 
+              onNotificationPress={handleNotificationPress} 
+            />
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="index" options={{ headerShown: false }} />
+              <Stack.Screen name="login" options={{ headerShown: false }} />
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="+not-found" />
+            </Stack>
+            <StatusBar style="auto" />
+            <BottomNavigationView hideOnScreens={['/login']} />
+          </View>
         </ThemeProvider>
       </ApiProvider>
     </AuthContext.Provider>
