@@ -224,6 +224,18 @@ public class ShoutcastService {
     }
 
     /**
+     * Returns the formatted streaming URL for clients to connect to
+     * 
+     * @return The formatted streaming URL
+     */
+    public String getStreamingUrl() {
+        if (testMode) {
+            return "http://test-stream.wildcastradio.example.com/stream";
+        }
+        return String.format("http://%s:%d%s", serverUrl, serverPort, mountPoint);
+    }
+
+    /**
      * Test mode method that doesn't try to connect to the actual ShoutCast server.
      * For use during development when ShoutCast integration is not available.
      * 

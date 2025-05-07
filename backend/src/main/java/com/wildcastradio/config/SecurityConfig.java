@@ -41,6 +41,9 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/me").authenticated() // Require authentication for current user endpoint
                 .requestMatchers("/api/broadcasts/live").permitAll() // Allow public access to check live broadcasts
                 .requestMatchers("/api/broadcasts/upcoming").permitAll() // Allow public access to upcoming schedule
+                .requestMatchers("/api/stream/status").permitAll() // Allow public access to stream status
+                .requestMatchers("/ws-radio/**").permitAll() // Allow public access to WebSocket STOMP endpoints
+                .requestMatchers("/stream").permitAll() // Allow access to audio streaming WebSocket endpoint
                 .requestMatchers("/api/chats/**").authenticated() // Require authentication for chat endpoints
                 .requestMatchers("/api/broadcasts/{broadcastId}/song-requests/**").authenticated() // Require authentication for song request endpoints
                 .requestMatchers("/error").permitAll() // Allow public access to error pages
