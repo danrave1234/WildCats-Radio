@@ -12,5 +12,8 @@ export default defineConfig({
         secure: true
       }
     }
+  },
+  define: {
+    global: 'window'
   }
 })

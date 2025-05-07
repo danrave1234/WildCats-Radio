@@ -119,10 +119,68 @@ public class UserService implements UserDetailsService {
         user.setVerificationCode(verificationCode);
         userRepository.save(user);
 
-        // TODO: Implement actual email sending logic here
-        System.out.println("Verification code for " + email + ": " + verificationCode);
+        // Send verification email
+        try {
+            sendVerificationEmail(email, verificationCode, user.getName());
+            // Log the activity
+            activityLogService.logActivity(
+                user,
+                ActivityLogEntity.ActivityType.EMAIL_VERIFY,
+                "Verification code sent to: " + email
+            );
+        } catch (Exception e) {
+            // Log the error but don't fail the operation
+            // This allows development to continue even if email sending fails
+            System.err.println("Failed to send verification email: " + e.getMessage());
+            e.printStackTrace();
+
+            // For development, still print the code to console
+            System.out.println("Verification code for " + email + ": " + verificationCode);
+        }
 
         return verificationCode;
+    }
+
+    /**
+     * Sends a verification email to the user with the verification code
+     * 
+     * @param email The recipient's email address
+     * @param code The verification code
+     * @param name The recipient's name
+     */
+    private void sendVerificationEmail(String email, String code, String name) {
+        // In a production environment, this would use JavaMailSender or a third-party service
+        // like SendGrid, Mailgun, or AWS SES to send the actual email
+
+        // For now, we'll simulate sending an email by logging the details
+        String emailSubject = "WildCats Radio - Verify Your Email";
+        String emailBody = String.format(
+            "Hello %s,\n\n" +
+            "Thank you for registering with WildCats Radio. Please use the following code to verify your email address:\n\n" +
+            "%s\n\n" +
+            "This code will expire in 24 hours.\n\n" +
+            "If you did not request this code, please ignore this email.\n\n" +
+            "Best regards,\n" +
+            "The WildCats Radio Team",
+            name, code
+        );
+
+        // Log the email details for development purposes
+        System.out.println("==== SIMULATED EMAIL ====");
+        System.out.println("To: " + email);
+        System.out.println("Subject: " + emailSubject);
+        System.out.println("Body: \n" + emailBody);
+        System.out.println("=========================");
+
+        // TODO: In production, uncomment and configure the following code:
+        /*
+        JavaMailSender mailSender = // get from Spring context
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(email);
+        message.setSubject(emailSubject);
+        message.setText(emailBody);
+        mailSender.send(message);
+        */
     }
 
     public boolean verifyCode(String email, String code) {
