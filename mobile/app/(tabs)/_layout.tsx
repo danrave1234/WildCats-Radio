@@ -44,41 +44,35 @@ export default function TabLayout() {
       }}>
       {/* Dashboard screen based on user role */}
       <Tabs.Screen
-        name="index"
+        name="home"
         options={{
-          title: 'Dashboard',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          title: 'Listen',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'radio' : 'radio-outline'} color={color} size={24} />
+          ),
+          tabBarLabel: ({ color, focused }) => <HapticTab label="Listen" color={color} focused={focused} />,
         }}
       />
 
-      {/* Admin-only screens */}
-      {userRole === 'ADMIN' && (
-        <Tabs.Screen
-          name="users"
-          options={{
-            title: 'Users',
-            tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.2.fill" color={color} />,
-          }}
-        />
-      )}
-
-      {/* DJ and Admin screens */}
-      {(userRole === 'DJ' || userRole === 'ADMIN') && (
-        <Tabs.Screen
-          name="broadcasts"
-          options={{
-            title: 'Broadcasts',
-            tabBarIcon: ({ color }) => <IconSymbol size={28} name="radio.fill" color={color} />,
-          }}
-        />
-      )}
-
-      {/* Common screens for all users */}
+      <Tabs.Screen
+        name="schedule"
+        options={{
+          title: 'Schedule',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'calendar' : 'calendar-outline'} color={color} size={24} />
+          ),
+          tabBarLabel: ({ color, focused }) => <HapticTab label="Schedule" color={color} focused={focused} />,
+        }}
+      />
+      
       <Tabs.Screen
         name="explore"
         options={{
           title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'compass' : 'compass-outline'} color={color} size={24} />
+          ),
+          tabBarLabel: ({ color, focused }) => <HapticTab label="Explore" color={color} focused={focused} />,
         }}
       />
 
@@ -86,7 +80,10 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'person' : 'person-outline'} color={color} size={24} />
+          ),
+          tabBarLabel: ({ color, focused }) => <HapticTab label="Profile" color={color} focused={focused} />,
         }}
       />
     </Tabs>

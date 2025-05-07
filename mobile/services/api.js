@@ -3,8 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Create axios instance with base URL pointing to our backend
 const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.herokuapp.com/api';
-
-// Create axios instance
+// const API_BASE_URL = 'http://localhost:8085/api';  // Assuming your backend runs on port 8080 locally
+// // Create axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {

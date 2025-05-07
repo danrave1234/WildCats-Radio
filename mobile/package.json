@@ -3,13 +3,15 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "start": "expo start",
+    "start": "expo start --port=8080",
     "reset-project": "node ./scripts/reset-project.js",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
+    "android": "expo start --android --port=8080",
+    "ios": "expo start --ios --port=8080",
+    "web": "expo start --web --port=8080",
     "test": "jest --watchAll",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "build:android": "eas build --platform android --profile production",
+    "build:android:preview": "eas build --platform android --profile preview"
   },
   "jest": {
     "preset": "jest-expo"
@@ -18,10 +20,13 @@
     "@expo/vector-icons": "^14.0.2",
     "@react-native-async-storage/async-storage": "1.23.1",
     "@react-native-community/datetimepicker": "8.2.0",
+    "@react-native-community/slider": "^4.5.6",
     "@react-navigation/bottom-tabs": "^7.2.0",
     "@react-navigation/native": "^7.0.14",
-    "axios": "^1.6.7",
+    "axios": "^1.9.0",
+    "date-fns": "^2.30.0",
     "expo": "~52.0.46",
+    "expo-av": "~13.4.1",
     "expo-blur": "~14.0.3",
     "expo-constants": "~17.0.8",
     "expo-font": "~13.0.4",
@@ -33,6 +38,7 @@
     "expo-symbols": "~0.2.2",
     "expo-system-ui": "~4.0.9",
     "expo-web-browser": "~14.0.2",
+    "mobile": "file:",
     "nativewind": "^4.1.23",
     "react": "18.3.1",
     "react-dom": "18.3.1",
@@ -43,6 +49,7 @@
     "react-native-screens": "~4.4.0",
     "react-native-web": "~0.19.13",
     "react-native-webview": "13.12.5",
+    "socket.io-client": "^4.8.1",
     "tailwindcss": "^3.4.17"
   },
   "devDependencies": {
@@ -56,7 +63,8 @@
     "postcss": "^8.5.3",
     "react-test-renderer": "18.3.1",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "@expo/eas-cli": "^5.2.0"
   },
   "private": true
 }

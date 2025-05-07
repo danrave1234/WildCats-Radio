@@ -59,8 +59,7 @@ public class BroadcastController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<BroadcastDTO> updateBroadcast(@PathVariable Long id, 
-                                                      @Valid @RequestBody CreateBroadcastRequest request) {
+    public ResponseEntity<BroadcastDTO> updateBroadcast(@PathVariable Long id,  @Valid @RequestBody CreateBroadcastRequest request) {
         BroadcastDTO updated = broadcastService.updateBroadcast(id, request);
         return ResponseEntity.ok(updated);
     }

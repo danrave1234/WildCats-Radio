@@ -1,39 +1,87 @@
-# Welcome to your Expo app 👋
+# WildCats Radio Mobile App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+This is the mobile application for WildCats Radio built using React Native with Expo.
 
-## Get started
+## Prerequisites
 
-1. Install dependencies
+- Node.js (v14 or newer)
+- npm or yarn
+- Expo CLI (`npm install -g expo-cli`)
+- Expo Go app on your mobile device
+- EAS CLI (`npm install -g eas-cli`) for building app binaries
 
+## Getting Started
+
+1. Install dependencies:
    ```bash
    npm install
+   # or
+   yarn install
    ```
 
-2. Start the app
-
+2. Start the development server:
    ```bash
-    npx expo start
+   npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+## Building the App for Production
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### Setup EAS Build
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+1. Install the EAS CLI if you haven't already:
+   ```bash
+   npm install -g eas-cli
+   ```
 
-## Get a fresh project
+2. Log in to your Expo account:
+   ```bash
+   eas login
+   ```
 
-When you're ready, run:
+3. Configure your project (Run this once to set up your project):
+   ```bash
+   eas build:configure
+   ```
 
+### Build for Android
+
+To create an APK for testing (easier to share directly):
 ```bash
-npm run reset-project
+eas build --platform android --profile preview
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+To create an AAB for Google Play Store:
+```bash
+eas build --platform android --profile production
+```
+
+### Build for iOS
+
+To create a build for TestFlight:
+```bash
+eas build --platform ios --profile preview
+```
+
+To create a build for App Store:
+```bash
+eas build --platform ios --profile production
+```
+
+### Installing on Your Device
+
+#### Android
+- For development: Use Expo Go by scanning the QR code
+- For testing: Download the APK from the EAS build URL and install it directly
+- For production: Download from Google Play Store when published
+
+#### iOS
+- For development: Use Expo Go by scanning the QR code
+- For testing: Use TestFlight with an invitation
+- For production: Download from App Store when published
+
+## EAS Build Profiles
+
+The build profiles are defined in the `eas.json` file at the root of your project.
 
 ## Learn more
 
