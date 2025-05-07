@@ -1,83 +1,194 @@
 package com.wildcastradio.ShoutCast;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashMap;
-import java.util.Map;
+import com.wildcastradio.Broadcast.BroadcastEntity;
+import com.wildcastradio.Broadcast.BroadcastService;
+import com.wildcastradio.User.UserEntity;
 
 /**
- * REST controller for stream management operations.
- * Provides endpoints to start, stop, and check stream status.
+ * REST controller for audio streaming operations.
+ * Provides endpoints for starting and stopping streams,
+ * and checking stream status.
  */
 @RestController
 @RequestMapping("/api/stream")
 public class StreamController {
+    
     private static final Logger logger = LoggerFactory.getLogger(StreamController.class);
     
     @Autowired
     private ShoutcastService shoutcastService;
     
+    @Autowired
+    private BroadcastService broadcastService;
+    
     /**
-     * Authorize a DJ to start streaming. This endpoint is called before
-     * establishing the WebSocket connection for audio streaming.
+     * Endpoint to authorize and start a stream.
+     * This is called before the DJ's browser establishes a WebSocket connection.
      * 
-     * @return OK response if authorized
+     * @param user The authenticated user (DJ)
+     * @return A response indicating success or failure
      */
     @PostMapping("/start")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> start() {
-        logger.info("DJ authorized to start streaming");
+    @PreAuthorize("hasRole('DJ')")
+    public ResponseEntity<Map<String, Object>> startStream(@AuthenticationPrincipal UserEntity user) {
+        logger.info("Stream start requested by user: {}", user.getEmail());
         
         Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("message", "Authorized to start streaming");
         
-        // Connection parameters that client might need
-        response.put("wsEndpoint", "/stream");
-        
-        return ResponseEntity.ok(response);
+        try {
+            // Check if the ShoutCast server is accessible
+            boolean serverAccessible = shoutcastService.isServerAccessible();
+            
+            if (!serverAccessible && !shoutcastService.isInTestMode()) {
+                logger.warn("Stream start request denied: ShoutCast server not accessible");
+                response.put("success", false);
+                response.put("message", "ShoutCast server is not accessible. Please check server status.");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // Check if the user already has an active broadcast
+            List<BroadcastEntity> liveBroadcasts = broadcastService.getLiveBroadcasts();
+            BroadcastEntity userLiveBroadcast = liveBroadcasts.stream()
+                .filter(b -> b.getCreatedBy().getId().equals(user.getId()))
+                .findFirst()
+                .orElse(null);
+            
+            if (userLiveBroadcast != null) {
+                // User has an existing live broadcast, use it
+                logger.info("User already has a live broadcast: {}", userLiveBroadcast.getId());
+                response.put("success", true);
+                response.put("message", "Stream authorized using existing broadcast");
+                response.put("broadcastId", userLiveBroadcast.getId());
+            } else {
+                // Create a new broadcast for the stream
+                BroadcastEntity newBroadcast = new BroadcastEntity();
+                newBroadcast.setTitle("Live Stream by " + user.getName());
+                newBroadcast.setDescription("Live audio stream");
+                BroadcastEntity savedBroadcast = broadcastService.scheduleBroadcast(newBroadcast, user);
+                
+                // Start the broadcast
+                BroadcastEntity startedBroadcast = broadcastService.startBroadcast(savedBroadcast.getId(), user);
+                
+                logger.info("New broadcast created and started: {}", startedBroadcast.getId());
+                response.put("success", true);
+                response.put("message", "Stream authorized with new broadcast");
+                response.put("broadcastId", startedBroadcast.getId());
+            }
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error authorizing stream start", e);
+            response.put("success", false);
+            response.put("message", "Failed to authorize stream: " + e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
     }
     
     /**
-     * Notify the server that streaming has stopped.
+     * Endpoint to stop a stream.
+     * Called when the DJ wants to end their broadcast.
      * 
-     * @return OK response
+     * @param user The authenticated user (DJ)
+     * @return A response indicating success or failure
      */
     @PostMapping("/stop")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> stop() {
-        logger.info("DJ stopped streaming");
+    @PreAuthorize("hasRole('DJ')")
+    public ResponseEntity<Map<String, Object>> stopStream(@AuthenticationPrincipal UserEntity user) {
+        logger.info("Stream stop requested by user: {}", user.getEmail());
         
         Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("message", "Stream stopped successfully");
         
-        return ResponseEntity.ok(response);
+        try {
+            // Find user's active broadcast
+            List<BroadcastEntity> liveBroadcasts = broadcastService.getLiveBroadcasts();
+            BroadcastEntity userLiveBroadcast = liveBroadcasts.stream()
+                .filter(b -> b.getCreatedBy().getId().equals(user.getId()))
+                .findFirst()
+                .orElse(null);
+            
+            if (userLiveBroadcast == null) {
+                logger.warn("No active broadcast found for user: {}", user.getEmail());
+                response.put("success", false);
+                response.put("message", "No active broadcast found");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // End the broadcast
+            BroadcastEntity endedBroadcast = broadcastService.endBroadcast(userLiveBroadcast.getId(), user);
+            
+            logger.info("Broadcast ended: {}", endedBroadcast.getId());
+            response.put("success", true);
+            response.put("message", "Stream stopped successfully");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error stopping stream", e);
+            response.put("success", false);
+            response.put("message", "Failed to stop stream: " + e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
     }
     
     /**
-     * Get the current status of the stream.
-     * This endpoint is publicly accessible without authentication.
+     * Endpoint to check the current status of the stream server.
      * 
-     * @return Stream status information
+     * @return A response with the server status information
      */
     @GetMapping("/status")
-    public ResponseEntity<Map<String, Object>> status() {
-        boolean isServerAccessible = shoutcastService.isServerAccessible();
-        boolean isInTestMode = shoutcastService.isInTestMode();
+    public ResponseEntity<Map<String, Object>> getStreamStatus() {
+        logger.info("Stream status check requested");
         
-        Map<String, Object> status = new HashMap<>();
-        status.put("live", isServerAccessible);
-        status.put("testMode", isInTestMode);
-        status.put("serverUrl", shoutcastService.getStreamingUrl());
+        Map<String, Object> response = new HashMap<>();
         
-        logger.debug("Stream status: live={}, testMode={}", isServerAccessible, isInTestMode);
-        
-        return ResponseEntity.ok(status);
+        try {
+            // Check if the ShoutCast server is accessible
+            boolean serverAccessible = shoutcastService.isServerAccessible();
+            
+            // Get any live broadcasts
+            List<BroadcastEntity> liveBroadcasts = broadcastService.getLiveBroadcasts();
+            boolean hasLiveBroadcast = !liveBroadcasts.isEmpty();
+            
+            response.put("server", serverAccessible ? "UP" : "DOWN");
+            response.put("live", hasLiveBroadcast);
+            
+            if (hasLiveBroadcast) {
+                BroadcastEntity broadcast = liveBroadcasts.get(0);
+                Map<String, Object> broadcastInfo = new HashMap<>();
+                broadcastInfo.put("id", broadcast.getId());
+                broadcastInfo.put("title", broadcast.getTitle());
+                broadcastInfo.put("startTime", broadcast.getActualStart());
+                broadcastInfo.put("dj", broadcast.getCreatedBy().getName());
+                
+                response.put("broadcast", broadcastInfo);
+                
+                // Generate the stream URL for listeners
+                String streamUrl = String.format("http://%s:%s/;stream.mp3", 
+                        shoutcastService.getServerUrl(), 
+                        shoutcastService.getServerPort());
+                response.put("streamUrl", streamUrl);
+            }
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error checking stream status", e);
+            response.put("server", "ERROR");
+            response.put("live", false);
+            response.put("error", e.getMessage());
+            return ResponseEntity.status(500).body(response);
+        }
     }
 } 

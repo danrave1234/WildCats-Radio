@@ -25,8 +25,6 @@
 - [x] Error handling and logging for audio streams
 - [x] Update WebSocket configuration for audio streaming
 - [x] StreamController for REST endpoints (start/stop/status)
-- [x] WebSocket binary message size configuration
-- [x] Security configuration for public endpoints
 
 ### Frontend Components
 - [ ] DJ Streaming Component (DjStreamer.jsx)
@@ -41,10 +39,10 @@
 
 ### Authentication & Security
 - [x] Basic authentication for DJ access
-- [x] Role-based stream access control (ADMIN and DJ roles)
+- [x] Role-based stream access control
 - [ ] Secure credential management
 - [x] CORS configuration for WebSockets
-- [x] Public access to stream status and WebSocket endpoints
+- [ ] Input validation for stream parameters
 
 ### Advanced Shoutcast Features
 - [x] Multiple stream support configuration
@@ -58,13 +56,11 @@
 - [ ] Listener statistics collection
 
 ### Integration and Testing
-- [x] Backend WebSocket endpoint testing
-- [x] Stream status API endpoint testing
-- [x] WebSocket connection establishment verification
+- [x] Backend-Frontend WebSocket connection testing
 - [ ] Complete Audio Streaming Pipeline (Browser → WebSocket → FFmpeg → Shoutcast)
 - [ ] Listener Playback Testing across different devices
 - [ ] Stream metadata handling
-- [ ] Error recovery and reconnection logic
+- [x] Error recovery and reconnection logic
 - [ ] Performance testing with multiple listeners
 
 ### Documentation
@@ -73,6 +69,269 @@
 - [ ] DJ streaming guide
 - [ ] Listener guide
 - [ ] Troubleshooting guide
+
+## Detailed Implementation
+
+The following components have been implemented to enable Shoutcast streaming in the WildCats Radio project. This implementation integrates with the existing Broadcast system to provide a seamless streaming experience.
+
+### 1. Backend Components
+
+#### 1.1 AudioStreamHandler (New)
+- **File**: `backend/src/main/java/com/wildcastradio/ShoutCast/AudioStreamHandler.java`
+- **Purpose**: Handles WebSocket connections for audio streaming from DJ's browser to the Shoutcast server
+- **Key Features**:
+  - Manages binary WebSocket messages containing audio data
+  - Creates and manages FFmpeg processes for transcoding WebM audio to MP3
+  - Pipes browser audio data through FFmpeg to Shoutcast
+  - Implements error handling and process cleanup
+  - Logs FFmpeg output for debugging
+
+#### 1.2 WebSocketConfig (Updated)
+- **File**: `backend/src/main/java/com/wildcastradio/config/WebSocketConfig.java`
+- **Purpose**: Configures WebSocket endpoints for the application
+- **Changes**:
+  - Added support for the binary WebSocket endpoint at `/stream`
+  - Registered the AudioStreamHandler
+  - Maintained existing STOMP WebSocket configuration for chat
+
+#### 1.3 StreamController (New)
+- **File**: `backend/src/main/java/com/wildcastradio/ShoutCast/StreamController.java`
+- **Purpose**: Provides REST endpoints for stream control
+- **Key Endpoints**:
+  - `/api/stream/start`: Authorizes stream start, creates a broadcast if needed
+  - `/api/stream/stop`: Ends the active broadcast
+  - `/api/stream/status`: Returns current stream and server status
+- **Integration**: Works with existing BroadcastService to manage broadcasts
+
+#### 1.4 Application Properties (Updated)
+- **File**: `backend/src/main/resources/application.properties`
+- **Changes**:
+  - Added WebSocket configuration for maximum message sizes
+  - Shoutcast configuration properties were already present
+
+### 2. Integration with Existing Broadcast System
+
+The implementation leverages the existing BroadcastEntity and BroadcastService to manage broadcasts:
+
+1. When a DJ initiates streaming:
+   - The StreamController creates or reuses a BroadcastEntity
+   - The BroadcastService changes the status to LIVE
+   - The ShoutcastService is notified to prepare for streaming
+
+2. When audio streaming begins:
+   - The AudioStreamHandler receives WebSocket connections
+   - Audio data is transcoded via FFmpeg to MP3 format
+   - The stream is sent to the Shoutcast server
+
+3. When streaming ends:
+   - The StreamController ends the broadcast
+   - BroadcastService updates the broadcast status to ENDED
+   - ShoutcastService terminates the stream connection
+   - AudioStreamHandler cleans up resources
+
+This approach maintains the separation of concerns:
+- BroadcastService handles the business logic for broadcasts
+- ShoutcastService manages server communication
+- AudioStreamHandler handles real-time audio processing
+
+### 3. Test Implementation: websocket-test.html
+
+A standalone HTML file named `websocket-test.html` was created to test and validate the WebSocket streaming functionality. This implementation serves as a reference for the DJ frontend implementation and has proven to work successfully with the backend streaming pipeline.
+
+#### 3.1 Key Features of websocket-test.html
+
+- **Standalone Testing**: The file works as a complete, standalone application for testing DJ streaming without requiring the full frontend application.
+- **User Interface**:
+  - Connection settings (WebSocket URL and API Base URL)
+  - Stream control buttons (Start Stream, Stop Stream, Check Stream Status)
+  - Status display showing connection state
+  - Audio visualizer with frequency spectrum display
+  - Volume meter showing audio levels
+  - Detailed logging panel showing connection events and data flow
+
+- **Audio Streaming Implementation**:
+  - Uses the MediaRecorder API to capture audio from the microphone
+  - Handles different audio formats with fallback options (audio/webm, audio/webm;codecs=opus, audio/ogg;codecs=opus)
+  - Configures audio quality parameters (128 kbps bitrate)
+  - Sends audio data in small chunks (100ms) to ensure smooth streaming
+
+- **WebSocket Connection Management**:
+  - Establishes binary WebSocket connections for sending audio data
+  - Handles connection errors and unexpected disconnections
+  - Implements exponential backoff reconnection logic with max retry limits
+  - Proper resource cleanup when streaming stops
+
+- **Backend Integration**:
+  - Makes API calls to the backend for stream authorization (/api/stream/start)
+  - Notifies the backend when streaming ends (/api/stream/stop)
+  - Checks stream status via API (/api/stream/status)
+
+#### 3.2 Implementation Details
+
+##### 3.2.1 Audio Capture and Processing
+```javascript
+// Get audio from microphone with optimized settings
+audioStream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+    }
+});
+
+// Set up audio context for visualization
+audioContext = new (window.AudioContext || window.webkitAudioContext)();
+const source = audioContext.createMediaStreamSource(audioStream);
+analyser = audioContext.createAnalyser();
+analyser.fftSize = 256;
+source.connect(analyser);
+
+// Find supported audio format
+const options = {
+    mimeType: 'audio/webm',
+    audioBitsPerSecond: 128000
+};
+
+// Try to find a supported mime type with fallbacks
+if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        options.mimeType = 'audio/webm;codecs=opus';
+    } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+        options.mimeType = 'audio/ogg;codecs=opus';
+    } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        options.mimeType = 'audio/mp4';
+    }
+}
+
+mediaRecorder = new MediaRecorder(audioStream, options);
+```
+
+##### 3.2.2 WebSocket Connection and Audio Transmission
+```javascript
+// Connect to WebSocket server
+websocket = new WebSocket(serverUrlInput.value);
+websocket.binaryType = "arraybuffer";
+
+// Send audio data through WebSocket when available
+mediaRecorder.ondataavailable = async (e) => {
+    if (e.data.size > 0 && websocket && websocket.readyState === WebSocket.OPEN) {
+        try {
+            const arrayBuffer = await e.data.arrayBuffer();
+            websocket.send(arrayBuffer);
+        } catch (error) {
+            // Handle errors and reconnect if needed
+            if (error.message.includes("null") && isStreaming) {
+                setTimeout(connectWebSocket, 1000);
+            }
+        }
+    }
+};
+
+// Capture audio in small chunks for smoother streaming
+mediaRecorder.start(100); // 100ms chunks
+```
+
+##### 3.2.3 Error Handling and Reconnection Logic
+```javascript
+// Handle WebSocket connection closing
+websocket.onclose = (event) => {
+    if (isStreaming && retryCount < MAX_RETRIES) {
+        retryCount++;
+        const backoffTime = Math.min(1000 * Math.pow(2, retryCount), 10000); // Exponential backoff with max of 10 seconds
+        setTimeout(connectWebSocket, backoffTime);
+    } else if (retryCount >= MAX_RETRIES) {
+        isStreaming = false;
+        stopStream();
+    } else {
+        updateStatus('disconnected', 'Disconnected');
+    }
+};
+```
+
+##### 3.2.4 Proper Resource Cleanup
+```javascript
+// Stop streaming and clean up resources
+async function stopStream() {
+    isStreaming = false;
+    
+    // Stop MediaRecorder
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+    }
+    
+    // Stop all audio tracks
+    if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+        audioStream = null;
+    }
+    
+    // Close AudioContext
+    if (audioContext) {
+        await audioContext.close();
+        audioContext = null;
+        analyser = null;
+    }
+    
+    // Close WebSocket
+    if (websocket) {
+        if (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING) {
+            websocket.close();
+        }
+        websocket = null;
+    }
+    
+    // Notify server
+    try {
+        await fetch(`${apiUrlInput.value}/api/stream/stop`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+    } catch (error) {
+        // Log error but continue cleanup
+    }
+}
+```
+
+#### 3.3 Key Learnings from websocket-test.html Implementation
+
+1. **Audio Format Compatibility**: The implementation demonstrated that `audio/webm` or `audio/webm;codecs=opus` formats work best with FFmpeg for transcoding to MP3.
+
+2. **Chunk Size Optimization**: Sending audio data in 100ms chunks provides a good balance between latency and transmission efficiency.
+
+3. **Resilient Connection Handling**: Implementing proper reconnection logic with exponential backoff is crucial for maintaining stable streams.
+
+4. **Resource Management**: Proper cleanup of media resources (tracks, contexts, recorders) is essential to prevent memory leaks and browser performance issues.
+
+5. **Error Logging**: Comprehensive logging of all streaming events helped identify and troubleshoot issues in the audio pipeline.
+
+6. **Visual Feedback**: The audio visualizer and volume meter provided important visual confirmation that audio was being captured correctly.
+
+#### 3.4 Integration Points for Frontend Implementation
+
+When implementing the DJ streaming functionality in the React frontend, the following elements from websocket-test.html should be incorporated:
+
+1. **Audio Capture Configuration**: Reuse the same audio configuration parameters for optimal quality.
+
+2. **Format Detection and Fallbacks**: Implement the same format detection and fallback mechanisms.
+
+3. **Connection Management**: Use the same WebSocket connection and reconnection patterns.
+
+4. **Resource Cleanup**: Ensure proper cleanup of all resources when the component unmounts or streaming stops.
+
+5. **Visual Feedback**: Consider implementing audio visualization for user feedback during streaming.
+
+### 4. Core Components Still To Be Implemented
+
+1. **Frontend DJ Streaming Interface**:
+   - Component to capture and stream audio from browser
+   - Interface to control streaming (start/stop)
+   - Status indicators and error handling
+
+2. **Frontend Radio Player**:
+   - Component to play the Shoutcast stream
+   - Status checking and auto-reconnection
 
 ## Overview
 
@@ -84,6 +343,7 @@ This roadmap outlines the steps needed to implement Shoutcast streaming function
 - Shoutcast DNAS is already installed
 - Basic ShoutcastService and ShoutcastController are implemented
 - Project is deployed on Heroku (backend) but local testing is needed
+- The websocket-test.html implementation has proven the WebSocket streaming concept works
 
 ## Implementation Roadmap
 
@@ -429,11 +689,4 @@ public class WebSocketConfig implements WebSocketConfigurer {
       </div>
     );
   }
-  ```
-
-#### 2.2 Radio Player Component
-
-- **File to create**: `frontend/src/components/RadioPlayer.jsx`
-- **Purpose**: Allow listeners to tune in to the radio stream
-- **Implementation**:
   ```

@@ -19,6 +19,8 @@ import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.StreamingConfig.StreamingConfigEntity;
 import com.wildcastradio.StreamingConfig.StreamingConfigService;
 
+import jakarta.annotation.PostConstruct;
+
 @Service
 public class ShoutcastService {
     private static final Logger logger = LoggerFactory.getLogger(ShoutcastService.class);
@@ -29,10 +31,10 @@ public class ShoutcastService {
     @Value("${shoutcast.server.port:8000}")
     private int serverPort;
 
-    @Value("${shoutcast.server.admin.password:admin}")
+    @Value("${shoutcast.server.admin.password:123}")
     private String adminPassword;
 
-    @Value("${shoutcast.server.source.password:hackme}")
+    @Value("${shoutcast.server.source.password:1234}")
     private String sourcePassword;
 
     @Value("${shoutcast.server.mount:/stream/1}")
@@ -44,12 +46,28 @@ public class ShoutcastService {
     private StreamingConfigService streamingConfigService;
 
     private final RestTemplate restTemplate;
-
+    
+    /**
+     * Constructor for ShoutcastService
+     * Initializes RestTemplate and enables test mode for development
+     */
     public ShoutcastService() {
         this.restTemplate = new RestTemplate();
         // Enable test mode by default for development/testing
         this.testMode = true;
         logger.info("ShoutCast service initialized with test mode ENABLED by default");
+    }
+
+    /**
+     * PostConstruct method to log the loaded configuration
+     */
+    @PostConstruct
+    public void init() {
+        logger.info("ShoutCast service initialized with configuration:");
+        logger.info("Server URL: {}", serverUrl);
+        logger.info("Server Port: {}", serverPort);
+        logger.info("Mount Point: {}", mountPoint);
+        logger.info("Test Mode: {}", testMode);
     }
 
     /**
@@ -224,18 +242,6 @@ public class ShoutcastService {
     }
 
     /**
-     * Returns the formatted streaming URL for clients to connect to
-     * 
-     * @return The formatted streaming URL
-     */
-    public String getStreamingUrl() {
-        if (testMode) {
-            return "http://test-stream.wildcastradio.example.com/stream";
-        }
-        return String.format("http://%s:%d%s", serverUrl, serverPort, mountPoint);
-    }
-
-    /**
      * Test mode method that doesn't try to connect to the actual ShoutCast server.
      * For use during development when ShoutCast integration is not available.
      * 
@@ -245,12 +251,30 @@ public class ShoutcastService {
     public String getTestStreamUrl(BroadcastEntity broadcast) {
         logger.info("Getting test stream URL for broadcast: {}", broadcast.getTitle());
 
-        // Generate a mock stream URL
-        String testStreamUrl = String.format("http://test-stream.wildcastradio.example.com/stream/%d", broadcast.getId());
+        // Generate a stream URL that points to the local Shoutcast instance
+        String testStreamUrl = String.format("http://%s:%d/stream/1", serverUrl, serverPort);
 
         // Log the operation
         logger.info("Test stream URL generated: {}", testStreamUrl);
 
         return testStreamUrl;
+    }
+    
+    /**
+     * Get the server URL for the Shoutcast server
+     * 
+     * @return The server URL
+     */
+    public String getServerUrl() {
+        return serverUrl;
+    }
+    
+    /**
+     * Get the server port for the Shoutcast server
+     * 
+     * @return The server port
+     */
+    public String getServerPort() {
+        return String.valueOf(serverPort);
     }
 }

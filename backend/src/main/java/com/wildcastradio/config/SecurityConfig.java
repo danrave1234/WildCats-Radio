@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -12,13 +13,67 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import com.wildcastradio.config.JwtRequestFilter;
+
+import java.util.Arrays;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 public class SecurityConfig {
 
     @Autowired
     private JwtRequestFilter jwtRequestFilter;
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .csrf(csrf -> csrf.disable())
+            .authorizeHttpRequests(auth -> auth
+                // Public endpoints that don't require authentication
+                .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/user/register").permitAll()
+                .requestMatchers("/api/user/verify").permitAll()
+                .requestMatchers("/api/stream/status").permitAll()
+                // Allow all stream-related endpoints
+                .requestMatchers("/api/stream/**").permitAll()
+                .requestMatchers("/api/shoutcast/**").permitAll()
+                // Websocket endpoints
+                .requestMatchers("/stream").permitAll()
+                .requestMatchers("/ws-radio/**").permitAll()
+                // Swagger UI endpoints if you use it
+                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                // Health check endpoints
+                .requestMatchers("/actuator/**").permitAll()
+                // Require authentication for all other endpoints
+                .anyRequest().authenticated())
+            .sessionManagement(session -> session
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+
+        // Add JWT filter before processing requests
+        http.addFilterBefore(jwtRequestFilter, UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(Arrays.asList("*")); // For development
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(Arrays.asList("authorization", "content-type", "x-auth-token"));
+        configuration.setExposedHeaders(Arrays.asList("x-auth-token"));
+        configuration.setAllowCredentials(false); // Must be false for '*' origin
+        
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -26,34 +81,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration) throws Exception {
-        return authenticationConfiguration.getAuthenticationManager();
-    }
-
-    @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        // Disable CSRF for API calls and configure stateless session management
-        http.csrf(csrf -> csrf.disable())
-                .cors(cors -> cors.configure(http))
-                .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/verify", "/api/auth/send-code").permitAll()
-                .requestMatchers("/api/auth/{id}").permitAll() // Allow public access to user profiles
-                .requestMatchers("/api/auth/me").authenticated() // Require authentication for current user endpoint
-                .requestMatchers("/api/broadcasts/live").permitAll() // Allow public access to check live broadcasts
-                .requestMatchers("/api/broadcasts/upcoming").permitAll() // Allow public access to upcoming schedule
-                .requestMatchers("/api/stream/status").permitAll() // Allow public access to stream status
-                .requestMatchers("/ws-radio/**").permitAll() // Allow public access to WebSocket STOMP endpoints
-                .requestMatchers("/stream").permitAll() // Allow access to audio streaming WebSocket endpoint
-                .requestMatchers("/api/chats/**").authenticated() // Require authentication for chat endpoints
-                .requestMatchers("/api/broadcasts/{broadcastId}/song-requests/**").authenticated() // Require authentication for song request endpoints
-                .requestMatchers("/error").permitAll() // Allow public access to error pages
-                .anyRequest().authenticated()
-            )
-            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
-
-        // Add JWT filter before the standard authentication filter
-        http.addFilterBefore(jwtRequestFilter, UsernamePasswordAuthenticationFilter.class);
-
-        return http.build();
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration authConfig) throws Exception {
+        return authConfig.getAuthenticationManager();
     }
 } 
