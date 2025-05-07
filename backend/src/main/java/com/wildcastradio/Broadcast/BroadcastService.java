@@ -7,15 +7,19 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import com.wildcastradio.ActivityLog.ActivityLogEntity;
 import com.wildcastradio.ActivityLog.ActivityLogService;
 import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 import com.wildcastradio.Broadcast.DTO.CreateBroadcastRequest;
+import com.wildcastradio.Notification.NotificationService;
+import com.wildcastradio.Notification.NotificationType;
 import com.wildcastradio.ServerSchedule.ServerScheduleService;
 import com.wildcastradio.ShoutCast.ShoutcastService;
 import com.wildcastradio.User.UserEntity;
+import com.wildcastradio.User.UserRepository;
 
 @Service
 public class BroadcastService {
@@ -33,6 +37,12 @@ public class BroadcastService {
     @Autowired
     private ActivityLogService activityLogService;
 
+    @Autowired
+    private NotificationService notificationService;
+
+    @Autowired
+    private UserRepository userRepository;
+
     public BroadcastEntity scheduleBroadcast(BroadcastEntity broadcast, UserEntity dj) {
         broadcast.setCreatedBy(dj);
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
@@ -46,7 +56,20 @@ public class BroadcastService {
             savedBroadcast.getScheduledStart() + " to " + savedBroadcast.getScheduledEnd()
         );
 
+        // Send notification to all users about the new broadcast schedule
+        String notificationMessage = "New broadcast scheduled: " + savedBroadcast.getTitle() + 
+                                    " on " + savedBroadcast.getScheduledStart();
+        sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_SCHEDULED);
+
         return savedBroadcast;
+    }
+
+    // Helper method to send notifications to all users
+    private void sendNotificationToAllUsers(String message, NotificationType type) {
+        List<UserEntity> allUsers = userRepository.findAll();
+        for (UserEntity user : allUsers) {
+            notificationService.sendNotification(user, message, type);
+        }
     }
 
     public BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj) {
@@ -113,6 +136,13 @@ public class BroadcastService {
             (testMode ? "TEST MODE: " : "") + "Broadcast started: " + savedBroadcast.getTitle()
         );
 
+        // Only send notifications if not in test mode
+        if (!testMode) {
+            // Send notification to all users that the broadcast has started
+            String notificationMessage = "Broadcast started: " + savedBroadcast.getTitle();
+            sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_STARTED);
+        }
+
         return savedBroadcast;
     }
 
@@ -136,6 +166,10 @@ public class BroadcastService {
             ActivityLogEntity.ActivityType.BROADCAST_END,
             "Broadcast ended: " + savedBroadcast.getTitle()
         );
+
+        // Send notification to all users that the broadcast has ended
+        String notificationMessage = "Broadcast ended: " + savedBroadcast.getTitle();
+        sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_ENDED);
 
         return savedBroadcast;
     }
@@ -218,14 +252,14 @@ public class BroadcastService {
 
     public void deleteBroadcast(Long id) {
         logger.info("Deleting broadcast with ID: {}", id);
-        
+
         // Check if the broadcast exists
         BroadcastEntity broadcast = broadcastRepository.findById(id)
                 .orElseThrow(() -> {
                     logger.error("Failed to delete broadcast: Broadcast not found with ID: {}", id);
                     return new RuntimeException("Broadcast not found with id: " + id);
                 });
-        
+
         try {
             // Delete the broadcast
             broadcastRepository.deleteById(id);
@@ -233,6 +267,39 @@ public class BroadcastService {
         } catch (Exception e) {
             logger.error("Error deleting broadcast with ID {}: {}", id, e.getMessage());
             throw new RuntimeException("Failed to delete broadcast: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Scheduled task that runs every 5 minutes to check for broadcasts that are about to start
+     * and send notifications to users.
+     */
+    @Scheduled(fixedRate = 300000) // 5 minutes in milliseconds
+    public void checkUpcomingBroadcasts() {
+        logger.info("Checking for upcoming broadcasts...");
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime fifteenMinutesFromNow = now.plusMinutes(15);
+
+        // Find broadcasts that are scheduled to start in the next 15 minutes
+        // and have not been notified yet
+        List<BroadcastEntity> upcomingBroadcasts = broadcastRepository.findByScheduledStartBetween(
+            now,
+            fifteenMinutesFromNow
+        );
+
+        // Filter to only include broadcasts with SCHEDULED status
+        upcomingBroadcasts = upcomingBroadcasts.stream()
+            .filter(broadcast -> broadcast.getStatus() == BroadcastEntity.BroadcastStatus.SCHEDULED)
+            .collect(java.util.stream.Collectors.toList());
+
+        for (BroadcastEntity broadcast : upcomingBroadcasts) {
+            // Send notification to all users that the broadcast is about to start
+            String notificationMessage = "Broadcast starting soon: " + broadcast.getTitle() + 
+                                        " at " + broadcast.getScheduledStart();
+            sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_STARTING_SOON);
+
+            logger.info("Sent 'starting soon' notification for broadcast: {}", broadcast.getTitle());
         }
     }
 } 

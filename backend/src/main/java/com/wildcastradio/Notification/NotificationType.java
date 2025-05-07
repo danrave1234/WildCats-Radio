@@ -1,5 +1,6 @@
 package com.wildcastradio.Notification;
 
 public enum NotificationType {
-    REMINDER, ALERT, INFO
+    REMINDER, ALERT, INFO, 
+    BROADCAST_SCHEDULED, BROADCAST_STARTING_SOON, BROADCAST_STARTED, BROADCAST_ENDED, NEW_BROADCAST_POSTED
 } 

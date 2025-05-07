@@ -41,15 +41,19 @@ public class NotificationEntity {
     @JoinColumn(name = "recipient_id", nullable = false)
     private UserEntity recipient;
 
-    // Notification type enum
-    public enum NotificationType {
-        REMINDER, ALERT, INFO
+    // No-arg constructor required by JPA
+    public NotificationEntity() {
     }
-    
+
     // Default constructor
-    public NotificationEntity(String message, com.wildcastradio.Notification.NotificationType type, UserEntity recipient) {
+    public NotificationEntity(String message, NotificationType type, UserEntity recipient) {
+        this.message = message;
+        this.type = type;
+        this.recipient = recipient;
+        this.isRead = false;
+        this.timestamp = LocalDateTime.now();
     }
-    
+
     // All args constructor
     public NotificationEntity(Long id, String message, NotificationType type, LocalDateTime timestamp, UserEntity recipient) {
         this.id = id;
@@ -58,7 +62,7 @@ public class NotificationEntity {
         this.timestamp = timestamp;
         this.recipient = recipient;
     }
-    
+
     // Getters and Setters
     public Long getId() {
         return id;

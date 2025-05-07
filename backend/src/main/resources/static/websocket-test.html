@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #0069d9;
+        }
+        #log {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebSocket Connection Test</h1>
+        <p>This page tests the WebSocket connection to the backend server.</p>
+        
+        <div id="connection-status" class="status info">
+            Not connected
+        </div>
+        
+        <button id="connect-btn">Connect</button>
+        <button id="disconnect-btn" disabled>Disconnect</button>
+        
+        <h2>Connection Log</h2>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const connectBtn = document.getElementById('connect-btn');
+            const disconnectBtn = document.getElementById('disconnect-btn');
+            const connectionStatus = document.getElementById('connection-status');
+            const logDiv = document.getElementById('log');
+            
+            let stompClient = null;
+            
+            function log(message, type = 'info') {
+                const timestamp = new Date().toLocaleTimeString();
+                const logEntry = document.createElement('div');
+                logEntry.className = type;
+                logEntry.textContent = `[${timestamp}] ${message}`;
+                logDiv.appendChild(logEntry);
+                logDiv.scrollTop = logDiv.scrollHeight;
+            }
+            
+            function connect() {
+                log('Attempting to connect to WebSocket...');
+                connectionStatus.className = 'status info';
+                connectionStatus.textContent = 'Connecting...';
+                
+                // Get the current host and port
+                const host = window.location.host;
+                const wsUrl = `http://${host}/ws-radio`;
+                
+                log(`WebSocket URL: ${wsUrl}`);
+                
+                // Create SockJS connection
+                const socket = new SockJS(wsUrl);
+                stompClient = Stomp.over(socket);
+                
+                // Connect to the WebSocket server
+                stompClient.connect({}, 
+                    function(frame) {
+                        log(`Connected: ${frame}`, 'success');
+                        connectionStatus.className = 'status success';
+                        connectionStatus.textContent = 'Connected';
+                        
+                        connectBtn.disabled = true;
+                        disconnectBtn.disabled = false;
+                        
+                        // Subscribe to the user's notification queue
+                        stompClient.subscribe('/user/queue/notifications', function(message) {
+                            log(`Received notification: ${message.body}`, 'success');
+                        });
+                        
+                        log('Subscribed to /user/queue/notifications');
+                    },
+                    function(error) {
+                        log(`Connection error: ${error}`, 'error');
+                        connectionStatus.className = 'status error';
+                        connectionStatus.textContent = 'Connection failed';
+                        
+                        connectBtn.disabled = false;
+                        disconnectBtn.disabled = true;
+                    }
+                );
+            }
+            
+            function disconnect() {
+                if (stompClient !== null) {
+                    stompClient.disconnect();
+                    stompClient = null;
+                    
+                    log('Disconnected from WebSocket', 'info');
+                    connectionStatus.className = 'status info';
+                    connectionStatus.textContent = 'Disconnected';
+                    
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                }
+            }
+            
+            connectBtn.addEventListener('click', connect);
+            disconnectBtn.addEventListener('click', disconnect);
+        });
+    </script>
+</body>
+</html>

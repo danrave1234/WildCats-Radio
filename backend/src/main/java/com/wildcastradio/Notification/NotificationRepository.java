@@ -14,4 +14,5 @@ public interface NotificationRepository extends JpaRepository<NotificationEntity
     List<NotificationEntity> findByRecipientAndIsReadOrderByTimestampDesc(UserEntity recipient, boolean isRead);
     List<NotificationEntity> findByRecipientAndTimestampAfter(UserEntity recipient, LocalDateTime timestamp);
     long countByRecipientAndIsRead(UserEntity recipient, boolean isRead);
+    List<NotificationEntity> findByRecipientAndType(UserEntity recipient, NotificationType type);
 } 
