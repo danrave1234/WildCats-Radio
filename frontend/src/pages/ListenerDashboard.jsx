@@ -11,7 +11,7 @@ import {
   ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/solid"
 import AudioVisualizer from "../components/AudioVisualizer"
-import { broadcastService, chatService, songRequestService, pollService } from "../services/api"
+  import { broadcastService, chatService, songRequestService } from "../services/api"
 
 export default function ListenerDashboard() {
   const [isPlaying, setIsPlaying] = useState(false)
@@ -20,6 +20,14 @@ export default function ListenerDashboard() {
   const [isLive, setIsLive] = useState(false)
   const [nextBroadcast, setNextBroadcast] = useState(null)
   const [currentBroadcastId, setCurrentBroadcastId] = useState(null)
+  const [streamUrl, setStreamUrl] = useState("")
+  const [audioContext, setAudioContext] = useState(null)
+  const [analyser, setAnalyser] = useState(null)
+  const [dataArray, setDataArray] = useState(null)
+  const [reconnectAttempts, setReconnectAttempts] = useState(0)
+  const [streamError, setStreamError] = useState(null)
+  const audioRef = useRef(null)
+  const animationRef = useRef(null)
 
   // Chat state
   const [chatMessage, setChatMessage] = useState("")
@@ -36,25 +44,101 @@ export default function ListenerDashboard() {
   // Tabs state for interaction section
   const [activeTab, setActiveTab] = useState("chat") // 'chat', 'request', 'poll'
 
-  // Check if a broadcast is live
+  // Initialize audio player and fetch stream status
+  useEffect(() => {
+    // Create audio element if it doesn't exist
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.volume = volume / 100;
+
+      // Add event listeners
+      audioRef.current.addEventListener('playing', () => {
+        setIsPlaying(true);
+        console.log('Stream is playing');
+      });
+
+      audioRef.current.addEventListener('pause', () => {
+        setIsPlaying(false);
+        console.log('Stream is paused');
+      });
+
+      audioRef.current.addEventListener('ended', () => {
+        setIsPlaying(false);
+        console.log('Stream ended');
+      });
+
+      audioRef.current.addEventListener('error', (e) => {
+        console.error('Audio error:', e);
+        setStreamError('Error loading stream. Please try again.');
+        setIsPlaying(false);
+
+        // Try to reconnect if the stream fails
+        if (reconnectAttempts < 3) {
+          setTimeout(() => {
+            setReconnectAttempts(prev => prev + 1);
+            if (audioRef.current) {
+              audioRef.current.src = streamUrl;
+              audioRef.current.load();
+            }
+          }, 3000);
+        }
+      });
+    }
+
+    return () => {
+      // Clean up audio element and audio context when component unmounts
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+
+      if (audioContext) {
+        audioContext.close();
+      }
+
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [volume, reconnectAttempts, streamUrl]);
+
+  // Check if a broadcast is live and set up the stream URL
   useEffect(() => {
     const checkBroadcastStatus = async () => {
       try {
-        // Fetch live broadcasts from API
-        const response = await broadcastService.getLive();
-        const liveBroadcasts = response.data;
+        // Fetch stream status from the API
+        const statusResponse = await streamService.getStatus();
+        const status = statusResponse.data;
 
-        // If there are any live broadcasts, set isLive to true
-        if (liveBroadcasts && liveBroadcasts.length > 0) {
+        if (status.live && status.server === "UP") {
           setIsLive(true);
-          // Set the first live broadcast as the current one
-          // You could add more logic here to select a specific broadcast if needed
-          const currentBroadcast = liveBroadcasts[0];
-          setCurrentBroadcastId(currentBroadcast.id);
-          console.log("Live broadcast:", currentBroadcast);
+
+          // Get the listener stream URL for Shoutcast
+          const listenerStreamUrl = streamService.getListenerStreamUrl();
+          setStreamUrl(listenerStreamUrl);
+
+          // Set up audio player source
+          if (audioRef.current && audioRef.current.src !== listenerStreamUrl) {
+            audioRef.current.src = listenerStreamUrl;
+            audioRef.current.load();
+            console.log("Stream URL set:", listenerStreamUrl);
+          }
+
+          // If there's a live broadcast, set it as the current one
+          if (status.broadcast) {
+            setCurrentBroadcastId(status.broadcast.id);
+            console.log("Live broadcast:", status.broadcast);
+          }
         } else {
           setIsLive(false);
-          // If no live broadcasts, check for upcoming broadcasts
+          setStreamUrl("");
+
+          // If audio is playing, stop it
+          if (audioRef.current && !audioRef.current.paused) {
+            audioRef.current.pause();
+          }
+
+          // Try to get upcoming broadcasts if nothing is live
           try {
             const upcomingResponse = await broadcastService.getUpcoming();
             const upcomingBroadcasts = upcomingResponse.data;
@@ -75,16 +159,127 @@ export default function ListenerDashboard() {
           }
         }
       } catch (error) {
-        console.error("Error checking broadcast status:", error);
+        console.error("Error checking stream status:", error);
         setIsLive(false);
+        setStreamError("Failed to connect to server. Please try again later.");
       }
     }
 
-    checkBroadcastStatus()
-    const interval = setInterval(checkBroadcastStatus, 60000) // Check every minute
+    checkBroadcastStatus();
+    const interval = setInterval(checkBroadcastStatus, 30000); // Check every 30 seconds
 
-    return () => clearInterval(interval)
-  }, [])
+    return () => clearInterval(interval);
+  }, []);
+
+  // Set up audio visualizer when playing
+  useEffect(() => {
+    if (isPlaying && !audioContext && audioRef.current) {
+      try {
+        // Create audio context for visualization
+        const context = new (window.AudioContext || window.webkitAudioContext)();
+        const audioSource = context.createMediaElementSource(audioRef.current);
+        const audioAnalyser = context.createAnalyser();
+
+        // Connect the audio to the analyser and then to the destination
+        audioSource.connect(audioAnalyser);
+        audioAnalyser.connect(context.destination);
+
+        // Set up analyser
+        audioAnalyser.fftSize = 256;
+        const bufferLength = audioAnalyser.frequencyBinCount;
+        const audioDataArray = new Uint8Array(bufferLength);
+
+        setAudioContext(context);
+        setAnalyser(audioAnalyser);
+        setDataArray(audioDataArray);
+
+        // Start visualization
+        const updateVisualization = () => {
+          if (analyser) {
+            analyser.getByteFrequencyData(audioDataArray);
+            animationRef.current = requestAnimationFrame(updateVisualization);
+          }
+        };
+
+        updateVisualization();
+      } catch (error) {
+        console.error("Error setting up audio visualization:", error);
+      }
+    }
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [isPlaying, audioContext, analyser]);
+
+  // Update volume when it changes
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = isMuted ? 0 : volume / 100;
+    }
+  }, [volume, isMuted]);
+
+  // Toggle play/pause
+  const togglePlay = () => {
+    if (!isLive || !audioRef.current) return;
+
+    try {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        // If we don't have a stream URL, get it first
+        if (!audioRef.current.src && streamUrl) {
+          audioRef.current.src = streamUrl;
+          audioRef.current.load();
+        }
+
+        // Play with a catch for browser autoplay restrictions
+        const playPromise = audioRef.current.play();
+
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              setIsPlaying(true);
+              setStreamError(null);
+            })
+            .catch(error => {
+              console.error("Playback failed:", error);
+              setStreamError("Couldn't start playback. Click play again or check browser autoplay settings.");
+              setIsPlaying(false);
+            });
+        }
+      }
+    } catch (error) {
+      console.error("Error toggling playback:", error);
+      setStreamError("Playback error. Please try again.");
+    }
+  };
+
+  // Toggle mute
+  const toggleMute = () => {
+    setIsMuted(!isMuted);
+    if (audioRef.current) {
+      audioRef.current.volume = !isMuted ? 0 : volume / 100;
+    }
+  };
+
+  // Handle volume change
+  const handleVolumeChange = (e) => {
+    const newVolume = Number.parseInt(e.target.value, 10);
+    setVolume(newVolume);
+
+    if (audioRef.current) {
+      audioRef.current.volume = newVolume / 100;
+    }
+
+    if (newVolume === 0) {
+      setIsMuted(true);
+    } else if (isMuted) {
+      setIsMuted(false);
+    }
+  };
 
   // Fetch chat messages when broadcast ID changes
   useEffect(() => {
@@ -354,227 +549,227 @@ export default function ListenerDashboard() {
   );
 
   return (
-      <div className="container mx-auto px-4">
-        <div className="max-w-5xl mx-auto">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">Listener Dashboard</h1>
+    <div className="container mx-auto px-4 py-6">
+      <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">Listener Dashboard</h1>
 
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
-            {/* Hero section with status */}
-            <div className="relative h-64 bg-gradient-to-r from-maroon-700 to-maroon-900 flex items-center justify-center px-4">
-              <div className="text-center text-white">
-                <div className="flex items-center justify-center mb-4">
-                  {isLive ? (
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-600 text-white">
-                    <span className="h-2 w-2 rounded-full bg-white mr-1 animate-pulse"></span>
-                    LIVE NOW
-                  </span>
-                  ) : (
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-600 text-white">
-                    OFF AIR
-                  </span>
-                  )}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
+        <div className="p-6">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
+            WildCats Radio Player
+          </h2>
+
+          <div className="relative">
+            {/* Stream Status */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center">
+                <span className={`h-3 w-3 rounded-full mr-2 ${isLive ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {isLive ? 'Live Broadcasting' : 'Offline'}
+                </span>
+              </div>
+
+              {isLive && (
+                <span className="text-xs bg-maroon-100 text-maroon-800 dark:bg-maroon-900 dark:text-maroon-200 py-1 px-2 rounded-full">
+                  {currentBroadcastId ? `Broadcast #${currentBroadcastId}` : 'Live Stream'}
+                </span>
+              )}
+            </div>
+
+            {/* Audio Visualizer */}
+            <div className="h-24 mb-6">
+              {isPlaying && analyser && dataArray ? (
+                <AudioVisualizer analyser={analyser} dataArray={dataArray} />
+              ) : (
+                <div className="w-full h-full bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+                  <p className="text-gray-500 dark:text-gray-400 text-sm">
+                    {isLive ? 'Click play to start listening' : 'No broadcast currently available'}
+                  </p>
                 </div>
-                <h2 className="text-2xl font-bold mb-2">WildCats Radio</h2>
-                {isLive ? (
-                    <p>Tune in now to the live broadcast!</p>
+              )}
+            </div>
+
+            {/* Stream Error */}
+            {streamError && (
+              <div className="mb-4 p-3 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md text-sm">
+                {streamError}
+              </div>
+            )}
+
+            {/* Player Controls */}
+            <div className="flex items-center justify-between">
+              <button
+                onClick={togglePlay}
+                disabled={!isLive}
+                className={`p-3 rounded-full ${
+                  !isLive
+                    ? 'bg-gray-200 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:text-gray-500'
+                    : isPlaying
+                    ? 'bg-maroon-100 text-maroon-800 hover:bg-maroon-200 dark:bg-maroon-900 dark:text-maroon-200 dark:hover:bg-maroon-800'
+                    : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-900 dark:text-yellow-200 dark:hover:bg-yellow-800'
+                }`}
+                aria-label={isPlaying ? 'Pause' : 'Play'}
+              >
+                {isPlaying ? (
+                  <PauseIcon className="h-8 w-8" />
                 ) : (
-                    <div>
-                      <p>No broadcast currently active</p>
-                      {nextBroadcast ? (
-                        <p className="mt-2 text-sm">
-                          Next broadcast: {nextBroadcast.title} on {nextBroadcast.date} at {nextBroadcast.time}
-                        </p>
-                      ) : (
-                        <p className="mt-2 text-sm">No upcoming broadcasts scheduled</p>
-                      )}
-                    </div>
+                  <PlayIcon className="h-8 w-8" />
                 )}
+              </button>
+
+              <div className="flex-1 mx-4">
+                <div className="flex items-center">
+                  <button
+                    onClick={toggleMute}
+                    className="p-2 text-gray-700 dark:text-gray-300 hover:text-maroon-600 dark:hover:text-maroon-400"
+                    aria-label={isMuted ? 'Unmute' : 'Mute'}
+                  >
+                    {isMuted ? (
+                      <SpeakerXMarkIcon className="h-5 w-5" />
+                    ) : (
+                      <SpeakerWaveIcon className="h-5 w-5" />
+                    )}
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={volume}
+                    onChange={handleVolumeChange}
+                    className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-maroon-600 dark:accent-maroon-500"
+                    aria-label="Volume"
+                  />
+                  <span className="ml-2 text-sm text-gray-700 dark:text-gray-300 min-w-[2.5rem] text-right">
+                    {volume}%
+                  </span>
+                </div>
               </div>
             </div>
 
-            {/* Controls */}
-            <div className="p-6">
-              <div className="flex flex-col items-center">
-                {/* Play/Pause Button */}
-                <button
-                    onClick={togglePlay}
-                    disabled={!isLive}
-                    className={`w-20 h-20 rounded-full flex items-center justify-center shadow-lg mb-6 ${
-                        isLive ? "bg-maroon-700 hover:bg-maroon-800" : "bg-gray-400 cursor-not-allowed"
-                    } transition-colors duration-200`}
-                >
-                  {isPlaying ? (
-                      <PauseIcon className="h-10 w-10 text-white" />
-                  ) : (
-                      <PlayIcon className="h-10 w-10 text-white" />
-                  )}
-                </button>
+            {/* Next Broadcast Info (if not live) */}
+            {!isLive && nextBroadcast && (
+              <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Next Broadcast</h3>
+                <p className="text-base font-semibold text-gray-900 dark:text-white">{nextBroadcast.title}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {nextBroadcast.date} at {nextBroadcast.time}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
-                {/* Volume Controls */}
-                <div className="w-full max-w-md flex items-center space-x-4 mb-6">
-                  <button
-                      onClick={toggleMute}
-                      className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
-                  >
-                    {isMuted ? <SpeakerXMarkIcon className="h-6 w-6" /> : <SpeakerWaveIcon className="h-6 w-6" />}
-                  </button>
+      {/* Rest of your dashboard code (tabs, chat, song requests, etc.) */}
+
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+        <div className="p-6">
+          {/* Tabs for Chat, Song Requests, and Polls */}
+          <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
+            <button
+              onClick={() => setActiveTab("chat")}
+              className={`py-2 px-4 text-sm font-medium rounded-t-lg ${
+                activeTab === "chat"
+                  ? "bg-maroon-100 text-maroon-800 dark:bg-maroon-900 dark:text-maroon-200 border-b-2 border-maroon-500"
+                  : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+              }`}
+            >
+              <div className="flex items-center">
+                <ChatBubbleLeftRightIcon className="h-4 w-4 mr-2" />
+                Chat
+              </div>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("request")}
+              className={`py-2 px-4 text-sm font-medium rounded-t-lg ${
+                activeTab === "request"
+                  ? "bg-maroon-100 text-maroon-800 dark:bg-maroon-900 dark:text-maroon-200 border-b-2 border-maroon-500"
+                  : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+              }`}
+            >
+              <div className="flex items-center">
+                <MusicalNoteIcon className="h-4 w-4 mr-2" />
+                Song Requests
+              </div>
+            </button>
+          </div>
+
+          {/* Content based on active tab */}
+          <div className="mt-4">
+            {activeTab === "chat" && (
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-3">Live Chat</h3>
+                {renderChatMessages()}
+                <form onSubmit={handleChatSubmit} className="flex items-center">
                   <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={volume}
-                      onChange={handleVolumeChange}
-                      className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                    type="text"
+                    value={chatMessage}
+                    onChange={(e) => setChatMessage(e.target.value)}
+                    placeholder="Type a message..."
+                    disabled={!isLive || !currentBroadcastId}
+                    className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 focus:border-transparent disabled:bg-gray-100 disabled:dark:bg-gray-800 disabled:cursor-not-allowed"
                   />
-                  <span className="text-sm text-gray-600 dark:text-gray-300 w-8">{volume}%</span>
-                </div>
-
-                {/* Audio Visualizer */}
-                {isLive && (
-                    <div className="w-full max-w-md mb-6">
-                      <AudioVisualizer isPlaying={isPlaying && !isMuted} />
-                    </div>
-                )}
-
-                {isLive && isPlaying && (
-                    <div className="w-full max-w-md p-4 bg-gray-100 dark:bg-gray-700 rounded-lg mb-6">
-                      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Now Playing</h3>
-                      <div className="flex items-center">
-                        <div className="w-12 h-12 bg-gray-300 dark:bg-gray-600 rounded"></div>
-                        <div className="ml-4">
-                          <p className="text-sm font-medium text-gray-900 dark:text-white">Current Song Title</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">Artist Name</p>
-                        </div>
-                      </div>
-                    </div>
+                  <button
+                    type="submit"
+                    disabled={!isLive || !currentBroadcastId}
+                    className="p-2 bg-maroon-600 text-white rounded-r-md hover:bg-maroon-700 focus:outline-none focus:ring-2 focus:ring-maroon-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  >
+                    <PaperAirplaneIcon className="h-5 w-5" />
+                  </button>
+                </form>
+                {!isLive && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center mt-2">
+                    Chat is only available during live broadcasts
+                  </p>
                 )}
               </div>
+            )}
 
-              {/* Tabs for interaction */}
-              <div className="mt-6">
-                <div className="flex border-b border-gray-200 dark:border-gray-700">
+            {activeTab === "request" && (
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-3">Request a Song</h3>
+                <form onSubmit={handleSongRequestSubmit} className="space-y-4">
+                  <div>
+                    <label htmlFor="song" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Song Title
+                    </label>
+                    <input
+                      type="text"
+                      id="song"
+                      value={songRequest.song}
+                      onChange={(e) => setSongRequest({ ...songRequest, song: e.target.value })}
+                      placeholder="Enter song title"
+                      disabled={!isLive || !currentBroadcastId}
+                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 focus:border-transparent disabled:bg-gray-100 disabled:dark:bg-gray-800 disabled:cursor-not-allowed"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="artist" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Artist
+                    </label>
+                    <input
+                      type="text"
+                      id="artist"
+                      value={songRequest.artist}
+                      onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
+                      placeholder="Enter artist name"
+                      disabled={!isLive || !currentBroadcastId}
+                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 focus:border-transparent disabled:bg-gray-100 disabled:dark:bg-gray-800 disabled:cursor-not-allowed"
+                      required
+                    />
+                  </div>
                   <button
-                      onClick={() => setActiveTab("chat")}
-                      className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
-                          activeTab === "chat"
-                              ? "text-maroon-700 border-b-2 border-maroon-700 dark:text-yellow-400 dark:border-yellow-400"
-                              : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-                      }`}
+                    type="submit"
+                    disabled={!isLive || !currentBroadcastId}
+                    className="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-maroon-600 hover:bg-maroon-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
                   >
-                    <ChatBubbleLeftRightIcon className="h-5 w-5 mx-auto mb-1" />
-                    Chat
+                    Submit Request
                   </button>
-                  <button
-                      onClick={() => setActiveTab("request")}
-                      className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
-                          activeTab === "request"
-                              ? "text-maroon-700 border-b-2 border-maroon-700 dark:text-yellow-400 dark:border-yellow-400"
-                              : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-                      }`}
-                  >
-                    <MusicalNoteIcon className="h-5 w-5 mx-auto mb-1" />
-                    Request
-                  </button>
-                  <button
-                      onClick={() => setActiveTab("poll")}
-                      className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
-                          activeTab === "poll"
-                              ? "text-maroon-700 border-b-2 border-maroon-700 dark:text-yellow-400 dark:border-yellow-400"
-                              : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-                      }`}
-                  >
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="h-5 w-5 mx-auto mb-1"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                    >
-                      <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                      />
-                    </svg>
-                    Poll
-                  </button>
-                </div>
-
-                {/* Tab Content */}
-                <div className="p-4">
-                  {/* Chat Panel */}
-                  {activeTab === "chat" && (
-                      <div>
-                        {renderChatMessages()}
-                        {renderChatInput()}
-                        {!isLive && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
-                              Chat is only available during live broadcasts
-                            </p>
-                        )}
-                      </div>
-                  )}
-
-                  {/* Song Request Panel */}
-                  {activeTab === "request" && (
-                      <div>
-                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Request a Song</h3>
-                        <form onSubmit={handleSongRequestSubmit} className="space-y-4">
-                          <div>
-                            <label
-                                htmlFor="song"
-                                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                            >
-                              Song Title
-                            </label>
-                            <input
-                                type="text"
-                                id="song"
-                                value={songRequest.song}
-                                onChange={(e) => setSongRequest({ ...songRequest, song: e.target.value })}
-                                className="block w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                                placeholder="Enter song title"
-                                disabled={!isLive}
-                                required
-                            />
-                          </div>
-                          <div>
-                            <label
-                                htmlFor="artist"
-                                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                            >
-                              Artist
-                            </label>
-                            <input
-                                type="text"
-                                id="artist"
-                                value={songRequest.artist}
-                                onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
-                                className="block w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                                placeholder="Enter artist name"
-                                disabled={!isLive}
-                                required
-                            />
-                          </div>
-                          <button
-                              type="submit"
-                              disabled={!isLive}
-                              className={`w-full py-2 px-4 rounded-md ${
-                                  isLive
-                                      ? "bg-maroon-700 hover:bg-maroon-800 text-white"
-                                      : "bg-gray-300 text-gray-500 cursor-not-allowed"
-                              }`}
-                          >
-                            Submit Request
-                          </button>
-                        </form>
-                        {!isLive && (
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-4 text-center">
-                              Song requests are only available during live broadcasts
-                            </p>
-                        )}
-                      </div>
+                  {!isLive && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 text-center mt-2">
+                      Song requests are only available during live broadcasts
+                    </p>
                   )}
 
                   {/* Poll Panel */}
@@ -653,11 +848,12 @@ export default function ListenerDashboard() {
                         )}
                       </div>
                   )}
-                </div>
+                </form>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
+    </div>
   )
 }

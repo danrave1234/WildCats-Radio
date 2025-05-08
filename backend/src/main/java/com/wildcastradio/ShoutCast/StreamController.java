@@ -148,10 +148,20 @@ public class StreamController {
                 response.put("broadcast", broadcastInfo);
                 
                 // Generate the stream URL for listeners
-                String streamUrl = String.format("http://%s:%s/;stream.mp3", 
+                // Format for Shoutcast v2.x with mountpoint is: http://server:port/mountpoint
+                String streamUrl = String.format("http://%s:%s%s", 
                         shoutcastService.getServerUrl(), 
-                        shoutcastService.getServerPort());
+                        shoutcastService.getServerPort(),
+                        shoutcastService.getMountPoint());
+                
                 response.put("streamUrl", streamUrl);
+                
+                // Also include metadata for the player
+                response.put("metadata", new HashMap<String, String>() {{
+                    put("title", broadcast.getTitle());
+                    put("artist", "WildCats Radio");
+                    put("album", "Live Broadcast");
+                }});
             }
             
             return ResponseEntity.ok(response);

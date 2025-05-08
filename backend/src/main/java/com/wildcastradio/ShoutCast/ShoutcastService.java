@@ -281,4 +281,13 @@ public class ShoutcastService {
     public String getServerPort() {
         return String.valueOf(serverPort);
     }
+    
+    /**
+     * Get the mount point for the Shoutcast server
+     * 
+     * @return The mount point
+     */
+    public String getMountPoint() {
+        return mountPoint;
+    }
 }

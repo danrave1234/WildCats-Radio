@@ -180,12 +180,24 @@ export const streamService = {
   start: () => api.post('/stream/start'),
   stop: () => api.post('/stream/stop'),
   getStatus: () => api.get('/stream/status'),
+  
+  // WebSocket URL for DJs to send audio to the server
   getStreamUrl: () => {
     // Extract the hostname from API_BASE_URL for WebSocket connection
     const apiUrl = new URL(API_BASE_URL);
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     return `${protocol}://${apiUrl.host}/stream`;
   },
+  
+  // Stream URL for listeners to tune in to the broadcast
+  getListenerStreamUrl: () => {
+    // Use Shoutcast server URL directly for listeners
+    // We're using the configured port 8000 and mountpoint /stream
+    const protocol = window.location.protocol;
+    // Extract hostname without port from current location
+    const hostname = window.location.hostname;
+    return `${protocol}//${hostname}:8000/stream`;
+  }
 };
 
 export default api;
