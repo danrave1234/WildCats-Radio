@@ -103,23 +103,25 @@ public class ShoutcastService {
         }
         
         try {
-            // For ShoutCast, typically we need to make an admin request to start the stream
-            // This is a simplified example - real implementation would depend on ShoutCast API
-            String startStreamUrl = String.format("http://%s:%d/admin.cgi", 
-                    serverUrl, serverPort);
+            // For ShoutCast, we need to authenticate in the URL itself (not in the form data)
+            // ShoutCast v2.x expects the password as a URL parameter
+            String startStreamUrl = String.format("http://%s:%d/admin.cgi?pass=%s", 
+                    serverUrl, serverPort, adminPassword);
 
             // Create headers
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 
-            // Create form data
+            // Create form data - ShoutCast expects action parameters in the form data
             MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
             formData.add("action", "startstream");
             formData.add("mount", mountPoint);
-            formData.add("password", adminPassword);
 
             // Create the request entity
             HttpEntity<MultiValueMap<String, String>> requestEntity = new HttpEntity<>(formData, headers);
+
+            // Log the request for debugging
+            logger.info("Sending request to ShoutCast server: URL={}, Mount={}", startStreamUrl, mountPoint);
 
             // Make the request
             ResponseEntity<String> response = restTemplate.exchange(
@@ -162,9 +164,9 @@ public class ShoutcastService {
         }
         
         try {
-            // For ShoutCast, typically we need to make an admin request to stop the stream
-            String stopStreamUrl = String.format("http://%s:%d/admin.cgi", 
-                    serverUrl, serverPort);
+            // For ShoutCast, we need to authenticate in the URL itself (not in the form data)
+            String stopStreamUrl = String.format("http://%s:%d/admin.cgi?pass=%s", 
+                    serverUrl, serverPort, adminPassword);
 
             // Create headers
             HttpHeaders headers = new HttpHeaders();
@@ -174,10 +176,12 @@ public class ShoutcastService {
             MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
             formData.add("action", "stopstream");
             formData.add("mount", mountPoint);
-            formData.add("password", adminPassword);
 
             // Create the request entity
             HttpEntity<MultiValueMap<String, String>> requestEntity = new HttpEntity<>(formData, headers);
+
+            // Log the request for debugging
+            logger.info("Sending request to stop ShoutCast stream: URL={}, Mount={}", stopStreamUrl, mountPoint);
 
             // Make the request
             ResponseEntity<String> response = restTemplate.exchange(

@@ -58,12 +58,13 @@ public class AudioStreamHandler extends BinaryWebSocketHandler {
         }
         
         // Create the streaming URL for Shoutcast
-        // For Shoutcast DNAS, the correct password format is: password:#streamID
-        // For a single stream instance, we can just use the password directly
-        String streamUrl = String.format("http://%s:%s/%s", 
-                serverUrl, serverPort, sourcePassword);
+        // For Shoutcast v2.x, the source connection format is:
+        // http://source:password@host:port/mountpoint
+        String streamUrl = String.format("http://source:%s@%s:%s%s", 
+                sourcePassword, serverUrl, serverPort, mountPoint);
         
-        logger.info("Connecting to Shoutcast at: {}", streamUrl);
+        logger.info("Connecting to Shoutcast at: {}", 
+                String.format("http://*****@%s:%s%s", serverUrl, serverPort, mountPoint)); // Hide password in logs
         
         // Build FFmpeg command with improved settings
         List<String> command = new ArrayList<>();

@@ -2,8 +2,8 @@ import axios from 'axios';
 import { handleSecuritySoftwareErrors } from './errorHandler';
 
 // Create axios instance with base URL pointing to our backend
-const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.herokuapp.com/api';
-// const API_BASE_URL = 'http://localhost:8080/api';
+// const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.herokuapp.com/api';
+const API_BASE_URL = 'http://localhost:8080/api';
 
 // Cookie helper function
 const getCookie = (name) => {
@@ -117,6 +117,19 @@ export const pollService = {
   endPoll: (pollId) => api.post(`/polls/${pollId}/end`),
   hasUserVoted: (pollId) => api.get(`/polls/${pollId}/has-voted`),
   getUserVote: (pollId) => api.get(`/polls/${pollId}/user-vote`),
+};
+
+// Services for Shoutcast streaming
+export const streamService = {
+  start: () => api.post('/stream/start'),
+  stop: () => api.post('/stream/stop'),
+  getStatus: () => api.get('/stream/status'),
+  getStreamUrl: () => {
+    // Extract the hostname from API_BASE_URL for WebSocket connection
+    const apiUrl = new URL(API_BASE_URL);
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${protocol}://${apiUrl.host}/stream`;
+  },
 };
 
 export default api;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   PlayIcon, 
   StopIcon, 
@@ -14,7 +14,7 @@ import {
   PlusCircleIcon,
   PencilIcon
 } from '@heroicons/react/24/outline';
-import { broadcastService, serverService, pollService, chatService, songRequestService } from '../services/api';
+import { broadcastService, serverService, pollService, chatService, songRequestService, streamService } from '../services/api';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -32,6 +32,15 @@ export default function DJDashboard() {
   const [audioStream, setAudioStream] = useState(null);
   const [audioContext, setAudioContext] = useState(null);
   const [audioAnalyser, setAudioAnalyser] = useState(null);
+
+  // WebSocket streaming refs and state
+  const websocketRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const retryCountRef = useRef(0);
+  const MAX_RETRIES = 5;
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingError, setStreamingError] = useState(null);
+  const [websocketConnected, setWebSocketConnected] = useState(false);
 
   // Server schedule state
   const [serverSchedules, setServerSchedules] = useState([]);
@@ -155,6 +164,313 @@ export default function DJDashboard() {
     }
   };
 
+  // Connect to WebSocket server for streaming
+  const connectWebSocket = async () => {
+    try {
+      console.log('Connecting to WebSocket for streaming...');
+      
+      // Close any existing connection first
+      if (websocketRef.current) {
+        try {
+          if (websocketRef.current.readyState === WebSocket.OPEN || 
+              websocketRef.current.readyState === WebSocket.CONNECTING) {
+            websocketRef.current.close();
+            console.log('Closed existing WebSocket connection');
+          }
+        } catch (error) {
+          console.error('Error closing existing WebSocket:', error);
+        }
+        websocketRef.current = null;
+      }
+      
+      // Create WebSocket connection
+      const wsUrl = streamService.getStreamUrl();
+      console.log(`Using WebSocket URL: ${wsUrl}`);
+      
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = "arraybuffer";
+      websocketRef.current = ws;
+      
+      // Set up WebSocket event handlers
+      ws.onopen = () => {
+        console.log('WebSocket connection established');
+        retryCountRef.current = 0;
+        setWebSocketConnected(true);
+        
+        // Add a slight delay before starting the recording to ensure everything is initialized
+        setTimeout(() => {
+          // Send a test message to verify the connection is working
+          try {
+            // Create a small test audio buffer (1ms of silence)
+            const testBuffer = new ArrayBuffer(16);
+            ws.send(testBuffer);
+            console.log('Sent test data to WebSocket');
+            
+            // Now start recording
+            startRecording(ws);
+          } catch (e) {
+            console.error('Error sending test data to WebSocket:', e);
+            // Still try to start recording
+            startRecording(ws);
+          }
+        }, 300); // 300ms delay should be enough for initialization
+        
+        setStatusMessage('LIVE ON AIR');
+        
+        // Update state to show connection
+        setToast({
+          visible: true,
+          message: 'Broadcasting started. You are now live!',
+          type: 'success'
+        });
+      };
+      
+      ws.onclose = (event) => {
+        console.log(`WebSocket connection closed: ${event.code} ${event.reason}`);
+        
+        if (isStreaming && retryCountRef.current < MAX_RETRIES) {
+          retryCountRef.current++;
+          const backoffTime = Math.min(1000 * Math.pow(2, retryCountRef.current), 10000);
+          console.log(`Attempting to reconnect (${retryCountRef.current}/${MAX_RETRIES}) in ${backoffTime/1000} seconds...`);
+          
+          // Show toast to inform user
+          setToast({
+            visible: true,
+            message: `Connection lost. Reconnecting (attempt ${retryCountRef.current}/${MAX_RETRIES})...`,
+            type: 'warning'
+          });
+          
+          setTimeout(connectWebSocket, backoffTime);
+        } else if (retryCountRef.current >= MAX_RETRIES) {
+          console.error(`Maximum retry attempts (${MAX_RETRIES}) reached. Stopping stream.`);
+          setToast({
+            visible: true,
+            message: 'Unable to establish connection. Broadcast stopped.',
+            type: 'error'
+          });
+          stopStreaming();
+          setIsBroadcasting(false);
+          setCurrentBroadcastId(null);
+        }
+      };
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setStreamingError('Connection error occurred');
+        setToast({
+          visible: true,
+          message: 'WebSocket connection error. Please try again.',
+          type: 'error'
+        });
+      };
+      
+      return ws;
+    } catch (error) {
+      console.error('Error creating WebSocket connection:', error);
+      setStreamingError(`Connection error: ${error.message}`);
+      
+      setToast({
+        visible: true,
+        message: `Failed to connect: ${error.message}`,
+        type: 'error'
+      });
+      
+      if (isStreaming && retryCountRef.current < MAX_RETRIES) {
+        retryCountRef.current++;
+        const backoffTime = Math.min(1000 * Math.pow(2, retryCountRef.current), 10000);
+        setTimeout(connectWebSocket, backoffTime);
+      } else if (retryCountRef.current >= MAX_RETRIES) {
+        setIsStreaming(false);
+        stopStreaming();
+        setIsBroadcasting(false);
+        setCurrentBroadcastId(null);
+      }
+      
+      return null;
+    }
+  };
+
+  // Start recording audio and sending via WebSocket
+  const startRecording = (ws) => {
+    if (!audioStream) {
+      console.error('Cannot start recording: missing audio stream');
+      setToast({
+        visible: true,
+        message: 'Cannot start recording: No microphone connected',
+        type: 'error'
+      });
+      return;
+    }
+    
+    if (!ws && !websocketRef.current) {
+      console.error('Cannot start recording: missing WebSocket connection');
+      setToast({
+        visible: true,
+        message: 'Cannot start recording: No connection to server',
+        type: 'error'
+      });
+      return;
+    }
+    
+    // Use the passed websocket or the stored one
+    const websocket = ws || websocketRef.current;
+    
+    // Store the websocket in ref if not already stored
+    if (ws && (!websocketRef.current || websocketRef.current !== ws)) {
+      websocketRef.current = ws;
+    }
+    
+    try {
+      // Find supported audio format - this is critical for FFmpeg compatibility
+      const options = {
+        mimeType: 'audio/webm',
+        audioBitsPerSecond: 128000
+      };
+      
+      // Try to find a supported mime type with fallbacks
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          options.mimeType = 'audio/webm;codecs=opus';
+          console.log('Using audio/webm;codecs=opus format');
+        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+          options.mimeType = 'audio/ogg;codecs=opus';
+          console.log('Using audio/ogg;codecs=opus format');
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          options.mimeType = 'audio/mp4';
+          console.log('Using audio/mp4 format');
+        } else {
+          console.warn('No supported audio format found, using default');
+        }
+      } else {
+        console.log('Using audio/webm format');
+      }
+      
+      // Create MediaRecorder
+      const mediaRecorder = new MediaRecorder(audioStream, options);
+      
+      // Set up event handlers
+      mediaRecorder.ondataavailable = async (e) => {
+        if (e.data.size > 0 && websocketRef.current && websocketRef.current.readyState === WebSocket.OPEN) {
+          try {
+            const arrayBuffer = await e.data.arrayBuffer();
+            console.log(`Sending ${arrayBuffer.byteLength} bytes of audio data to server`);
+            websocketRef.current.send(arrayBuffer);
+          } catch (error) {
+            console.error('Error sending audio data:', error);
+            if (error.message.includes("null") && isStreaming) {
+              // Socket has disconnected unexpectedly
+              console.warn("Socket disconnected unexpectedly, attempting to reconnect");
+              setTimeout(connectWebSocket, 1000);
+            }
+          }
+        } else if (websocketRef.current && websocketRef.current.readyState !== WebSocket.OPEN && isStreaming) {
+          console.warn(`WebSocket not in OPEN state (current state: ${websocketRef.current.readyState})`);
+          if (isStreaming && websocketRef.current.readyState === WebSocket.CLOSED) {
+            console.warn("WebSocket closed but still streaming, attempting to reconnect");
+            setTimeout(connectWebSocket, 1000);
+          }
+        }
+      };
+      
+      mediaRecorder.onstart = () => {
+        console.log('MediaRecorder started');
+        setIsStreaming(true);
+        setStatusMessage('LIVE ON AIR');
+      };
+      
+      mediaRecorder.onstop = () => {
+        console.log('MediaRecorder stopped');
+      };
+      
+      mediaRecorder.onerror = (error) => {
+        console.error('MediaRecorder error:', error);
+        setStreamingError(`Recording error: ${error.message}`);
+        setToast({
+          visible: true,
+          message: `Recording error: ${error.message}`,
+          type: 'error'
+        });
+      };
+      
+      // Start recording with small chunks (100ms) for smoother streaming
+      // This chunk size is important and worked well in websocket-test.html
+      mediaRecorder.start(100);
+      mediaRecorderRef.current = mediaRecorder;
+      
+      // Update state
+      setIsStreaming(true);
+      setStreamingError(null);
+    } catch (error) {
+      console.error('Error starting MediaRecorder:', error);
+      setStreamingError(`Recording error: ${error.message}`);
+      setToast({
+        visible: true,
+        message: `Failed to start recording: ${error.message}`,
+        type: 'error'
+      });
+      stopStreaming();
+      setIsBroadcasting(false);
+      setCurrentBroadcastId(null);
+    }
+  };
+
+  // Clean up streaming resources
+  const stopStreaming = async () => {
+    try {
+      // Stop broadcasting in backend system if applicable
+      if (currentBroadcastId) {
+        try {
+          await streamService.stop();
+          console.log('Backend notified of stream end');
+        } catch (error) {
+          console.error('Error stopping stream on server:', error);
+        }
+      }
+      
+      // Stop MediaRecorder
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+          console.log('MediaRecorder stopped');
+        } catch (error) {
+          console.error('Error stopping MediaRecorder:', error);
+        }
+        mediaRecorderRef.current = null;
+      }
+      
+      // Close WebSocket
+      if (websocketRef.current) {
+        try {
+          if (websocketRef.current.readyState === WebSocket.OPEN || 
+              websocketRef.current.readyState === WebSocket.CONNECTING) {
+            websocketRef.current.close();
+            console.log('WebSocket connection closed');
+          } else {
+            console.log(`WebSocket already closing/closed (state: ${websocketRef.current.readyState})`);
+          }
+        } catch (error) {
+          console.error('Error closing WebSocket:', error);
+        }
+        websocketRef.current = null;
+      }
+      
+      // Reset state
+      setIsStreaming(false);
+      setWebSocketConnected(false); // Add this line to reset websocket connected state
+      setStatusMessage('Standby');
+      retryCountRef.current = 0;
+      
+      // Show status message
+      setToast({
+        visible: true,
+        message: 'Broadcasting stopped.',
+        type: 'info'
+      });
+    } catch (error) {
+      console.error('Error during streaming cleanup:', error);
+    }
+  };
+
   // Start or stop audio preview
   const toggleAudioPreview = async () => {
     if (isPreviewingAudio) {
@@ -164,7 +480,11 @@ export default function DJDashboard() {
         setAudioStream(null);
       }
       if (audioContext) {
-        audioContext.close();
+        try {
+          await audioContext.close();
+        } catch (error) {
+          console.error('Error closing audio context:', error);
+        }
         setAudioContext(null);
         setAudioAnalyser(null);
       }
@@ -174,12 +494,13 @@ export default function DJDashboard() {
     }
     
     try {
-      // Start preview
+      // Start preview with the same audio settings we'll use for streaming
       const constraints = {
         audio: {
           deviceId: audioInputDevice !== 'default' ? { exact: audioInputDevice } : undefined,
           echoCancellation: true,
-          noiseSuppression: true
+          noiseSuppression: true,
+          autoGainControl: true
         }
       };
       
@@ -235,8 +556,6 @@ export default function DJDashboard() {
           // Apply a logarithmic scale to better represent human perception of audio
           let level = Math.min(100, Math.max(0, Math.round(rms * 200)));
           
-          console.log("Audio level detected:", level, "RMS:", rms.toFixed(4));
-          
           // Apply a minimum threshold to avoid small background noise showing on meter
           if (level < 5) level = 0;
           
@@ -255,7 +574,7 @@ export default function DJDashboard() {
       // Show success message
       setToast({ 
         visible: true, 
-        message: 'Audio preview started. You should hear your voice now.', 
+        message: 'Audio preview started. You should hear your voice now.',
         type: 'success' 
       });
     } catch (error) {
@@ -301,17 +620,8 @@ export default function DJDashboard() {
     };
   }, [isBroadcasting, isPreviewingAudio, audioAnalyser]);
 
+  // Clean up resources when component unmounts
   useEffect(() => {
-    // Get server status
-    serverService.getStatus()
-      .then(response => {
-        setIsServerRunning(response.data.running);
-      })
-      .catch(error => {
-        console.error("Failed to get server status:", error);
-        toast.error("Failed to get server status");
-      });
-
     // Set up time update
     const timer = setInterval(() => {
       setCurrentTime(new Date());
@@ -320,46 +630,24 @@ export default function DJDashboard() {
     // Get audio devices
     getAudioDevices();
 
-    // Clean up
     return () => {
       clearInterval(timer);
+      
+      // Stop streaming if active
+      if (isStreaming) {
+        stopStreaming();
+      }
+      
       // Stop audio preview when component unmounts
       if (audioStream) {
         audioStream.getTracks().forEach(track => track.stop());
       }
       if (audioContext) {
-        audioContext.close();
+        audioContext.close().catch(error => {
+          console.error('Error closing audio context during cleanup:', error);
+        });
       }
     };
-  }, [audioInputDevice]);
-
-  // Fetch server schedules and check server status
-  useEffect(() => {
-    const fetchServerSchedules = async () => {
-      try {
-        const schedulesResponse = await serverService.getSchedules();
-        setServerSchedules(schedulesResponse.data);
-
-        const statusResponse = await serverService.getStatus();
-        setServerRunning(statusResponse.data);
-      } catch (error) {
-        console.error('Error fetching server schedules:', error);
-      }
-    };
-
-    fetchServerSchedules();
-
-    // Refresh server status every 30 seconds
-    const interval = setInterval(async () => {
-      try {
-        const statusResponse = await serverService.getStatus();
-        setServerRunning(statusResponse.data);
-      } catch (error) {
-        console.error('Error checking server status:', error);
-      }
-    }, 30000);
-
-    return () => clearInterval(interval);
   }, []);
 
   // Fetch broadcasts and check for live broadcasts
@@ -379,7 +667,37 @@ export default function DJDashboard() {
         if (liveBroadcasts.length > 0) {
           setIsBroadcasting(true);
           setCurrentBroadcastId(liveBroadcasts[0].id);
-        } else {
+          
+          // Check if we need to reconnect the WebSocket
+          if (!isStreaming && !websocketRef.current) {
+            // Start audio capture if not already streaming
+            if (!audioStream) {
+              try {
+                const constraints = {
+                  audio: {
+                    deviceId: audioInputDevice !== 'default' ? { exact: audioInputDevice } : undefined,
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                  }
+                };
+                
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                setAudioStream(stream);
+                
+                // Reconnect WebSocket
+                connectWebSocket();
+              } catch (error) {
+                console.error('Error reconnecting to active broadcast:', error);
+              }
+            }
+          }
+        } else if (isBroadcasting) {
+          // If we think we're broadcasting but server says no live broadcasts
+          // we should clean up our state
+          if (isStreaming) {
+            stopStreaming();
+          }
           setIsBroadcasting(false);
           setCurrentBroadcastId(null);
         }
@@ -394,74 +712,7 @@ export default function DJDashboard() {
     const interval = setInterval(fetchBroadcasts, 30000); // Check every 30 seconds
 
     return () => clearInterval(interval);
-  }, [currentBroadcastId]);
-
-  // Fetch chat messages for the current broadcast
-  useEffect(() => {
-    const fetchChatMessages = async () => {
-      if (!currentBroadcastId) return;
-
-      try {
-        const response = await chatService.getMessages(currentBroadcastId);
-        setChatMessages(response.data);
-
-        // Update analytics with the number of chat messages
-        setAnalytics(prev => ({
-          ...prev,
-          chatMessages: response.data.length
-        }));
-      } catch (error) {
-        console.error('Error fetching chat messages:', error);
-      }
-    };
-
-    fetchChatMessages();
-
-    // Set up interval to periodically refresh chat messages
-    const interval = setInterval(fetchChatMessages, 5000); // Refresh every 5 seconds
-
-    return () => clearInterval(interval);
-  }, [currentBroadcastId]);
-
-  // Fetch song requests for the current broadcast
-  useEffect(() => {
-    const fetchSongRequests = async () => {
-      if (!currentBroadcastId) return;
-
-      try {
-        const response = await songRequestService.getRequests(currentBroadcastId);
-        setSongRequests(response.data);
-
-        // Update analytics with the number of song requests
-        setAnalytics(prev => ({
-          ...prev,
-          songRequests: response.data.length
-        }));
-      } catch (error) {
-        console.error('Error fetching song requests:', error);
-      }
-    };
-
-    fetchSongRequests();
-
-    // Set up interval to periodically refresh song requests
-    const interval = setInterval(fetchSongRequests, 10000); // Refresh every 10 seconds
-
-    return () => clearInterval(interval);
-  }, [currentBroadcastId]);
-
-  // Fetch polls for the current broadcast
-  useEffect(() => {
-    if (!currentBroadcastId) return;
-
-    // Fetch polls when component mounts or when currentBroadcastId changes
-    fetchPolls();
-
-    // Set up interval to periodically refresh polls
-    const interval = setInterval(fetchPolls, 10000); // Refresh every 10 seconds
-
-    return () => clearInterval(interval);
-  }, [currentBroadcastId]);
+  }, [isBroadcasting]);
 
   // Handle audio device change
   const handleAudioDeviceChange = (e) => {
@@ -511,25 +762,24 @@ export default function DJDashboard() {
     });
   };
 
-  // Handle start/stop broadcast
+  // Enhanced toggleBroadcast function that includes WebSocket streaming
   const toggleBroadcast = async () => {
     try {
       if (isBroadcasting && currentBroadcastId) {
         // End broadcast
         await broadcastService.end(currentBroadcastId);
+        
+        // Stop WebSocket streaming
+        await stopStreaming();
+        
+        // Update state
         setIsBroadcasting(false);
         setTestMode(false);
         setCurrentBroadcastId(null);
         console.log('Ending broadcast');
       } else {
-        // Check if server is running
-        const serverStatusResponse = await serverService.getStatus();
-        const isServerRunning = serverStatusResponse.data && serverStatusResponse.data.running;
-
-        if (!isServerRunning) {
-          alert('Server is not running. Please start the server before broadcasting.');
-          return;
-        }
+        // Remove server status check to achieve MVP requirement
+        // Just assume server is running and proceed with broadcast
 
         // Find a scheduled broadcast to start, or create a new one
         let broadcastToStart;
@@ -539,10 +789,11 @@ export default function DJDashboard() {
           broadcastToStart = broadcasts.find(b => b.status === 'SCHEDULED');
         }
 
+        let broadcastId;
         if (broadcastToStart) {
           // Start an existing scheduled broadcast
           const response = await broadcastService.start(broadcastToStart.id);
-          setCurrentBroadcastId(broadcastToStart.id);
+          broadcastId = broadcastToStart.id;
         } else {
           // Create and start a new broadcast
           const newBroadcast = {
@@ -556,17 +807,98 @@ export default function DJDashboard() {
           const createdBroadcast = scheduleResponse.data;
 
           const startResponse = await broadcastService.start(createdBroadcast.id);
-          setCurrentBroadcastId(createdBroadcast.id);
+          broadcastId = createdBroadcast.id;
         }
-
+        
+        setCurrentBroadcastId(broadcastId);
         setIsBroadcasting(true);
         setTestMode(false);
-        console.log('Starting broadcast');
-        console.log('Using audio device:', audioInputDevice);
+        
+        // Authorize stream start via API
+        try {
+          await streamService.start();
+          console.log('Stream authorized');
+        } catch (error) {
+          console.error('Error authorizing stream:', error);
+          setToast({
+            visible: true,
+            message: 'Stream authorization failed. Please check that you have DJ permissions.',
+            type: 'error'
+          });
+          
+          // Revert the broadcast state
+          try {
+            await broadcastService.end(broadcastId);
+          } catch (endError) {
+            console.error('Error ending broadcast after failed authorization:', endError);
+          }
+          
+          setIsBroadcasting(false);
+          setCurrentBroadcastId(null);
+          return;
+        }
+        
+        // Start audio capture first to ensure it's ready when WebSocket connects
+        if (!audioStream) {
+          try {
+            const constraints = {
+              audio: {
+                deviceId: audioInputDevice !== 'default' ? { exact: audioInputDevice } : undefined,
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+              }
+            };
+            
+            console.log('Starting broadcast');
+            console.log('Using audio device:', audioInputDevice);
+            
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            setAudioStream(stream);
+            
+            // Wait a moment for the audio stream to fully initialize before connecting the WebSocket
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
+            // Now connect WebSocket after audio is initialized
+            await connectWebSocket();
+          } catch (error) {
+            console.error('Error accessing microphone:', error);
+            setToast({
+              visible: true,
+              message: `Could not access microphone: ${error.message}`,
+              type: 'error'
+            });
+            
+            // Revert the broadcast state
+            try {
+              await broadcastService.end(broadcastId);
+            } catch (endError) {
+              console.error('Error ending broadcast after failed microphone access:', endError);
+            }
+            
+            setIsBroadcasting(false);
+            setCurrentBroadcastId(null);
+            return;
+          }
+        } else {
+          // If we already have audio stream, just connect the WebSocket
+          await connectWebSocket();
+        }
       }
     } catch (error) {
       console.error('Error toggling broadcast:', error);
-      alert('There was an error with the broadcast. Please try again.');
+      setToast({
+        visible: true,
+        message: 'There was an error with the broadcast: ' + error.message,
+        type: 'error'
+      });
+      
+      // Ensure we clean up properly
+      if (isBroadcasting) {
+        stopStreaming();
+        setIsBroadcasting(false);
+        setCurrentBroadcastId(null);
+      }
     }
   };
 
@@ -581,10 +913,11 @@ export default function DJDashboard() {
         broadcastToStart = broadcasts.find(b => b.status === 'SCHEDULED');
       }
 
+      let broadcastId;
       if (broadcastToStart) {
         // Start an existing scheduled broadcast in test mode
         const response = await broadcastService.startTest(broadcastToStart.id);
-        setCurrentBroadcastId(broadcastToStart.id);
+        broadcastId = broadcastToStart.id;
       } else {
         // Create and start a new broadcast in test mode
         const newBroadcast = {
@@ -598,15 +931,91 @@ export default function DJDashboard() {
         const createdBroadcast = scheduleResponse.data;
 
         const startResponse = await broadcastService.startTest(createdBroadcast.id);
-        setCurrentBroadcastId(createdBroadcast.id);
+        broadcastId = createdBroadcast.id;
       }
 
+      setCurrentBroadcastId(broadcastId);
       setIsBroadcasting(true);
+      setTestMode(true);
+      
+      // Authorize stream start via API - use test mode
+      try {
+        await streamService.start();
+        console.log('Test stream authorized');
+      } catch (error) {
+        console.error('Error authorizing test stream:', error);
+        setToast({
+          visible: true,
+          message: 'Test stream authorization failed. Check permissions.',
+          type: 'error'
+        });
+        
+        // Revert the broadcast state
+        try {
+          await broadcastService.end(broadcastId);
+        } catch (endError) {
+          console.error('Error ending test broadcast after failed authorization:', endError);
+        }
+        
+        setIsBroadcasting(false);
+        setCurrentBroadcastId(null);
+        return;
+      }
+      
+      // Start audio capture if not already previewing
+      if (!audioStream) {
+        try {
+          const constraints = {
+            audio: {
+              deviceId: audioInputDevice !== 'default' ? { exact: audioInputDevice } : undefined,
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            }
+          };
+          
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          setAudioStream(stream);
+        } catch (error) {
+          console.error('Error accessing microphone:', error);
+          setToast({
+            visible: true,
+            message: `Could not access microphone: ${error.message}`,
+            type: 'error'
+          });
+          
+          // Revert the broadcast state
+          try {
+            await broadcastService.end(broadcastId);
+          } catch (endError) {
+            console.error('Error ending test broadcast after failed microphone access:', endError);
+          }
+          
+          setIsBroadcasting(false);
+          setCurrentBroadcastId(null);
+          return;
+        }
+      }
+      
+      // Connect to WebSocket and start streaming
+      await connectWebSocket();
+      
       console.log('Starting TEST broadcast');
       console.log('Using audio device:', audioInputDevice);
+      
+      // Show status message
+      setToast({
+        visible: true,
+        message: 'Test broadcast started. Audio is being streamed.',
+        type: 'success'
+      });
     } catch (error) {
       console.error('Error starting test broadcast:', error);
-      alert('There was an error starting the test broadcast. Please try again.');
+      setToast({
+        visible: true,
+        message: 'There was an error starting the test broadcast: ' + error.message,
+        type: 'error'
+      });
     }
   };
 
@@ -1624,41 +2033,30 @@ export default function DJDashboard() {
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
                 <div className="p-6">
                   <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
-                    Server Control
+                    Broadcast Details
                   </h3>
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-gray-700 dark:text-gray-300 mb-1">Server Status</p>
+                      <p className="text-gray-700 dark:text-gray-300 mb-1">Status</p>
                       <div className="flex items-center">
-                        <span className={`h-3 w-3 rounded-full mr-2 ${serverRunning ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                        <span className={`h-3 w-3 rounded-full mr-2 ${isBroadcasting ? 'bg-green-500' : 'bg-red-500'}`}></span>
                         <span className="text-sm text-gray-600 dark:text-gray-400">
-                          {serverRunning ? 'Running' : 'Stopped'}
+                          {isBroadcasting ? 'Broadcasting' : 'Not Broadcasting'}
                         </span>
                       </div>
                     </div>
-                    <button
-                      onClick={toggleServer}
-                      disabled={isLoading}
-                      className={`py-2 px-4 rounded-md text-white font-medium ${
-                        serverRunning 
-                          ? 'bg-red-600 hover:bg-red-700' 
-                          : 'bg-green-600 hover:bg-green-700'
-                      } ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
-                    >
-                      {isLoading ? (
-                        <span className="flex items-center">
-                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          {serverRunning ? 'Stopping...' : 'Starting...'}
-                        </span>
-                      ) : (
-                        <>
-                          {serverRunning ? 'Stop Server' : 'Start Server'}
-                        </>
-                      )}
-                    </button>
+                    <div>
+                      <p className="text-gray-700 dark:text-gray-300 mb-1">Shoutcast Status</p>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        {isBroadcasting ? 'Connected' : 'Ready to connect'}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-gray-700 dark:text-gray-300 mb-1">Streaming Quality</p>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        128 kbps MP3
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
