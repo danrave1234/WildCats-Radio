@@ -19,7 +19,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
-    @Value("${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,https://wildcat-radio-f05d362144e6.herokuapp.com,https://wildcat-radio.vercel.app,https://wildcat-radio-f05d362144e6.autoidleapp.com}")
+    @Value("${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,https://wildcat-radio-f05d362144e6.herokuapp.com,https://wildcat-radio.vercel.app}")
     private String allowedOrigins;
 
     @Override
@@ -28,7 +28,6 @@ public class WebConfig implements WebMvcConfigurer {
                 .allowedOrigins(allowedOrigins.split(","))
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
-                .allowCredentials(true)
-                .maxAge(3600); // Add preflight cache duration of 1 hour
+                .allowCredentials(true);
     }
 } 
