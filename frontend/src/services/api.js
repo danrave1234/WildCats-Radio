@@ -175,4 +175,17 @@ export const pollService = {
   getUserVote: (pollId) => api.get(`/polls/${pollId}/user-vote`),
 };
 
+// Services for Shoutcast streaming
+export const streamService = {
+  start: () => api.post('/stream/start'),
+  stop: () => api.post('/stream/stop'),
+  getStatus: () => api.get('/stream/status'),
+  getStreamUrl: () => {
+    // Extract the hostname from API_BASE_URL for WebSocket connection
+    const apiUrl = new URL(API_BASE_URL);
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${protocol}://${apiUrl.host}/stream`;
+  },
+};
+
 export default api;

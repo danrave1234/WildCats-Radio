@@ -19,6 +19,8 @@ import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.StreamingConfig.StreamingConfigEntity;
 import com.wildcastradio.StreamingConfig.StreamingConfigService;
 
+import jakarta.annotation.PostConstruct;
+
 @Service
 public class ShoutcastService {
     private static final Logger logger = LoggerFactory.getLogger(ShoutcastService.class);
@@ -29,10 +31,10 @@ public class ShoutcastService {
     @Value("${shoutcast.server.port:8000}")
     private int serverPort;
 
-    @Value("${shoutcast.server.admin.password:admin}")
+    @Value("${shoutcast.server.admin.password:123}")
     private String adminPassword;
 
-    @Value("${shoutcast.server.source.password:hackme}")
+    @Value("${shoutcast.server.source.password:1234}")
     private String sourcePassword;
 
     @Value("${shoutcast.server.mount:/stream/1}")
@@ -44,12 +46,28 @@ public class ShoutcastService {
     private StreamingConfigService streamingConfigService;
 
     private final RestTemplate restTemplate;
-
+    
+    /**
+     * Constructor for ShoutcastService
+     * Initializes RestTemplate and enables test mode for development
+     */
     public ShoutcastService() {
         this.restTemplate = new RestTemplate();
         // Enable test mode by default for development/testing
         this.testMode = true;
         logger.info("ShoutCast service initialized with test mode ENABLED by default");
+    }
+
+    /**
+     * PostConstruct method to log the loaded configuration
+     */
+    @PostConstruct
+    public void init() {
+        logger.info("ShoutCast service initialized with configuration:");
+        logger.info("Server URL: {}", serverUrl);
+        logger.info("Server Port: {}", serverPort);
+        logger.info("Mount Point: {}", mountPoint);
+        logger.info("Test Mode: {}", testMode);
     }
 
     /**
@@ -85,23 +103,25 @@ public class ShoutcastService {
         }
         
         try {
-            // For ShoutCast, typically we need to make an admin request to start the stream
-            // This is a simplified example - real implementation would depend on ShoutCast API
-            String startStreamUrl = String.format("http://%s:%d/admin.cgi", 
-                    serverUrl, serverPort);
+            // For ShoutCast, we need to authenticate in the URL itself (not in the form data)
+            // ShoutCast v2.x expects the password as a URL parameter
+            String startStreamUrl = String.format("http://%s:%d/admin.cgi?pass=%s", 
+                    serverUrl, serverPort, adminPassword);
 
             // Create headers
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 
-            // Create form data
+            // Create form data - ShoutCast expects action parameters in the form data
             MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
             formData.add("action", "startstream");
             formData.add("mount", mountPoint);
-            formData.add("password", adminPassword);
 
             // Create the request entity
             HttpEntity<MultiValueMap<String, String>> requestEntity = new HttpEntity<>(formData, headers);
+
+            // Log the request for debugging
+            logger.info("Sending request to ShoutCast server: URL={}, Mount={}", startStreamUrl, mountPoint);
 
             // Make the request
             ResponseEntity<String> response = restTemplate.exchange(
@@ -144,9 +164,9 @@ public class ShoutcastService {
         }
         
         try {
-            // For ShoutCast, typically we need to make an admin request to stop the stream
-            String stopStreamUrl = String.format("http://%s:%d/admin.cgi", 
-                    serverUrl, serverPort);
+            // For ShoutCast, we need to authenticate in the URL itself (not in the form data)
+            String stopStreamUrl = String.format("http://%s:%d/admin.cgi?pass=%s", 
+                    serverUrl, serverPort, adminPassword);
 
             // Create headers
             HttpHeaders headers = new HttpHeaders();
@@ -156,10 +176,12 @@ public class ShoutcastService {
             MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
             formData.add("action", "stopstream");
             formData.add("mount", mountPoint);
-            formData.add("password", adminPassword);
 
             // Create the request entity
             HttpEntity<MultiValueMap<String, String>> requestEntity = new HttpEntity<>(formData, headers);
+
+            // Log the request for debugging
+            logger.info("Sending request to stop ShoutCast stream: URL={}, Mount={}", stopStreamUrl, mountPoint);
 
             // Make the request
             ResponseEntity<String> response = restTemplate.exchange(
@@ -233,12 +255,30 @@ public class ShoutcastService {
     public String getTestStreamUrl(BroadcastEntity broadcast) {
         logger.info("Getting test stream URL for broadcast: {}", broadcast.getTitle());
 
-        // Generate a mock stream URL
-        String testStreamUrl = String.format("http://test-stream.wildcastradio.example.com/stream/%d", broadcast.getId());
+        // Generate a stream URL that points to the local Shoutcast instance
+        String testStreamUrl = String.format("http://%s:%d/stream/1", serverUrl, serverPort);
 
         // Log the operation
         logger.info("Test stream URL generated: {}", testStreamUrl);
 
         return testStreamUrl;
+    }
+    
+    /**
+     * Get the server URL for the Shoutcast server
+     * 
+     * @return The server URL
+     */
+    public String getServerUrl() {
+        return serverUrl;
+    }
+    
+    /**
+     * Get the server port for the Shoutcast server
+     * 
+     * @return The server port
+     */
+    public String getServerPort() {
+        return String.valueOf(serverPort);
     }
 }

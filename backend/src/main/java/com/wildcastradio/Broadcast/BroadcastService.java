@@ -174,6 +174,26 @@ public class BroadcastService {
         return savedBroadcast;
     }
 
+    /**
+     * Simplified version of endBroadcast that doesn't require a user parameter
+     * This is used for API calls that don't have user authentication
+     */
+    public BroadcastEntity endBroadcast(Long broadcastId) {
+        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+
+        // End the stream using ShoutCastService
+        shoutCastService.endStream(broadcast);
+        broadcast.setActualEnd(LocalDateTime.now());
+        broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
+
+        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+        
+        logger.info("Broadcast ended without user info: {}", savedBroadcast.getTitle());
+
+        return savedBroadcast;
+    }
+
     public BroadcastEntity testBroadcast(Long broadcastId, UserEntity dj) {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new RuntimeException("Broadcast not found"));
