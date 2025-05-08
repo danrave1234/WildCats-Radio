@@ -5,8 +5,12 @@ import {
   ArrowRightOnRectangleIcon,
   SunIcon,
   MoonIcon,
-  Cog6ToothIcon
+  Cog6ToothIcon,
+  Bars3Icon,
+  XMarkIcon,
+  RadioIcon
 } from '@heroicons/react/24/outline';
+import NotificationBell from './NotificationBell';
 
 // Cookie helper functions
 const setCookie = (name, value, days = 7) => {
@@ -27,6 +31,7 @@ const removeCookie = (name) => {
 
 const Navbar = ({ userRole }) => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [userPreference, setUserPreference] = useState(null); // null = follow system, true/false = user preference
   const location = useLocation();
@@ -124,101 +129,129 @@ const Navbar = ({ userRole }) => {
   // Close dropdown when navigating
   useEffect(() => {
     setIsProfileOpen(false)
+    setIsMobileMenuOpen(false)
   }, [location])
 
   return (
-    <nav className="bg-white dark:bg-gray-800 shadow-md">
+    <nav className="sticky top-0 z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
-            <Link to="/" className="flex-shrink-0 flex items-center">
-              <span className="text-maroon-700 dark:text-maroon-400 text-xl font-bold">WildCats Radio</span>
+            {/* Mobile menu button */}
+            <button 
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
+              className="inline-flex items-center justify-center md:hidden p-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-300 dark:hover:bg-gray-700 focus:outline-none"
+            >
+              {isMobileMenuOpen ? (
+                <XMarkIcon className="h-6 w-6" />
+              ) : (
+                <Bars3Icon className="h-6 w-6" />
+              )}
+            </button>
+            
+            {/* Logo */}
+            <Link to="/" className="flex-shrink-0 flex items-center ml-0 md:ml-0">
+              <RadioIcon className="h-8 w-8 text-gold-500 dark:text-gold-400" />
+              <span className="ml-2 text-maroon-700 dark:text-maroon-400 text-xl font-bold">WildCats Radio</span>
             </Link>
-            <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
+            
+            {/* Desktop Navigation Links */}
+            <div className="hidden md:ml-8 md:flex md:space-x-6">
               {/* Show navigation links based on user role */}
               {userRole === 'LISTENER' && (
-                  <Link
-                to="/dashboard"
-                className={`${
-                  location.pathname === '/dashboard'
-                    ? 'border-maroon-500 text-gray-900 dark:text-white'
-                    : 'border-transparent text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200'
-                } inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium`}
-              >
-                Dashboard
-              </Link>
-                  )}
+                <Link
+                  to="/dashboard"
+                  className={`${
+                    location.pathname === '/dashboard'
+                      ? 'text-maroon-700 dark:text-maroon-400 font-medium'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-maroon-700 dark:hover:text-maroon-400'
+                  } inline-flex items-center px-1 pt-1 text-sm`}
+                >
+                  Dashboard
+                </Link>
+              )}
               {userRole === 'DJ' && (
-                  <Link
-                      to="/dj-dashboard"
-                      className={`${
-                          location.pathname === '/dj-dashboard'
-                              ? 'border-maroon-500 text-gray-900 dark:text-white'
-                              : 'border-transparent text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200'
-                      } inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium`}
-                  >
-                    DJ Dashboard
-                  </Link>
+                <Link
+                  to="/dj-dashboard"
+                  className={`${
+                    location.pathname === '/dj-dashboard'
+                      ? 'text-maroon-700 dark:text-maroon-400 font-medium'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-maroon-700 dark:hover:text-maroon-400'
+                  } inline-flex items-center px-1 pt-1 text-sm`}
+                >
+                  DJ Dashboard
+                </Link>
               )}
 
               {userRole === 'ADMIN' && (
-                  <Link
-                      to="/admin"
-                      className={`${
-                          location.pathname === '/admin'
-                              ? 'border-maroon-500 text-gray-900 dark:text-white'
-                              : 'border-transparent text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200'
-                      } inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium`}
-                  >
-                    Admin
-                  </Link>
+                <Link
+                  to="/admin"
+                  className={`${
+                    location.pathname === '/admin'
+                      ? 'text-maroon-700 dark:text-maroon-400 font-medium'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-maroon-700 dark:hover:text-maroon-400'
+                  } inline-flex items-center px-1 pt-1 text-sm`}
+                >
+                  Admin
+                </Link>
               )}
               <Link
                 to="/schedule"
                 className={`${
                   location.pathname === '/schedule'
-                    ? 'border-maroon-500 text-gray-900 dark:text-white'
-                    : 'border-transparent text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200'
-                } inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium`}
+                    ? 'text-maroon-700 dark:text-maroon-400 font-medium'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-maroon-700 dark:hover:text-maroon-400'
+                } inline-flex items-center px-1 pt-1 text-sm`}
               >
                 Schedule
               </Link>
-
-
             </div>
           </div>
 
-          {/* Profile dropdown */}
-          <div className="flex items-center profile-dropdown">
-            <div className="ml-3 relative">
-              <div>
-                <button
-                  onClick={() => setIsProfileOpen(!isProfileOpen)}
-                  className="flex text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-500"
-                  id="user-menu"
-                  aria-expanded="false"
-                  aria-haspopup="true"
-                >
-                  <span className="sr-only">Open user menu</span>
-                  <UserCircleIcon className="h-8 w-8 text-gray-600 dark:text-gray-300" />
-                </button>
-              </div>
+          {/* User Menu and Notifications */}
+          <div className="flex items-center space-x-4">
+            <NotificationBell />
+            
+            {/* Dark mode toggle (desktop only) */}
+            <button
+              onClick={toggleDarkMode}
+              className="hidden md:flex p-2 rounded-full text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-300 dark:hover:bg-gray-700 focus:outline-none"
+            >
+              {darkMode ? (
+                <SunIcon className="h-5 w-5" />
+              ) : (
+                <MoonIcon className="h-5 w-5" />
+              )}
+            </button>
+            
+            {/* Profile dropdown */}
+            <div className="profile-dropdown relative">
+              <button
+                onClick={() => setIsProfileOpen(!isProfileOpen)}
+                className="flex text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-500 p-1"
+                id="user-menu"
+                aria-expanded={isProfileOpen}
+                aria-haspopup="true"
+              >
+                <span className="sr-only">Open user menu</span>
+                <UserCircleIcon className="h-7 w-7 text-gray-600 dark:text-gray-300" />
+              </button>
 
               {isProfileOpen && (
                 <div
-                  className="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white dark:bg-gray-700 ring-1 ring-black ring-opacity-5 focus:outline-none z-10"
+                  className="origin-top-right absolute right-0 mt-2 w-56 rounded-xl shadow-lg py-1 bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 focus:outline-none z-50 border border-gray-200 dark:border-gray-700"
                   role="menu"
                   aria-orientation="vertical"
                   aria-labelledby="user-menu"
                 >
-                  <div className="px-4 py-2 text-sm text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-gray-600">
+                  <div className="px-4 py-3 text-sm text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-gray-700">
                     <p className="font-medium">Signed in as</p>
                     <p className="truncate">{userRole}</p>
                   </div>
 
                   <Link
                     to="/profile"
-                    className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
+                    className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                     role="menuitem"
                   >
                     <div className="flex items-center">
@@ -226,53 +259,10 @@ const Navbar = ({ userRole }) => {
                       Your Profile
                     </div>
                   </Link>
-
-                  <button
-                    onClick={toggleDarkMode}
-                    className="w-full text-left block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
-                    role="menuitem"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        {darkMode ? (
-                          <SunIcon className="mr-2 h-5 w-5" />
-                        ) : (
-                          <MoonIcon className="mr-2 h-5 w-5" />
-                        )}
-                        {darkMode ? 'Light Mode' : 'Dark Mode'}
-                        {userPreference !== null && <span className="ml-1 text-xs text-gray-500 dark:text-gray-400">(Manual)</span>}
-                      </div>
-                    </div>
-                  </button>
-
-                  {userPreference !== null && (
-                    <button
-                      onClick={() => {
-                        // Reset to system preference
-                        removeCookie("userPreference");
-                        removeCookie("darkMode");
-
-                        // Apply system preference
-                        const systemDark = systemPrefersDark();
-                        setUserPreference(null);
-                        setDarkMode(systemDark);
-                        applyDarkMode(systemDark);
-                      }}
-                      className="w-full text-left block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
-                      role="menuitem"
-                    >
-                      <div className="flex items-center">
-                        <svg className="mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
-                        </svg>
-                        Use System Setting
-                      </div>
-                    </button>
-                  )}
-
+                  
                   <Link
                     to="/settings"
-                    className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
+                    className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                     role="menuitem"
                   >
                     <div className="flex items-center">
@@ -281,15 +271,30 @@ const Navbar = ({ userRole }) => {
                     </div>
                   </Link>
 
-                  <div className="border-t border-gray-200 dark:border-gray-600">
+                  <button
+                    onClick={toggleDarkMode}
+                    className="w-full text-left block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 md:hidden"
+                    role="menuitem"
+                  >
+                    <div className="flex items-center">
+                      {darkMode ? (
+                        <SunIcon className="mr-2 h-5 w-5" />
+                      ) : (
+                        <MoonIcon className="mr-2 h-5 w-5" />
+                      )}
+                      {darkMode ? 'Light Mode' : 'Dark Mode'}
+                    </div>
+                  </button>
+
+                  <div className="border-t border-gray-200 dark:border-gray-700">
                     <Link
                       to="/logout"
-                      className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
+                      className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                       role="menuitem"
                     >
-                      <div className="flex items-center text-red-600 dark:text-red-400">
+                      <div className="flex items-center">
                         <ArrowRightOnRectangleIcon className="mr-2 h-5 w-5" />
-                        Sign out
+                        Sign Out
                       </div>
                     </Link>
                   </div>
@@ -299,7 +304,80 @@ const Navbar = ({ userRole }) => {
           </div>
         </div>
       </div>
+      
+      {/* Mobile menu */}
+      <div className={`${isMobileMenuOpen ? 'block' : 'hidden'} md:hidden bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700`}>
+        <div className="px-2 pt-2 pb-3 space-y-1">
+          {userRole === 'LISTENER' && (
+            <Link
+              to="/dashboard"
+              className={`${
+                location.pathname === '/dashboard'
+                  ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-700 dark:text-maroon-400'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+              } block px-3 py-2 rounded-md text-base font-medium`}
+            >
+              Dashboard
+            </Link>
+          )}
+          {userRole === 'DJ' && (
+            <Link
+              to="/dj-dashboard"
+              className={`${
+                location.pathname === '/dj-dashboard'
+                  ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-700 dark:text-maroon-400'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+              } block px-3 py-2 rounded-md text-base font-medium`}
+            >
+              DJ Dashboard
+            </Link>
+          )}
+          {userRole === 'ADMIN' && (
+            <Link
+              to="/admin"
+              className={`${
+                location.pathname === '/admin'
+                  ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-700 dark:text-maroon-400'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+              } block px-3 py-2 rounded-md text-base font-medium`}
+            >
+              Admin
+            </Link>
+          )}
+          <Link
+            to="/schedule"
+            className={`${
+              location.pathname === '/schedule'
+                ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-700 dark:text-maroon-400'
+                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+            } block px-3 py-2 rounded-md text-base font-medium`}
+          >
+            Schedule
+          </Link>
+          <Link
+            to="/profile"
+            className={`${
+              location.pathname === '/profile'
+                ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-700 dark:text-maroon-400'
+                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+            } block px-3 py-2 rounded-md text-base font-medium`}
+          >
+            Profile
+          </Link>
+          <Link
+            to="/settings"
+            className={`${
+              location.pathname === '/settings'
+                ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-700 dark:text-maroon-400'
+                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+            } block px-3 py-2 rounded-md text-base font-medium`}
+          >
+            Settings
+          </Link>
+        </div>
+      </div>
     </nav>
   );
 };
+
 export default Navbar;

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { RadioIcon } from "@heroicons/react/24/outline"
+import { RadioIcon, XCircleIcon } from "@heroicons/react/24/outline"
 import { useAuth } from "../context/AuthContext"
 import { Link, useNavigate } from "react-router-dom"
 
@@ -62,20 +62,26 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
+    <div className="min-h-screen flex items-center justify-center bg-wildcats-background dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8 bg-white dark:bg-gray-800 shadow-xl rounded-xl p-6 sm:p-8 border border-gray-200 dark:border-gray-700">
         <div>
           <div className="flex justify-center">
-            <RadioIcon className="h-16 w-16 text-yellow-500 dark:text-yellow-400" />
+            <div className="h-16 w-16 bg-maroon-700 dark:bg-maroon-800 text-gold-400 rounded-full flex items-center justify-center">
+              <RadioIcon className="h-10 w-10" />
+            </div>
           </div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">Create Your Account</h2>
-          <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">Join WildCats Radio as a listener</p>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
+            Create Your Account
+          </h2>
+          <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
+            Join WildCats Radio as a listener
+          </p>
         </div>
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="rounded-md shadow-sm -space-y-px">
+          <div className="space-y-4">
             <div>
-              <label htmlFor="name" className="sr-only">
+              <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Full Name
               </label>
               <input
@@ -86,12 +92,12 @@ export default function Register() {
                 required
                 value={formData.name}
                 onChange={handleChange}
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 dark:text-white dark:bg-gray-700 dark:border-gray-600 rounded-t-md focus:outline-none focus:ring-maroon-600 focus:border-maroon-600 focus:z-10 sm:text-sm"
-                placeholder="Full Name"
+                className="form-input"
+                placeholder="Enter your full name"
               />
             </div>
             <div>
-              <label htmlFor="email" className="sr-only">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Email address
               </label>
               <input
@@ -102,12 +108,15 @@ export default function Register() {
                 required
                 value={formData.email}
                 onChange={handleChange}
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 dark:text-white dark:bg-gray-700 dark:border-gray-600 focus:outline-none focus:ring-maroon-600 focus:border-maroon-600 focus:z-10 sm:text-sm"
-                placeholder="Email address (cit.edu domain only)"
+                className="form-input"
+                placeholder="Enter your cit.edu email"
               />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Only cit.edu email addresses are allowed
+              </p>
             </div>
             <div>
-              <label htmlFor="password" className="sr-only">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Password
               </label>
               <input
@@ -118,12 +127,12 @@ export default function Register() {
                 required
                 value={formData.password}
                 onChange={handleChange}
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 dark:text-white dark:bg-gray-700 dark:border-gray-600 focus:outline-none focus:ring-maroon-600 focus:border-maroon-600 focus:z-10 sm:text-sm"
-                placeholder="Password (min. 6 characters)"
+                className="form-input"
+                placeholder="At least 6 characters"
               />
             </div>
             <div>
-              <label htmlFor="confirmPassword" className="sr-only">
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Confirm Password
               </label>
               <input
@@ -134,29 +143,17 @@ export default function Register() {
                 required
                 value={formData.confirmPassword}
                 onChange={handleChange}
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 dark:text-white dark:bg-gray-700 dark:border-gray-600 rounded-b-md focus:outline-none focus:ring-maroon-600 focus:border-maroon-600 focus:z-10 sm:text-sm"
-                placeholder="Confirm Password"
+                className="form-input"
+                placeholder="Confirm your password"
               />
             </div>
           </div>
 
           {(error || authError) && (
-            <div className="rounded-md bg-red-50 dark:bg-red-900/30 p-4">
+            <div className="rounded-md bg-red-50 dark:bg-red-900/30 p-4 border-l-4 border-red-500">
               <div className="flex">
                 <div className="flex-shrink-0">
-                  <svg
-                    className="h-5 w-5 text-red-400"
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <XCircleIcon className="h-5 w-5 text-red-400" aria-hidden="true" />
                 </div>
                 <div className="ml-3">
                   <h3 className="text-sm font-medium text-red-800 dark:text-red-200">{error || authError}</h3>
@@ -169,9 +166,9 @@ export default function Register() {
             <button
               type="submit"
               disabled={loading}
-              className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white ${
-                loading ? 'bg-maroon-400 cursor-not-allowed' : 'bg-maroon-700 hover:bg-maroon-800'
-              } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-500`}
+              className={`btn-primary w-full ${
+                loading ? 'opacity-70 cursor-not-allowed' : ''
+              }`}
             >
               {loading ? 'Creating account...' : 'Sign up'}
             </button>
@@ -180,7 +177,7 @@ export default function Register() {
           <div className="text-center">
             <p className="text-sm text-gray-600 dark:text-gray-400">
               Already have an account?{' '}
-              <Link to="/login" className="font-medium text-maroon-600 hover:text-maroon-500">
+              <Link to="/login" className="font-medium text-maroon-600 hover:text-maroon-500 dark:text-maroon-400 dark:hover:text-maroon-300">
                 Sign in
               </Link>
             </p>

@@ -23,6 +23,10 @@ export default function Modal({
         return 'border-l-4 border-yellow-500';
       case 'info':
         return 'border-l-4 border-blue-500';
+      case 'maroon':
+        return 'border-l-4 border-maroon-600';
+      case 'gold':
+        return 'border-l-4 border-gold-500';
       default:
         return '';
     }
@@ -38,6 +42,10 @@ export default function Modal({
         return 'text-yellow-700 dark:text-yellow-300';
       case 'info':
         return 'text-blue-700 dark:text-blue-300';
+      case 'maroon':
+        return 'text-maroon-700 dark:text-maroon-400';
+      case 'gold':
+        return 'text-gold-600 dark:text-gold-400';
       default:
         return 'text-gray-900 dark:text-white';
     }
@@ -64,25 +72,26 @@ export default function Modal({
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50">
-      {/* Backdrop */}
+    <div className="fixed inset-0 flex items-center justify-center z-50 px-4">
+      {/* Backdrop with blur effect */}
       <div 
-        className="fixed inset-0 bg-black opacity-50" 
+        className="fixed inset-0 bg-black/40 backdrop-blur-sm" 
         onClick={onClose}
+        aria-hidden="true"
       ></div>
       
       {/* Modal content */}
-      <div className={`relative bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 ${getMaxWidthClass()} w-full transform transition-all ${getBorderStyles()}`}>
+      <div className={`relative bg-white dark:bg-gray-800 rounded-xl shadow-xl ${getMaxWidthClass()} w-full transform transition-all ${getBorderStyles()}`}>
         {/* Header */}
         {title && (
-          <div className="flex justify-between items-center mb-4">
-            <h3 className={`text-lg font-medium ${getTitleStyles()}`}>
+          <div className="flex justify-between items-center p-5 border-b border-gray-200 dark:border-gray-700">
+            <h3 className={`text-lg font-semibold ${getTitleStyles()}`}>
               {title}
             </h3>
             {showCloseButton && (
               <button 
                 onClick={onClose}
-                className="text-gray-400 hover:text-gray-500 focus:outline-none"
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 focus:outline-none"
                 aria-label="Close modal"
               >
                 <XMarkIcon className="h-5 w-5" />
@@ -92,13 +101,13 @@ export default function Modal({
         )}
         
         {/* Body */}
-        <div className="text-gray-700 dark:text-gray-300">
+        <div className="p-5 text-gray-700 dark:text-gray-300">
           {children}
         </div>
         
         {/* Footer */}
         {footer && (
-          <div className="mt-6 flex justify-end space-x-3">
+          <div className="p-5 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
             {footer}
           </div>
         )}
