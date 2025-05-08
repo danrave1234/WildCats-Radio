@@ -1,5 +1,8 @@
 import axios from 'axios';
 import { handleSecuritySoftwareErrors } from './errorHandler';
+// WebSocket support libraries
+import SockJS from 'sockjs-client';
+import { Stomp } from '@stomp/stompjs';
 
 // Create axios instance with base URL pointing to our backend
 // const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.herokuapp.com/api';
@@ -87,6 +90,59 @@ export const notificationService = {
   getAll: () => api.get('/notifications'),
   getUnread: () => api.get('/notifications/unread'),
   markAsRead: (id) => api.put(`/notifications/${id}/read`),
+  getByType: (type) => api.get(`/notifications/by-type/${type}`),
+  getRecent: (since) => api.get(`/notifications/recent?since=${since}`),
+  subscribeToNotifications: (callback) => {
+    // Using WebSocket for real-time notifications
+    const socket = new SockJS(`${API_BASE_URL.replace('/api', '')}/ws-radio`);
+    const stompClient = Stomp.over(socket);
+
+    const token = getCookie('token');
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+    stompClient.connect(headers, () => {
+      stompClient.subscribe('/user/queue/notifications', (message) => {
+        const notification = JSON.parse(message.body);
+        callback(notification);
+      });
+    }, (error) => {
+      console.error('WebSocket connection error:', error);
+      // Fallback to polling if WebSocket connection fails
+      console.log('WebSocket connection failed. Falling back to polling.');
+      const intervalId = setInterval(() => {
+        notificationService.getUnread().then(response => {
+          if (response.data && response.data.length > 0) {
+            response.data.forEach(notification => callback(notification));
+          }
+        });
+      }, 30000); // Poll every 30 seconds as fallback
+
+      return {
+        disconnect: () => clearInterval(intervalId)
+      };
+    });
+
+    return {
+      disconnect: () => {
+        if (stompClient && stompClient.connected) {
+          stompClient.disconnect();
+        }
+      }
+    };
+  },
+  // Helper methods for broadcast-specific notifications
+  getBroadcastNotifications: () => {
+    return api.get('/notifications').then(response => {
+      // Filter notifications related to broadcasts
+      return response.data.filter(notification => 
+        notification.type === 'BROADCAST_SCHEDULED' || 
+        notification.type === 'BROADCAST_STARTING_SOON' || 
+        notification.type === 'BROADCAST_STARTED' || 
+        notification.type === 'BROADCAST_ENDED' || 
+        notification.type === 'NEW_BROADCAST_POSTED'
+      );
+    });
+  }
 };
 
 // Services for server scheduling (not using actual server commands in local mode)

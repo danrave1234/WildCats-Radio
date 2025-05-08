@@ -24,7 +24,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer, WebSoc
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        config.enableSimpleBroker("/topic");
+        config.enableSimpleBroker("/topic", "/queue");
         config.setApplicationDestinationPrefixes("/app");
     }
 
@@ -41,7 +41,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer, WebSoc
         registry.addHandler(audioStreamHandler, "/stream")
                 .setAllowedOriginPatterns("*");
     }
-    
+
     /**
      * Configure WebSocket container settings
      * Increase message sizes for audio streaming
@@ -54,4 +54,4 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer, WebSoc
         container.setMaxSessionIdleTimeout(3600000L); // 1 hour
         return container;
     }
-} 
+}

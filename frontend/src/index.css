@@ -4,30 +4,92 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --background: 30 30% 96%;
+    --foreground: 0 0% 10%;
     --primary: 349 89% 34%;
     --primary-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 346 77.2% 49.8%;
+    --secondary: 35 92% 33%;
+    --secondary-foreground: 0 0% 98%;
+    --accent: 35 100% 88%;
+    --accent-foreground: 35 92% 33%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 10%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 349 89% 34%;
+    --radius: 0.5rem;
   }
   
   .dark {
-    --background: 240 10% 3.9%;
+    --background: 222 47% 11%;
     --foreground: 0 0% 98%;
     --primary: 349 89% 34%;
     --primary-foreground: 0 0% 98%;
+    --secondary: 35 92% 33%;
+    --secondary-foreground: 0 0% 98%;
+    --accent: 35 92% 20%;
+    --accent-foreground: 35 92% 80%;
+    --card: 222 47% 14%;
+    --card-foreground: 0 0% 98%;
+    --popover: 222 47% 14%;
+    --popover-foreground: 0 0% 98%;
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
-    --ring: 346 77.2% 49.8%;
+    --ring: 349 89% 34%;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-maroon-700 hover:bg-maroon-800 text-white font-medium rounded-md py-2 px-4 
+           focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-500 
+           transition-colors duration-200;
+  }
+  
+  .btn-secondary {
+    @apply bg-gold-500 hover:bg-gold-600 text-white font-medium rounded-md py-2 px-4 
+           focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gold-400 
+           transition-colors duration-200;
+  }
+  
+  .btn-outline {
+    @apply border border-maroon-700 text-maroon-700 hover:bg-maroon-50 font-medium rounded-md py-2 px-4 
+           focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-500 
+           dark:border-maroon-500 dark:text-maroon-400 dark:hover:bg-maroon-900/30 
+           transition-colors duration-200;
+  }
+  
+  .card {
+    @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 
+           border border-gray-100 dark:border-gray-700 
+           hover:shadow-lg transition-shadow duration-200;
+  }
+  
+  .form-input {
+    @apply w-full rounded-md border border-gray-300 dark:border-gray-600
+           bg-white dark:bg-gray-700 text-gray-900 dark:text-white
+           focus:ring-maroon-600 focus:border-maroon-600 
+           py-3 px-4 text-base
+           shadow-sm
+           transition-colors duration-200;
+  }
+  
+  .form-select {
+    @apply w-full rounded-md border-gray-300 dark:border-gray-600
+           bg-white dark:bg-gray-700 text-gray-900 dark:text-white
+           focus:ring-maroon-600 focus:border-maroon-600 
+           py-3 px-4 text-base
+           shadow-sm
+           transition-colors duration-200;
   }
 }
 
 @media (prefers-color-scheme: light) {
   :root {
     color: #213547;
-    background-color: #ffffff;
+    background-color: var(--wildcats-background);
   }
   a:hover {
     color: #747bff;

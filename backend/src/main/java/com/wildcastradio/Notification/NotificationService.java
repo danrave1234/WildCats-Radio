@@ -25,14 +25,14 @@ public class NotificationService {
     public NotificationEntity sendNotification(UserEntity recipient, String message, NotificationType type) {
         NotificationEntity notification = new NotificationEntity(message, type, recipient);
         NotificationEntity savedNotification = notificationRepository.save(notification);
-        
+
         // Send real-time notification to the user if they're online
         messagingTemplate.convertAndSendToUser(
                 recipient.getEmail(),
                 "/queue/notifications",
                 NotificationDTO.fromEntity(savedNotification)
         );
-        
+
         return savedNotification;
     }
 
@@ -51,7 +51,7 @@ public class NotificationService {
     public NotificationEntity markAsRead(Long notificationId) {
         NotificationEntity notification = notificationRepository.findById(notificationId)
                 .orElseThrow(() -> new RuntimeException("Notification not found"));
-        
+
         notification.setRead(true);
         return notificationRepository.save(notification);
     }
@@ -62,6 +62,12 @@ public class NotificationService {
 
     public List<NotificationDTO> getRecentNotifications(UserEntity user, LocalDateTime since) {
         return notificationRepository.findByRecipientAndTimestampAfter(user, since).stream()
+                .map(NotificationDTO::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    public List<NotificationDTO> getNotificationsByType(UserEntity user, NotificationType type) {
+        return notificationRepository.findByRecipientAndType(user, type).stream()
                 .map(NotificationDTO::fromEntity)
                 .collect(Collectors.toList());
     }

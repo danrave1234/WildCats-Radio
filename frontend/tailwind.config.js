@@ -49,16 +49,38 @@ export default {
           700: "#8a2424", // Primary maroon color from the logo
           800: "#6e1c1c", // Darker maroon for hover states
           900: "#521414",
+          950: "#3b0e0e",
         },
-        yellow: {
-          400: "#fbbf24",
-          500: "#f59e0b", // Gold/yellow from the logo
+        gold: {
+          50: "#fffbeb",
+          100: "#fef3c7",
+          200: "#fde68a",
+          300: "#fcd34d",
+          400: "#fbbf24", // Medium gold
+          500: "#f59e0b", // Primary gold from the logo
+          600: "#d97706", // Darker gold for hover states
+          700: "#b45309",
+          800: "#92400e",
+          900: "#78350f",
+          950: "#451a03",
         },
+        wildcats: {
+          background: "#f8f5f2", // Light beige background
+          card: "#ffffff",
+          accent: "#fef3c7", // Light gold accent
+        }
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      boxShadow: {
+        'maroon': '0 4px 14px 0 rgba(138, 36, 36, 0.15)',
+        'gold': '0 4px 14px 0 rgba(245, 158, 11, 0.15)',
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
       },
     },
   },

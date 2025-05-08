@@ -26,7 +26,7 @@ public class NotificationController {
     public ResponseEntity<List<NotificationDTO>> getNotifications(Authentication authentication) {
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        
+
         List<NotificationDTO> notifications = notificationService.getNotificationsForUser(user);
         return ResponseEntity.ok(notifications);
     }
@@ -35,7 +35,7 @@ public class NotificationController {
     public ResponseEntity<List<NotificationDTO>> getUnreadNotifications(Authentication authentication) {
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        
+
         List<NotificationDTO> notifications = notificationService.getUnreadNotificationsForUser(user);
         return ResponseEntity.ok(notifications);
     }
@@ -44,7 +44,7 @@ public class NotificationController {
     public ResponseEntity<Long> getUnreadCount(Authentication authentication) {
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        
+
         long count = notificationService.countUnreadNotifications(user);
         return ResponseEntity.ok(count);
     }
@@ -54,7 +54,7 @@ public class NotificationController {
             @PathVariable Long id,
             Authentication authentication) {
         // Additional security check could be added here to ensure the user owns this notification
-        
+
         NotificationEntity notification = notificationService.markAsRead(id);
         return ResponseEntity.ok(NotificationDTO.fromEntity(notification));
     }
@@ -65,8 +65,25 @@ public class NotificationController {
             Authentication authentication) {
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        
+
         List<NotificationDTO> notifications = notificationService.getRecentNotifications(user, since);
         return ResponseEntity.ok(notifications);
+    }
+
+    @GetMapping("/by-type/{type}")
+    public ResponseEntity<List<NotificationDTO>> getNotificationsByType(
+            @PathVariable String type,
+            Authentication authentication) {
+        UserEntity user = userService.getUserByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        try {
+            NotificationType notificationType = NotificationType.valueOf(type.toUpperCase());
+            List<NotificationDTO> notifications = notificationService.getNotificationsByType(user, notificationType);
+            return ResponseEntity.ok(notifications);
+        } catch (IllegalArgumentException e) {
+            // If the type is not a valid enum value
+            return ResponseEntity.badRequest().build();
+        }
     }
 } 

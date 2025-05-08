@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import {
   PlayIcon,
   PauseIcon,
@@ -11,7 +11,7 @@ import {
   ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/solid"
 import AudioVisualizer from "../components/AudioVisualizer"
-import { broadcastService, chatService, songRequestService } from "../services/api"
+import { broadcastService, chatService, songRequestService, pollService } from "../services/api"
 
 export default function ListenerDashboard() {
   const [isPlaying, setIsPlaying] = useState(false)
@@ -30,6 +30,8 @@ export default function ListenerDashboard() {
 
   // Poll state
   const [currentPoll, setCurrentPoll] = useState(null)
+  const [userVote, setUserVote] = useState(null)
+  const [pollLoading, setPollLoading] = useState(false)
 
   // Tabs state for interaction section
   const [activeTab, setActiveTab] = useState("chat") // 'chat', 'request', 'poll'
@@ -107,6 +109,76 @@ export default function ListenerDashboard() {
       setChatMessages([]);
     }
   }, [currentBroadcastId]);
+
+  // Fetch active polls for the current broadcast
+  useEffect(() => {
+    if (currentBroadcastId && isLive) {
+      const fetchActivePolls = async () => {
+        try {
+          setPollLoading(true);
+          const response = await pollService.getActivePollsForBroadcast(currentBroadcastId);
+
+          if (response.data && response.data.length > 0) {
+            // Get the first active poll
+            const activePoll = response.data[0];
+
+            // Check if the user has already voted
+            try {
+              const hasVotedResponse = await pollService.hasUserVoted(activePoll.id);
+
+              if (hasVotedResponse.data) {
+                // User has voted, get their vote
+                const userVoteResponse = await pollService.getUserVote(activePoll.id);
+                setUserVote(userVoteResponse.data);
+
+                // Get poll results
+                const resultsResponse = await pollService.getPollResults(activePoll.id);
+
+                // Combine poll data with results
+                setCurrentPoll({
+                  ...activePoll,
+                  options: resultsResponse.data.options,
+                  totalVotes: resultsResponse.data.totalVotes,
+                  userVoted: true,
+                  userVotedFor: userVoteResponse.data.optionId
+                });
+              } else {
+                // User hasn't voted
+                setCurrentPoll({
+                  ...activePoll,
+                  totalVotes: activePoll.options.reduce((sum, option) => sum + option.votes, 0),
+                  userVoted: false
+                });
+              }
+            } catch (error) {
+              console.error("Error checking user vote:", error);
+              setCurrentPoll({
+                ...activePoll,
+                totalVotes: activePoll.options.reduce((sum, option) => sum + option.votes, 0),
+                userVoted: false
+              });
+            }
+          } else {
+            setCurrentPoll(null);
+          }
+        } catch (error) {
+          console.error("Error fetching active polls:", error);
+        } finally {
+          setPollLoading(false);
+        }
+      };
+
+      fetchActivePolls();
+
+      // Set up interval to periodically check for new polls
+      const interval = setInterval(fetchActivePolls, 10000); // Check every 10 seconds
+
+      return () => clearInterval(interval);
+    } else {
+      // Reset poll when no broadcast is live
+      setCurrentPoll(null);
+    }
+  }, [currentBroadcastId, isLive]);
 
   const togglePlay = () => {
     if (!isLive) return
@@ -187,25 +259,42 @@ export default function ListenerDashboard() {
   }
 
   // Handle poll vote
-  const handlePollVote = (optionId) => {
-    if (!currentPoll || currentPoll.userVoted) return
+  const handlePollVote = async (optionId) => {
+    if (!currentPoll || currentPoll.userVoted || !isLive) return;
 
-    // In a real app, you would send this to your backend
-    setCurrentPoll((prev) => {
-      if (!prev) return prev;
+    try {
+      setPollLoading(true);
 
-      const updatedOptions = prev.options.map((option) =>
-          option.id === optionId ? { ...option, votes: option.votes + 1 } : option,
-      )
+      // Send vote to backend
+      const voteData = {
+        pollId: currentPoll.id,
+        optionId: optionId
+      };
 
-      return {
+      await pollService.vote(currentPoll.id, voteData);
+
+      // Get updated poll results
+      const resultsResponse = await pollService.getPollResults(currentPoll.id);
+
+      // Update user vote
+      const userVoteResponse = await pollService.getUserVote(currentPoll.id);
+      setUserVote(userVoteResponse.data);
+
+      // Update current poll with results
+      setCurrentPoll(prev => ({
         ...prev,
-        options: updatedOptions,
-        totalVotes: prev.totalVotes + 1,
+        options: resultsResponse.data.options,
+        totalVotes: resultsResponse.data.totalVotes,
         userVoted: true,
-        userVotedFor: optionId,
-      }
-    })
+        userVotedFor: optionId
+      }));
+
+    } catch (error) {
+      console.error("Error submitting vote:", error);
+      alert("Failed to submit vote. Please try again.");
+    } finally {
+      setPollLoading(false);
+    }
   }
 
   // Render chat messages
@@ -491,7 +580,12 @@ export default function ListenerDashboard() {
                   {/* Poll Panel */}
                   {activeTab === "poll" && (
                       <div>
-                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">DJ Poll</h3>
+                        <div className="flex justify-between items-center mb-4">
+                          <h3 className="text-lg font-medium text-gray-900 dark:text-white">DJ Poll</h3>
+                          {pollLoading && !currentPoll && (
+                            <span className="text-sm text-gray-500 dark:text-gray-400 animate-pulse">Loading polls...</span>
+                          )}
+                        </div>
                         {currentPoll ? (
                           <div className="mb-6">
                             <h4 className="text-md font-medium text-gray-800 dark:text-gray-200 mb-3">
@@ -504,24 +598,29 @@ export default function ListenerDashboard() {
                                     <div key={option.id} className="space-y-1">
                                       <button
                                           onClick={() => handlePollVote(option.id)}
-                                          disabled={currentPoll.userVoted || !isLive}
+                                          disabled={currentPoll.userVoted || !isLive || pollLoading}
                                           className={`w-full text-left p-2 rounded-md ${
                                               currentPoll.userVotedFor === option.id
                                                   ? "bg-maroon-100 dark:bg-maroon-900/30 border border-maroon-500"
                                                   : currentPoll.userVoted
                                                       ? "bg-gray-100 dark:bg-gray-700"
-                                                      : isLive
-                                                          ? "bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"
-                                                          : "bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
+                                                      : pollLoading
+                                                          ? "bg-gray-100 dark:bg-gray-700 cursor-wait"
+                                                          : isLive
+                                                              ? "bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                                              : "bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
                                           }`}
                                       >
                                         <div className="flex justify-between items-center">
-                                    <span className="text-sm font-medium text-gray-900 dark:text-white">
-                                      {option.text}
-                                    </span>
+                                          <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                            {option.text}
+                                            {pollLoading && option.id === userVote?.optionId && (
+                                              <span className="ml-2 inline-block animate-pulse">•••</span>
+                                            )}
+                                          </span>
                                           <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                                      {percentage}% ({option.votes})
-                                    </span>
+                                            {percentage}% ({option.votes})
+                                          </span>
                                         </div>
                                       </button>
                                       <div className="h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
@@ -539,7 +638,13 @@ export default function ListenerDashboard() {
                             </p>
                           </div>
                         ) : (
-                          <p className="text-gray-500 dark:text-gray-400 text-center py-4">No active polls</p>
+                          <p className="text-gray-500 dark:text-gray-400 text-center py-4">
+                            {pollLoading ? (
+                              <span className="animate-pulse">Loading polls...</span>
+                            ) : (
+                              "No active polls"
+                            )}
+                          </p>
                         )}
                         {!isLive && (
                             <p className="text-xs text-gray-500 dark:text-gray-400 text-center">

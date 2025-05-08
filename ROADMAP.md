@@ -97,11 +97,16 @@ Each directory will include:
   - `getSongRequests(broadcastId)`
 
 ### 4.5 Notification
-- **Attributes:** `id`, `message`, `type` (REMINDER, ALERT, INFO), `timestamp`
+- **Attributes:** `id`, `message`, `type` (REMINDER, ALERT, INFO, BROADCAST_SCHEDULED, BROADCAST_STARTING_SOON, BROADCAST_STARTED, BROADCAST_ENDED, NEW_BROADCAST_POSTED), `timestamp`, `isRead`
 - **Relationships:** Many-to-One with User (recipient)
 - **Key Functions:**
   - `sendNotification(recipient, message, type)`
   - `getNotificationsForUser(userId)`
+  - `getUnreadNotificationsForUser(userId)`
+  - `markAsRead(notificationId)`
+  - `countUnreadNotifications(userId)`
+  - `getRecentNotifications(userId, since)`
+  - `getNotificationsByType(userId, type)`
 
 ### 4.6 ActivityLog
 - **Attributes:** `id`, `activityType` (LOGIN, BROADCAST_START, etc.), `description`, `timestamp`
@@ -159,6 +164,8 @@ Each directory will include:
 
 ### 5.6 WebSocket Integration
 - Set up Spring WebSocket for real-time chat functionality.
+- Configure WebSocket for real-time notifications delivery to users.
+- Implement user-specific message channels with SimpMessagingTemplate.
 
 ### 5.7 Server Scheduling & Management
 - Implement `ServerScheduleService` with methods for automatic and manual server start/stop.
@@ -218,6 +225,7 @@ Each directory will include:
 - **Backend:** 
   - Organized by entity directories containing Entity, Repository, Service, Controller, and DTO subdirectories.
   - Implements all required functionalities (user management, broadcasting, chat, song requests, notifications, logging, streaming configuration, and server scheduling).
+  - Features real-time notifications using WebSocket for broadcast events (scheduled, starting soon, started, ended).
   - Secured using JWT, role-based access, and integrated with email verification/OAuth.
 - **Frontend:** 
   - Developed using ReactJS for a responsive website and mobile-friendly design.
@@ -407,10 +415,10 @@ Example Pseudo-Code Implementation:
 java
 @Service
 public class ServerScheduleService {
-    
+
     @Autowired
     private ServerScheduleRepository serverScheduleRepo;
-    
+
     // Schedules a new server run (automatic mode)
     public ServerSchedule scheduleServerRun(ServerSchedule schedule, User dj) {
         schedule.setCreatedBy(dj);
@@ -419,7 +427,7 @@ public class ServerScheduleService {
         schedule.setRedundantStatus(ServerStatus.OFF);
         return serverScheduleRepo.save(schedule);
     }
-    
+
     // Automatically starts the main server (and redundant server if enabled)
     public ServerSchedule startServer(ServerSchedule schedule) {
         schedule.setStatus(ServerStatus.RUNNING);
@@ -429,13 +437,13 @@ public class ServerScheduleService {
         }
         return serverScheduleRepo.save(schedule);
     }
-    
+
     // Starts the redundant server
     private void startRedundantServer(ServerSchedule schedule) {
         // Code to start the redundant server
         schedule.setRedundantStatus(ServerStatus.RUNNING);
     }
-    
+
     // Automatically stops the main server (and redundant server if active)
     public ServerSchedule stopServer(ServerSchedule schedule) {
         schedule.setStatus(ServerStatus.OFF);
@@ -444,25 +452,25 @@ public class ServerScheduleService {
         }
         return serverScheduleRepo.save(schedule);
     }
-    
+
     // Stops the redundant server
     private void stopRedundantServer(ServerSchedule schedule) {
         // Code to stop the redundant server
         schedule.setRedundantStatus(ServerStatus.OFF);
     }
-    
+
     // Manually starts the main server immediately
     public void manualStartServer() {
         // Code to manually start the main server
         // Also, start the redundant server if redundantEnabled is true
     }
-    
+
     // Manually stops the main server immediately
     public void manualStopServer() {
         // Code to manually stop the main server
         // Also, stop the redundant server if it is running
     }
-    
+
     // Utility method to check if the main server is running
     public boolean isServerRunning() {
         // For example, return true if the current schedule status is RUNNING
@@ -470,7 +478,7 @@ public class ServerScheduleService {
                 .map(schedule -> schedule.getStatus() == ServerStatus.RUNNING)
                 .orElse(false);
     }
-    
+
     // Checks the health of the main server and performs failover if necessary
     public void failoverCheck() {
         if (!isServerRunning() && isRedundantAvailable()) {
@@ -478,7 +486,7 @@ public class ServerScheduleService {
             manualStartServer(); // Or call a dedicated failover method
         }
     }
-    
+
     private boolean isRedundantAvailable() {
         // Check if the redundant server is up or can be started quickly
         return true; // Placeholder logic
@@ -554,7 +562,7 @@ public class BroadcastService {
         broadcast.setStatus(BroadcastStatus.TESTING);
         return broadcastRepo.save(broadcast);
     }
-    
+
     // Additional functions such as getAnalytics()...
 }
 
@@ -568,6 +576,8 @@ Create controllers (e.g., UserController, BroadcastController, ServerScheduleCon
 Map endpoints (e.g., /api/broadcast/start/{id}) to the appropriate service methods.
 WebSocket Integration:
 Configure Spring WebSocket to handle real-time chat functionality in the ChatMessage service.
+Implement real-time notifications using WebSocket for instant delivery to users.
+Use SimpMessagingTemplate to send targeted notifications to specific users.
 Scheduling & Server Management:
 Implement the ServerScheduleService with scheduled tasks (using @Scheduled) to auto-start or stop the server based on the ServerSchedule entity.
 Expose a utility method isServerRunning() to check the server’s current status.
@@ -616,10 +626,8 @@ Backend:
 Define the entities and relationships as described above.
 Use Spring Boot with dedicated service layers for broadcast management, server scheduling (including redundancy and manual override), and user management.
 Secure endpoints with Spring Security and implement email verification or OAuth for registration/login.
-Integrate with Shoutcast for live streaming and Spring WebSocket for real-time chat.
+Integrate with Shoutcast for live streaming and Spring WebSocket for real-time chat and notifications.
 Frontend:
 For the website, use frameworks such as React to build a responsive, intuitive interface.
 For mobile, consider React Native or Flutter for a cross-platform experience.
 Ensure the DJ dashboard (desktop) includes both broadcast controls and server schedule management so that the server (and its redundant instance) is automatically up and ready when needed, with manual overrides available.
-
-
