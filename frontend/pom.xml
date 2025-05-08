@@ -20,15 +20,6 @@
         <frontend-maven-plugin.version>1.12.1</frontend-maven-plugin.version>
     </properties>
 
-    <profiles>
-        <profile>
-            <id>heroku</id>
-            <properties>
-                <skip.frontend.build>true</skip.frontend.build>
-            </properties>
-        </profile>
-    </profiles>
-
     <build>
         <plugins>
             <plugin>
@@ -38,7 +29,6 @@
                 <configuration>
                     <nodeVersion>${node.version}</nodeVersion>
                     <npmVersion>${npm.version}</npmVersion>
-                    <skip>${skip.frontend.build}</skip>
                 </configuration>
                 <executions>
                     <execution>
@@ -84,7 +74,6 @@
                                     <filtering>false</filtering>
                                 </resource>
                             </resources>
-                            <skip>${skip.frontend.build}</skip>
                         </configuration>
                     </execution>
                     <execution>
@@ -101,7 +90,6 @@
                                     <filtering>false</filtering>
                                 </resource>
                             </resources>
-                            <skip>${skip.frontend.build}</skip>
                         </configuration>
                     </execution>
                 </executions>
