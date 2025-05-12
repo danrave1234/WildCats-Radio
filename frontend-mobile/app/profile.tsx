@@ -95,10 +95,6 @@ export default function ProfileScreen() {
   const toggleNameEditing = () => {
     if (!isNameEditing && user) {
       setNewName(user.name || 'Wildcat User');
-      // Small delay to ensure the component is rendered before focusing
-      setTimeout(() => {
-        nameInputRef.current?.focus();
-      }, 100);
     }
     setIsNameEditing(!isNameEditing);
   };
@@ -359,43 +355,33 @@ export default function ProfileScreen() {
                 <>
                   {isNameEditing ? (
                     <View style={styles.nameEditContainer}>
-                      <View style={styles.nameInputWrapper}>
-                        <TextInput
-                          ref={nameInputRef}
-                          style={styles.nameInput}
-                          value={newName}
-                          onChangeText={setNewName}
-                          placeholder="Your name"
-                          placeholderTextColor={ColorPalette.black[400]}
-                          autoCapitalize="words"
-                          selectTextOnFocus
-                          selectionColor={ColorPalette.mikadoYellow.DEFAULT}
-                          cursorColor={ColorPalette.cordovan.DEFAULT}
-                          maxLength={30}
-                          returnKeyType="done"
-                          onSubmitEditing={saveNameChange}
-                          blurOnSubmit={true}
-                        />
-                      </View>
+                      <TextInput
+                        ref={nameInputRef}
+                        style={styles.nameInput}
+                        value={newName}
+                        onChangeText={setNewName}
+                        placeholder="Your name"
+                        placeholderTextColor={ColorPalette.black[400]}
+                        autoCapitalize="words"
+                        selectTextOnFocus
+                      />
                       <View style={styles.nameEditActions}>
                         <TouchableOpacity 
                           style={styles.nameEditButton} 
                           onPress={() => setIsNameEditing(false)}
                           disabled={isSubmitting}
-                          activeOpacity={0.8}
                         >
-                          <Ionicons name="close-outline" size={24} color={ColorPalette.cordovan.DEFAULT} />
+                          <Ionicons name="close" size={22} color={ColorPalette.cordovan.DEFAULT} />
                         </TouchableOpacity>
                         <TouchableOpacity 
                           style={[styles.nameEditButton, styles.saveNameButton]} 
                           onPress={saveNameChange}
                           disabled={isSubmitting}
-                          activeOpacity={0.8}
                         >
                           {isSubmitting ? (
                             <ActivityIndicator size="small" color={ColorPalette.white.DEFAULT} />
                           ) : (
-                            <Ionicons name="checkmark-outline" size={24} color={ColorPalette.white.DEFAULT} />
+                            <Ionicons name="checkmark" size={22} color={ColorPalette.white.DEFAULT} />
                           )}
                         </TouchableOpacity>
                       </View>
@@ -855,51 +841,39 @@ const styles = StyleSheet.create({
   nameEditContainer: {
     width: '100%',
     marginBottom: 6,
-    alignItems: 'center',
-  },
-  nameInputWrapper: {
-    width: '90%',
-    shadowColor: ColorPalette.black.DEFAULT,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
-    borderRadius: 16,
-    backgroundColor: ColorPalette.white.DEFAULT,
   },
   nameInput: {
     fontSize: 26,
     fontWeight: 'bold',
     color: ColorPalette.black.DEFAULT,
-    borderWidth: 2.5,
+    borderWidth: 1,
     borderColor: ColorPalette.mikadoYellow.DEFAULT,
-    backgroundColor: ColorPalette.white.DEFAULT,
-    borderRadius: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    backgroundColor: ColorPalette.antiFlashWhite[100],
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     textAlign: 'center',
-    width: '100%',
   },
   nameEditActions: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 20,
+    marginTop: 12,
   },
   nameEditButton: {
     backgroundColor: ColorPalette.white.DEFAULT,
-    borderWidth: 2.5,
+    borderWidth: 1.5,
     borderColor: ColorPalette.cordovan.DEFAULT,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 15,
+    marginHorizontal: 8,
     shadowColor: ColorPalette.black.DEFAULT,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
   },
   saveNameButton: {
     backgroundColor: ColorPalette.cordovan.DEFAULT,

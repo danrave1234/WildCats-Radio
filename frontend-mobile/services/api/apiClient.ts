@@ -3,7 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError } from './types';
 
 // Constants
-const API_URL = 'https://wildcat-radio-f05d362144e6.herokuapp.com/api'; // Android emulator uses 10.0.2.2 to access localhost
+const API_URL = 'https://wildcat-radio-f05d362144e6.herokuapp.com/api';
+// Android emulator uses 10.0.2.2 to access localhost
 // For iOS simulator, use 'http://localhost:8080/api'
 // For real devices, you'll need to use your machine's IP or a deployed backend URL
 
@@ -23,19 +24,19 @@ apiClient.interceptors.request.use(
   async (config) => {
     // Get the token from storage
     const token = await AsyncStorage.getItem(TOKEN_KEY);
-    
+
     // If token exists, add it to the headers
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
+
     // Log the request for debugging
     console.log(`🚀 API Request: [${config.method?.toUpperCase()}] ${config.baseURL}${config.url}`, {
       headers: config.headers,
       params: config.params,
       data: config.data,
     });
-    
+
     return config;
   },
   (error) => {
@@ -51,23 +52,23 @@ apiClient.interceptors.response.use(
     console.log(`✅ API Response: [${response.status}] ${response.config.url}`, {
       data: response.data,
     });
-    
+
     return response;
   },
   async (error: AxiosError) => {
     const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
-    
+
     // Log the error response
     console.error('❌ API Response Error:', {
       status: error.response?.status,
       url: originalRequest?.url,
       data: error.response?.data,
     });
-    
+
     // Handle token expiration (401 Unauthorized)
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
-      
+
       try {
         // Here you can implement token refresh logic if your API supports it
         // For now, we'll just clear the token and let the user re-login
@@ -77,7 +78,7 @@ apiClient.interceptors.response.use(
         console.error('Token refresh failed:', refreshError);
       }
     }
-    
+
     // Transform the error to a more usable format
     const apiError: ApiError = {
       status: error.response?.status || 500,
@@ -86,7 +87,7 @@ apiClient.interceptors.response.use(
       timestamp: (error.response?.data as any)?.timestamp,
       path: originalRequest?.url,
     };
-    
+
     return Promise.reject(apiError);
   }
 );
@@ -117,4 +118,4 @@ export const clearAuthToken = async (): Promise<void> => {
   }
 };
 
-export default apiClient; 
+export default apiClient;
