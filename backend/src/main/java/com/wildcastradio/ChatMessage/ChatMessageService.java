@@ -42,6 +42,11 @@ public class ChatMessageService {
      * @throws IllegalArgumentException if the broadcast with the given ID doesn't exist
      */
     public ChatMessageEntity createMessage(Long broadcastId, UserEntity sender, String content) {
+        // Validate content length
+        if (content == null || content.length() > 1500) {
+            throw new IllegalArgumentException("Message content must not be null and must not exceed 1500 characters");
+        }
+
         // Fetch the broadcast entity
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
             .orElseThrow(() -> new IllegalArgumentException("Broadcast not found with ID: " + broadcastId));
