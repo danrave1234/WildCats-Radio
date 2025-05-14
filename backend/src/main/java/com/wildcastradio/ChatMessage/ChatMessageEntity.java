@@ -33,7 +33,7 @@ public class ChatMessageEntity {
     @JoinColumn(name = "user_id", nullable = false)
     private UserEntity sender;
 
-    @Column(nullable = false, columnDefinition = "TEXT")
+    @Column(nullable = false)
     private String content;
 
     @Column(name = "created_at", nullable = false)
