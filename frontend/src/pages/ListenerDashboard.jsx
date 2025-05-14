@@ -646,12 +646,7 @@ export default function ListenerDashboard() {
                             <p className="text-sm text-gray-500 dark:text-gray-400">Let us know what you'd like to hear next</p>
                           </div>
                         </div>
-                        <p className="text-gray-500 dark:text-gray-400 mb-2">Song requests are only available during live broadcasts</p>
-                        {nextBroadcast && (
-                          <p className="text-sm text-gray-400 dark:text-gray-500">
-                            Next broadcast: {nextBroadcast.title} on {nextBroadcast.date} at {nextBroadcast.time}
-                          </p>
-                        )}
+                        <p className="text-gray-500 dark:text-gray-400">Song requests are only available during live broadcasts</p>
                       </div>
                     </div>
                   )}
@@ -719,12 +714,7 @@ export default function ListenerDashboard() {
                           <h3 className="text-xl font-medium text-gray-900 dark:text-white">Vote</h3>
                           <p className="text-sm text-gray-500 dark:text-gray-400">selects which you prefer the most?</p>
                         </div>
-                        <p className="text-gray-500 dark:text-gray-400 mb-2">Polls are only available during live broadcasts</p>
-                        {nextBroadcast && (
-                          <p className="text-sm text-gray-400 dark:text-gray-500">
-                            Next broadcast: {nextBroadcast.title} on {nextBroadcast.date} at {nextBroadcast.time}
-                          </p>
-                        )}
+                        <p className="text-gray-500 dark:text-gray-400">Polls are only available during live broadcasts</p>
                       </div>
                     </div>
                   )}
@@ -857,14 +847,7 @@ export default function ListenerDashboard() {
             ) : (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
-                  <p className="text-gray-500 dark:text-gray-400 mb-2">Chat is only available during live broadcasts</p>
-                  {nextBroadcast ? (
-                    <p className="text-sm text-gray-400 dark:text-gray-500">
-                      Next broadcast: {nextBroadcast.title} on {nextBroadcast.date} at {nextBroadcast.time}
-                    </p>
-                  ) : (
-                    <p className="text-sm text-gray-400 dark:text-gray-500">No upcoming broadcasts scheduled</p>
-                  )}
+                  <p className="text-gray-500 dark:text-gray-400">Chat is only available during live broadcasts</p>
                 </div>
               </div>
             )}
