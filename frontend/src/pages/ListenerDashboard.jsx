@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   PlayIcon,
   PauseIcon,
@@ -52,6 +52,117 @@ export default function ListenerDashboard() {
     artist: "TNGHT"
   });
 
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const chatContainerRef = useRef(null);
+
+  // Add this helper function at the top of the component
+  const isAtBottom = (container) => {
+    if (!container) return true;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    return Math.abs(scrollHeight - clientHeight - scrollTop) < 10;
+  };
+
+  // Function to scroll to bottom
+  const scrollToBottom = () => {
+    const container = chatContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  };
+
+  // Update the chat messages effect
+  useEffect(() => {
+    if (currentBroadcastId) {
+      const fetchChatMessages = async () => {
+        try {
+          const response = await chatService.getMessages(currentBroadcastId);
+          const newMessages = response.data.filter(msg => msg.broadcastId === currentBroadcastId);
+          
+          // Check if we're at the bottom before updating messages
+          const container = chatContainerRef.current;
+          const wasAtBottom = isAtBottom(container);
+          
+          // Update messages
+          setChatMessages(newMessages);
+          
+          // Only scroll if user was already at the bottom
+          if (wasAtBottom) {
+            setTimeout(() => {
+              if (container) {
+                container.scrollTop = container.scrollHeight;
+              }
+            }, 100);
+          }
+        } catch (error) {
+          console.error("Error fetching chat messages:", error);
+        }
+      };
+
+      fetchChatMessages();
+      const interval = setInterval(fetchChatMessages, 5000);
+
+      return () => {
+        clearInterval(interval);
+        setChatMessages([]);
+      };
+    } else {
+      setChatMessages([]);
+    }
+  }, [currentBroadcastId]);
+
+  // Update the scroll event listener
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      setShowScrollBottom(!isAtBottom(container));
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Handle chat submission
+  const handleChatSubmit = async (e) => {
+    e.preventDefault();
+    if (!chatMessage.trim() || !currentBroadcastId) return;
+
+    // Validate message length
+    if (chatMessage.length > 1500) {
+      alert("Message cannot exceed 1500 characters");
+      return;
+    }
+
+    const messageToSend = chatMessage.trim();
+    setChatMessage(''); // Clear input immediately for better UX
+
+    try {
+      // Create message object to send to the server
+      const messageData = {
+        content: messageToSend
+      };
+
+      // Send message to the server
+      await chatService.sendMessage(currentBroadcastId, messageData);
+
+      // Fetch the latest messages
+      const response = await chatService.getMessages(currentBroadcastId);
+      setChatMessages(response.data);
+
+      // Always scroll to bottom after sending your own message
+      scrollToBottom();
+    } catch (error) {
+      console.error("Error sending chat message:", error);
+      if (error.response?.data?.message?.includes("1500 characters")) {
+        alert("Message cannot exceed 1500 characters");
+      } else {
+        alert("Failed to send message. Please try again.");
+      }
+      setChatMessage(messageToSend); // Restore the message if sending failed
+    }
+  };
+
   // Check if a broadcast is live
   useEffect(() => {
     const checkBroadcastStatus = async () => {
@@ -100,43 +211,6 @@ export default function ListenerDashboard() {
 
     return () => clearInterval(interval);
   }, []);
-
-  // Fetch chat messages when broadcast ID changes
-  useEffect(() => {
-    if (currentBroadcastId) {
-      const fetchChatMessages = async () => {
-        try {
-          const response = await chatService.getMessages(currentBroadcastId);
-          // Only set chat messages for this specific broadcast
-          setChatMessages(response.data.filter(msg => msg.broadcastId === currentBroadcastId));
-          
-          // Scroll to bottom after messages load
-          setTimeout(() => {
-            const chatContainer = document.querySelector('.chat-messages-container');
-            if (chatContainer) {
-              chatContainer.scrollTop = chatContainer.scrollHeight;
-            }
-          }, 100);
-        } catch (error) {
-          console.error("Error fetching chat messages:", error);
-        }
-      };
-
-      fetchChatMessages();
-
-      // Set up interval to periodically fetch new messages
-      const interval = setInterval(fetchChatMessages, 5000); // Check every 5 seconds
-
-      return () => {
-        clearInterval(interval);
-        // Clear messages when unmounting or changing broadcasts
-        setChatMessages([]);
-      };
-    } else {
-      // Reset chat messages when no broadcast is live
-      setChatMessages([]);
-    }
-  }, [currentBroadcastId]);
 
   // Fetch active polls for the current broadcast
   useEffect(() => {
@@ -224,49 +298,6 @@ export default function ListenerDashboard() {
       setIsMuted(true);
     } else if (isMuted) {
       setIsMuted(false);
-    }
-  };
-
-  // Handle chat submission
-  const handleChatSubmit = async (e) => {
-    e.preventDefault();
-    if (!chatMessage.trim() || !currentBroadcastId) return;
-
-    // Validate message length
-    if (chatMessage.length > 1500) {
-      alert("Message cannot exceed 1500 characters");
-      return;
-    }
-
-    const messageToSend = chatMessage.trim();
-    setChatMessage(''); // Clear input immediately for better UX
-
-    try {
-      // Create message object to send to the server
-      const messageData = {
-        content: messageToSend
-      };
-
-      // Send message to the server
-      await chatService.sendMessage(currentBroadcastId, messageData);
-
-      // Fetch the latest messages (the server will have our new message)
-      const response = await chatService.getMessages(currentBroadcastId);
-      setChatMessages(response.data);
-
-      // Scroll to bottom
-      const chatContainer = document.querySelector('.chat-messages-container');
-      if (chatContainer) {
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-      }
-    } catch (error) {
-      console.error("Error sending chat message:", error);
-      if (error.response?.data?.message?.includes("1500 characters")) {
-        alert("Message cannot exceed 1500 characters");
-      } else {
-        alert("Failed to send message. Please try again.");
-      }
-      setChatMessage(messageToSend); // Restore the message if sending failed
     }
   };
 
@@ -713,7 +744,10 @@ export default function ListenerDashboard() {
           <div className="bg-white dark:bg-gray-800 border border-t-0 border-gray-200 dark:border-gray-700 rounded-b-lg flex-grow flex flex-col h-[494px]">
             {isLive ? (
               <>
-                <div className="flex-grow overflow-y-auto p-4 space-y-4 chat-messages-container">
+                <div 
+                  ref={chatContainerRef}
+                  className="flex-grow overflow-y-auto p-4 space-y-4 chat-messages-container relative"
+                >
                   {chatMessages.map((msg) => {
                     const isDJ = msg.sender && msg.sender.name.includes("DJ");
                     const initials = msg.sender.name.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
@@ -754,6 +788,30 @@ export default function ListenerDashboard() {
                     );
                   })}
                 </div>
+
+                {/* Scroll to bottom button */}
+                {showScrollBottom && (
+                  <div className="absolute bottom-20 right-4">
+                    <button
+                      onClick={scrollToBottom}
+                      className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full p-2.5 shadow-lg transition-all duration-200 ease-in-out flex items-center justify-center"
+                      aria-label="Scroll to bottom"
+                    >
+                      <svg 
+                        xmlns="http://www.w3.org/2000/svg" 
+                        className="h-5 w-5" 
+                        viewBox="0 0 20 20" 
+                        fill="currentColor"
+                      >
+                        <path 
+                          fillRule="evenodd" 
+                          d="M16.707 10.293a1 1 0 010 1.414l-6 6a1 1 0 01-1.414 0l-6-6a1 1 0 111.414-1.414L10 15.586l5.293-5.293a1 1 0 011.414 0z" 
+                          clipRule="evenodd" 
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                )}
                 
                 <div className="p-2 border-t border-gray-200 dark:border-gray-700 mt-auto">
                   <form onSubmit={handleChatSubmit} className="flex flex-col">
