@@ -12,6 +12,7 @@ import {
 } from "@heroicons/react/24/solid";
 import AudioVisualizer from "../components/AudioVisualizer";
 import { broadcastService, chatService, songRequestService, pollService } from "../services/api";
+import { formatDistanceToNow } from 'date-fns';
 
 export default function ListenerDashboard() {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -393,17 +394,20 @@ export default function ListenerDashboard() {
           
           // Parse the createdAt timestamp from the backend
           const messageDate = msg.createdAt ? new Date(msg.createdAt + 'Z') : null;
-          const formattedDate = messageDate ? new Intl.DateTimeFormat('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-          }).format(messageDate) : 'Invalid Date';
           
-          const formattedTime = messageDate ? new Intl.DateTimeFormat('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          }).format(messageDate) : 'Invalid Time';
+          // Format relative time
+          const timeAgo = messageDate ? formatDistanceToNow(messageDate, { addSuffix: false }) : 'Invalid Date';
+          
+          // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
+          const formattedTimeAgo = timeAgo
+            .replace(' seconds', ' sec')
+            .replace(' second', ' sec')
+            .replace(' minutes', ' min')
+            .replace(' minute', ' min')
+            .replace(' hours', ' hour')
+            .replace(' days', ' day')
+            .replace(' months', ' month')
+            .replace(' years', ' year');
           
           return (
             <div
@@ -417,9 +421,7 @@ export default function ListenerDashboard() {
                 <div className="ml-2">
                   <span className="font-medium text-sm text-gray-900 dark:text-white">{msg.sender.name}</span>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
-                    <span>{formattedDate}</span>
-                    <span className="mx-1">•</span>
-                    <span>{formattedTime}</span>
+                    {formattedTimeAgo} ago
                   </div>
                 </div>
               </div>
@@ -769,17 +771,20 @@ export default function ListenerDashboard() {
                     
                     // Parse the createdAt timestamp from the backend
                     const messageDate = msg.createdAt ? new Date(msg.createdAt + 'Z') : null;
-                    const formattedDate = messageDate ? new Intl.DateTimeFormat('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric'
-                    }).format(messageDate) : 'Invalid Date';
                     
-                    const formattedTime = messageDate ? new Intl.DateTimeFormat('en-US', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: true
-                    }).format(messageDate) : 'Invalid Time';
+                    // Format relative time
+                    const timeAgo = messageDate ? formatDistanceToNow(messageDate, { addSuffix: false }) : 'Invalid Date';
+                    
+                    // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
+                    const formattedTimeAgo = timeAgo
+                      .replace(' seconds', ' sec')
+                      .replace(' second', ' sec')
+                      .replace(' minutes', ' min')
+                      .replace(' minute', ' min')
+                      .replace(' hours', ' hour')
+                      .replace(' days', ' day')
+                      .replace(' months', ' month')
+                      .replace(' years', ' year');
                     
                     return (
                       <div key={msg.id} className="mb-4">
@@ -796,7 +801,7 @@ export default function ListenerDashboard() {
                             <p className="text-sm text-gray-800 dark:text-gray-200 chat-message" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content}</p>
                           </div>
                           <div className="text-xs text-gray-500 dark:text-gray-400 pl-1">
-                            {formattedDate} • {formattedTime}
+                            {formattedTimeAgo} ago
                           </div>
                         </div>
                       </div>
