@@ -20,6 +20,7 @@ export default function ListenerDashboard() {
   const [isLive, setIsLive] = useState(true); // For demo purposes, set to true
   const [nextBroadcast, setNextBroadcast] = useState(null);
   const [currentBroadcastId, setCurrentBroadcastId] = useState(1); // Demo ID
+  const [currentBroadcast, setCurrentBroadcast] = useState(null);
 
   // Chat state
   const [chatMessage, setChatMessage] = useState("");
@@ -47,10 +48,7 @@ export default function ListenerDashboard() {
   const [activeTab, setActiveTab] = useState("song"); // 'song', 'poll', 'chat'
   
   // Currently playing song
-  const [currentSong, setCurrentSong] = useState({
-    title: "Higher Ground",
-    artist: "TNGHT"
-  });
+  const [currentSong, setCurrentSong] = useState(null);
 
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const chatContainerRef = useRef(null);
@@ -177,9 +175,24 @@ export default function ListenerDashboard() {
           // Set the first live broadcast as the current one
           const currentBroadcast = liveBroadcasts[0];
           setCurrentBroadcastId(currentBroadcast.id);
+          setCurrentBroadcast(currentBroadcast);
+          
+          // Set current song if available
+          if (currentBroadcast.currentSong) {
+            setCurrentSong({
+              title: currentBroadcast.currentSong.title,
+              artist: currentBroadcast.currentSong.artist
+            });
+          } else {
+            // Fallback to default if no song data
+            setCurrentSong(null);
+          }
+          
           console.log("Live broadcast:", currentBroadcast);
         } else {
           setIsLive(false);
+          setCurrentBroadcast(null);
+          setCurrentSong(null);
           // If no live broadcasts, check for upcoming broadcasts
           try {
             const upcomingResponse = await broadcastService.getUpcoming();
@@ -484,13 +497,25 @@ export default function ListenerDashboard() {
 
                   {/* Track info */}
                   <div className="ml-4 text-white">
-                    <h3 className="text-xl font-bold">Afternoon Mix</h3>
-                    <p className="text-sm opacity-80">Hosted by DJ Wildcat</p>
+                    <h3 className="text-xl font-bold">{currentBroadcast?.title || "Loading..."}</h3>
+                    <p className="text-sm opacity-80">
+                      {currentBroadcast?.host?.name 
+                        ? `Hosted by ${currentBroadcast.host.name}` 
+                        : currentBroadcast?.dj?.name 
+                          ? `Hosted by ${currentBroadcast.dj.name}`
+                          : "Loading..."}
+                    </p>
                     
                     <div className="mt-4">
                       <p className="text-xs uppercase opacity-60">NOW PLAYING</p>
-                      <p className="text-sm font-medium">{currentSong.title}</p>
-                      <p className="text-xs opacity-70">{currentSong.artist}</p>
+                      {currentSong ? (
+                        <>
+                          <p className="text-sm font-medium">{currentSong.title}</p>
+                          <p className="text-xs opacity-70">{currentSong.artist}</p>
+                        </>
+                      ) : (
+                        <p className="text-sm opacity-70">No track information available</p>
+                      )}
                     </div>
                   </div>
                 </div>
