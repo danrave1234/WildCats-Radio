@@ -87,7 +87,7 @@ public class BroadcastService {
         // Allow any DJ to start a broadcast, not just the creator
         // This enables site-wide broadcast control
 
-        if (testMode) {
+        if (testMode || shoutCastService.isInTestMode()) {
             // Test mode - bypass server checks
             logger.info("Starting broadcast in TEST MODE (ShoutCast integration bypassed)");
             // Set the ShoutcastService to test mode
@@ -95,8 +95,6 @@ public class BroadcastService {
             String testStreamUrl = shoutCastService.getTestStreamUrl(broadcast);
             broadcast.setStreamUrl(testStreamUrl);
         } else {
-            // Reset ShoutcastService test mode
-            shoutCastService.setTestMode(false);
             // Check if the ShoutCast server is accessible
             boolean shoutCastServerAccessible = shoutCastService.isServerAccessible();
             // Check if the server schedule is running
@@ -153,7 +151,7 @@ public class BroadcastService {
         // Allow any DJ to end a broadcast, not just the creator
         // This enables site-wide broadcast control
 
-        // End the stream using ShoutCastService
+        // End the stream using ShoutCastService (respects test mode internally)
         shoutCastService.endStream(broadcast);
         broadcast.setActualEnd(LocalDateTime.now());
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
@@ -182,13 +180,13 @@ public class BroadcastService {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new RuntimeException("Broadcast not found"));
 
-        // End the stream using ShoutCastService
+        // End the stream using ShoutCastService (respects test mode internally)
         shoutCastService.endStream(broadcast);
         broadcast.setActualEnd(LocalDateTime.now());
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
 
         BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
-        
+
         logger.info("Broadcast ended without user info: {}", savedBroadcast.getTitle());
 
         return savedBroadcast;

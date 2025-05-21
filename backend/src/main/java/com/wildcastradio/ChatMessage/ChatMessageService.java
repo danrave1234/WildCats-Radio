@@ -3,7 +3,10 @@ package com.wildcastradio.ChatMessage;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.messaging.simp.SimpMessageSendingOperations;
 import org.springframework.stereotype.Service;
 
 import com.wildcastradio.Broadcast.BroadcastEntity;
@@ -12,12 +15,21 @@ import com.wildcastradio.User.UserEntity;
 
 @Service
 public class ChatMessageService {
+    private static final Logger logger = LoggerFactory.getLogger(ChatMessageService.class);
+
+    private final ChatMessageRepository chatMessageRepository;
+    private final BroadcastRepository broadcastRepository;
+    private final SimpMessageSendingOperations messagingTemplate;
 
     @Autowired
-    private ChatMessageRepository chatMessageRepository;
-
-    @Autowired
-    private BroadcastRepository broadcastRepository;
+    public ChatMessageService(
+            ChatMessageRepository chatMessageRepository,
+            BroadcastRepository broadcastRepository,
+            SimpMessageSendingOperations messagingTemplate) {
+        this.chatMessageRepository = chatMessageRepository;
+        this.broadcastRepository = broadcastRepository;
+        this.messagingTemplate = messagingTemplate;
+    }
 
     /**
      * Get all messages for a specific broadcast
@@ -48,6 +60,26 @@ public class ChatMessageService {
 
         // Create the message with the broadcast entity
         ChatMessageEntity message = new ChatMessageEntity(broadcast, sender, content);
-        return chatMessageRepository.save(message);
+        ChatMessageEntity savedMessage = chatMessageRepository.save(message);
+        
+        // Broadcast the message via WebSocket
+        try {
+            String destination = "/topic/broadcast/" + broadcastId + "/chat";
+            logger.debug("Sending chat message to topic: {}", destination);
+            
+            messagingTemplate.convertAndSend(
+                    destination,
+                    ChatMessageDTO.fromEntity(savedMessage)
+            );
+        } catch (Exception e) {
+            // Log the error but don't prevent message creation
+            logger.warn("Failed to broadcast chat message via WebSocket: {}", e.getMessage());
+            
+            if (logger.isDebugEnabled()) {
+                logger.debug("Full exception details:", e);
+            }
+        }
+        
+        return savedMessage;
     }
 }

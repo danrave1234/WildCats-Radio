@@ -1,5 +1,7 @@
 package com.wildcastradio.config;
 
+import java.util.Arrays;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,10 +18,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-
-import com.wildcastradio.config.JwtRequestFilter;
-
-import java.util.Arrays;
 
 @Configuration
 @EnableWebSecurity
@@ -63,15 +61,51 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList("*")); // For development
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("authorization", "content-type", "x-auth-token"));
-        configuration.setExposedHeaders(Arrays.asList("x-auth-token"));
-        configuration.setAllowCredentials(false); // Must be false for '*' origin
+        // Define allowed origins
+        String[] allowedOrigins = {
+            "http://localhost:5173",
+            "http://localhost:5174",
+            "http://localhost:3000",
+            "https://wildcat-radio-f05d362144e6.herokuapp.com",
+            "https://wildcat-radio.vercel.app"
+        };
         
+        // Create the default CORS configuration
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(Arrays.asList(allowedOrigins));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(Arrays.asList("authorization", "content-type", "x-auth-token", "accept", "origin"));
+        configuration.setExposedHeaders(Arrays.asList("x-auth-token", "content-disposition"));
+        configuration.setAllowCredentials(true);
+        configuration.setMaxAge(3600L); // Cache preflight response for 1 hour
+        
+        // Register the configuration for all paths
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
+        
+        // Special configuration for stream-related endpoints with more permissive settings
+        CorsConfiguration streamConfig = new CorsConfiguration();
+        streamConfig.setAllowedOrigins(Arrays.asList(allowedOrigins)); // Use the same origins - don't use "*"
+        streamConfig.setAllowedMethods(Arrays.asList("GET", "OPTIONS"));
+        streamConfig.setAllowedHeaders(Arrays.asList("authorization", "content-type", "x-auth-token", "accept", "origin"));
+        streamConfig.setAllowCredentials(true);
+        streamConfig.setMaxAge(3600L);
+        
+        // Register the stream configuration for stream-specific endpoints
+        source.registerCorsConfiguration("/api/stream/proxy", streamConfig);
+        source.registerCorsConfiguration("/stream", streamConfig);
+        
+        // WebSocket specific configuration
+        CorsConfiguration wsConfig = new CorsConfiguration();
+        wsConfig.setAllowedOrigins(Arrays.asList(allowedOrigins)); // Use the same origins
+        wsConfig.setAllowedMethods(Arrays.asList("GET", "OPTIONS"));
+        wsConfig.setAllowedHeaders(Arrays.asList("authorization", "content-type", "x-auth-token", "accept", "origin"));
+        wsConfig.setAllowCredentials(true);
+        wsConfig.setMaxAge(3600L);
+        
+        // Register the websocket configuration
+        source.registerCorsConfiguration("/ws-radio/**", wsConfig);
+        
         return source;
     }
 
