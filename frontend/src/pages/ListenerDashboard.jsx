@@ -74,7 +74,7 @@ export default function ListenerDashboard() {
       if (statusCheckInterval.current) {
         clearInterval(statusCheckInterval.current)
       }
-    }
+      }
   }, [])
 
   // Set up stream status checking based on prototype
@@ -311,8 +311,8 @@ export default function ListenerDashboard() {
 
       {/* Network Information */}
       {serverConfig && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
-          <div className="p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+        <div className="p-6">
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
               Stream Information
             </h2>
@@ -325,19 +325,19 @@ export default function ListenerDashboard() {
               <div>
                 <span className="font-medium text-gray-700 dark:text-gray-300">Icecast Port:</span>
                 <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.icecastPort}</code>
-              </div>
+                  </div>
               <div className="md:col-span-2">
                 <span className="font-medium text-gray-700 dark:text-gray-300">Stream URL:</span>
                 <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.streamUrl}</code>
-              </div>
-            </div>
+                                      </div>
+                                    </div>
             
             <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/30 rounded-md">
               <p className="text-sm text-green-700 dark:text-green-200">
                 <strong>Status:</strong> {isLive ? 'Stream is currently live!' : 'Waiting for DJ to go live...'}
                 {isLive && ' Click the play button above to start listening.'}
-              </p>
-            </div>
+                            </p>
+                          </div>
           </div>
         </div>
       )}

@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import {
-  PlayIcon,
+import { 
+  PlayIcon, 
   PauseIcon,
   MicrophoneIcon,
   StopIcon,
@@ -41,7 +41,7 @@ export default function DJDashboard() {
         const config = await streamService.getConfig()
         setServerConfig(config.data)
         console.log("Server config loaded:", config.data)
-      } catch (error) {
+    } catch (error) {
         console.error("Error fetching server config:", error)
         setStreamError("Failed to get server configuration")
       }
@@ -63,11 +63,11 @@ export default function DJDashboard() {
       
       // Get microphone access with specific constraints
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
+                  audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                  }
       })
       
       audioStreamRef.current = stream
@@ -125,7 +125,7 @@ export default function DJDashboard() {
         }
       }
       
-    } catch (error) {
+          } catch (error) {
       console.error("Error starting broadcast:", error)
       setStreamError(`Error accessing microphone: ${error.message}`)
       stopBroadcast()
@@ -181,7 +181,7 @@ export default function DJDashboard() {
         try {
           await audioPreviewRef.current.play()
           setPreviewEnabled(true)
-        } catch (error) {
+    } catch (error) {
           console.error("Error starting preview:", error)
           setStreamError("Could not start audio preview")
         }
@@ -234,49 +234,49 @@ export default function DJDashboard() {
                 {isLive ? 'LIVE' : 'Offline'}
               </span>
             </div>
-            
+
             {websocketConnected && (
               <span className="text-sm bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 py-1 px-3 rounded-full">
                 Connected
-              </span>
-            )}
+                </span>
+              )}
           </div>
 
           {/* Error Display */}
           {streamError && (
             <div className="mb-4 p-3 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md text-sm">
               {streamError}
-            </div>
+                  </div>
           )}
 
           {/* Broadcasting Controls */}
           <div className="flex items-center justify-center space-x-4">
             {!isLive ? (
-              <button
+                      <button
                 onClick={startBroadcast}
                 disabled={!serverConfig}
                 className="flex items-center px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
               >
                 <MicrophoneIcon className="h-5 w-5 mr-2" />
                 Go Live
-              </button>
-            ) : (
-              <button
+                      </button>
+                    ) : (
+                        <button
                 onClick={stopBroadcast}
                 className="flex items-center px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
               >
                 <StopIcon className="h-5 w-5 mr-2" />
                 Stop Live
-              </button>
+                        </button>
             )}
-          </div>
+                </div>
 
           {/* Stream Preview Controls */}
           <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Stream Preview</h3>
             
-            <div className="flex items-center justify-between">
-              <button
+                  <div className="flex items-center justify-between">
+                      <button 
                 onClick={togglePreview}
                 disabled={!serverConfig?.streamUrl}
                 className={`flex items-center px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed transition-colors ${
@@ -288,15 +288,15 @@ export default function DJDashboard() {
                 {previewEnabled ? (
                   <>
                     <PauseIcon className="h-4 w-4 mr-2" />
-                    Stop Preview
-                  </>
-                ) : (
-                  <>
+                              Stop Preview
+                            </>
+                          ) : (
+                            <>
                     <PlayIcon className="h-4 w-4 mr-2" />
                     Start Preview
-                  </>
-                )}
-              </button>
+                            </>
+                          )}
+                        </button>
 
               <div className="flex items-center space-x-3">
                 <button
@@ -309,7 +309,7 @@ export default function DJDashboard() {
                     <SpeakerWaveIcon className="h-5 w-5" />
                   )}
                 </button>
-                <input
+                  <input
                   type="range"
                   min="0"
                   max="100"
@@ -320,52 +320,52 @@ export default function DJDashboard() {
                 <span className="text-sm text-gray-700 dark:text-gray-300 min-w-[2.5rem] text-right">
                   {volume}%
                 </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+                </div>
+                    </div>
+                </div>
+                </div>
+                        </div>
 
       {/* Network Information */}
       {serverConfig && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
-          <div className="p-6">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
               Network Information
-            </h2>
-            
+              </h2>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
+                    <div>
                 <span className="font-medium text-gray-700 dark:text-gray-300">Server IP:</span>
                 <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.serverIp}</code>
-              </div>
+                      </div>
               <div>
                 <span className="font-medium text-gray-700 dark:text-gray-300">Server Port:</span>
                 <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.serverPort}</code>
-              </div>
-              <div>
+                    </div>
+                    <div>
                 <span className="font-medium text-gray-700 dark:text-gray-300">WebSocket URL:</span>
                 <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.webSocketUrl}</code>
-              </div>
-              <div>
+                    </div>
+                    <div>
                 <span className="font-medium text-gray-700 dark:text-gray-300">Icecast URL:</span>
                 <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.icecastUrl}</code>
-              </div>
+                      </div>
               <div className="md:col-span-2">
                 <span className="font-medium text-gray-700 dark:text-gray-300">Stream URL:</span>
                 <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.streamUrl}</code>
+                </div>
               </div>
-            </div>
-            
+
             <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-md">
               <p className="text-sm text-blue-700 dark:text-blue-200">
                 <strong>Instructions:</strong> Click "Go Live" to start broadcasting. Make sure to allow microphone access when prompted.
                 The stream will be available at the Stream URL above for listeners to tune in.
               </p>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+                            </div>
+                                </div>
+                            </div>
+                              )}
+                            </div>
   )
 } 

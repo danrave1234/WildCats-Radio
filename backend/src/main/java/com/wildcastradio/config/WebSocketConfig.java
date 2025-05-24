@@ -44,6 +44,6 @@ public class WebSocketConfig implements WebSocketConfigurer {
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(icecastStreamHandler, "/ws/live")
-                .setAllowedOrigins("*"); // Allow connections from any origin
+                .setAllowedOriginPatterns("*"); // Use patterns instead of origins for CORS compatibility
     }
 }
