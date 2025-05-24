@@ -34,12 +34,32 @@ export default function ListenerDashboard() {
       }
     }
 
-    // Create audio element
+    fetchServerConfig()
+  }, [])
+
+  // Set up audio element when server config is available
+  useEffect(() => {
+    if (!serverConfig) return
+
+    // Create and configure audio element
     if (!audioRef.current) {
       audioRef.current = new Audio()
+      
+      // Configure audio element for Icecast streaming
+      audioRef.current.crossOrigin = "anonymous"
+      audioRef.current.preload = "none"
       audioRef.current.volume = volume / 100
 
-      // Add event listeners
+      // Add event listeners with better error details
+      audioRef.current.addEventListener('loadstart', () => {
+        console.log('Stream loading started')
+      })
+
+      audioRef.current.addEventListener('canplay', () => {
+        console.log('Stream can start playing')
+        setStreamError(null)
+      })
+
       audioRef.current.addEventListener('playing', () => {
         setIsPlaying(true)
         setStreamError(null)
@@ -58,12 +78,52 @@ export default function ListenerDashboard() {
 
       audioRef.current.addEventListener('error', (e) => {
         console.error('Audio error:', e)
-        setStreamError('Error loading stream. Please try again.')
+        console.error('Audio error details:', {
+          error: audioRef.current?.error,
+          networkState: audioRef.current?.networkState,
+          readyState: audioRef.current?.readyState,
+          src: audioRef.current?.src
+        })
+        
+        let errorMessage = 'Error loading stream. '
+        if (audioRef.current?.error) {
+          switch (audioRef.current.error.code) {
+            case 1: // MEDIA_ERR_ABORTED
+              errorMessage += 'Stream loading was aborted.'
+              break
+            case 2: // MEDIA_ERR_NETWORK
+              errorMessage += 'Network error occurred.'
+              break
+            case 3: // MEDIA_ERR_DECODE
+              errorMessage += 'Stream format not supported.'
+              break
+            case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+              errorMessage += 'Stream source not supported.'
+              break
+            default:
+              errorMessage += 'Unknown error occurred.'
+          }
+        }
+        errorMessage += ' Please try refreshing or check if the stream is live.'
+        
+        setStreamError(errorMessage)
         setIsPlaying(false)
+      })
+
+      audioRef.current.addEventListener('stalled', () => {
+        console.warn('Stream stalled')
+      })
+
+      audioRef.current.addEventListener('waiting', () => {
+        console.log('Stream buffering')
       })
     }
 
-    fetchServerConfig()
+    // Set the stream URL immediately when config is available
+    if (audioRef.current && serverConfig.streamUrl) {
+      audioRef.current.src = serverConfig.streamUrl
+      console.log('Stream URL set:', serverConfig.streamUrl)
+    }
 
     return () => {
       // Clean up audio element when component unmounts
@@ -74,8 +134,8 @@ export default function ListenerDashboard() {
       if (statusCheckInterval.current) {
         clearInterval(statusCheckInterval.current)
       }
-      }
-  }, [])
+    }
+  }, [serverConfig, volume])
 
   // Set up stream status checking based on prototype
   useEffect(() => {
@@ -96,17 +156,13 @@ export default function ListenerDashboard() {
                 source.mount === '/live.ogg'
               )
             } else {
+              // Fix: Properly check if the single source is the live stream
               isStreamLive = data.icestats.source.mount === '/live.ogg'
             }
           }
 
           setIsLive(isStreamLive)
-          
-          // If stream becomes live and we have an audio element, set up the source
-          if (isStreamLive && audioRef.current && !audioRef.current.src) {
-            audioRef.current.src = serverConfig.streamUrl
-            audioRef.current.load()
-          }
+          console.log('Stream live status:', isStreamLive)
         })
         .catch(error => {
           console.error('Error checking status:', error)
@@ -134,19 +190,22 @@ export default function ListenerDashboard() {
 
   // Toggle play/pause
   const togglePlay = () => {
-    if (!isLive || !audioRef.current || !serverConfig) return
+    if (!audioRef.current || !serverConfig) {
+      setStreamError("Audio player not ready. Please wait...")
+      return
+    }
 
     try {
       if (isPlaying) {
         audioRef.current.pause()
       } else {
-        // If we don't have a stream URL, set it first
-        if (!audioRef.current.src) {
+        // Ensure we have the correct stream URL
+        if (!audioRef.current.src || audioRef.current.src !== serverConfig.streamUrl) {
           audioRef.current.src = serverConfig.streamUrl
           audioRef.current.load()
         }
 
-        // Play with a catch for browser autoplay restrictions
+        // Play with proper promise handling
         const playPromise = audioRef.current.play()
 
         if (playPromise !== undefined) {
@@ -154,17 +213,28 @@ export default function ListenerDashboard() {
             .then(() => {
               setIsPlaying(true)
               setStreamError(null)
+              console.log('Playback started successfully')
             })
             .catch(error => {
               console.error("Playback failed:", error)
-              setStreamError("Couldn't start playback. Click play again or check browser autoplay settings.")
+              
+              // Provide specific error messages
+              if (error.name === 'NotAllowedError') {
+                setStreamError("Browser blocked autoplay. Please click play again to start listening.")
+              } else if (error.name === 'NotSupportedError') {
+                setStreamError("Your browser doesn't support this audio format. Try refreshing or use a different browser.")
+              } else if (error.name === 'AbortError') {
+                setStreamError("Playback was interrupted. Please try again.")
+              } else {
+                setStreamError(`Playback failed: ${error.message}. Please check if the stream is live.`)
+              }
               setIsPlaying(false)
             })
         }
       }
     } catch (error) {
       console.error("Error toggling playback:", error)
-      setStreamError("Playback error. Please try again.")
+      setStreamError(`Playback error: ${error.message}. Please try again.`)
     }
   }
 
@@ -195,9 +265,12 @@ export default function ListenerDashboard() {
   // Refresh stream
   const refreshStream = () => {
     if (audioRef.current && serverConfig) {
+      console.log('Refreshing stream...')
+      audioRef.current.pause()
       audioRef.current.src = serverConfig.streamUrl
       audioRef.current.load()
       setStreamError(null)
+      setIsPlaying(false)
     }
   }
 
@@ -252,9 +325,9 @@ export default function ListenerDashboard() {
             <div className="flex items-center justify-between">
               <button
                 onClick={togglePlay}
-                disabled={!isLive}
+                disabled={!serverConfig}
                 className={`p-3 rounded-full ${
-                  !isLive
+                  !serverConfig
                     ? 'bg-gray-200 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:text-gray-500'
                     : isPlaying
                     ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-900 dark:text-yellow-200 dark:hover:bg-yellow-800'
