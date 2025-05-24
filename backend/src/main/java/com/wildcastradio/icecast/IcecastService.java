@@ -6,7 +6,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.HashMap;
@@ -76,19 +78,75 @@ public class IcecastService {
     }
     
     /**
-     * Get information about all active broadcasts
+     * Check if the stream is actually live on Icecast server
+     * This queries Icecast's status-json.xsl endpoint to see if /live.ogg mountpoint is active
+     * @return true if the stream is live on Icecast
+     */
+    public boolean isStreamLive() {
+        try {
+            URL url = new URL(networkConfig.getIcecastUrl() + "/status-json.xsl");
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(3000);
+            connection.setReadTimeout(3000);
+            
+            int responseCode = connection.getResponseCode();
+            if (responseCode == 200) {
+                // Read the JSON response
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        response.append(line);
+                    }
+                    
+                    // Simple check for /live.ogg mountpoint in the response
+                    String jsonResponse = response.toString();
+                    return jsonResponse.contains("/live.ogg") && jsonResponse.contains("\"mount\":\"/live.ogg\"");
+                }
+            }
+        } catch (IOException e) {
+            logger.warn("Failed to check Icecast stream status: {}", e.getMessage());
+        }
+        return false;
+    }
+    
+    /**
+     * Check if Icecast server is running and reachable
+     * @return true if Icecast server is reachable
+     */
+    public boolean isServerUp() {
+        try {
+            URL url = new URL(networkConfig.getIcecastUrl());
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("HEAD");
+            connection.setConnectTimeout(3000);
+            connection.setReadTimeout(3000);
+            int responseCode = connection.getResponseCode();
+            return responseCode < 400;
+        } catch (IOException e) {
+            logger.warn("Failed to connect to Icecast server: {}", e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Get information about all active broadcasts and stream status
      * @return Map of stream info
      */
     public Map<String, Object> getStreamStatus() {
         Map<String, Object> status = new HashMap<>();
-        status.put("isLive", isAnyBroadcastActive());
+        
+        // Check actual Icecast stream status
+        boolean isLive = isStreamLive();
+        boolean serverUp = isServerUp();
+        
+        status.put("live", isLive);
+        status.put("server", serverUp ? "UP" : "DOWN");
         status.put("streamUrl", networkConfig.getStreamUrl());
         status.put("icecastUrl", networkConfig.getIcecastUrl());
         status.put("activeBroadcasts", activeBroadcasts.size());
-        
-        // Check if Icecast server is reachable
-        boolean icecastReachable = checkIcecastServer();
-        status.put("icecastReachable", icecastReachable);
+        status.put("icecastReachable", serverUp);
         
         return status;
     }
@@ -125,22 +183,11 @@ public class IcecastService {
     }
     
     /**
-     * Check if Icecast server is running and reachable
+     * Check if Icecast server is running and reachable (legacy method)
      * @return true if Icecast server is reachable
      */
     public boolean checkIcecastServer() {
-        try {
-            URL url = new URL(networkConfig.getIcecastUrl());
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("HEAD");
-            connection.setConnectTimeout(3000);
-            connection.setReadTimeout(3000);
-            int responseCode = connection.getResponseCode();
-            return responseCode < 400; // Consider any non-error response as successful
-        } catch (IOException e) {
-            logger.warn("Failed to connect to Icecast server: {}", e.getMessage());
-            return false;
-        }
+        return isServerUp();
     }
     
     /**
