@@ -167,16 +167,10 @@ export default function DJDashboard() {
   // Connect to WebSocket server for streaming
   const connectWebSocket = async () => {
     try {
-      console.log('Connecting to WebSocket for streaming...');
-      
-      // Close any existing connection first
+      // Close existing WebSocket connection if it exists
       if (websocketRef.current) {
         try {
-          if (websocketRef.current.readyState === WebSocket.OPEN || 
-              websocketRef.current.readyState === WebSocket.CONNECTING) {
-            websocketRef.current.close();
-            console.log('Closed existing WebSocket connection');
-          }
+          websocketRef.current.close();
         } catch (error) {
           console.error('Error closing existing WebSocket:', error);
         }
@@ -184,7 +178,8 @@ export default function DJDashboard() {
       }
       
       // Create WebSocket connection
-      const wsUrl = streamService.getStreamUrl();
+      // Get WebSocket URL from the backend
+      const wsUrl = await streamService.getStreamUrl();
       console.log(`Using WebSocket URL: ${wsUrl}`);
       
       const ws = new WebSocket(wsUrl);
@@ -266,7 +261,7 @@ export default function DJDashboard() {
       
       return ws;
     } catch (error) {
-      console.error('Error creating WebSocket connection:', error);
+      console.error('Error connecting to WebSocket:', error);
       setStreamingError(`Connection error: ${error.message}`);
       
       setToast({

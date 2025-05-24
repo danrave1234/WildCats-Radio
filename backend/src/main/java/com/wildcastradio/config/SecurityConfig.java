@@ -40,10 +40,11 @@ public class SecurityConfig {
                 .requestMatchers("/api/user/register").permitAll()
                 .requestMatchers("/api/user/verify").permitAll()
                 .requestMatchers("/api/stream/status").permitAll()
+                .requestMatchers("/api/stream/config").permitAll()
                 // Allow all stream-related endpoints
                 .requestMatchers("/api/stream/**").permitAll()
-                .requestMatchers("/api/shoutcast/**").permitAll()
                 // Websocket endpoints
+                .requestMatchers("/ws/live").permitAll()
                 .requestMatchers("/stream").permitAll()
                 .requestMatchers("/ws-radio/**").permitAll()
                 // Swagger UI endpoints if you use it

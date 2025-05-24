@@ -17,7 +17,7 @@ import com.wildcastradio.Broadcast.DTO.CreateBroadcastRequest;
 import com.wildcastradio.Notification.NotificationService;
 import com.wildcastradio.Notification.NotificationType;
 import com.wildcastradio.ServerSchedule.ServerScheduleService;
-import com.wildcastradio.ShoutCast.ShoutcastService;
+import com.wildcastradio.icecast.IcecastService;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserRepository;
 
@@ -29,7 +29,7 @@ public class BroadcastService {
     private BroadcastRepository broadcastRepository;
 
     @Autowired
-    private ShoutcastService shoutCastService;
+    private IcecastService icecastService;
 
     @Autowired
     private ServerScheduleService serverScheduleService;
@@ -89,38 +89,33 @@ public class BroadcastService {
 
         if (testMode) {
             // Test mode - bypass server checks
-            logger.info("Starting broadcast in TEST MODE (ShoutCast integration bypassed)");
-            // Set the ShoutcastService to test mode
-            shoutCastService.setTestMode(true);
-            String testStreamUrl = shoutCastService.getTestStreamUrl(broadcast);
-            broadcast.setStreamUrl(testStreamUrl);
+            logger.info("Starting broadcast in TEST MODE (Icecast integration bypassed)");
+            // Generate a test stream URL
+            broadcast.setStreamUrl("http://localhost:8000/live.ogg?test=true");
         } else {
-            // Reset ShoutcastService test mode
-            shoutCastService.setTestMode(false);
-            // Check if the ShoutCast server is accessible
-            boolean shoutCastServerAccessible = shoutCastService.isServerAccessible();
+            // Check if the Icecast server is accessible
+            boolean icecastServerAccessible = icecastService.checkIcecastServer();
             // Check if the server schedule is running
             boolean serverScheduleRunning = serverScheduleService.isServerRunning();
 
-            // If either the ShoutCast server is accessible or the server schedule is running, we can proceed
-            if (shoutCastServerAccessible || serverScheduleRunning) {
-                logger.info("Server is available (ShoutCast accessible: {}, Server schedule running: {}), proceeding with broadcast", 
-                        shoutCastServerAccessible, serverScheduleRunning);
+            // If either the Icecast server is accessible or the server schedule is running, we can proceed
+            if (icecastServerAccessible || serverScheduleRunning) {
+                logger.info("Server is available (Icecast accessible: {}, Server schedule running: {}), proceeding with broadcast", 
+                        icecastServerAccessible, serverScheduleRunning);
 
                 // If the server is accessible but not tracked in the database, create a record
-                if (shoutCastServerAccessible && !serverScheduleRunning) {
+                if (icecastServerAccessible && !serverScheduleRunning) {
                     logger.info("Creating server schedule record for manually started server");
                     serverScheduleService.startServerNow(dj);
                 }
 
-                // Start the stream using ShoutCastService
-                String streamUrl = shoutCastService.startStream(broadcast);
-                broadcast.setStreamUrl(streamUrl);
+                // Set the stream URL from Icecast service
+                broadcast.setStreamUrl(icecastService.getStreamUrl());
             } else {
-                // If neither the ShoutCast server is accessible nor the server schedule is running, throw an exception
-                logger.error("Failed to start broadcast: Server checks failed. ShoutCast accessible: {}, Server schedule running: {}", 
-                        shoutCastServerAccessible, serverScheduleRunning);
-                throw new IllegalStateException("Server is not running. Please start the server before broadcasting.");
+                // If neither the Icecast server is accessible nor the server schedule is running, throw an exception
+                logger.error("Failed to start broadcast: Server checks failed. Icecast accessible: {}, Server schedule running: {}", 
+                        icecastServerAccessible, serverScheduleRunning);
+                throw new IllegalStateException("Icecast server is not running. Please start the server before broadcasting.");
             }
         }
 
@@ -153,8 +148,7 @@ public class BroadcastService {
         // Allow any DJ to end a broadcast, not just the creator
         // This enables site-wide broadcast control
 
-        // End the stream using ShoutCastService
-        shoutCastService.endStream(broadcast);
+        // End the stream (no specific action needed with Icecast as WebSocket close will handle this)
         broadcast.setActualEnd(LocalDateTime.now());
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
 
@@ -182,8 +176,7 @@ public class BroadcastService {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new RuntimeException("Broadcast not found"));
 
-        // End the stream using ShoutCastService
-        shoutCastService.endStream(broadcast);
+        // End the stream
         broadcast.setActualEnd(LocalDateTime.now());
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
 

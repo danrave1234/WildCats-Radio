@@ -11,7 +11,7 @@ import {
   ChatBubbleLeftRightIcon,
 } from "@heroicons/react/24/solid"
 import AudioVisualizer from "../components/AudioVisualizer"
-  import { broadcastService, chatService, songRequestService } from "../services/api"
+import { broadcastService, chatService, songRequestService } from "../services/api"
 
 export default function ListenerDashboard() {
   const [isPlaying, setIsPlaying] = useState(false)
@@ -113,16 +113,22 @@ export default function ListenerDashboard() {
         if (status.live && status.server === "UP") {
           setIsLive(true);
 
-          // Get the listener stream URL for Shoutcast
-          const listenerStreamUrl = streamService.getListenerStreamUrl();
-          setStreamUrl(listenerStreamUrl);
+          // Get the listener stream URL for Icecast
+          streamService.getListenerStreamUrl()
+            .then(listenerStreamUrl => {
+              setStreamUrl(listenerStreamUrl);
 
-          // Set up audio player source
-          if (audioRef.current && audioRef.current.src !== listenerStreamUrl) {
-            audioRef.current.src = listenerStreamUrl;
-            audioRef.current.load();
-            console.log("Stream URL set:", listenerStreamUrl);
-          }
+              // Set up audio player source
+              if (audioRef.current && audioRef.current.src !== listenerStreamUrl) {
+                audioRef.current.src = listenerStreamUrl;
+                audioRef.current.load();
+                console.log("Stream URL set:", listenerStreamUrl);
+              }
+            })
+            .catch(error => {
+              console.error("Error getting stream URL:", error);
+              setStreamError("Failed to get stream URL");
+            });
 
           // If there's a live broadcast, set it as the current one
           if (status.broadcast) {
@@ -374,25 +380,6 @@ export default function ListenerDashboard() {
       setCurrentPoll(null);
     }
   }, [currentBroadcastId, isLive]);
-
-  const togglePlay = () => {
-    if (!isLive) return
-    setIsPlaying(!isPlaying)
-  }
-
-  const toggleMute = () => {
-    setIsMuted(!isMuted)
-  }
-
-  const handleVolumeChange = (e) => {
-    const newVolume = Number.parseInt(e.target.value, 10)
-    setVolume(newVolume)
-    if (newVolume === 0) {
-      setIsMuted(true)
-    } else if (isMuted) {
-      setIsMuted(false)
-    }
-  }
 
   // Handle chat submission
   const handleChatSubmit = async (e) => {
