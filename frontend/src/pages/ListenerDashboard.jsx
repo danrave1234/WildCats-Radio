@@ -17,17 +17,21 @@ export default function ListenerDashboard() {
   const [isLive, setIsLive] = useState(false)
   const [streamError, setStreamError] = useState(null)
   const [serverConfig, setServerConfig] = useState(null)
+  const [listenerCount, setListenerCount] = useState(0)
   
   const audioRef = useRef(null)
   const statusCheckInterval = useRef(null)
+  const wsRef = useRef(null)
 
   // Initialize server configuration and audio element
   useEffect(() => {
     const fetchServerConfig = async () => {
       try {
         const config = await streamService.getConfig()
-        setServerConfig(config.data)
-        console.log("Server config loaded:", config.data)
+        // Backend returns { success: true, data: { serverIp, webSocketUrl, etc. } }
+        // So we need to access the nested data property
+        setServerConfig(config.data.data)
+        console.log("Server config loaded:", config.data.data)
       } catch (error) {
         console.error("Error fetching server config:", error)
         setStreamError("Failed to get server configuration")
@@ -37,7 +41,7 @@ export default function ListenerDashboard() {
     fetchServerConfig()
   }, [])
 
-  // Set up audio element when server config is available
+  // Set up audio element when server config is available (removed volume dependency)
   useEffect(() => {
     if (!serverConfig) return
 
@@ -117,10 +121,8 @@ export default function ListenerDashboard() {
       audioRef.current.addEventListener('waiting', () => {
         console.log('Stream buffering')
       })
-    }
 
-    // Set the stream URL immediately when config is available
-    if (audioRef.current && serverConfig.streamUrl) {
+      // Set the stream URL immediately when config is available
       audioRef.current.src = serverConfig.streamUrl
       console.log('Stream URL set:', serverConfig.streamUrl)
     }
@@ -134,45 +136,95 @@ export default function ListenerDashboard() {
       if (statusCheckInterval.current) {
         clearInterval(statusCheckInterval.current)
       }
+      if (wsRef.current) {
+        wsRef.current.close()
+      }
     }
-  }, [serverConfig, volume])
+  }, [serverConfig]) // Removed volume from dependency array
 
-  // Set up stream status checking based on prototype
+  // Set up WebSocket connection for real-time updates
+  useEffect(() => {
+    if (!serverConfig) return
+
+    const connectWebSocket = () => {
+      const wsUrl = `ws://${serverConfig.serverIp}:8080/ws/listener`
+      console.log('Connecting to WebSocket:', wsUrl)
+      
+      wsRef.current = new WebSocket(wsUrl)
+
+      wsRef.current.onopen = () => {
+        console.log('WebSocket connected for listener updates')
+      }
+
+      wsRef.current.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          console.log('WebSocket message received:', data)
+          
+          if (data.type === 'STREAM_STATUS') {
+            setIsLive(data.isLive)
+            setListenerCount(data.listenerCount || 0)
+            console.log('Stream status updated via WebSocket:', data.isLive)
+            }
+          } catch (error) {
+          console.error('Error parsing WebSocket message:', error)
+          }
+        }
+
+      wsRef.current.onclose = () => {
+        console.log('WebSocket disconnected, attempting to reconnect...')
+        // Reconnect after 3 seconds
+        setTimeout(connectWebSocket, 3000)
+      }
+
+      wsRef.current.onerror = (error) => {
+        console.error('WebSocket error:', error)
+      }
+    }
+
+    connectWebSocket()
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close()
+      }
+    }
+  }, [serverConfig])
+
+  // Fallback: Set up stream status checking via polling (as backup)
   useEffect(() => {
     if (!serverConfig) return
 
     const checkStatus = () => {
-      // Use Icecast's status-json.xsl endpoint like in the prototype
-      fetch(`${serverConfig.icecastUrl}/status-json.xsl`)
-        .then(response => response.json())
-        .then(data => {
-          console.log("Icecast status:", data)
-          let isStreamLive = false
-
-          if (data.icestats && data.icestats.source) {
-            // Handle both array and single object responses
-            if (Array.isArray(data.icestats.source)) {
-              isStreamLive = data.icestats.source.some(source => 
-                source.mount === '/live.ogg'
-              )
-            } else {
-              // Fix: Properly check if the single source is the live stream
-              isStreamLive = data.icestats.source.mount === '/live.ogg'
-            }
+      // Use backend API instead of directly accessing Icecast to avoid CORS issues
+      streamService.getStatus()
+        .then(response => {
+          console.log("Backend stream status:", response.data)
+          
+          if (response.data && response.data.data) {
+            const statusData = response.data.data
+            setIsLive(statusData.live || false)
+            
+            // Get listener count from backend
+            streamService.getHealth()
+              .then(healthResponse => {
+                console.log("Health status:", healthResponse.data)
+                // The listener count will come via WebSocket, but this is a fallback
+              })
+              .catch(error => {
+                console.log("Health check failed:", error)
+              })
           }
-
-          setIsLive(isStreamLive)
-          console.log('Stream live status:', isStreamLive)
         })
         .catch(error => {
           console.error('Error checking status:', error)
-          setIsLive(false)
+          // Don't set isLive to false here if WebSocket is working
         })
     }
 
-    // Check status immediately and set up interval
+    // Check status immediately and set up interval as fallback
     checkStatus()
-    statusCheckInterval.current = setInterval(checkStatus, 10000) // Check every 10 seconds
+    statusCheckInterval.current = setInterval(checkStatus, 5000) // Check every 5 seconds
 
     return () => {
       if (statusCheckInterval.current) {
@@ -181,10 +233,12 @@ export default function ListenerDashboard() {
     }
   }, [serverConfig])
 
-  // Update volume when it changes
+  // Handle volume changes without recreating audio element
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.volume = isMuted ? 0 : volume / 100
+      const newVolume = isMuted ? 0 : volume / 100
+      audioRef.current.volume = newVolume
+      console.log('Volume updated to:', newVolume)
     }
   }, [volume, isMuted])
 
@@ -199,9 +253,13 @@ export default function ListenerDashboard() {
       if (isPlaying) {
         audioRef.current.pause()
       } else {
-        // Ensure we have the correct stream URL
-        if (!audioRef.current.src || audioRef.current.src !== serverConfig.streamUrl) {
-          audioRef.current.src = serverConfig.streamUrl
+        // Only reload if the source is different or not set
+        const currentSrc = audioRef.current.src
+        const expectedSrc = serverConfig.streamUrl
+        
+        if (!currentSrc || currentSrc !== expectedSrc) {
+          console.log('Setting new stream URL:', expectedSrc)
+          audioRef.current.src = expectedSrc
           audioRef.current.load()
         }
 
@@ -241,23 +299,17 @@ export default function ListenerDashboard() {
   // Toggle mute
   const toggleMute = () => {
     setIsMuted(!isMuted)
-    if (audioRef.current) {
-      audioRef.current.volume = !isMuted ? 0 : volume / 100
     }
-  }
 
-  // Handle volume change
+  // Handle volume change with debouncing to prevent excessive updates
   const handleVolumeChange = (e) => {
     const newVolume = parseInt(e.target.value, 10)
     setVolume(newVolume)
 
-    if (audioRef.current) {
-      audioRef.current.volume = newVolume / 100
-    }
-
+    // Handle mute state based on volume
     if (newVolume === 0) {
       setIsMuted(true)
-    } else if (isMuted) {
+    } else if (isMuted && newVolume > 0) {
       setIsMuted(false)
     }
   }
@@ -294,7 +346,7 @@ export default function ListenerDashboard() {
                   isLive ? 'bg-green-500 animate-pulse' : 'bg-red-500'
                 }`}></span>
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {isLive ? 'Live Broadcasting' : 'Offline'}
+                  {isLive ? `Live Broadcasting (${listenerCount} listeners)` : 'Offline'}
                 </span>
               </div>
 
@@ -398,6 +450,16 @@ export default function ListenerDashboard() {
               <div>
                 <span className="font-medium text-gray-700 dark:text-gray-300">Icecast Port:</span>
                 <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.icecastPort}</code>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700 dark:text-gray-300">Current Listeners:</span>
+                <code className="ml-2 text-gray-900 dark:text-white">{listenerCount}</code>
+              </div>
+              <div>
+                <span className="font-medium text-gray-700 dark:text-gray-300">Connection:</span>
+                <code className="ml-2 text-gray-900 dark:text-white">
+                  {wsRef.current?.readyState === 1 ? 'WebSocket Active' : 'Polling Mode'}
+                </code>
                   </div>
               <div className="md:col-span-2">
                 <span className="font-medium text-gray-700 dark:text-gray-300">Stream URL:</span>
@@ -407,7 +469,7 @@ export default function ListenerDashboard() {
             
             <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/30 rounded-md">
               <p className="text-sm text-green-700 dark:text-green-200">
-                <strong>Status:</strong> {isLive ? 'Stream is currently live!' : 'Waiting for DJ to go live...'}
+                <strong>Status:</strong> {isLive ? `Stream is currently live with ${listenerCount} listener${listenerCount !== 1 ? 's' : ''}!` : 'Waiting for DJ to go live...'}
                 {isLive && ' Click the play button above to start listening.'}
                             </p>
                           </div>

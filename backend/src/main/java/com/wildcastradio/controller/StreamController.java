@@ -1,7 +1,8 @@
 package com.wildcastradio.controller;
 
-import com.wildcastradio.config.NetworkConfig;
 import com.wildcastradio.icecast.IcecastService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -9,58 +10,105 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * REST controller for stream management and configuration.
+ * Provides endpoints for getting stream configuration and status.
+ */
 @RestController
 @RequestMapping("/api/stream")
 public class StreamController {
-
-    private final NetworkConfig networkConfig;
+    private static final Logger logger = LoggerFactory.getLogger(StreamController.class);
+    
     private final IcecastService icecastService;
-
+    
     @Autowired
-    public StreamController(NetworkConfig networkConfig, IcecastService icecastService) {
-        this.networkConfig = networkConfig;
+    public StreamController(IcecastService icecastService) {
         this.icecastService = icecastService;
     }
-
+    
     /**
-     * Get stream configuration for frontend
-     * This provides all the URLs and network information needed by the frontend
+     * Get stream configuration including URLs and network settings
      */
     @GetMapping("/config")
-    public ResponseEntity<Map<String, Object>> getConfig() {
-        return ResponseEntity.ok(icecastService.getStreamConfig());
+    public ResponseEntity<Map<String, Object>> getStreamConfig() {
+        try {
+            Map<String, Object> config = icecastService.getStreamConfig();
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("data", config);
+            
+            logger.info("Stream config requested: {}", config);
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            logger.error("Error getting stream config", e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("error", "Failed to get stream configuration: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(errorResponse);
+        }
     }
-
+    
     /**
-     * Get current stream status
-     * Checks if Icecast has an active stream
+     * Get current stream status including live status and listener count
      */
     @GetMapping("/status")
-    public ResponseEntity<Map<String, Object>> getStatus() {
-        return ResponseEntity.ok(icecastService.getStreamStatus());
+    public ResponseEntity<Map<String, Object>> getStreamStatus() {
+        try {
+            Map<String, Object> status = icecastService.getStreamStatus();
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("data", status);
+            response.put("timestamp", System.currentTimeMillis());
+            
+            logger.debug("Stream status requested: {}", status);
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            logger.error("Error getting stream status", e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("error", "Failed to get stream status: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(errorResponse);
+        }
     }
-
+    
     /**
-     * Manual start streaming endpoint (optional)
-     * This is mainly for compatibility - actual streaming starts when DJ connects WebSocket
+     * Get WebSocket URL for streaming
      */
-    @PostMapping("/start")
-    public ResponseEntity<Map<String, String>> startStream() {
-        Map<String, String> response = new HashMap<>();
-        response.put("message", "Stream ready to accept connections");
-        response.put("webSocketUrl", networkConfig.getWebSocketUrl());
-        response.put("streamUrl", networkConfig.getStreamUrl());
-        return ResponseEntity.ok(response);
+    @GetMapping("/websocket-url")
+    public ResponseEntity<Map<String, Object>> getWebSocketUrl() {
+        try {
+            String wsUrl = icecastService.getWebSocketUrl();
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("webSocketUrl", wsUrl);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            logger.error("Error getting WebSocket URL", e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("error", "Failed to get WebSocket URL: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(errorResponse);
+        }
     }
-
+    
     /**
-     * Manual stop streaming endpoint (optional)
-     * Actual streaming stops when DJ disconnects WebSocket
+     * Health check endpoint
      */
-    @PostMapping("/stop")
-    public ResponseEntity<Map<String, String>> stopStream() {
-        Map<String, String> response = new HashMap<>();
-        response.put("message", "Stream stopped");
-        return ResponseEntity.ok(response);
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, Object>> healthCheck() {
+        Map<String, Object> health = new HashMap<>();
+        health.put("status", "UP");
+        health.put("icecastServer", icecastService.isServerUp() ? "UP" : "DOWN");
+        health.put("streamLive", icecastService.isStreamLive());
+        health.put("timestamp", System.currentTimeMillis());
+        
+        return ResponseEntity.ok(health);
     }
 } 

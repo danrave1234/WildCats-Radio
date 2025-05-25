@@ -1,6 +1,7 @@
 package com.wildcastradio.config;
 
 import com.wildcastradio.icecast.IcecastStreamHandler;
+import com.wildcastradio.icecast.ListenerStatusHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -11,17 +12,20 @@ import org.springframework.web.socket.server.standard.ServletServerContainerFact
 
 /**
  * WebSocket configuration for the application.
- * Configures WebSocket endpoints for audio streaming.
+ * Configures WebSocket endpoints for audio streaming and listener status updates.
  */
 @Configuration
 @EnableWebSocket
 public class WebSocketConfig implements WebSocketConfigurer {
     
     private final IcecastStreamHandler icecastStreamHandler;
+    private final ListenerStatusHandler listenerStatusHandler;
     
     @Autowired
-    public WebSocketConfig(IcecastStreamHandler icecastStreamHandler) {
+    public WebSocketConfig(IcecastStreamHandler icecastStreamHandler, 
+                          ListenerStatusHandler listenerStatusHandler) {
         this.icecastStreamHandler = icecastStreamHandler;
+        this.listenerStatusHandler = listenerStatusHandler;
     }
     
     /**
@@ -43,7 +47,12 @@ public class WebSocketConfig implements WebSocketConfigurer {
      */
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+        // Audio streaming endpoint for DJs
         registry.addHandler(icecastStreamHandler, "/ws/live")
                 .setAllowedOriginPatterns("*"); // Use patterns instead of origins for CORS compatibility
+        
+        // Status updates endpoint for listeners  
+        registry.addHandler(listenerStatusHandler, "/ws/listener")
+                .setAllowedOriginPatterns("*");
     }
 }

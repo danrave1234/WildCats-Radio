@@ -4,6 +4,7 @@ import com.wildcastradio.config.NetworkConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.CloseStatus;
@@ -31,11 +32,14 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
     
     private final NetworkConfig networkConfig;
     private final IcecastService icecastService;
+    private final ApplicationEventPublisher eventPublisher;
     
     @Autowired
-    public IcecastStreamHandler(NetworkConfig networkConfig, IcecastService icecastService) {
+    public IcecastStreamHandler(NetworkConfig networkConfig, IcecastService icecastService,
+                                ApplicationEventPublisher eventPublisher) {
         this.networkConfig = networkConfig;
         this.icecastService = icecastService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -59,47 +63,97 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
         // Add Icecast URL with dynamic IP and source credentials
         cmd.add("icecast://source:hackme@" + serverIp + ":" + networkConfig.getIcecastPort() + "/live.ogg");
 
-        try {
-            logger.info("Starting FFmpeg process with command: {}", String.join(" ", cmd));
-            ProcessBuilder pb = new ProcessBuilder(cmd);
-            pb.redirectErrorStream(true);
+        logger.info("Starting FFmpeg with command: {}", String.join(" ", cmd));
 
-            ffmpeg = pb.start();
-            logger.info("FFmpeg process started successfully");
+        // Try to start FFmpeg with retry logic for 403 errors
+        boolean started = false;
+        final int[] attempts = {0}; // Use array to make it effectively final
+        int maxAttempts = 3;
+        
+        while (!started && attempts[0] < maxAttempts) {
+            attempts[0]++;
+            try {
+                // Start FFmpeg process
+                ProcessBuilder pb = new ProcessBuilder(cmd);
+                pb.redirectErrorStream(true);
+                ffmpeg = pb.start();
 
-            // Notify the Icecast service that a broadcast has started
-            icecastService.notifyBroadcastStarted(session.getId());
-
-            // Give FFmpeg time to initialize
-            Thread.sleep(500);
-
-            // Start a thread to monitor FFmpeg process output
-            new Thread(() -> {
-                try {
-                    // Create a buffered reader to read FFmpeg's output
-                    try (BufferedReader reader = new BufferedReader(
-                            new InputStreamReader(ffmpeg.getInputStream()))) {
+                // Start a thread to monitor FFmpeg output and detect errors
+                Thread loggingThread = new Thread(() -> {
+                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(ffmpeg.getInputStream()))) {
                         String line;
+                        boolean connectionSuccessful = false;
+                        
                         while ((line = reader.readLine()) != null) {
-                            logger.info("FFmpeg output: {}", line);
+                            logger.info("FFmpeg: {}", line);
+                            
+                            // Check for successful connection indicators
+                            if (line.contains("Opening") && line.contains("for writing")) {
+                                connectionSuccessful = true;
+                                logger.info("FFmpeg successfully connected to Icecast");
+                            }
+                            
+                            // Check for 403 Forbidden error
+                            if (line.contains("403") && line.contains("Forbidden")) {
+                                logger.warn("FFmpeg received 403 Forbidden from Icecast (attempt {})", attempts[0]);
+                                break;
+                            }
                         }
+                        
+                        if (!connectionSuccessful) {
+                            logger.warn("FFmpeg connection may have failed");
+                        }
+                        
+                    } catch (IOException e) {
+                        logger.warn("Error reading FFmpeg output: {}", e.getMessage());
                     }
+                });
+                loggingThread.setDaemon(true);
+                loggingThread.start();
 
-                    int exitCode = ffmpeg.waitFor();
-                    logger.info("FFmpeg process exited with code: {}", exitCode);
-                    if (exitCode != 0) {
-                        logger.error("FFmpeg failed with exit code: {}", exitCode);
+                // Give FFmpeg a moment to establish connection
+                Thread.sleep(1000);
+                
+                // Check if process is still alive (not immediately failed)
+                if (ffmpeg.isAlive()) {
+                    started = true;
+                    logger.info("FFmpeg process started successfully for session: {} (attempt {})", session.getId(), attempts[0]);
+                    
+                    // Notify service that broadcast started
+                    icecastService.notifyBroadcastStarted(session.getId());
+                    
+                    // Publish event to trigger status update
+                    eventPublisher.publishEvent(new StreamStatusChangeEvent(this, true));
+                    
+                } else {
+                    logger.warn("FFmpeg process failed immediately (attempt {})", attempts[0]);
+                    if (attempts[0] < maxAttempts) {
+                        logger.info("Retrying FFmpeg connection in 500ms...");
+                        Thread.sleep(500);
                     }
-                } catch (IOException | InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    logger.error("FFmpeg monitoring thread error", e);
                 }
-            }).start();
-        } catch (IOException e) {
-            logger.error("Failed to start FFmpeg process", e);
-            icecastService.notifyBroadcastFailed(session.getId(), e.getMessage());
-            session.close(CloseStatus.SERVER_ERROR);
-            throw e;
+
+            } catch (IOException e) {
+                logger.error("Failed to start FFmpeg process (attempt {}): {}", attempts[0], e.getMessage());
+                if (attempts[0] < maxAttempts) {
+                    logger.info("Retrying FFmpeg connection in 500ms...");
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.error("Interrupted while starting FFmpeg process");
+                break;
+            }
+        }
+        
+        if (!started) {
+            logger.error("Failed to start FFmpeg after {} attempts", maxAttempts);
+            session.close(new CloseStatus(1011, "Failed to start streaming process after multiple attempts"));
         }
     }
 
@@ -141,6 +195,9 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
         // Notify the Icecast service that the broadcast has ended
         icecastService.notifyBroadcastEnded(session.getId());
         
+        // Publish event to trigger status update
+        eventPublisher.publishEvent(new StreamStatusChangeEvent(this, false));
+        
         if (ffmpeg != null) {
             logger.info("Terminating FFmpeg process");
             ffmpeg.destroy();
@@ -168,6 +225,9 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
         
         // Notify the Icecast service of the error
         icecastService.notifyBroadcastFailed(session.getId(), exception.getMessage());
+        
+        // Publish event to trigger status update
+        eventPublisher.publishEvent(new StreamStatusChangeEvent(this, false));
         
         if (ffmpeg != null && ffmpeg.isAlive()) {
             ffmpeg.destroy();

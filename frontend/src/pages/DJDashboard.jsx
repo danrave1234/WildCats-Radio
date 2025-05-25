@@ -20,10 +20,15 @@ export default function DJDashboard() {
   // Network configuration
   const [serverConfig, setServerConfig] = useState(null)
   
+  // Listener metrics
+  const [listenerCount, setListenerCount] = useState(0)
+  const [statusWsConnected, setStatusWsConnected] = useState(false)
+  
   // WebSocket and MediaRecorder refs
   const websocketRef = useRef(null)
   const mediaRecorderRef = useRef(null)
   const audioStreamRef = useRef(null)
+  const statusWsRef = useRef(null)
   
   // Audio preview state
   const [previewEnabled, setPreviewEnabled] = useState(false)
@@ -39,9 +44,11 @@ export default function DJDashboard() {
     const fetchServerConfig = async () => {
       try {
         const config = await streamService.getConfig()
-        setServerConfig(config.data)
-        console.log("Server config loaded:", config.data)
-    } catch (error) {
+        // Backend returns { success: true, data: { serverIp, webSocketUrl, etc. } }
+        // So we need to access the nested data property
+        setServerConfig(config.data.data)
+        console.log("Server config loaded:", config.data.data)
+      } catch (error) {
         console.error("Error fetching server config:", error)
         setStreamError("Failed to get server configuration")
       }
@@ -50,10 +57,62 @@ export default function DJDashboard() {
     fetchServerConfig()
   }, [])
 
+  // Set up WebSocket connection for listener status updates
+  useEffect(() => {
+    if (!serverConfig) return
+
+    const connectStatusWebSocket = () => {
+      const wsUrl = `ws://${serverConfig.serverIp}:8080/ws/listener`
+      console.log('DJ Dashboard connecting to status WebSocket:', wsUrl)
+      
+      statusWsRef.current = new WebSocket(wsUrl)
+
+      statusWsRef.current.onopen = () => {
+        console.log('DJ Dashboard status WebSocket connected')
+        setStatusWsConnected(true)
+      }
+
+      statusWsRef.current.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          console.log('DJ Dashboard status message received:', data)
+          
+          if (data.type === 'STREAM_STATUS') {
+            setListenerCount(data.listenerCount || 0)
+          }
+          } catch (error) {
+          console.error('Error parsing status WebSocket message:', error)
+        }
+      }
+
+      statusWsRef.current.onclose = () => {
+        console.log('DJ Dashboard status WebSocket disconnected, attempting to reconnect...')
+        setStatusWsConnected(false)
+        // Reconnect after 3 seconds
+        setTimeout(connectStatusWebSocket, 3000)
+      }
+
+      statusWsRef.current.onerror = (error) => {
+        console.error('DJ Dashboard status WebSocket error:', error)
+      }
+    }
+
+    connectStatusWebSocket()
+
+    return () => {
+      if (statusWsRef.current) {
+        statusWsRef.current.close()
+      }
+    }
+  }, [serverConfig])
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopBroadcast()
+      if (statusWsRef.current) {
+        statusWsRef.current.close()
+      }
     }
   }, [])
 
@@ -319,12 +378,77 @@ export default function DJDashboard() {
                 />
                 <span className="text-sm text-gray-700 dark:text-gray-300 min-w-[2.5rem] text-right">
                   {volume}%
-                </span>
+                      </span>
+                    </div>
+                    </div>
                 </div>
+                      </div>
+                    </div>
+                    
+      {/* Listener Metrics */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
+            Listener Metrics
+              </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Current Listeners */}
+            <div className="text-center">
+              <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4">
+                <div className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-2">
+                  {listenerCount}
+                        </div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  Current Listeners
+              </div>
+            </div>
+          </div>
+
+            {/* Stream Status */}
+            <div className="text-center">
+              <div className="bg-green-50 dark:bg-green-900/30 rounded-lg p-4">
+                <div className="flex items-center justify-center mb-2">
+                  <span className={`h-3 w-3 rounded-full mr-2 ${
+                    isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
+                  }`}></span>
+                  <span className="text-lg font-semibold text-green-600 dark:text-green-400">
+                    {isLive ? 'LIVE' : 'OFFLINE'}
+                  </span>
+                        </div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  Broadcast Status
+              </div>
+            </div>
+          </div>
+
+            {/* Connection Status */}
+            <div className="text-center">
+              <div className="bg-yellow-50 dark:bg-yellow-900/30 rounded-lg p-4">
+                <div className="flex items-center justify-center mb-2">
+                  <span className={`h-3 w-3 rounded-full mr-2 ${
+                    statusWsConnected ? 'bg-green-500' : 'bg-red-500'
+                  }`}></span>
+                  <span className="text-lg font-semibold text-yellow-600 dark:text-yellow-400">
+                    {statusWsConnected ? 'CONNECTED' : 'DISCONNECTED'}
+                  </span>
+                </div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  Status Updates
                     </div>
                 </div>
                 </div>
                         </div>
+
+          {/* Additional Info */}
+          <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-700/30 rounded-md">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              <strong>Real-time Updates:</strong> Listener count updates every 5 seconds via WebSocket connection.
+              {isLive && listenerCount > 0 && ` You currently have ${listenerCount} listener${listenerCount !== 1 ? 's' : ''} tuned in!`}
+            </p>
+            </div>
+          </div>
+        </div>
 
       {/* Network Information */}
       {serverConfig && (

@@ -181,12 +181,18 @@ export const streamService = {
   stop: () => api.post('/stream/stop'),
   getStatus: () => api.get('/stream/status'),
   getConfig: () => api.get('/stream/config'),
+  getHealth: () => api.get('/stream/health'),
   
   // WebSocket URL for DJs to send audio to the server
   getStreamUrl: () => {
     // Get WebSocket URL from backend config if available
     return api.get('/stream/config')
-      .then(response => response.data.webSocketUrl)
+      .then(response => {
+        if (response.data.success && response.data.data.webSocketUrl) {
+          return response.data.data.webSocketUrl;
+        }
+        throw new Error('WebSocket URL not found in config');
+      })
       .catch(() => {
         // Fallback to constructing URL if API call fails
         const apiUrl = new URL(API_BASE_URL);
@@ -199,12 +205,30 @@ export const streamService = {
   getListenerStreamUrl: () => {
     // First try to get the URL from the backend config
     return api.get('/stream/config')
-      .then(response => response.data.streamUrl)
+      .then(response => {
+        if (response.data.success && response.data.data.streamUrl) {
+          return response.data.data.streamUrl;
+        }
+        throw new Error('Stream URL not found in config');
+      })
       .catch(() => {
-        // Fallback to constructing URL if API call fails
-        const protocol = window.location.protocol;
-        const hostname = window.location.hostname;
-        return `${protocol}//${hostname}:8000/live.ogg`;
+        // Fallback to default Icecast URL structure
+        return 'http://localhost:8000/live.ogg';
+      });
+  },
+  
+  // Check if Icecast server is running
+  checkIcecastServer: () => {
+    return api.get('/stream/health')
+      .then(response => {
+        if (response.data.icecastServer === 'UP') {
+          return { isUp: true, status: response.data };
+        }
+        return { isUp: false, status: response.data };
+      })
+      .catch(error => {
+        console.error('Error checking Icecast server:', error);
+        return { isUp: false, error: error.message };
       });
   }
 };

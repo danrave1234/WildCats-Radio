@@ -41,10 +41,12 @@ public class SecurityConfig {
                 .requestMatchers("/api/user/verify").permitAll()
                 .requestMatchers("/api/stream/status").permitAll()
                 .requestMatchers("/api/stream/config").permitAll()
+                .requestMatchers("/api/stream/health").permitAll()
                 // Allow all stream-related endpoints
                 .requestMatchers("/api/stream/**").permitAll()
                 // Websocket endpoints
                 .requestMatchers("/ws/live").permitAll()
+                .requestMatchers("/ws/listener").permitAll()
                 .requestMatchers("/stream").permitAll()
                 .requestMatchers("/ws-radio/**").permitAll()
                 // Swagger UI endpoints if you use it
@@ -66,8 +68,14 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         
-        // For development - allow specific origins instead of wildcard
-        configuration.setAllowedOriginPatterns(Arrays.asList("*")); // Use patterns instead of origins
+        // For development - specify exact origins instead of using wildcards with credentials
+        configuration.setAllowedOrigins(Arrays.asList(
+            "http://localhost:3000",   // React development server
+            "http://localhost:5173",   // Vite development server
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:5173"
+        ));
+        
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*")); // Allow all headers including authorization
         configuration.setExposedHeaders(Arrays.asList("x-auth-token"));

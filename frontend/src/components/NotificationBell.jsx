@@ -15,6 +15,31 @@ export default function NotificationBell() {
     }
   };
 
+  // Helper function to safely format date
+  const formatNotificationDate = (createdAt) => {
+    try {
+      // Check if createdAt exists and is valid
+      if (!createdAt) {
+        return 'Just now';
+      }
+
+      // Create date object and validate it
+      const date = new Date(createdAt);
+      
+      // Check if the date is valid
+      if (isNaN(date.getTime())) {
+        console.warn('Invalid date value for notification:', createdAt);
+        return 'Just now';
+      }
+
+      // Format the valid date
+      return formatDistanceToNow(date, { addSuffix: true });
+    } catch (error) {
+      console.error('Error formatting notification date:', error, 'createdAt:', createdAt);
+      return 'Just now';
+    }
+  };
+
   return (
     <div className="relative">
       <button
@@ -81,7 +106,7 @@ export default function NotificationBell() {
                         {notification.message}
                       </p>
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                        {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+                        {formatNotificationDate(notification.createdAt)}
                       </p>
                     </div>
                   </div>

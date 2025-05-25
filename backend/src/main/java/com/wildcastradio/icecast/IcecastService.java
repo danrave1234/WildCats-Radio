@@ -112,6 +112,63 @@ public class IcecastService {
     }
     
     /**
+     * Get the current listener count from Icecast
+     * @return Number of current listeners, or null if stream is not live
+     */
+    public Integer getCurrentListenerCount() {
+        try {
+            URL url = new URL(networkConfig.getIcecastUrl() + "/status-json.xsl");
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(3000);
+            connection.setReadTimeout(3000);
+            
+            int responseCode = connection.getResponseCode();
+            if (responseCode == 200) {
+                // Read the JSON response
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        response.append(line);
+                    }
+                    
+                    String jsonResponse = response.toString();
+                    
+                    // Parse JSON manually to extract listener count for /live.ogg
+                    if (jsonResponse.contains("/live.ogg")) {
+                        // Look for the pattern: "mount":"/live.ogg"..."listeners":number
+                        int mountIndex = jsonResponse.indexOf("\"mount\":\"/live.ogg\"");
+                        if (mountIndex != -1) {
+                            // Find the listeners field after the mount
+                            int listenersIndex = jsonResponse.indexOf("\"listeners\":", mountIndex);
+                            if (listenersIndex != -1) {
+                                // Extract the number after "listeners":
+                                int startIndex = listenersIndex + "\"listeners\":".length();
+                                int endIndex = startIndex;
+                                
+                                // Find the end of the number (comma, brace, or end of string)
+                                while (endIndex < jsonResponse.length() && 
+                                       Character.isDigit(jsonResponse.charAt(endIndex))) {
+                                    endIndex++;
+                                }
+                                
+                                if (endIndex > startIndex) {
+                                    String listenersStr = jsonResponse.substring(startIndex, endIndex);
+                                    return Integer.parseInt(listenersStr);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to get current listener count: {}", e.getMessage());
+        }
+        return 0; // Return 0 if unable to get count or stream is not live
+    }
+    
+    /**
      * Check if Icecast server is running and reachable
      * @return true if Icecast server is reachable
      */
