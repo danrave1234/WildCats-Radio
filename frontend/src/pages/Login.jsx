@@ -1,10 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { RadioIcon } from "@heroicons/react/24/outline"
 import { useAuth } from "../context/AuthContext"
 import { Link } from "react-router-dom"
 import { XCircleIcon } from "@heroicons/react/24/outline"
+import wildcatRadioLogo from "../assets/wildcatradio_logo.png"
+import icHide from "../assets/ic_hide.png"
+import icUnhide from "../assets/ic_unhide.png"
 
 // Cookie helper functions
 const getCookie = (name) => {
@@ -21,6 +23,8 @@ export default function Login() {
     password: "",
   })
   const [error, setError] = useState("")
+  const [rememberMe, setRememberMe] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   // Check if system prefers dark mode
   const systemPrefersDark = () => {
@@ -87,6 +91,11 @@ export default function Login() {
     })
   }
 
+  // Toggle password visibility
+  const togglePasswordVisibility = () => {
+    setShowPassword(!showPassword)
+  }
+
   // Handle form submission with backend integration
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -102,29 +111,27 @@ export default function Login() {
     }
   }
 
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-wildcats-background dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8 bg-white dark:bg-gray-800 shadow-xl rounded-xl p-6 sm:p-8 border border-gray-200 dark:border-gray-700">
-        <div>
-          <div className="flex justify-center">
-            <div className="h-16 w-16 bg-maroon-700 dark:bg-maroon-800 text-gold-400 rounded-full flex items-center justify-center">
-              <RadioIcon className="h-10 w-10" />
-            </div>
-          </div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
-            WildCats Radio
+    <div className="min-h-screen flex items-center justify-center bg-[#E9ECEC] py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full bg-white shadow-xl rounded-lg overflow-hidden">
+        <div className="p-8 flex flex-col items-center">
+          <img 
+            src={wildcatRadioLogo} 
+            alt="WildCat Radio Logo" 
+            className="h-28 mb-6"
+          />
+          
+          <h2 className="text-2xl font-bold text-center text-gray-900 mb-1">
+            Welcome
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
-            Sign in to access your account
+          <p className="text-sm text-gray-600 text-center mb-6">
+            Sign in to continue to WildCats Radio
           </p>
-        </div>
 
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Email address
+          <form className="w-full" onSubmit={handleSubmit}>
+            <div className="mb-4">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                Email
               </label>
               <input
                 id="email"
@@ -134,82 +141,98 @@ export default function Login() {
                 required
                 value={formData.email}
                 onChange={handleChange}
-                className="form-input"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#91403E] focus:border-[#91403E]"
                 placeholder="Enter your email"
               />
             </div>
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            
+            <div className="mb-4">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
                 Password
               </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={formData.password}
-                onChange={handleChange}
-                className="form-input"
-                placeholder="Enter your password"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <input
-                id="remember-me"
-                name="remember-me"
-                type="checkbox"
-                className="h-4 w-4 text-maroon-600 focus:ring-maroon-500 border-gray-300 rounded"
-              />
-              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
-                Remember me
-              </label>
-            </div>
-
-            <div className="text-sm">
-              <a href="#" className="font-medium text-maroon-600 hover:text-maroon-500 dark:text-maroon-400 dark:hover:text-maroon-300">
-                Forgot your password?
-              </a>
-            </div>
-          </div>
-
-          {(error || authError) && (
-            <div className="rounded-md bg-red-50 dark:bg-red-900/30 p-4 border-l-4 border-red-500">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  <XCircleIcon className="h-5 w-5 text-red-400" aria-hidden="true" />
-                </div>
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-red-800 dark:text-red-200">{error || authError}</h3>
-                </div>
+              <div className="relative">
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                  value={formData.password}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#91403E] focus:border-[#91403E]"
+                  placeholder="Enter your password"
+                  style={{
+                    // Hide browser's built-in password reveal button
+                    "&::-ms-reveal, &::-ms-clear": {
+                      display: "none"
+                    },
+                    "-webkit-text-security": showPassword ? "none" : "disc"
+                  }}
+                />
+                <button 
+                  type="button" 
+                  onClick={togglePasswordVisibility}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2"
+                >
+                  <img 
+                    src={showPassword ? icHide : icUnhide} 
+                    alt={showPassword ? "Hide password" : "Show password"} 
+                    className="h-5 w-5 opacity-70"
+                  />
+                </button>
               </div>
             </div>
-          )}
 
-          <div>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center">
+                <input
+                  id="remember-me"
+                  name="remember-me"
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={() => setRememberMe(!rememberMe)}
+                  className="h-4 w-4 text-[#91403E] focus:ring-[#91403E] border-gray-300 rounded"
+                />
+                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700">
+                  Remember me
+                </label>
+              </div>
+
+              <div className="text-sm">
+                <a href="#" className="font-medium text-[#91403E] hover:text-[#91403E]/80">
+                  Forgot password?
+                </a>
+              </div>
+            </div>
+
+            {(error || authError) && (
+              <div className="rounded-md bg-red-50 p-3 mb-4 border border-red-200">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <XCircleIcon className="h-5 w-5 text-red-400" aria-hidden="true" />
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm font-medium text-red-800">{error || authError}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={loading}
-              className={`btn-primary w-full ${
+              className={`w-full py-2 px-4 text-white font-medium rounded-md bg-[#F4BE03] hover:bg-[#F4BE03]/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#F4BE03] transition-colors ${
                 loading ? 'opacity-70 cursor-not-allowed' : ''
               }`}
             >
-              {loading ? 'Signing in...' : 'Sign in'}
+              {loading ? 'Signing In...' : 'Sign In'}
             </button>
-          </div>
+          </form>
 
-          <div className="text-center">
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Don't have an account?{' '}
-              <Link to="/register" className="font-medium text-maroon-600 hover:text-maroon-500 dark:text-maroon-400 dark:hover:text-maroon-300">
-                Sign up
-              </Link>
-            </p>
-          </div>
-        </form>
+          <p className="mt-6 text-center text-sm text-gray-600">
+            Don't have an account? <Link to="/register" className="font-medium text-[#91403E] hover:text-[#91403E]/80">Sign up</Link>
+          </p>
+        </div>
       </div>
     </div>
   );

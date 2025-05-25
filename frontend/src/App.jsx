@@ -1,14 +1,15 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import ListenerDashboard from './pages/ListenerDashboard';
-import Schedule from './pages/Schedule';
-import Profile from './pages/Profile';
-import DJDashboard from './pages/DJDashboard';
-import AdminDashboard from './pages/AdminDashboard';
-import Settings from './pages/Settings';
+// Use lazy loading for page components
+const ListenerDashboard = lazy(() => import('./pages/ListenerDashboard'));
+const Schedule = lazy(() => import('./pages/Schedule'));
+const Profile = lazy(() => import('./pages/Profile'));
+const DJDashboard = lazy(() => import('./pages/DJDashboard'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const Settings = lazy(() => import('./pages/Settings'));
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
 import './App.css';
@@ -32,6 +33,16 @@ const TEST_CREDENTIALS = {
   }
 };
 
+// Loading component
+const LoadingFallback = () => (
+  <div className="flex justify-center items-center h-[calc(100vh-64px)]">
+    <div className="animate-pulse flex flex-col items-center">
+      <div className="h-12 w-12 rounded-full bg-maroon-600"></div>
+      <div className="mt-4 text-maroon-600">Loading...</div>
+    </div>
+  </div>
+);
+
 // Separate Logout component to prevent infinite loop
 const Logout = () => {
   const navigate = useNavigate();
@@ -50,7 +61,7 @@ const ProtectedRoute = ({ element, allowedRoles }) => {
   const { isAuthenticated, currentUser, loading } = useAuth();
   
   if (loading) {
-    return <div className="flex justify-center items-center h-screen">Loading...</div>;
+    return <LoadingFallback />;
   }
   
   if (!isAuthenticated) {
@@ -68,12 +79,22 @@ const ProtectedRoute = ({ element, allowedRoles }) => {
     }
   }
   
-  return element;
+  // Wrap the element in Suspense to handle lazy loading
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      {element}
+    </Suspense>
+  );
 };
 
 // App Routes component
 const AppRoutes = () => {
   const { isAuthenticated, currentUser } = useAuth();
+  
+  // Create key from route path to force unmounting/remounting when routes change
+  const getRoutePath = () => {
+    return window.location.pathname;
+  };
   
   return (
     <Routes>
@@ -106,7 +127,8 @@ const AppRoutes = () => {
       <Route path="/dashboard" element={
         <Layout>
           <ProtectedRoute 
-            element={<ListenerDashboard />} 
+            key={getRoutePath()}
+            element={<ListenerDashboard key="dashboard" />} 
             allowedRoles={['LISTENER']} 
           />
         </Layout>
@@ -115,7 +137,8 @@ const AppRoutes = () => {
       <Route path="/dj-dashboard" element={
         <Layout>
           <ProtectedRoute 
-            element={<DJDashboard />} 
+            key={getRoutePath()}
+            element={<DJDashboard key="dj-dashboard" />} 
             allowedRoles={['DJ', 'ADMIN']} 
           />
         </Layout>
@@ -124,7 +147,8 @@ const AppRoutes = () => {
       <Route path="/admin" element={
         <Layout>
           <ProtectedRoute 
-            element={<AdminDashboard />} 
+            key={getRoutePath()}
+            element={<AdminDashboard key="admin" />} 
             allowedRoles={['ADMIN']} 
           />
         </Layout>
@@ -133,7 +157,8 @@ const AppRoutes = () => {
       <Route path="/schedule" element={
         <Layout>
           <ProtectedRoute 
-            element={<Schedule />} 
+            key={getRoutePath()}
+            element={<Schedule key="schedule" />} 
             allowedRoles={['LISTENER', 'DJ', 'ADMIN']} 
           />
         </Layout>
@@ -142,7 +167,8 @@ const AppRoutes = () => {
       <Route path="/profile" element={
         <Layout>
           <ProtectedRoute 
-            element={<Profile />} 
+            key={getRoutePath()}
+            element={<Profile key="profile" />} 
             allowedRoles={['LISTENER', 'DJ', 'ADMIN']} 
           />
         </Layout>
@@ -151,7 +177,28 @@ const AppRoutes = () => {
       <Route path="/settings" element={
         <Layout>
           <ProtectedRoute 
-            element={<Settings />} 
+            key={getRoutePath()}
+            element={<Settings key="settings" />} 
+            allowedRoles={['LISTENER', 'DJ', 'ADMIN']} 
+          />
+        </Layout>
+      } />
+
+      <Route path="/notifications" element={
+        <Layout>
+          <ProtectedRoute 
+            key={getRoutePath()}
+            element={
+              <Suspense fallback={<LoadingFallback />}>
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
+                  <h1 className="text-2xl font-bold mb-6">Notifications</h1>
+                  <div className="space-y-4">
+                    {/* Notifications will be rendered here */}
+                    <p className="text-gray-600 dark:text-gray-400">Your notifications will appear here.</p>
+                  </div>
+                </div>
+              </Suspense>
+            } 
             allowedRoles={['LISTENER', 'DJ', 'ADMIN']} 
           />
         </Layout>
