@@ -112,6 +112,37 @@ export default function Schedule() {
     checkUserRole()
   }, [])
 
+  // Helper function to get minimum allowed date (today)
+  const getMinDate = () => {
+    const today = new Date()
+    return today.toISOString().split('T')[0]
+  }
+
+  // Helper function to get minimum allowed time for today
+  const getMinTime = () => {
+    const now = new Date()
+    // If the selected date is today, minimum time is current time + 2 minutes
+    if (broadcastDetails.date === getMinDate()) {
+      const minTime = new Date(now.getTime() + 2 * 60 * 1000) // 2 minutes from now
+      return minTime.toTimeString().slice(0, 5) // HH:MM format
+    }
+    return "00:00" // If future date, any time is allowed
+  }
+
+  // Helper function to validate time input in real-time
+  const validateTimeInput = (time, fieldName) => {
+    if (!broadcastDetails.date || !time) return true
+
+    const selectedDateTime = new Date(`${broadcastDetails.date}T${time}:00`)
+    const now = new Date()
+    const minAllowedTime = new Date(now.getTime() + 60 * 1000) // 1 minute buffer
+
+    if (selectedDateTime < minAllowedTime) {
+      return false
+    }
+    return true
+  }
+
   // Fetch upcoming broadcasts
   useEffect(() => {
     const fetchUpcomingBroadcasts = async () => {
@@ -185,6 +216,36 @@ export default function Schedule() {
     try {
       setIsLoading(true)
 
+      // Validate that the selected date/time is not in the past
+      const now = new Date()
+      const selectedStart = new Date(`${broadcastDetails.date}T${broadcastDetails.startTime}:00`)
+      const selectedEnd = new Date(`${broadcastDetails.date}T${broadcastDetails.endTime}:00`)
+
+      // Check if start time is in the past (with 1 minute buffer)
+      const minAllowedTime = new Date(now.getTime() + 60 * 1000) // 1 minute from now
+      if (selectedStart < minAllowedTime) {
+        showToast("Start time cannot be in the past. Please select a future time.", "error")
+        return
+      }
+
+      // Check if end time is before start time
+      if (selectedEnd <= selectedStart) {
+        showToast("End time must be after start time.", "error")
+        return
+      }
+
+      // Check if the duration is reasonable (at least 15 minutes, max 8 hours)
+      const durationMs = selectedEnd - selectedStart
+      const durationMinutes = durationMs / (1000 * 60)
+      if (durationMinutes < 15) {
+        showToast("Broadcast duration must be at least 15 minutes.", "error")
+        return
+      }
+      if (durationMinutes > 8 * 60) {
+        showToast("Broadcast duration cannot exceed 8 hours.", "error")
+        return
+      }
+
       // Format the date and time for the API
       const date = broadcastDetails.date
 
@@ -211,7 +272,7 @@ export default function Schedule() {
         response = await broadcastService.update(broadcastDetails.id, broadcastData)
         successMessage = "Broadcast updated successfully!"
       } else {
-        // Create new broadcast
+        // Create new scheduled broadcast (this creates both schedule and broadcast entities)
         response = await broadcastService.schedule(broadcastData)
         successMessage = "Broadcast scheduled successfully!"
       }
@@ -498,6 +559,7 @@ export default function Schedule() {
                               label="Date"
                               id="date"
                               required={true}
+                              min={getMinDate()}
                           />
                         </div>
                         <div>
@@ -509,11 +571,20 @@ export default function Schedule() {
                           </label>
                           <TimeSelector
                               value={broadcastDetails.startTime}
-                              onChange={(time) => handleBroadcastDetailsChange({ target: { name: 'startTime', value: time } })}
+                              onChange={(time) => {
+                                const isValid = validateTimeInput(time, 'startTime')
+                                if (isValid || !time) {
+                                  handleBroadcastDetailsChange({ target: { name: 'startTime', value: time } })
+                                }
+                              }}
                               label="Start Time"
                               id="startTime"
                               required={true}
+                              min={getMinTime()}
                           />
+                          {broadcastDetails.startTime && !validateTimeInput(broadcastDetails.startTime, 'startTime') && (
+                            <p className="mt-1 text-sm text-red-600">Start time cannot be in the past</p>
+                          )}
                         </div>
                         <div>
                           <label
@@ -528,7 +599,12 @@ export default function Schedule() {
                               label="End Time"
                               id="endTime"
                               required={true}
+                              min={broadcastDetails.startTime || getMinTime()}
                           />
+                          {broadcastDetails.startTime && broadcastDetails.endTime && 
+                           new Date(`${broadcastDetails.date}T${broadcastDetails.endTime}:00`) <= new Date(`${broadcastDetails.date}T${broadcastDetails.startTime}:00`) && (
+                            <p className="mt-1 text-sm text-red-600">End time must be after start time</p>
+                          )}
                         </div>
                         <div className="sm:col-span-2">
                           <label

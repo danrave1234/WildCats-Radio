@@ -16,6 +16,8 @@ import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 import com.wildcastradio.Broadcast.DTO.CreateBroadcastRequest;
 import com.wildcastradio.Notification.NotificationService;
 import com.wildcastradio.Notification.NotificationType;
+import com.wildcastradio.Schedule.ScheduleEntity;
+import com.wildcastradio.Schedule.ScheduleService;
 import com.wildcastradio.ServerSchedule.ServerScheduleService;
 import com.wildcastradio.icecast.IcecastService;
 import com.wildcastradio.User.UserEntity;
@@ -27,6 +29,9 @@ public class BroadcastService {
 
     @Autowired
     private BroadcastRepository broadcastRepository;
+
+    @Autowired
+    private ScheduleService scheduleService;
 
     @Autowired
     private IcecastService icecastService;
@@ -43,6 +48,103 @@ public class BroadcastService {
     @Autowired
     private UserRepository userRepository;
 
+    public BroadcastDTO createBroadcast(CreateBroadcastRequest request) {
+        logger.info("Creating broadcast: {}", request.getTitle());
+
+        // Get current user from security context (this will be handled by the controller)
+        // For now, we'll assume the user is passed separately or we'll update this later
+        
+        // First create the schedule
+        ScheduleEntity schedule = scheduleService.createSchedule(
+            request.getScheduledStart(), 
+            request.getScheduledEnd(), 
+            getCurrentUser() // This will need to be passed from controller
+        );
+
+        // Then create the broadcast with the schedule
+        BroadcastEntity broadcast = new BroadcastEntity();
+        broadcast.setTitle(request.getTitle());
+        broadcast.setDescription(request.getDescription());
+        broadcast.setSchedule(schedule);
+        broadcast.setCreatedBy(getCurrentUser()); // This will need to be passed from controller
+        broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
+
+        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+
+        // Log the activity
+        activityLogService.logActivity(
+            getCurrentUser(), // This will need to be passed from controller
+            ActivityLogEntity.ActivityType.BROADCAST_START,
+            "Broadcast created: " + savedBroadcast.getTitle()
+        );
+
+        // Send notification to all users about the new broadcast
+        String notificationMessage = "New broadcast scheduled: " + savedBroadcast.getTitle() + 
+                                    " at " + savedBroadcast.getScheduledStart();
+        sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_SCHEDULED);
+
+        return BroadcastDTO.fromEntity(savedBroadcast);
+    }
+
+    // Overloaded method that accepts user parameter
+    public BroadcastDTO createBroadcast(CreateBroadcastRequest request, UserEntity user) {
+        logger.info("Creating broadcast: {} for user: {}", request.getTitle(), user.getEmail());
+
+        // First create the schedule
+        ScheduleEntity schedule = scheduleService.createSchedule(
+            request.getScheduledStart(), 
+            request.getScheduledEnd(), 
+            user
+        );
+
+        // Then create the broadcast with the schedule
+        BroadcastEntity broadcast = new BroadcastEntity();
+        broadcast.setTitle(request.getTitle());
+        broadcast.setDescription(request.getDescription());
+        broadcast.setSchedule(schedule);
+        broadcast.setCreatedBy(user);
+        broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
+
+        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+
+        // Log the activity
+        activityLogService.logActivity(
+            user,
+            ActivityLogEntity.ActivityType.BROADCAST_START,
+            "Broadcast created: " + savedBroadcast.getTitle()
+        );
+
+        // Send notification to all users about the new broadcast
+        String notificationMessage = "New broadcast scheduled: " + savedBroadcast.getTitle() + 
+                                    " at " + savedBroadcast.getScheduledStart();
+        sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_SCHEDULED);
+
+        return BroadcastDTO.fromEntity(savedBroadcast);
+    }
+
+    public BroadcastDTO updateBroadcast(Long id, CreateBroadcastRequest request) {
+        logger.info("Updating broadcast: {}", id);
+
+        BroadcastEntity broadcast = broadcastRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+
+        // Update broadcast details
+        broadcast.setTitle(request.getTitle());
+        broadcast.setDescription(request.getDescription());
+
+        // Update the associated schedule
+        scheduleService.updateSchedule(
+            broadcast.getSchedule().getId(),
+            request.getScheduledStart(),
+            request.getScheduledEnd(),
+            broadcast.getCreatedBy()
+        );
+
+        BroadcastEntity updatedBroadcast = broadcastRepository.save(broadcast);
+        return BroadcastDTO.fromEntity(updatedBroadcast);
+    }
+
+    // Keep the existing scheduleBroadcast method for backward compatibility
     public BroadcastEntity scheduleBroadcast(BroadcastEntity broadcast, UserEntity dj) {
         broadcast.setCreatedBy(dj);
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
@@ -83,6 +185,11 @@ public class BroadcastService {
     private BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj, boolean testMode) {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+
+        // Activate the schedule when starting the broadcast
+        if (broadcast.getSchedule() != null) {
+            scheduleService.activateSchedule(broadcast.getSchedule().getId());
+        }
 
         // Allow any DJ to start a broadcast, not just the creator
         // This enables site-wide broadcast control
@@ -145,6 +252,11 @@ public class BroadcastService {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new RuntimeException("Broadcast not found"));
 
+        // Complete the schedule when ending the broadcast
+        if (broadcast.getSchedule() != null) {
+            scheduleService.completeSchedule(broadcast.getSchedule().getId());
+        }
+
         // Allow any DJ to end a broadcast, not just the creator
         // This enables site-wide broadcast control
 
@@ -175,6 +287,11 @@ public class BroadcastService {
     public BroadcastEntity endBroadcast(Long broadcastId) {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+
+        // Complete the schedule when ending the broadcast
+        if (broadcast.getSchedule() != null) {
+            scheduleService.completeSchedule(broadcast.getSchedule().getId());
+        }
 
         // End the stream
         broadcast.setActualEnd(LocalDateTime.now());
@@ -222,45 +339,16 @@ public class BroadcastService {
     }
 
     // Method to get engagement data for analytics
-    public BroadcastAnalytics getAnalytics(Long broadcastId) {
-        // In a real implementation, this would gather view counts, chat activity, etc.
-        // For now, we'll return a placeholder
-        return new BroadcastAnalytics(broadcastId, 0, 0);
-    }
-
-    // Simple inner class for analytics data
-    public static class BroadcastAnalytics {
-        private Long broadcastId;
-        private int viewerCount;
-        private int chatMessageCount;
-
-        public BroadcastAnalytics(Long broadcastId, int viewerCount, int chatMessageCount) {
-            this.broadcastId = broadcastId;
-            this.viewerCount = viewerCount;
-            this.chatMessageCount = chatMessageCount;
+    public String getAnalytics(Long broadcastId) {
+        Optional<BroadcastEntity> broadcast = getBroadcastById(broadcastId);
+        if (broadcast.isPresent()) {
+            BroadcastEntity b = broadcast.get();
+            return String.format("Analytics for broadcast '%s': Chat messages: %d, Song requests: %d", 
+                                b.getTitle(), 
+                                b.getChatMessages().size(), 
+                                b.getSongRequests().size());
         }
-
-        public Long getBroadcastId() {
-            return broadcastId;
-        }
-
-        public int getViewerCount() {
-            return viewerCount;
-        }
-
-        public int getChatMessageCount() {
-            return chatMessageCount;
-        }
-    }
-
-    public BroadcastDTO createBroadcast(CreateBroadcastRequest request) {
-        // Implementation would go here
-        return new BroadcastDTO();
-    }
-
-    public BroadcastDTO updateBroadcast(Long id, CreateBroadcastRequest request) {
-        // Implementation would go here
-        return new BroadcastDTO();
+        return "Broadcast not found";
     }
 
     public void deleteBroadcast(Long id) {
@@ -274,6 +362,11 @@ public class BroadcastService {
                 });
 
         try {
+            // Cancel the associated schedule if it exists
+            if (broadcast.getSchedule() != null) {
+                scheduleService.cancelSchedule(broadcast.getSchedule().getId(), broadcast.getCreatedBy());
+            }
+
             // Delete the broadcast
             broadcastRepository.deleteById(id);
             logger.info("Broadcast with ID: {} deleted successfully", id);
@@ -295,7 +388,6 @@ public class BroadcastService {
         LocalDateTime fifteenMinutesFromNow = now.plusMinutes(15);
 
         // Find broadcasts that are scheduled to start in the next 15 minutes
-        // and have not been notified yet
         List<BroadcastEntity> upcomingBroadcasts = broadcastRepository.findByScheduledStartBetween(
             now,
             fifteenMinutesFromNow
@@ -314,5 +406,12 @@ public class BroadcastService {
 
             logger.info("Sent 'starting soon' notification for broadcast: {}", broadcast.getTitle());
         }
+    }
+
+    // Temporary method to get current user - this will be replaced with proper authentication
+    private UserEntity getCurrentUser() {
+        // This is a placeholder - in a real implementation, you'd get this from SecurityContext
+        // For now, we'll throw an exception to indicate this needs to be handled by the controller
+        throw new RuntimeException("User must be passed explicitly to this method");
     }
 } 

@@ -61,6 +61,7 @@ export const authService = {
 export const broadcastService = {
   getAll: () => api.get('/broadcasts'),
   getById: (id) => api.get(`/broadcasts/${id}`),
+  create: (broadcastData) => api.post('/broadcasts', broadcastData),
   schedule: (broadcastData) => api.post('/broadcasts/schedule', broadcastData),
   update: (id, broadcastData) => api.put(`/broadcasts/${id}`, broadcastData),
   delete: (id) => api.delete(`/broadcasts/${id}`),
@@ -71,6 +72,7 @@ export const broadcastService = {
   getAnalytics: (id) => api.get(`/broadcasts/${id}/analytics`),
   getUpcoming: () => api.get('/broadcasts/upcoming'),
   getLive: () => api.get('/broadcasts/live'),
+  getActiveBroadcast: () => api.get('/broadcasts/live').then(response => response.data[0] || null),
 };
 
 // Services for chat messages
