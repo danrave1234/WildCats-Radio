@@ -12,6 +12,7 @@ import { View, Alert } from 'react-native';
 
 // Authentication context
 import { createContext, useContext } from 'react';
+import React from 'react';
 
 type AuthContextType = {
   isLoggedIn: boolean;
