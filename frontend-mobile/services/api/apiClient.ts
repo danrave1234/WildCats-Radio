@@ -3,7 +3,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError } from './types';
 
 // Constants
-const API_URL = 'https://wildcat-radio-f05d362144e6.herokuapp.com/api';
+//const API_URL = 'https://wildcat-radio-f05d362144e6.herokuapp.com/api';
+// const API_URL = 'http://localhost:8080/api'; // Uncomment for local development
+const API_URL = 'http://192.168.5.60:8080/api'; // Using your machine's IP address
 // Android emulator uses 10.0.2.2 to access localhost
 // For iOS simulator, use 'http://localhost:8080/api'
 // For real devices, you'll need to use your machine's IP or a deployed backend URL
