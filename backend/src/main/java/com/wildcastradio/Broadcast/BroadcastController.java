@@ -147,7 +147,7 @@ public class BroadcastController {
     }
 
     /**
-     * Temporary endpoint to start broadcasts in test mode without Shoutcast integration.
+     * Temporary endpoint to start broadcasts in test mode without Icecast integration.
      */
     @PostMapping("/{id}/start-test")
     public ResponseEntity<BroadcastDTO> startBroadcastTestMode(

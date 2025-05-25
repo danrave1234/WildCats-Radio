@@ -175,17 +175,62 @@ export const pollService = {
   getUserVote: (pollId) => api.get(`/polls/${pollId}/user-vote`),
 };
 
-// Services for Shoutcast streaming
+// Services for Icecast streaming
 export const streamService = {
   start: () => api.post('/stream/start'),
   stop: () => api.post('/stream/stop'),
   getStatus: () => api.get('/stream/status'),
+  getConfig: () => api.get('/stream/config'),
+  getHealth: () => api.get('/stream/health'),
+  
+  // WebSocket URL for DJs to send audio to the server
   getStreamUrl: () => {
-    // Extract the hostname from API_BASE_URL for WebSocket connection
-    const apiUrl = new URL(API_BASE_URL);
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${protocol}://${apiUrl.host}/stream`;
+    // Get WebSocket URL from backend config if available
+    return api.get('/stream/config')
+      .then(response => {
+        if (response.data.success && response.data.data.webSocketUrl) {
+          return response.data.data.webSocketUrl;
+        }
+        throw new Error('WebSocket URL not found in config');
+      })
+      .catch(() => {
+        // Fallback to constructing URL if API call fails
+        const apiUrl = new URL(API_BASE_URL);
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        return `${protocol}://${apiUrl.host}/ws/live`;
+      });
   },
+  
+  // Stream URL for listeners to tune in to the broadcast
+  getListenerStreamUrl: () => {
+    // First try to get the URL from the backend config
+    return api.get('/stream/config')
+      .then(response => {
+        if (response.data.success && response.data.data.streamUrl) {
+          return response.data.data.streamUrl;
+        }
+        throw new Error('Stream URL not found in config');
+      })
+      .catch(() => {
+        // Fallback to default Icecast URL structure
+        return 'http://localhost:8000/live.ogg';
+      });
+  },
+  
+  // Check if Icecast server is running
+  checkIcecastServer: () => {
+    return api.get('/stream/health')
+      .then(response => {
+        if (response.data.icecastServer === 'UP') {
+          return { isUp: true, status: response.data };
+        }
+        return { isUp: false, status: response.data };
+      })
+      .catch(error => {
+        console.error('Error checking Icecast server:', error);
+        return { isUp: false, error: error.message };
+      });
+  }
 };
 
 export default api;
