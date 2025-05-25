@@ -10,9 +10,11 @@ const Profile = lazy(() => import('./pages/Profile'));
 const DJDashboard = lazy(() => import('./pages/DJDashboard'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const Settings = lazy(() => import('./pages/Settings'));
+const Notifications = lazy(() => import('./pages/Notifications'));
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
 import './App.css';
+import './styles/custom-scrollbar.css';
 
 // Loading component
 const LoadingFallback = () => (
@@ -169,17 +171,7 @@ const AppRoutes = () => {
         <Layout>
           <ProtectedRoute 
             key={getRoutePath()}
-            element={
-              <Suspense fallback={<LoadingFallback />}>
-                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
-                  <h1 className="text-2xl font-bold mb-6">Notifications</h1>
-                  <div className="space-y-4">
-                    {/* Notifications will be rendered here */}
-                    <p className="text-gray-600 dark:text-gray-400">Your notifications will appear here.</p>
-                  </div>
-                </div>
-              </Suspense>
-            } 
+            element={<Notifications key="notifications" />} 
             allowedRoles={['LISTENER', 'DJ', 'ADMIN']} 
           />
         </Layout>

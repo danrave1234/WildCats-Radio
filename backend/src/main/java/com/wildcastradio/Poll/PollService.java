@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,18 +27,21 @@ public class PollService {
     private final PollVoteRepository voteRepository;
     private final BroadcastRepository broadcastRepository;
     private final UserRepository userRepository;
+    private final SimpMessagingTemplate messagingTemplate;
 
     public PollService(
             PollRepository pollRepository,
             PollOptionRepository optionRepository,
             PollVoteRepository voteRepository,
             BroadcastRepository broadcastRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            SimpMessagingTemplate messagingTemplate) {
         this.pollRepository = pollRepository;
         this.optionRepository = optionRepository;
         this.voteRepository = voteRepository;
         this.broadcastRepository = broadcastRepository;
         this.userRepository = userRepository;
+        this.messagingTemplate = messagingTemplate;
     }
 
     @Transactional
@@ -132,8 +136,16 @@ public class PollService {
         PollVoteEntity vote = new PollVoteEntity(user, poll, option);
         voteRepository.save(vote);
 
-        // Return updated poll results
-        return getPollResults(poll.getId());
+        // Get updated poll results
+        PollResultDTO results = getPollResults(poll.getId());
+        
+        // Notify all clients about the vote
+        messagingTemplate.convertAndSend(
+                "/topic/broadcast/" + poll.getBroadcast().getId() + "/polls",
+                new PollWebSocketMessage("POLL_RESULTS", poll.getId(), results)
+        );
+
+        return results;
     }
 
     @Transactional(readOnly = true)
@@ -177,8 +189,15 @@ public class PollService {
         PollEntity savedPoll = pollRepository.save(poll);
 
         List<PollOptionEntity> options = optionRepository.findByPollOrderByIdAsc(savedPoll);
+        PollDTO pollDTO = buildPollDTO(savedPoll, options);
+        
+        // Notify all clients about the poll ending
+        messagingTemplate.convertAndSend(
+                "/topic/broadcast/" + savedPoll.getBroadcast().getId() + "/polls",
+                new PollWebSocketMessage("POLL_UPDATED", pollDTO, null, null)
+        );
 
-        return buildPollDTO(savedPoll, options);
+        return pollDTO;
     }
 
     @Transactional(readOnly = true)

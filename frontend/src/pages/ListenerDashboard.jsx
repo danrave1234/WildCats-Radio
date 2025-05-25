@@ -16,7 +16,6 @@ import { broadcastService, chatService, songRequestService, pollService, streamS
 import { formatDistanceToNow } from 'date-fns';
 
 export default function ListenerDashboard() {
-  // Audio player states from ListenerDashboard2.jsx
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(80);
@@ -36,6 +35,11 @@ export default function ListenerDashboard() {
   const [nextBroadcast, setNextBroadcast] = useState(null);
   const [currentBroadcastId, setCurrentBroadcastId] = useState(1);
   const [currentBroadcast, setCurrentBroadcast] = useState(null);
+
+  // WebSocket references for real-time updates
+  const chatWsRef = useRef(null);
+  const songRequestWsRef = useRef(null);
+  const pollWsRef = useRef(null);
 
   // Chat state
   const [chatMessage, setChatMessage] = useState("");
@@ -480,13 +484,16 @@ export default function ListenerDashboard() {
     }
   };
 
-  // Update the chat messages effect
+  // Fetch initial chat messages when broadcast becomes available
   useEffect(() => {
     if (currentBroadcastId) {
       const fetchChatMessages = async () => {
         try {
+          console.log('Listener Dashboard: Fetching initial chat messages for broadcast:', currentBroadcastId);
           const response = await chatService.getMessages(currentBroadcastId);
           const newMessages = response.data.filter(msg => msg.broadcastId === currentBroadcastId);
+          
+          console.log('Listener Dashboard: Loaded initial chat messages:', newMessages.length);
           
           // Check if we're at the bottom before updating messages
           const container = chatContainerRef.current;
@@ -504,21 +511,143 @@ export default function ListenerDashboard() {
             }, 100);
           }
         } catch (error) {
-          console.error("Error fetching chat messages:", error);
+          console.error("Listener Dashboard: Error fetching chat messages:", error);
         }
       };
 
       fetchChatMessages();
-      const interval = setInterval(fetchChatMessages, 5000);
+      // Only use polling as fallback if not live
+      if (!isLive) {
+        const interval = setInterval(fetchChatMessages, 5000);
+        return () => {
+          clearInterval(interval);
+          setChatMessages([]);
+        };
+      }
 
       return () => {
-        clearInterval(interval);
         setChatMessages([]);
       };
     } else {
       setChatMessages([]);
     }
-  }, [currentBroadcastId]);
+  }, [currentBroadcastId, isLive]);
+
+  // Setup WebSocket connections for real-time updates after initial data is loaded
+  useEffect(() => {
+    if (currentBroadcastId && isLive && chatMessages.length >= 0) {
+      // Setup Chat WebSocket
+      const setupChatWebSocket = async () => {
+        try {
+          console.log('Listener Dashboard: Setting up chat WebSocket for broadcast:', currentBroadcastId);
+          const connection = await chatService.subscribeToChatMessages(currentBroadcastId, (newMessage) => {
+            if (newMessage.broadcastId === currentBroadcastId) {
+              console.log('Listener Dashboard: Received new chat message:', newMessage);
+              setChatMessages(prev => {
+                const exists = prev.some(msg => msg.id === newMessage.id);
+                if (exists) {
+                  console.log('Listener Dashboard: Message already exists, skipping');
+                  return prev;
+                }
+                
+                const wasAtBottom = isAtBottom(chatContainerRef.current);
+                const updated = [...prev, newMessage].sort((a, b) => 
+                  new Date(a.createdAt) - new Date(b.createdAt)
+                );
+                
+                if (wasAtBottom) {
+                  setTimeout(scrollToBottom, 50);
+                }
+                
+                console.log('Listener Dashboard: Updated chat messages count:', updated.length);
+                return updated;
+              });
+            }
+          });
+          chatWsRef.current = connection;
+        } catch (error) {
+          console.error('Listener Dashboard: Failed to connect chat WebSocket:', error);
+        }
+      };
+
+      // Setup Song Request WebSocket
+      const setupSongRequestWebSocket = async () => {
+        try {
+          console.log('Listener Dashboard: Setting up song request WebSocket for broadcast:', currentBroadcastId);
+          const connection = await songRequestService.subscribeToSongRequests(currentBroadcastId, (newRequest) => {
+            console.log('Listener Dashboard: New song request received:', newRequest);
+            // You can add notification logic here if needed
+          });
+          songRequestWsRef.current = connection;
+        } catch (error) {
+          console.error('Listener Dashboard: Failed to connect song request WebSocket:', error);
+        }
+      };
+
+      // Setup Poll WebSocket
+      const setupPollWebSocket = async () => {
+        try {
+          console.log('Listener Dashboard: Setting up poll WebSocket for broadcast:', currentBroadcastId);
+          const connection = await pollService.subscribeToPolls(currentBroadcastId, (data) => {
+            console.log('Listener Dashboard: Received poll update:', data);
+            switch (data.type) {
+              case 'NEW_POLL':
+                if (data.poll && data.poll.isActive) {
+                  setCurrentPoll({
+                    ...data.poll,
+                    totalVotes: data.poll.options.reduce((sum, option) => sum + option.votes, 0),
+                    userVoted: false
+                  });
+                }
+                break;
+                
+              case 'POLL_UPDATED':
+                if (data.poll && !data.poll.isActive && currentPoll?.id === data.poll.id) {
+                  setCurrentPoll(null);
+                }
+                break;
+                
+              case 'POLL_RESULTS':
+                if (data.pollId === currentPoll?.id && data.results) {
+                  setCurrentPoll(prev => prev ? {
+                    ...prev,
+                    options: data.results.options,
+                    totalVotes: data.results.totalVotes
+                  } : null);
+                }
+                break;
+            }
+          });
+          pollWsRef.current = connection;
+        } catch (error) {
+          console.error('Listener Dashboard: Failed to connect poll WebSocket:', error);
+        }
+      };
+
+      // Add a small delay to ensure initial data is set before WebSocket setup
+      const timer = setTimeout(() => {
+        setupChatWebSocket();
+        setupSongRequestWebSocket();
+        setupPollWebSocket();
+      }, 500);
+
+      return () => {
+        clearTimeout(timer);
+        if (chatWsRef.current) {
+          chatWsRef.current.disconnect();
+          chatWsRef.current = null;
+        }
+        if (songRequestWsRef.current) {
+          songRequestWsRef.current.disconnect();
+          songRequestWsRef.current = null;
+        }
+        if (pollWsRef.current) {
+          pollWsRef.current.disconnect();
+          pollWsRef.current = null;
+        }
+      };
+    }
+  }, [currentBroadcastId, isLive, currentPoll?.id, chatMessages.length]);
 
   // Update the scroll event listener
   useEffect(() => {
@@ -556,9 +685,12 @@ export default function ListenerDashboard() {
       // Send message to the server
       await chatService.sendMessage(currentBroadcastId, messageData);
 
-      // Fetch the latest messages
-      const response = await chatService.getMessages(currentBroadcastId);
-      setChatMessages(response.data);
+      // The WebSocket will handle adding the message to the UI
+      // If WebSocket is not connected, fetch messages as fallback
+      if (!chatWsRef.current || !chatWsRef.current.isConnected()) {
+        const response = await chatService.getMessages(currentBroadcastId);
+        setChatMessages(response.data);
+      }
 
       // Always scroll to bottom after sending your own message
       scrollToBottom();
@@ -916,54 +1048,73 @@ export default function ListenerDashboard() {
 
   // Render chat messages
   const renderChatMessages = () => (
-    <div className="max-h-60 overflow-y-auto space-y-3 mb-4 chat-messages-container scrollbar-thin scrollbar-thumb-maroon-500 dark:scrollbar-thumb-maroon-700 scrollbar-track-gray-200 dark:scrollbar-track-gray-700">
+    <div className="max-h-60 overflow-y-auto space-y-3 mb-4 chat-messages-container custom-scrollbar" ref={chatContainerRef}>
       {chatMessages.length === 0 ? (
         <p className="text-center text-gray-500 dark:text-gray-400 py-4">No messages yet</p>
       ) : (
-        chatMessages.map((msg) => {
-          // Check if the message is from a DJ
-          const isDJ = msg.sender && msg.sender.name.includes("DJ");
-          const initials = msg.sender.name.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
-          
-          // Parse the createdAt timestamp from the backend
-          const messageDate = msg.createdAt ? new Date(msg.createdAt + 'Z') : null;
-          
-          // Format relative time
-          const timeAgo = messageDate ? formatDistanceToNow(messageDate, { addSuffix: false }) : 'Invalid Date';
-          
-          // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
-          const formattedTimeAgo = timeAgo
-            .replace(' seconds', ' sec')
-            .replace(' second', ' sec')
-            .replace(' minutes', ' min')
-            .replace(' minute', ' min')
-            .replace(' hours', ' hour')
-            .replace(' days', ' day')
-            .replace(' months', ' month')
-            .replace(' years', ' year');
-          
-          return (
-            <div
-              key={msg.id}
-              className="mb-3"
-            >
-              <div className="flex items-center mb-1">
-                <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
-                  {isDJ ? 'DJ' : initials}
-                </div>
-                <div className="ml-2">
-                  <span className="font-medium text-sm text-gray-900 dark:text-white">{msg.sender.name}</span>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    {formattedTimeAgo} ago
+        chatMessages
+          .slice()
+          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+          .map((msg) => {
+            // Ensure we have valid message data
+            if (!msg || !msg.sender) {
+              console.log('Listener Dashboard: Skipping invalid message:', msg);
+              return null;
+            }
+
+            // Check if the message is from a DJ
+            const isDJ = msg.sender && msg.sender.name && msg.sender.name.includes("DJ");
+            const senderName = msg.sender.name || 'Unknown User';
+            const initials = senderName.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
+            
+            // Handle date parsing more robustly
+            let messageDate;
+            try {
+              messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
+            } catch (error) {
+              console.error('Listener Dashboard: Error parsing message date:', error);
+              messageDate = new Date();
+            }
+            
+            // Format relative time
+            const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
+              ? formatDistanceToNow(messageDate, { addSuffix: false }) 
+              : 'Just now';
+            
+            // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
+            const formattedTimeAgo = timeAgo
+              .replace(' seconds', ' sec')
+              .replace(' second', ' sec')
+              .replace(' minutes', ' min')
+              .replace(' minute', ' min')
+              .replace(' hours', ' hour')
+              .replace(' days', ' day')
+              .replace(' months', ' month')
+              .replace(' years', ' year');
+            
+            return (
+              <div
+                key={msg.id}
+                className="mb-3"
+              >
+                <div className="flex items-center mb-1">
+                  <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
+                    {isDJ ? 'DJ' : initials}
+                  </div>
+                  <div className="ml-2">
+                    <span className="font-medium text-sm text-gray-900 dark:text-white">{senderName}</span>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      {formattedTimeAgo} ago
+                    </div>
                   </div>
                 </div>
+                <div className={`rounded-lg p-3 ml-8 ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
+                  <p className="text-sm text-gray-800 dark:text-gray-200">{msg.content || 'No content'}</p>
+                </div>
               </div>
-              <div className={`rounded-lg p-3 ml-8 ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
-                <p className="text-sm text-gray-800 dark:text-gray-200">{msg.content}</p>
-              </div>
-            </div>
-          );
-        })
+            );
+          })
+          .filter(Boolean)
       )}
     </div>
   );
@@ -1006,7 +1157,6 @@ export default function ListenerDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main content area - left 2/3 */}
         <div className="lg:col-span-2 flex flex-col">
-          {/* Broadcast player */}
           <div className="bg-maroon-700 rounded-lg overflow-hidden mb-6 h-[200px] flex flex-col justify-center">
             {/* Live indicator */}
             <div className="absolute p-2 px-4">
@@ -1266,9 +1416,9 @@ export default function ListenerDashboard() {
                               const percentage = Math.round((option.votes / currentPoll.totalVotes) * 100) || 0;
                               return (
                                 <div key={option.id} className="space-y-1">
-                                  <div className="text-sm font-medium mb-2 text-gray-900 dark:text-white">Song Title</div>
+                                  <div className="text-sm font-medium mb-2 text-gray-900 dark:text-white">{option.text}</div>
                                   <div 
-                                    className="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md overflow-hidden"
+                                    className="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md overflow-hidden cursor-pointer"
                                     onClick={() => !currentPoll.userVoted && handlePollVote(option.id)}
                                   >
                                     <div 

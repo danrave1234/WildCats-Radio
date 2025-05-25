@@ -76,14 +76,14 @@ export default function NotificationBell() {
                                         )}
                                         <div className="flex-1">
                                             <p className="text-sm font-medium text-gray-900 dark:text-white">
-                                                {notification.title}
+                                                {notification.type?.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase()) || 'Notification'}
                                             </p>
                                             <p className="text-sm text-gray-600 dark:text-gray-300">
                                                 {notification.message}
                                             </p>
-                                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                                                {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
-                                            </p>
+                                                                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                {formatDistanceToNow(new Date(notification.timestamp), { addSuffix: true })}
+                            </p>
                                         </div>
                                     </div>
                                 </div>

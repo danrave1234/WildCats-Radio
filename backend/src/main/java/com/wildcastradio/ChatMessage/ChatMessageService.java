@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import com.wildcastradio.Broadcast.BroadcastEntity;
@@ -18,6 +19,9 @@ public class ChatMessageService {
 
     @Autowired
     private BroadcastRepository broadcastRepository;
+    
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
 
     /**
      * Get all messages for a specific broadcast
@@ -53,6 +57,14 @@ public class ChatMessageService {
 
         // Create the message with the broadcast entity
         ChatMessageEntity message = new ChatMessageEntity(broadcast, sender, content);
-        return chatMessageRepository.save(message);
+        ChatMessageEntity savedMessage = chatMessageRepository.save(message);
+        
+        // Notify all clients about the new chat message
+        messagingTemplate.convertAndSend(
+                "/topic/broadcast/" + broadcastId + "/chat",
+                ChatMessageDTO.fromEntity(savedMessage)
+        );
+        
+        return savedMessage;
     }
 }
