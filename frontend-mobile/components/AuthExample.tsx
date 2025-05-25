@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useAuth } from '@/services/api';
-
+//pushing
 export default function AuthExample() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

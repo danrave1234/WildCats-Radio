@@ -4,7 +4,7 @@ import { usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { ColorPalette } from '@/constants/ColorPalette';
-
+//pushing
 export interface TopBarProps {
   hideOnScreens?: string[];
   onNotificationPress?: () => void;
