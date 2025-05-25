@@ -1,5 +1,7 @@
 package com.wildcastradio.icecast;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,17 +26,18 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class ListenerStatusHandler extends TextWebSocketHandler {
     private static final Logger logger = LoggerFactory.getLogger(ListenerStatusHandler.class);
-    
+
     private final IcecastService icecastService;
     private final ObjectMapper objectMapper;
     private final Map<String, WebSocketSession> listenerSessions = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> activeListeners = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-    
+
     @Autowired
     public ListenerStatusHandler(IcecastService icecastService) {
         this.icecastService = icecastService;
         this.objectMapper = new ObjectMapper();
-        
+
         // Start periodic status broadcasting
         scheduler.scheduleAtFixedRate(this::broadcastStatus, 0, 5, TimeUnit.SECONDS);
     }
@@ -43,7 +46,7 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         logger.info("Listener WebSocket connection established: {}", session.getId());
         listenerSessions.put(session.getId(), session);
-        
+
         // Send initial status immediately
         sendStatusToSession(session);
     }
@@ -52,12 +55,44 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
         logger.info("Listener WebSocket connection closed: {} with status: {}", session.getId(), status);
         listenerSessions.remove(session.getId());
+        activeListeners.remove(session.getId());
     }
 
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
         logger.error("Transport error in listener WebSocket session: {}", session.getId(), exception);
         listenerSessions.remove(session.getId());
+        activeListeners.remove(session.getId());
+    }
+
+    @Override
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+        try {
+            String payload = message.getPayload();
+            JsonNode jsonNode = objectMapper.readTree(payload);
+
+            if (jsonNode.has("type")) {
+                String type = jsonNode.get("type").asText();
+
+                if ("PLAYER_STATUS".equals(type) && jsonNode.has("isPlaying")) {
+                    boolean isPlaying = jsonNode.get("isPlaying").asBoolean();
+                    String sessionId = session.getId();
+
+                    if (isPlaying) {
+                        logger.info("Listener started playing: {}", sessionId);
+                        activeListeners.put(sessionId, true);
+                    } else {
+                        logger.info("Listener stopped playing: {}", sessionId);
+                        activeListeners.remove(sessionId);
+                    }
+
+                    // Broadcast updated status to all listeners
+                    broadcastStatus();
+                }
+            }
+        } catch (JsonProcessingException e) {
+            logger.error("Error parsing message from listener: {}", e.getMessage());
+        }
     }
 
     /**
@@ -77,15 +112,15 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
         try {
             Map<String, Object> streamStatus = icecastService.getStreamStatus();
             Integer listenerCount = icecastService.getCurrentListenerCount();
-            
+
             Map<String, Object> message = new HashMap<>();
             message.put("type", "STREAM_STATUS");
             message.put("isLive", streamStatus.get("live"));
             message.put("listenerCount", listenerCount != null ? listenerCount : 0);
             message.put("timestamp", System.currentTimeMillis());
-            
+
             String jsonMessage = objectMapper.writeValueAsString(message);
-            
+
             // Send to all connected listener sessions
             listenerSessions.entrySet().removeIf(entry -> {
                 WebSocketSession session = entry.getValue();
@@ -102,9 +137,9 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
                     return true; // Remove closed sessions
                 }
             });
-            
+
             logger.debug("Broadcasted status to {} listener sessions", listenerSessions.size());
-            
+
         } catch (Exception e) {
             logger.error("Error broadcasting stream status", e);
         }
@@ -117,16 +152,16 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
         try {
             Map<String, Object> streamStatus = icecastService.getStreamStatus();
             Integer listenerCount = icecastService.getCurrentListenerCount();
-            
+
             Map<String, Object> message = new HashMap<>();
             message.put("type", "STREAM_STATUS");
             message.put("isLive", streamStatus.get("live"));
             message.put("listenerCount", listenerCount != null ? listenerCount : 0);
             message.put("timestamp", System.currentTimeMillis());
-            
+
             String jsonMessage = objectMapper.writeValueAsString(message);
             session.sendMessage(new TextMessage(jsonMessage));
-            
+
         } catch (Exception e) {
             logger.error("Error sending status to session {}: {}", session.getId(), e.getMessage());
         }
@@ -144,5 +179,12 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
      */
     public int getConnectedListenersCount() {
         return listenerSessions.size();
+    }
+
+    /**
+     * Get number of active listeners (those who are actually playing the stream)
+     */
+    public int getActiveListenersCount() {
+        return activeListeners.size();
     }
 } 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import {
   PlayIcon,
   PauseIcon,
@@ -18,10 +18,43 @@ export default function ListenerDashboard() {
   const [streamError, setStreamError] = useState(null)
   const [serverConfig, setServerConfig] = useState(null)
   const [listenerCount, setListenerCount] = useState(0)
-  
+
   const audioRef = useRef(null)
   const statusCheckInterval = useRef(null)
   const wsRef = useRef(null)
+  const wsConnectingRef = useRef(false)
+
+  // Send player status to server using useCallback to ensure consistent reference
+  const sendPlayerStatus = useCallback((isPlaying) => {
+    try {
+      // Check if WebSocket exists and is open
+      if (!wsRef.current) {
+        console.warn('WebSocket not initialized, cannot send player status')
+        return
+      }
+
+      if (wsRef.current.readyState !== WebSocket.OPEN) {
+        console.warn(`WebSocket not open (state: ${wsRef.current.readyState}), cannot send player status`)
+        return
+      }
+
+      // Prepare message
+      const message = {
+        type: "PLAYER_STATUS",
+        isPlaying: isPlaying
+      }
+
+      // Send message
+      wsRef.current.send(JSON.stringify(message))
+      console.log('Sent player status to server:', isPlaying ? 'playing' : 'paused')
+    } catch (error) {
+      // Handle any errors that might occur
+      console.error('Error sending player status:', error)
+
+      // Don't throw the error further to prevent component crashes
+      // Just log it and continue
+    }
+  }, []) // Remove wsRef dependency to prevent re-renders
 
   // Initialize server configuration and audio element
   useEffect(() => {
@@ -39,16 +72,38 @@ export default function ListenerDashboard() {
     }
 
     fetchServerConfig()
-  }, [])
 
-  // Set up audio element when server config is available (removed volume dependency)
+    // Add a beforeunload handler to prevent accidental navigation
+    const handleBeforeUnload = (e) => {
+      if (isPlaying) {
+        // This will show a confirmation dialog in most browsers
+        // when the user tries to navigate away while playing
+        const message = "Audio is currently playing. Are you sure you want to leave?"
+        e.returnValue = message
+        return message
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [isPlaying])
+
+  // Split the audio element setup into two effects:
+  // 1. Create and configure the audio element only once when serverConfig is available
+  // 2. Update the audio element's volume and handle cleanup separately
+
+  // Effect 1: Create and configure audio element (runs only once when serverConfig is available)
   useEffect(() => {
     if (!serverConfig) return
 
-    // Create and configure audio element
+    // Create and configure audio element if it doesn't exist
     if (!audioRef.current) {
+      console.log('Creating new audio element')
       audioRef.current = new Audio()
-      
+
       // Configure audio element for Icecast streaming
       audioRef.current.crossOrigin = "anonymous"
       audioRef.current.preload = "none"
@@ -78,9 +133,14 @@ export default function ListenerDashboard() {
       audioRef.current.addEventListener('ended', () => {
         setIsPlaying(false)
         console.log('Stream ended')
+        // Notify server that playback has stopped
+        sendPlayerStatus(false)
       })
 
       audioRef.current.addEventListener('error', (e) => {
+        // Prevent default behavior to avoid potential navigation
+        e.preventDefault();
+
         console.error('Audio error:', e)
         console.error('Audio error details:', {
           error: audioRef.current?.error,
@@ -88,7 +148,7 @@ export default function ListenerDashboard() {
           readyState: audioRef.current?.readyState,
           src: audioRef.current?.src
         })
-        
+
         let errorMessage = 'Error loading stream. '
         if (audioRef.current?.error) {
           switch (audioRef.current.error.code) {
@@ -109,9 +169,40 @@ export default function ListenerDashboard() {
           }
         }
         errorMessage += ' Please try refreshing or check if the stream is live.'
-        
+
+        // Check if the src has changed to an invalid URL and reset it to the correct stream URL
+        if (serverConfig && audioRef.current) {
+          const currentSrc = audioRef.current.src
+          if (!currentSrc.startsWith('http') || currentSrc.includes('localhost:5173') || currentSrc.startsWith('blob:')) {
+            console.warn('Audio src changed to invalid URL, resetting to stream URL')
+
+            try {
+              // Ensure the URL is absolute
+              const streamUrl = serverConfig.streamUrl.startsWith('http') 
+                ? serverConfig.streamUrl 
+                : `http://${serverConfig.streamUrl}`
+
+              // Reset immediately, don't use timeout
+              if (audioRef.current) {
+                console.log('Resetting audio src to:', streamUrl)
+                audioRef.current.src = streamUrl
+                audioRef.current.load()
+              }
+            } catch (urlError) {
+              console.error('Error resetting audio src:', urlError)
+            }
+          }
+        }
+
         setStreamError(errorMessage)
         setIsPlaying(false)
+
+        // Notify server that playback has stopped due to error
+        try {
+          sendPlayerStatus(false)
+        } catch (statusError) {
+          console.error('Error sending player status after audio error:', statusError)
+        }
       })
 
       audioRef.current.addEventListener('stalled', () => {
@@ -123,73 +214,171 @@ export default function ListenerDashboard() {
       })
 
       // Set the stream URL immediately when config is available
-      audioRef.current.src = serverConfig.streamUrl
-      console.log('Stream URL set:', serverConfig.streamUrl)
+      // Ensure the URL is absolute by checking if it starts with http
+      const streamUrl = serverConfig.streamUrl.startsWith('http') 
+        ? serverConfig.streamUrl 
+        : `http://${serverConfig.streamUrl}`
+      audioRef.current.src = streamUrl
+      console.log('Stream URL set:', streamUrl)
     }
+  }, [serverConfig]) // Only depend on serverConfig for initial setup
 
+  // Effect 2: Handle cleanup when component unmounts (only on actual unmount)
+  useEffect(() => {
     return () => {
-      // Clean up audio element when component unmounts
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current.src = ''
-      }
-      if (statusCheckInterval.current) {
-        clearInterval(statusCheckInterval.current)
-      }
-      if (wsRef.current) {
-        wsRef.current.close()
-      }
-    }
-  }, [serverConfig]) // Removed volume from dependency array
+      console.log('Component unmounting, cleaning up resources')
 
-  // Set up WebSocket connection for real-time updates
+      // Clean up audio element when component unmounts
+      try {
+        if (audioRef.current) {
+          console.log('Cleaning up audio element')
+
+          // Pause and clear the audio element
+          try {
+            audioRef.current.pause()
+            // Set to about:blank to prevent navigation
+            audioRef.current.src = 'about:blank'
+            audioRef.current.load()
+            console.log('Audio element paused and source cleared')
+          } catch (audioError) {
+            console.error('Error cleaning up audio element:', audioError)
+          }
+        }
+      } catch (error) {
+        console.error('Error in audio cleanup:', error)
+      }
+
+      // Clear interval timers
+      try {
+        if (statusCheckInterval.current) {
+          clearInterval(statusCheckInterval.current)
+          statusCheckInterval.current = null
+          console.log('Status check interval cleared')
+        }
+      } catch (timerError) {
+        console.error('Error clearing interval:', timerError)
+      }
+
+      console.log('Component cleanup completed')
+    }
+  }, []) // Empty dependency array - only run on actual component unmount
+
+  // Set up WebSocket connection for real-time updates with better reconnection handling
   useEffect(() => {
     if (!serverConfig) return
 
-    const connectWebSocket = () => {
-      const wsUrl = `ws://${serverConfig.serverIp}:8080/ws/listener`
-      console.log('Connecting to WebSocket:', wsUrl)
-      
-      wsRef.current = new WebSocket(wsUrl)
+    let reconnectTimer = null
+    let isReconnecting = false
+    let wsInstance = wsRef.current
 
-      wsRef.current.onopen = () => {
-        console.log('WebSocket connected for listener updates')
+    const connectWebSocket = () => {
+      // Clear any existing reconnect timer
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
       }
 
-      wsRef.current.onmessage = (event) => {
+      // Don't try to reconnect if we're already connecting
+      if (isReconnecting || wsConnectingRef.current) return
+      isReconnecting = true
+      wsConnectingRef.current = true
+
+      const wsUrl = `ws://${serverConfig.serverIp}:8080/ws/listener`
+      console.log('Connecting to WebSocket:', wsUrl)
+
+      // Close existing connection if it exists
+      if (wsInstance) {
         try {
-          const data = JSON.parse(event.data)
-          console.log('WebSocket message received:', data)
-          
-          if (data.type === 'STREAM_STATUS') {
-            setIsLive(data.isLive)
-            setListenerCount(data.listenerCount || 0)
-            console.log('Stream status updated via WebSocket:', data.isLive)
+          // Only close if it's not already closing or closed
+          if (wsInstance.readyState !== WebSocket.CLOSING && 
+              wsInstance.readyState !== WebSocket.CLOSED) {
+            wsInstance.close()
+          }
+        } catch (e) {
+          console.warn('Error closing existing WebSocket:', e)
+        }
+      }
+
+      // Create new WebSocket connection
+      try {
+        wsInstance = new WebSocket(wsUrl)
+        wsRef.current = wsInstance
+
+        wsInstance.onopen = () => {
+          console.log('WebSocket connected for listener updates')
+          isReconnecting = false
+          wsConnectingRef.current = false
+        }
+
+        wsInstance.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            console.log('WebSocket message received:', data)
+
+            if (data.type === 'STREAM_STATUS') {
+              setIsLive(data.isLive)
+              setListenerCount(data.listenerCount || 0)
+              console.log('Stream status updated via WebSocket:', data.isLive)
             }
           } catch (error) {
-          console.error('Error parsing WebSocket message:', error)
+            console.error('Error parsing WebSocket message:', error)
           }
         }
 
-      wsRef.current.onclose = () => {
-        console.log('WebSocket disconnected, attempting to reconnect...')
-        // Reconnect after 3 seconds
-        setTimeout(connectWebSocket, 3000)
-      }
+        wsInstance.onclose = (event) => {
+          console.log(`WebSocket disconnected with code ${event.code}, reason: ${event.reason}`)
+          isReconnecting = false
+          wsConnectingRef.current = false
 
-      wsRef.current.onerror = (error) => {
-        console.error('WebSocket error:', error)
+          // Don't reconnect if this was a normal closure (code 1000)
+          if (event.code !== 1000) {
+            console.log('Attempting to reconnect WebSocket in 3 seconds...')
+            // Reconnect after 3 seconds
+            reconnectTimer = setTimeout(connectWebSocket, 3000)
+          }
+        }
+
+        wsInstance.onerror = (error) => {
+          console.error('WebSocket error:', error)
+          // Don't set isReconnecting to false here, let onclose handle it
+        }
+      } catch (error) {
+        console.error('Error creating WebSocket:', error)
+        isReconnecting = false
+        wsConnectingRef.current = false
+
+        // Try to reconnect after a delay
+        reconnectTimer = setTimeout(connectWebSocket, 3000)
       }
     }
 
     connectWebSocket()
 
+    // Clean up function
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close()
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+      }
+
+      // Only close the WebSocket if we're intentionally unmounting the component
+      if (wsInstance) {
+        // Use code 1000 to indicate normal closure
+        try {
+          console.log('Closing WebSocket due to component unmount')
+          wsInstance.close(1000, 'Component unmounting')
+        } catch (e) {
+          console.warn('Error closing WebSocket during cleanup:', e)
+        }
       }
     }
-  }, [serverConfig])
+  }, [serverConfig]) // Only depend on serverConfig
+
+  // Send player status when playing state changes or WebSocket connects
+  useEffect(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      sendPlayerStatus(isPlaying)
+    }
+  }, [isPlaying, sendPlayerStatus])
 
   // Fallback: Set up stream status checking via polling (as backup)
   useEffect(() => {
@@ -200,11 +389,11 @@ export default function ListenerDashboard() {
       streamService.getStatus()
         .then(response => {
           console.log("Backend stream status:", response.data)
-          
+
           if (response.data && response.data.data) {
             const statusData = response.data.data
             setIsLive(statusData.live || false)
-            
+
             // Get listener count from backend
             streamService.getHealth()
               .then(healthResponse => {
@@ -244,6 +433,8 @@ export default function ListenerDashboard() {
 
   // Toggle play/pause
   const togglePlay = () => {
+    console.log('Toggle play called, current state:', { isPlaying, wsReadyState: wsRef.current?.readyState })
+
     if (!audioRef.current || !serverConfig) {
       setStreamError("Audio player not ready. Please wait...")
       return
@@ -251,31 +442,49 @@ export default function ListenerDashboard() {
 
     try {
       if (isPlaying) {
+        console.log('Pausing playback')
         audioRef.current.pause()
+        setIsPlaying(false)
+        // Notify server that playback has stopped
+        sendPlayerStatus(false)
       } else {
+        console.log('Starting playback')
         // Only reload if the source is different or not set
         const currentSrc = audioRef.current.src
-        const expectedSrc = serverConfig.streamUrl
-        
-        if (!currentSrc || currentSrc !== expectedSrc) {
+        // Ensure the URL is absolute by checking if it starts with http
+        const expectedSrc = serverConfig.streamUrl.startsWith('http') 
+          ? serverConfig.streamUrl 
+          : `http://${serverConfig.streamUrl}`
+
+        if (!currentSrc || currentSrc !== expectedSrc || currentSrc.includes('localhost:5173') || currentSrc.startsWith('blob:') || currentSrc === 'about:blank') {
           console.log('Setting new stream URL:', expectedSrc)
           audioRef.current.src = expectedSrc
           audioRef.current.load()
         }
 
         // Play with proper promise handling
-        const playPromise = audioRef.current.play()
+        let playPromise
+        try {
+          playPromise = audioRef.current.play()
+          console.log('Play method called')
+        } catch (playError) {
+          console.error('Error calling play method:', playError)
+          setStreamError(`Error starting playback: ${playError.message}`)
+          return
+        }
 
         if (playPromise !== undefined) {
           playPromise
             .then(() => {
+              console.log('Playback started successfully')
               setIsPlaying(true)
               setStreamError(null)
-              console.log('Playback started successfully')
+              // Notify server that playback has started
+              sendPlayerStatus(true)
             })
             .catch(error => {
               console.error("Playback failed:", error)
-              
+
               // Provide specific error messages
               if (error.name === 'NotAllowedError') {
                 setStreamError("Browser blocked autoplay. Please click play again to start listening.")
@@ -287,7 +496,19 @@ export default function ListenerDashboard() {
                 setStreamError(`Playback failed: ${error.message}. Please check if the stream is live.`)
               }
               setIsPlaying(false)
+
+              // Check if the src has changed to an invalid URL and reset it
+              if (audioRef.current) {
+                const srcAfterError = audioRef.current.src
+                if (!srcAfterError.startsWith('http') || srcAfterError.includes('localhost:5173') || srcAfterError.startsWith('blob:')) {
+                  console.warn('Audio src changed to invalid URL after error, resetting to stream URL')
+                  audioRef.current.src = expectedSrc
+                  audioRef.current.load()
+                }
+              }
             })
+        } else {
+          console.warn('Play promise is undefined, cannot track playback status')
         }
       }
     } catch (error) {
@@ -318,11 +539,50 @@ export default function ListenerDashboard() {
   const refreshStream = () => {
     if (audioRef.current && serverConfig) {
       console.log('Refreshing stream...')
-      audioRef.current.pause()
-      audioRef.current.src = serverConfig.streamUrl
-      audioRef.current.load()
-      setStreamError(null)
-      setIsPlaying(false)
+
+      // If currently playing, notify server that playback has stopped
+      if (isPlaying) {
+        sendPlayerStatus(false)
+      }
+
+      try {
+        // Pause the audio first
+        audioRef.current.pause()
+
+        // Ensure the URL is absolute by checking if it starts with http
+        const streamUrl = serverConfig.streamUrl.startsWith('http') 
+          ? serverConfig.streamUrl 
+          : `http://${serverConfig.streamUrl}`
+
+        console.log('Setting new stream URL during refresh:', streamUrl)
+
+        // Set the source and load
+        audioRef.current.src = streamUrl
+        audioRef.current.load()
+
+        // Reset state
+        setStreamError(null)
+        setIsPlaying(false)
+
+        console.log('Stream refreshed successfully')
+      } catch (error) {
+        console.error('Error refreshing stream:', error)
+        setStreamError(`Error refreshing stream: ${error.message}. Please try again.`)
+
+        // Make sure the audio element is in a clean state
+        try {
+          audioRef.current.pause()
+          // Ensure the URL is absolute
+          const streamUrl = serverConfig.streamUrl.startsWith('http') 
+            ? serverConfig.streamUrl 
+            : `http://${serverConfig.streamUrl}`
+          audioRef.current.src = streamUrl
+        } catch (cleanupError) {
+          console.error('Error cleaning up audio element:', cleanupError)
+        }
+      }
+    } else {
+      console.warn('Cannot refresh stream: audio element or server config not available')
     }
   }
 
@@ -441,7 +701,7 @@ export default function ListenerDashboard() {
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
               Stream Information
             </h2>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="font-medium text-gray-700 dark:text-gray-300">Server IP:</span>
@@ -466,7 +726,7 @@ export default function ListenerDashboard() {
                 <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.streamUrl}</code>
                                       </div>
                                     </div>
-            
+
             <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/30 rounded-md">
               <p className="text-sm text-green-700 dark:text-green-200">
                 <strong>Status:</strong> {isLive ? `Stream is currently live with ${listenerCount} listener${listenerCount !== 1 ? 's' : ''}!` : 'Waiting for DJ to go live...'}
