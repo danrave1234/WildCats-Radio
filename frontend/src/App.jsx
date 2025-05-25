@@ -14,25 +14,6 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
 import './App.css';
 
-// Test credentials for different roles
-const TEST_CREDENTIALS = {
-  admin: {
-    email: 'admin@wildcats.edu',
-    password: 'admin123',
-    role: 'ADMIN'
-  },
-  dj: {
-    email: 'dj@wildcats.edu',
-    password: 'dj123',
-    role: 'DJ'
-  },
-  listener: {
-    email: 'listener@wildcats.edu',
-    password: 'listener123',
-    role: 'LISTENER'
-  }
-};
-
 // Loading component
 const LoadingFallback = () => (
   <div className="flex justify-center items-center h-[calc(100vh-64px)]">
@@ -128,7 +109,7 @@ const AppRoutes = () => {
         <Layout>
           <ProtectedRoute 
             key={getRoutePath()}
-            element={<ListenerDashboard key="dashboard" />} 
+            element={<ListenerDashboard key="dashboard" />}
             allowedRoles={['LISTENER']} 
           />
         </Layout>
