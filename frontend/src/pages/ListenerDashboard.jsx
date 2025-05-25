@@ -23,6 +23,7 @@ export default function ListenerDashboard() {
   const statusCheckInterval = useRef(null)
   const wsRef = useRef(null)
   const wsConnectingRef = useRef(false)
+  const heartbeatInterval = useRef(null)
 
   // Send player status to server using useCallback to ensure consistent reference
   const sendPlayerStatus = useCallback((isPlaying) => {
@@ -255,6 +256,12 @@ export default function ListenerDashboard() {
           statusCheckInterval.current = null
           console.log('Status check interval cleared')
         }
+        
+        if (heartbeatInterval.current) {
+          clearInterval(heartbeatInterval.current)
+          heartbeatInterval.current = null
+          console.log('Heartbeat interval cleared')
+        }
       } catch (timerError) {
         console.error('Error clearing interval:', timerError)
       }
@@ -308,6 +315,33 @@ export default function ListenerDashboard() {
           console.log('WebSocket connected for listener updates')
           isReconnecting = false
           wsConnectingRef.current = false
+          
+          // Send current player status immediately when WebSocket connects
+          // This ensures the server knows if we're still playing after a reconnection
+          setTimeout(() => {
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              // Get current playing state from audio element to ensure accuracy
+              const currentlyPlaying = audioRef.current && !audioRef.current.paused
+              sendPlayerStatus(currentlyPlaying)
+              console.log('Sent initial player status on WebSocket connect:', currentlyPlaying)
+            }
+          }, 100) // Small delay to ensure WebSocket is fully ready
+
+          // Set up heartbeat to periodically send player status while playing
+          // This helps maintain accurate listener counts
+          if (heartbeatInterval.current) {
+            clearInterval(heartbeatInterval.current)
+          }
+          
+          heartbeatInterval.current = setInterval(() => {
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && audioRef.current) {
+              const currentlyPlaying = !audioRef.current.paused
+              if (currentlyPlaying) {
+                sendPlayerStatus(true)
+                console.log('Heartbeat: Sent player status (playing)')
+              }
+            }
+          }, 15000) // Send heartbeat every 15 seconds while playing
         }
 
         wsInstance.onmessage = (event) => {
@@ -329,6 +363,12 @@ export default function ListenerDashboard() {
           console.log(`WebSocket disconnected with code ${event.code}, reason: ${event.reason}`)
           isReconnecting = false
           wsConnectingRef.current = false
+
+          // Clear heartbeat interval when WebSocket closes
+          if (heartbeatInterval.current) {
+            clearInterval(heartbeatInterval.current)
+            heartbeatInterval.current = null
+          }
 
           // Don't reconnect if this was a normal closure (code 1000)
           if (event.code !== 1000) {
@@ -358,6 +398,12 @@ export default function ListenerDashboard() {
     return () => {
       if (reconnectTimer) {
         clearTimeout(reconnectTimer)
+      }
+
+      // Clear heartbeat interval
+      if (heartbeatInterval.current) {
+        clearInterval(heartbeatInterval.current)
+        heartbeatInterval.current = null
       }
 
       // Only close the WebSocket if we're intentionally unmounting the component
