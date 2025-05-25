@@ -754,7 +754,7 @@ export default function DJDashboard() {
   return (
     <div className="relative min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Main Content */}
-      <div className="container mx-auto px-4 py-6">
+    <div className="container mx-auto px-4 py-6">
       <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">
         DJ Dashboard
       </h1>
@@ -800,75 +800,75 @@ export default function DJDashboard() {
 
       {/* Workflow Progress Indicator - Hidden when live */}
       {workflowState !== WORKFLOW_STATES.STREAMING_LIVE && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
-          <div className="p-6">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-              Broadcast Workflow
-            </h2>
-            
-            <div className="flex items-center justify-between">
-              {/* Step 1: Create Broadcast Content */}
-              <div className="flex items-center">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
-                  workflowState === WORKFLOW_STATES.CREATE_BROADCAST 
-                    ? 'border-blue-500 bg-blue-500 text-white' 
-                    : workflowState === WORKFLOW_STATES.READY_TO_STREAM || workflowState === WORKFLOW_STATES.STREAMING_LIVE
-                    ? 'border-green-500 bg-green-500 text-white'
-                    : 'border-gray-300 text-gray-500'
-                }`}>
-                  {workflowState === WORKFLOW_STATES.CREATE_BROADCAST ? (
-                    <PlusIcon className="h-5 w-5" />
-                  ) : (
-                    <CheckIcon className="h-5 w-5" />
-                  )}
-                </div>
-                <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
-                  Create Broadcast
-                </span>
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
+        <div className="p-6">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
+            Broadcast Workflow
+          </h2>
+          
+          <div className="flex items-center justify-between">
+            {/* Step 1: Create Broadcast Content */}
+            <div className="flex items-center">
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
+                workflowState === WORKFLOW_STATES.CREATE_BROADCAST 
+                  ? 'border-blue-500 bg-blue-500 text-white' 
+                  : workflowState === WORKFLOW_STATES.READY_TO_STREAM || workflowState === WORKFLOW_STATES.STREAMING_LIVE
+                  ? 'border-green-500 bg-green-500 text-white'
+                  : 'border-gray-300 text-gray-500'
+              }`}>
+                {workflowState === WORKFLOW_STATES.CREATE_BROADCAST ? (
+                  <PlusIcon className="h-5 w-5" />
+                ) : (
+                  <CheckIcon className="h-5 w-5" />
+                )}
               </div>
+              <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
+                Create Broadcast
+              </span>
+            </div>
 
-              {/* Arrow */}
-              <div className="flex-1 h-0.5 bg-gray-300 dark:bg-gray-600 mx-4"></div>
+            {/* Arrow */}
+            <div className="flex-1 h-0.5 bg-gray-300 dark:bg-gray-600 mx-4"></div>
 
-              {/* Step 2: Ready to Stream */}
-              <div className="flex items-center">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
-                  workflowState === WORKFLOW_STATES.READY_TO_STREAM 
-                    ? 'border-blue-500 bg-blue-500 text-white' 
-                    : workflowState === WORKFLOW_STATES.STREAMING_LIVE
-                    ? 'border-green-500 bg-green-500 text-white'
-                    : 'border-gray-300 text-gray-500'
-                }`}>
-                  {workflowState === WORKFLOW_STATES.STREAMING_LIVE ? (
-                    <CheckIcon className="h-5 w-5" />
-                  ) : (
-                    <ClockIcon className="h-5 w-5" />
-                  )}
-                </div>
-                <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
-                  Ready to Stream
-                </span>
+            {/* Step 2: Ready to Stream */}
+            <div className="flex items-center">
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
+                workflowState === WORKFLOW_STATES.READY_TO_STREAM 
+                  ? 'border-blue-500 bg-blue-500 text-white' 
+                  : workflowState === WORKFLOW_STATES.STREAMING_LIVE
+                  ? 'border-green-500 bg-green-500 text-white'
+                  : 'border-gray-300 text-gray-500'
+              }`}>
+                {workflowState === WORKFLOW_STATES.STREAMING_LIVE ? (
+                  <CheckIcon className="h-5 w-5" />
+                ) : (
+                  <ClockIcon className="h-5 w-5" />
+                )}
               </div>
+              <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
+                Ready to Stream
+              </span>
+            </div>
 
-              {/* Arrow */}
-              <div className="flex-1 h-0.5 bg-gray-300 dark:bg-gray-600 mx-4"></div>
+            {/* Arrow */}
+            <div className="flex-1 h-0.5 bg-gray-300 dark:bg-gray-600 mx-4"></div>
 
-              {/* Step 3: Live Streaming */}
-              <div className="flex items-center">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
-                  workflowState === WORKFLOW_STATES.STREAMING_LIVE 
-                    ? 'border-red-500 bg-red-500 text-white' 
-                    : 'border-gray-300 text-gray-500'
-                }`}>
-                  <MicrophoneIcon className="h-5 w-5" />
-                </div>
-                <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
-                  Live Streaming
-                </span>
+            {/* Step 3: Live Streaming */}
+            <div className="flex items-center">
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
+                workflowState === WORKFLOW_STATES.STREAMING_LIVE 
+                  ? 'border-red-500 bg-red-500 text-white' 
+                  : 'border-gray-300 text-gray-500'
+              }`}>
+                <MicrophoneIcon className="h-5 w-5" />
               </div>
+              <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
+                Live Streaming
+              </span>
             </div>
           </div>
         </div>
+      </div>
       )}
 
       {/* Error Display */}
