@@ -14,12 +14,14 @@ import "../../global.css"; // Adjust path based on actual global.css location
 import { useFadeInUpAnimation } from '../../hooks/useFadeInUpAnimation'; // Import the hook
 import AnimatedTextInput from '../../components/ui/AnimatedTextInput'; // Import the new component
 import { loginUser } from '../../services/apiService'; // Import the loginUser function
+import { useAuth } from '../../context/AuthContext'; // Import useAuth
 
 // IMPORTANT: Update this path to your actual logo file if different
 const logo = require('../../assets/images/wildcat_radio_logo_transparent.png');
 
 const LoginScreen: React.FC = () => {
   const router = useRouter();
+  const { signIn } = useAuth(); // Get signIn from AuthContext
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false); // Loading state
@@ -45,15 +47,13 @@ const LoginScreen: React.FC = () => {
       if (response.error) {
         Alert.alert('Login Failed', response.error);
       } else if (response.token) {
-        // TODO: Store the token securely (e.g., Expo SecureStore)
-        console.log('Login successful, token:', response.token);
-        Alert.alert('Success', 'Logged in successfully!');
-        router.replace('/(tabs)/home'); // Navigate to dashboard/home after login
+        await signIn(response.token); // Call signIn with the token
+        // Navigation is now handled by the root layout, no need for router.replace here
+        // Alert.alert('Success', 'Logged in successfully!'); // Optional: remove or keep
       } else {
         Alert.alert('Login Failed', 'An unknown error occurred.');
       }
     } catch (error) {
-      // This catch block might be redundant if apiService handles all errors
       Alert.alert('Error', 'An unexpected error occurred during login.');
     }
     setIsLoading(false);

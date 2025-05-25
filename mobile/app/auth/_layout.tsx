@@ -1,9 +1,9 @@
-import { Stack } from 'expo-router';
 import React from 'react';
+import { Stack } from 'expo-router';
 
-export default function AuthLayout() {
+const AuthStackLayout: React.FC = () => {
   return (
-    <Stack 
+    <Stack
       screenOptions={{
         headerShown: false,
         animation: 'slide_from_right',
@@ -12,8 +12,10 @@ export default function AuthLayout() {
     >
       <Stack.Screen name="login" />
       <Stack.Screen name="signup" />
-      {/* You can add a screen for forgot-password here too if needed */}
-      {/* <Stack.Screen name="forgot-password" options={{ headerShown: false }} /> */}
+      {/* <Stack.Screen name="forgot-password" /> */}
+      {/* Add other auth screens here that are direct children of the 'auth' folder */}
     </Stack>
   );
-} 
+};
+
+export default AuthStackLayout; 

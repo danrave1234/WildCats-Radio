@@ -16,12 +16,14 @@ import "../../global.css";
 import { useFadeInUpAnimation } from '../../hooks/useFadeInUpAnimation';
 import AnimatedTextInput from '../../components/ui/AnimatedTextInput';
 import { registerUser } from '../../services/apiService';
+import { useAuth } from '../../context/AuthContext';
 
 // IMPORTANT: Update this path to your actual logo file if different
 const logo = require('../../assets/images/wildcat_radio_logo_transparent.png');
 
 const SignupScreen: React.FC = () => {
   const router = useRouter();
+  const { signIn } = useAuth();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -60,6 +62,8 @@ const SignupScreen: React.FC = () => {
       const response = await registerUser({ name: fullName, email, password });
       if (response.error) {
         Alert.alert('Sign Up Failed', response.error);
+      } else if (response.token) {
+        await signIn(response.token);
       } else {
         Alert.alert('Success', 'Account created successfully! Please log in.');
         router.push('/auth/login');
@@ -87,7 +91,7 @@ const SignupScreen: React.FC = () => {
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}>
         <View className="items-center px-8 py-10">
           <Animated.View style={logoAnim}>
-            <Image source={logo} className="w-40 h-20 mb-4" resizeMode="contain" />
+            <Image source={logo} className="w-48 h-28 mb-6" resizeMode="contain" />
           </Animated.View>
 
           <Animated.View style={titleAnim}>

@@ -1,14 +1,18 @@
 import React from 'react';
 import { View, Text, SafeAreaView, StyleSheet, TouchableOpacity } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
+import { useAuth } from '../../context/AuthContext';
 
 const ProfileScreen: React.FC = () => {
   const router = useRouter();
+  const { signOut } = useAuth();
 
-  const handleLogout = () => {
-    // TODO: Implement actual logout logic (clear token, etc.)
-    console.log('Logout initiated');
-    router.replace('/welcome'); // Navigate back to welcome screen after logout
+  const handleLogout = async () => {
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('Failed to sign out:', error);
+    }
   };
 
   return (

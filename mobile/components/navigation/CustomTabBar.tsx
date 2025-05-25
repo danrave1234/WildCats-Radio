@@ -54,7 +54,7 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, navigat
           const getIconName = (routeName: string, focused: boolean): keyof typeof Ionicons.glyphMap => {
             switch (routeName) {
               case 'home': return focused ? 'home' : 'home-outline';
-              case 'list': return focused ? 'list-circle' : 'list-circle-outline';
+              case 'list': return focused ? 'list' : 'list-outline';
               case 'broadcast': return focused ? 'radio' : 'radio-outline';
               case 'schedule': return focused ? 'calendar' : 'calendar-outline';
               case 'profile': return focused ? 'person-circle' : 'person-circle-outline';
