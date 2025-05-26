@@ -40,7 +40,7 @@ export default function ListenerDashboard() {
   const chatWsRef = useRef(null);
   const songRequestWsRef = useRef(null);
   const pollWsRef = useRef(null);
-  
+
   // Add abort controller ref for managing HTTP requests
   const abortControllerRef = useRef(null);
 
@@ -68,7 +68,7 @@ export default function ListenerDashboard() {
 
   // Tabs state for interaction section
   const [activeTab, setActiveTab] = useState("song");
-  
+
   // Currently playing song
   const [currentSong, setCurrentSong] = useState(null);
 
@@ -275,7 +275,7 @@ export default function ListenerDashboard() {
           statusCheckInterval.current = null
           console.log('Status check interval cleared')
         }
-        
+
         if (heartbeatInterval.current) {
           clearInterval(heartbeatInterval.current)
           heartbeatInterval.current = null
@@ -307,7 +307,10 @@ export default function ListenerDashboard() {
       isReconnecting = true
       wsConnectingRef.current = true
 
-      const wsUrl = `ws://${serverConfig.serverIp}:8080/ws/listener`
+      // Use environment variable for WebSocket URL with fallback to server config
+      const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || `http://${serverConfig?.serverIp || 'localhost'}:8080`
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+      const wsUrl = `${protocol}://${new URL(WS_BASE_URL).host}/ws/listener`
       console.log('Connecting to WebSocket:', wsUrl)
 
       if (wsInstance) {
@@ -329,7 +332,7 @@ export default function ListenerDashboard() {
           console.log('WebSocket connected for listener updates')
           isReconnecting = false
           wsConnectingRef.current = false
-          
+
           setTimeout(() => {
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
               const currentlyPlaying = audioRef.current && !audioRef.current.paused
@@ -341,7 +344,7 @@ export default function ListenerDashboard() {
           if (heartbeatInterval.current) {
             clearInterval(heartbeatInterval.current)
           }
-          
+
           heartbeatInterval.current = setInterval(() => {
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && audioRef.current) {
               const currentlyPlaying = !audioRef.current.paused
@@ -506,25 +509,25 @@ export default function ListenerDashboard() {
         abortControllerRef.current = new AbortController();
 
         console.log('Listener Dashboard: Fetching initial chat messages for broadcast:', currentBroadcastId);
-        
+
         // Clear old messages immediately when switching broadcasts
         setChatMessages([]);
-        
+
         const response = await chatService.getMessages(currentBroadcastId);
-        
+
         // Double-check that the response is for the current broadcast
         const newMessages = response.data.filter(msg => msg.broadcastId === currentBroadcastId);
-        
+
         console.log('Listener Dashboard: Loaded initial chat messages:', newMessages.length);
-        
+
         // Check if we're at the bottom before updating messages
         const container = chatContainerRef.current;
         const wasAtBottom = isAtBottom(container);
-        
+
         // Update messages only if still the same broadcast
         if (currentBroadcastId === currentBroadcastId) {
           setChatMessages(newMessages);
-          
+
           // Only scroll if user was already at the bottom
           if (wasAtBottom) {
             setTimeout(() => {
@@ -545,7 +548,7 @@ export default function ListenerDashboard() {
     };
 
     fetchChatMessages();
-    
+
     // Only use polling as fallback if not live
     if (!isLive) {
       const interval = setInterval(() => {
@@ -554,7 +557,7 @@ export default function ListenerDashboard() {
           fetchChatMessages();
         }
       }, 5000);
-      
+
       return () => {
         clearInterval(interval);
         if (abortControllerRef.current) {
@@ -602,16 +605,16 @@ export default function ListenerDashboard() {
                 console.log('Listener Dashboard: Message already exists, skipping');
                 return prev;
               }
-              
+
               const wasAtBottom = isAtBottom(chatContainerRef.current);
               const updated = [...prev, newMessage].sort((a, b) => 
                 new Date(a.createdAt) - new Date(b.createdAt)
               );
-              
+
               if (wasAtBottom) {
                 setTimeout(scrollToBottom, 50);
               }
-              
+
               console.log('Listener Dashboard: Updated chat messages count:', updated.length);
               return updated;
             });
@@ -676,13 +679,13 @@ export default function ListenerDashboard() {
                 });
               }
               break;
-              
+
             case 'POLL_UPDATED':
               if (data.poll && !data.poll.isActive && currentPoll?.id === data.poll.id) {
                 setCurrentPoll(null);
               }
               break;
-              
+
             case 'POLL_RESULTS':
               if (data.pollId === currentPoll?.id && data.results) {
                 setCurrentPoll(prev => prev ? {
@@ -794,7 +797,7 @@ export default function ListenerDashboard() {
           const currentBroadcast = liveBroadcasts[0];
           setCurrentBroadcastId(currentBroadcast.id);
           setCurrentBroadcast(currentBroadcast);
-          
+
           // Set current song if available
           if (currentBroadcast.currentSong) {
             setCurrentSong({
@@ -805,7 +808,7 @@ export default function ListenerDashboard() {
             // Fallback to default if no song data
             setCurrentSong(null);
           }
-          
+
           console.log("Live broadcast:", currentBroadcast);
         } else {
           setIsLive(false);
@@ -1140,7 +1143,7 @@ export default function ListenerDashboard() {
             const isDJ = msg.sender && msg.sender.name && msg.sender.name.includes("DJ");
             const senderName = msg.sender.name || 'Unknown User';
             const initials = senderName.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
-            
+
             // Handle date parsing more robustly
             let messageDate;
             try {
@@ -1149,12 +1152,12 @@ export default function ListenerDashboard() {
               console.error('Listener Dashboard: Error parsing message date:', error);
               messageDate = new Date();
             }
-            
+
             // Format relative time
             const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
               ? formatDistanceToNow(messageDate, { addSuffix: false }) 
               : 'Just now';
-            
+
             // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
             const formattedTimeAgo = timeAgo
               .replace(' seconds', ' sec')
@@ -1165,7 +1168,7 @@ export default function ListenerDashboard() {
               .replace(' days', ' day')
               .replace(' months', ' month')
               .replace(' years', ' year');
-            
+
             return (
               <div
                 key={msg.id}
@@ -1227,7 +1230,7 @@ export default function ListenerDashboard() {
   return (
     <div className="container mx-auto px-4 pb-6 bg-gray-100 dark:bg-gray-900">
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 pt-6">Broadcast Stream</h2>
-      
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main content area - left 2/3 */}
         <div className="lg:col-span-2 flex flex-col">
@@ -1271,7 +1274,7 @@ export default function ListenerDashboard() {
                           ? `Hosted by ${currentBroadcast.dj.name}`
                           : "Loading..."}
                     </p>
-                    
+
                     <div className="mt-4">
                       <p className="text-xs uppercase opacity-60">NOW PLAYING</p>
                       {currentSong ? (
@@ -1315,7 +1318,7 @@ export default function ListenerDashboard() {
                     </button>
                   </div>
                 </div>
-                
+
                 {/* Volume control */}
                 <div className="flex items-center px-4 py-3">
                   <button onClick={toggleMute} className="text-white mr-2">
@@ -1416,7 +1419,7 @@ export default function ListenerDashboard() {
                           required
                         />
                       </div>
-                      
+
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                           Artist
@@ -1430,7 +1433,7 @@ export default function ListenerDashboard() {
                           required
                         />
                       </div>
-                      
+
                       <div className="flex-grow">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                           Dedication (Optional)
@@ -1442,7 +1445,7 @@ export default function ListenerDashboard() {
                           className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white h-full min-h-[120px]"
                         />
                       </div>
-                      
+
                       <div className="mt-auto flex justify-between items-center">
                         <p className="text-xs text-gray-500 dark:text-gray-400">
                           Song requests are subject to availability and DJ's playlist.
@@ -1506,7 +1509,7 @@ export default function ListenerDashboard() {
                               );
                             })}
                           </div>
-                          
+
                           <div className="mt-auto flex justify-center">
                             <button
                               onClick={() => setCurrentPoll({ ...currentPoll, userVoted: true })}
@@ -1551,7 +1554,7 @@ export default function ListenerDashboard() {
             <h3 className="font-medium">Live Chat</h3>
             <p className="text-xs opacity-70">{listenerCount} listeners online</p>
           </div>
-          
+
           <div className="bg-white dark:bg-gray-800 border border-t-0 border-gray-200 dark:border-gray-700 rounded-b-lg flex-grow flex flex-col h-[494px]">
             {isLive ? (
               <>
@@ -1562,13 +1565,13 @@ export default function ListenerDashboard() {
                   {chatMessages.map((msg) => {
                     const isDJ = msg.sender && msg.sender.name.includes("DJ");
                     const initials = msg.sender.name.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
-                    
+
                     // Parse the createdAt timestamp from the backend
                     const messageDate = msg.createdAt ? new Date(msg.createdAt + 'Z') : null;
-                    
+
                     // Format relative time
                     const timeAgo = messageDate ? formatDistanceToNow(messageDate, { addSuffix: false }) : 'Invalid Date';
-                    
+
                     // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
                     const formattedTimeAgo = timeAgo
                       .replace(' seconds', ' sec')
@@ -1579,7 +1582,7 @@ export default function ListenerDashboard() {
                       .replace(' days', ' day')
                       .replace(' months', ' month')
                       .replace(' years', ' year');
-                    
+
                     return (
                       <div key={msg.id} className="mb-4">
                         <div className="flex items-center mb-1">
@@ -1626,7 +1629,7 @@ export default function ListenerDashboard() {
                     </button>
                   </div>
                 )}
-                
+
                 <div className="p-2 border-t border-gray-200 dark:border-gray-700 mt-auto">
                   <form onSubmit={handleChatSubmit} className="flex flex-col">
                     <div className="flex mb-1">
