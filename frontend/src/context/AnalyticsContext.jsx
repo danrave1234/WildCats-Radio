@@ -87,9 +87,11 @@ export function AnalyticsProvider({ children }) {
       const token = getCookie('token');
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
       
-      // Create WebSocket connection
-      const socket = new SockJS(`${API_BASE_URL}/ws-radio`);
-      const stompClient = Stomp.over(socket);
+      // Create WebSocket connection with factory function for proper auto-reconnect support
+      const stompClient = Stomp.over(() => new SockJS(`${API_BASE_URL}/ws-radio`));
+      
+      // Enable auto-reconnect with 5 second delay
+      stompClient.reconnect_delay = 5000;
       
       // Disable debug logging
       stompClient.debug = () => {};

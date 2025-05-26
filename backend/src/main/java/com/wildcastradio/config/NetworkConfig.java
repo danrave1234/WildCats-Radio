@@ -68,7 +68,7 @@ public class NetworkConfig {
         // Separate server IP detection from Icecast host configuration
         serverIp = detectServerIp();
         icecastHost = determineIcecastHost();
-        
+
         logger.info("Detected network interfaces:");
         logAllNetworkInterfaces();
         logger.info("Spring Boot app - IP: {} on port: {}", serverIp, serverPort);
@@ -155,7 +155,7 @@ public class NetworkConfig {
             logger.info("Using configured Icecast host: {}", configuredIcecastHost);
             return configuredIcecastHost;
         }
-        
+
         // Fallback to localhost if no Icecast host is configured
         logger.warn("No Icecast host configured, falling back to localhost");
         return "localhost";
@@ -285,16 +285,32 @@ public class NetworkConfig {
         // For WebSocket, always use the Spring Boot server IP/domain, NOT the Icecast server
         String protocol = determineWebSocketProtocol();
         String port = shouldIncludePort() ? ":" + serverPort : "";
-        return protocol + "://" + serverIp + port + "/ws/live";
+
+        // Check if serverIp already contains a protocol
+        if (serverIp.startsWith("http://") || serverIp.startsWith("https://")) {
+            // Extract the domain from the URL
+            String domain = serverIp.replaceFirst("https?://", "");
+            return protocol + "://" + domain + port + "/ws/live";
+        } else {
+            return protocol + "://" + serverIp + port + "/ws/live";
+        }
     }
 
     public String getListenerWebSocketUrl() {
         // WebSocket URL for listener status updates - Spring Boot app, NOT Icecast server
         String protocol = determineWebSocketProtocol();
         String port = shouldIncludePort() ? ":" + serverPort : "";
-        return protocol + "://" + serverIp + port + "/ws/listener";
+
+        // Check if serverIp already contains a protocol
+        if (serverIp.startsWith("http://") || serverIp.startsWith("https://")) {
+            // Extract the domain from the URL
+            String domain = serverIp.replaceFirst("https?://", "");
+            return protocol + "://" + domain + port + "/ws/listener";
+        } else {
+            return protocol + "://" + serverIp + port + "/ws/listener";
+        }
     }
-    
+
     /**
      * Determine the correct WebSocket protocol based on deployment environment
      */
@@ -307,16 +323,16 @@ public class NetworkConfig {
             serverIp.contains("fly.dev")) {
             return "wss";
         }
-        
+
         // Check if we're on a standard HTTPS port
         if (serverPort == 443) {
             return "wss";
         }
-        
+
         // Default to ws for local development
         return "ws";
     }
-    
+
     /**
      * Determine if port should be included in URL
      */

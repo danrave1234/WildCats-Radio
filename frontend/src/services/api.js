@@ -119,8 +119,11 @@ export const chatService = {
       false // HTTP for SockJS
     );
 
-    const socket = new SockJS(`${wsBaseUrl}/ws-radio`);
-    const stompClient = Stomp.over(socket);
+    // Use factory function for proper auto-reconnect support
+    const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
+    
+    // Enable auto-reconnect with 5 second delay
+    stompClient.reconnect_delay = 5000;
 
     const token = getCookie('token');
     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
@@ -173,8 +176,11 @@ export const songRequestService = {
       false // HTTP for SockJS
     );
 
-    const socket = new SockJS(`${wsBaseUrl}/ws-radio`);
-    const stompClient = Stomp.over(socket);
+    // Use factory function for proper auto-reconnect support
+    const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
+    
+    // Enable auto-reconnect with 5 second delay
+    stompClient.reconnect_delay = 5000;
 
     const token = getCookie('token');
     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
@@ -228,8 +234,11 @@ export const notificationService = {
       false // HTTP for SockJS
     );
 
-    const socket = new SockJS(`${wsBaseUrl}/ws-radio`);
-    const stompClient = Stomp.over(socket);
+    // Use factory function for proper auto-reconnect support
+    const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
+    
+    // Enable auto-reconnect with 5 second delay
+    stompClient.reconnect_delay = 5000;
     let isConnected = false;
     let pollingInterval = null;
 
@@ -346,8 +355,11 @@ export const pollService = {
       false // HTTP for SockJS
     );
 
-    const socket = new SockJS(`${wsBaseUrl}/ws-radio`);
-    const stompClient = Stomp.over(socket);
+    // Use factory function for proper auto-reconnect support
+    const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
+    
+    // Enable auto-reconnect with 5 second delay
+    stompClient.reconnect_delay = 5000;
 
     const token = getCookie('token');
     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
