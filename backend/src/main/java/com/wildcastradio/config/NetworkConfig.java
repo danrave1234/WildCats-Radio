@@ -256,11 +256,21 @@ public class NetworkConfig {
 
     // URL helpers for various components
     public String getIcecastUrl() {
+        // Use configured Google Cloud Icecast host if available
+        if (configuredIcecastHost != null && !configuredIcecastHost.isEmpty()) {
+            return "http://" + configuredIcecastHost + ":" + icecastPort;
+        }
         return "http://" + serverIp + ":" + icecastPort;
     }
 
     public String getWebSocketUrl() {
+        // For WebSocket, always use the Spring Boot server IP/domain, not the Icecast server
         return "ws://" + serverIp + ":" + serverPort + "/ws/live";
+    }
+
+    public String getListenerWebSocketUrl() {
+        // WebSocket URL for listener status updates
+        return "ws://" + serverIp + ":" + serverPort + "/ws/listener";
     }
 
     public String getStreamUrl() {

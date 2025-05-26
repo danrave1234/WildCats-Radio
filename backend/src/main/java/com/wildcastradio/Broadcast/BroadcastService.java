@@ -19,9 +19,9 @@ import com.wildcastradio.Notification.NotificationType;
 import com.wildcastradio.Schedule.ScheduleEntity;
 import com.wildcastradio.Schedule.ScheduleService;
 import com.wildcastradio.ServerSchedule.ServerScheduleService;
-import com.wildcastradio.icecast.IcecastService;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserRepository;
+import com.wildcastradio.icecast.IcecastService;
 
 @Service
 public class BroadcastService {
@@ -196,33 +196,33 @@ public class BroadcastService {
 
         if (testMode) {
             // Test mode - bypass server checks
-            logger.info("Starting broadcast in TEST MODE (Icecast integration bypassed)");
+            logger.info("Starting broadcast in TEST MODE (Google Cloud Icecast integration bypassed)");
             // Generate a test stream URL
-            broadcast.setStreamUrl("http://localhost:8000/live.ogg?test=true");
+            broadcast.setStreamUrl(icecastService.getStreamUrl() + "?test=true");
         } else {
-            // Check if the Icecast server is accessible
+            // Check if the Google Cloud Icecast server is accessible
             boolean icecastServerAccessible = icecastService.checkIcecastServer();
             // Check if the server schedule is running
             boolean serverScheduleRunning = serverScheduleService.isServerRunning();
 
-            // If either the Icecast server is accessible or the server schedule is running, we can proceed
+            // If either the Google Cloud Icecast server is accessible or the server schedule is running, we can proceed
             if (icecastServerAccessible || serverScheduleRunning) {
-                logger.info("Server is available (Icecast accessible: {}, Server schedule running: {}), proceeding with broadcast", 
+                logger.info("Google Cloud Icecast server is available (Icecast accessible: {}, Server schedule running: {}), proceeding with broadcast", 
                         icecastServerAccessible, serverScheduleRunning);
 
                 // If the server is accessible but not tracked in the database, create a record
                 if (icecastServerAccessible && !serverScheduleRunning) {
-                    logger.info("Creating server schedule record for manually started server");
+                    logger.info("Creating server schedule record for manually started Google Cloud Icecast server");
                     serverScheduleService.startServerNow(dj);
                 }
 
-                // Set the stream URL from Icecast service
+                // Set the stream URL from Google Cloud Icecast service
                 broadcast.setStreamUrl(icecastService.getStreamUrl());
             } else {
-                // If neither the Icecast server is accessible nor the server schedule is running, throw an exception
-                logger.error("Failed to start broadcast: Server checks failed. Icecast accessible: {}, Server schedule running: {}", 
+                // If neither the Google Cloud Icecast server is accessible nor the server schedule is running, throw an exception
+                logger.error("Failed to start broadcast: Google Cloud Icecast server checks failed. Icecast accessible: {}, Server schedule running: {}", 
                         icecastServerAccessible, serverScheduleRunning);
-                throw new IllegalStateException("Icecast server is not running. Please start the server before broadcasting.");
+                throw new IllegalStateException("Google Cloud Icecast server is not running or not accessible. Please check the server configuration.");
             }
         }
 
