@@ -33,13 +33,16 @@ export default function ListenerDashboard() {
 
   // Original states from ListenerDashboard.jsx
   const [nextBroadcast, setNextBroadcast] = useState(null);
-  const [currentBroadcastId, setCurrentBroadcastId] = useState(1);
+  const [currentBroadcastId, setCurrentBroadcastId] = useState(null);
   const [currentBroadcast, setCurrentBroadcast] = useState(null);
 
   // WebSocket references for real-time updates
   const chatWsRef = useRef(null);
   const songRequestWsRef = useRef(null);
   const pollWsRef = useRef(null);
+  
+  // Add abort controller ref for managing HTTP requests
+  const abortControllerRef = useRef(null);
 
   // Chat state
   const [chatMessage, setChatMessage] = useState("");
@@ -486,20 +489,40 @@ export default function ListenerDashboard() {
 
   // Fetch initial chat messages when broadcast becomes available
   useEffect(() => {
-    if (currentBroadcastId) {
-      const fetchChatMessages = async () => {
-        try {
-          console.log('Listener Dashboard: Fetching initial chat messages for broadcast:', currentBroadcastId);
-          const response = await chatService.getMessages(currentBroadcastId);
-          const newMessages = response.data.filter(msg => msg.broadcastId === currentBroadcastId);
-          
-          console.log('Listener Dashboard: Loaded initial chat messages:', newMessages.length);
-          
-          // Check if we're at the bottom before updating messages
-          const container = chatContainerRef.current;
-          const wasAtBottom = isAtBottom(container);
-          
-          // Update messages
+    // Guard: Only fetch if we have a valid broadcast ID
+    if (!currentBroadcastId || currentBroadcastId <= 0) {
+      setChatMessages([]); // Clear messages when no valid broadcast
+      return;
+    }
+
+    const fetchChatMessages = async () => {
+      try {
+        // Cancel any previous request
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+
+        // Create new abort controller for this request
+        abortControllerRef.current = new AbortController();
+
+        console.log('Listener Dashboard: Fetching initial chat messages for broadcast:', currentBroadcastId);
+        
+        // Clear old messages immediately when switching broadcasts
+        setChatMessages([]);
+        
+        const response = await chatService.getMessages(currentBroadcastId);
+        
+        // Double-check that the response is for the current broadcast
+        const newMessages = response.data.filter(msg => msg.broadcastId === currentBroadcastId);
+        
+        console.log('Listener Dashboard: Loaded initial chat messages:', newMessages.length);
+        
+        // Check if we're at the bottom before updating messages
+        const container = chatContainerRef.current;
+        const wasAtBottom = isAtBottom(container);
+        
+        // Update messages only if still the same broadcast
+        if (currentBroadcastId === currentBroadcastId) {
           setChatMessages(newMessages);
           
           // Only scroll if user was already at the bottom
@@ -510,144 +533,248 @@ export default function ListenerDashboard() {
               }
             }, 100);
           }
-        } catch (error) {
-          console.error("Listener Dashboard: Error fetching chat messages:", error);
         }
-      };
-
-      fetchChatMessages();
-      // Only use polling as fallback if not live
-      if (!isLive) {
-        const interval = setInterval(fetchChatMessages, 5000);
-        return () => {
-          clearInterval(interval);
-          setChatMessages([]);
-        };
+      } catch (error) {
+        // Ignore aborted requests
+        if (error.name === 'AbortError') {
+          console.log('Chat fetch aborted for broadcast:', currentBroadcastId);
+          return;
+        }
+        console.error("Listener Dashboard: Error fetching chat messages:", error);
       }
+    };
 
+    fetchChatMessages();
+    
+    // Only use polling as fallback if not live
+    if (!isLive) {
+      const interval = setInterval(() => {
+        // Check if broadcast ID is still valid before polling
+        if (currentBroadcastId && currentBroadcastId > 0) {
+          fetchChatMessages();
+        }
+      }, 5000);
+      
       return () => {
+        clearInterval(interval);
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
         setChatMessages([]);
       };
-    } else {
-      setChatMessages([]);
     }
+
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      setChatMessages([]);
+    };
   }, [currentBroadcastId, isLive]);
 
   // Setup WebSocket connections for real-time updates after initial data is loaded
   useEffect(() => {
-    if (currentBroadcastId && isLive && chatMessages.length >= 0) {
-      // Setup Chat WebSocket
-      const setupChatWebSocket = async () => {
-        try {
-          console.log('Listener Dashboard: Setting up chat WebSocket for broadcast:', currentBroadcastId);
-          const connection = await chatService.subscribeToChatMessages(currentBroadcastId, (newMessage) => {
-            if (newMessage.broadcastId === currentBroadcastId) {
-              console.log('Listener Dashboard: Received new chat message:', newMessage);
-              setChatMessages(prev => {
-                const exists = prev.some(msg => msg.id === newMessage.id);
-                if (exists) {
-                  console.log('Listener Dashboard: Message already exists, skipping');
-                  return prev;
-                }
-                
-                const wasAtBottom = isAtBottom(chatContainerRef.current);
-                const updated = [...prev, newMessage].sort((a, b) => 
-                  new Date(a.createdAt) - new Date(b.createdAt)
-                );
-                
-                if (wasAtBottom) {
-                  setTimeout(scrollToBottom, 50);
-                }
-                
-                console.log('Listener Dashboard: Updated chat messages count:', updated.length);
-                return updated;
-              });
-            }
-          });
-          chatWsRef.current = connection;
-        } catch (error) {
-          console.error('Listener Dashboard: Failed to connect chat WebSocket:', error);
-        }
-      };
+    // Guard: Only setup WebSockets if we have a valid broadcast ID and are live
+    if (!currentBroadcastId || currentBroadcastId <= 0 || !isLive) {
+      return;
+    }
 
-      // Setup Song Request WebSocket
-      const setupSongRequestWebSocket = async () => {
-        try {
-          console.log('Listener Dashboard: Setting up song request WebSocket for broadcast:', currentBroadcastId);
-          const connection = await songRequestService.subscribeToSongRequests(currentBroadcastId, (newRequest) => {
-            console.log('Listener Dashboard: New song request received:', newRequest);
-            // You can add notification logic here if needed
-          });
-          songRequestWsRef.current = connection;
-        } catch (error) {
-          console.error('Listener Dashboard: Failed to connect song request WebSocket:', error);
-        }
-      };
+    console.log('Listener Dashboard: Setting up WebSocket connections for broadcast:', currentBroadcastId);
 
-      // Setup Poll WebSocket
-      const setupPollWebSocket = async () => {
-        try {
-          console.log('Listener Dashboard: Setting up poll WebSocket for broadcast:', currentBroadcastId);
-          const connection = await pollService.subscribeToPolls(currentBroadcastId, (data) => {
-            console.log('Listener Dashboard: Received poll update:', data);
-            switch (data.type) {
-              case 'NEW_POLL':
-                if (data.poll && data.poll.isActive) {
-                  setCurrentPoll({
-                    ...data.poll,
-                    totalVotes: data.poll.options.reduce((sum, option) => sum + option.votes, 0),
-                    userVoted: false
-                  });
-                }
-                break;
-                
-              case 'POLL_UPDATED':
-                if (data.poll && !data.poll.isActive && currentPoll?.id === data.poll.id) {
-                  setCurrentPoll(null);
-                }
-                break;
-                
-              case 'POLL_RESULTS':
-                if (data.pollId === currentPoll?.id && data.results) {
-                  setCurrentPoll(prev => prev ? {
-                    ...prev,
-                    options: data.results.options,
-                    totalVotes: data.results.totalVotes
-                  } : null);
-                }
-                break;
-            }
-          });
-          pollWsRef.current = connection;
-        } catch (error) {
-          console.error('Listener Dashboard: Failed to connect poll WebSocket:', error);
-        }
-      };
-
-      // Add a small delay to ensure initial data is set before WebSocket setup
-      const timer = setTimeout(() => {
-        setupChatWebSocket();
-        setupSongRequestWebSocket();
-        setupPollWebSocket();
-      }, 500);
-
-      return () => {
-        clearTimeout(timer);
+    // Setup Chat WebSocket
+    const setupChatWebSocket = async () => {
+      try {
+        // Clean up any existing connection first
         if (chatWsRef.current) {
+          console.log('Listener Dashboard: Cleaning up existing chat WebSocket');
           chatWsRef.current.disconnect();
           chatWsRef.current = null;
         }
+
+        console.log('Listener Dashboard: Setting up chat WebSocket for broadcast:', currentBroadcastId);
+
+        // Add connection status tracking
+        let wsConnected = false;
+
+        const connection = await chatService.subscribeToChatMessages(currentBroadcastId, (newMessage) => {
+          // Set connection status to true on first message - this confirms WebSocket is working
+          if (!wsConnected) {
+            wsConnected = true;
+            console.log('Listener Dashboard: WebSocket confirmed working');
+          }
+
+          // Double-check the message is for the current broadcast
+          if (newMessage.broadcastId === currentBroadcastId) {
+            console.log('Listener Dashboard: Received new chat message:', newMessage);
+
+            // Important: Use functional update with proper immutability
+            setChatMessages(prev => {
+              // Check if message already exists to avoid duplicates
+              const exists = prev.some(msg => msg.id === newMessage.id);
+              if (exists) {
+                console.log('Listener Dashboard: Message already exists, skipping');
+                return prev;
+              }
+
+              // Create a new array instead of modifying the existing one
+              const wasAtBottom = isAtBottom(chatContainerRef.current);
+
+              // Use spread operator for a new array and sort properly
+              const updated = [...prev, newMessage].sort((a, b) =>
+                  new Date(a.createdAt) - new Date(b.createdAt)
+              );
+
+              if (wasAtBottom) {
+                setTimeout(scrollToBottom, 50);
+              }
+
+              // Make this more visible in logs
+              console.log('Listener Dashboard: WEBSOCKET UPDATE - New message count:', updated.length);
+              return updated;
+            });
+          } else {
+            console.log('Listener Dashboard: Ignoring message for different broadcast:', newMessage.broadcastId);
+          }
+        });
+
+        // Add a connection status check
+        setTimeout(() => {
+          if (!wsConnected) {
+            console.warn('Listener Dashboard: WebSocket not confirmed working after 3 seconds, refreshing messages');
+            // Fallback - fetch messages again if WebSocket isn't working
+            chatService.getMessages(currentBroadcastId).then(response => {
+              setChatMessages(response.data);
+            }).catch(error => {
+              console.error('Listener Dashboard: Error fetching messages during fallback:', error);
+            });
+          }
+        }, 3000);
+
+        chatWsRef.current = connection;
+        console.log('Listener Dashboard: Chat WebSocket connected successfully');
+      } catch (error) {
+        console.error('Listener Dashboard: Failed to connect chat WebSocket:', error);
+
+        // Important: Fallback to polling on WebSocket failure
+        const pollInterval = setInterval(() => {
+          if (currentBroadcastId) {
+            console.log('Listener Dashboard: Polling for messages due to WebSocket failure');
+            chatService.getMessages(currentBroadcastId)
+                .then(response => {
+                  setChatMessages(response.data);
+                })
+                .catch(error => {
+                  console.error('Listener Dashboard: Error polling messages:', error);
+                });
+          } else {
+            clearInterval(pollInterval);
+          }
+        }, 5000);
+
+        // Store interval ref for cleanup
+        chatWsRef.current = {
+          disconnect: () => clearInterval(pollInterval),
+          isConnected: () => false
+        };
+      }
+    };
+
+    // Setup Song Request WebSocket
+    const setupSongRequestWebSocket = async () => {
+      try {
+        // Clean up any existing connection first
         if (songRequestWsRef.current) {
+          console.log('Listener Dashboard: Cleaning up existing song request WebSocket');
           songRequestWsRef.current.disconnect();
           songRequestWsRef.current = null;
         }
+
+        console.log('Listener Dashboard: Setting up song request WebSocket for broadcast:', currentBroadcastId);
+        const connection = await songRequestService.subscribeToSongRequests(currentBroadcastId, (newRequest) => {
+          // Double-check the request is for the current broadcast
+          if (newRequest.broadcastId === currentBroadcastId) {
+            console.log('Listener Dashboard: New song request received:', newRequest);
+            // You can add notification logic here if needed
+          } else {
+            console.log('Listener Dashboard: Ignoring song request for different broadcast:', newRequest.broadcastId);
+          }
+        });
+        songRequestWsRef.current = connection;
+        console.log('Listener Dashboard: Song request WebSocket connected successfully');
+      } catch (error) {
+        console.error('Listener Dashboard: Failed to connect song request WebSocket:', error);
+      }
+    };
+
+    // Setup Poll WebSocket
+    const setupPollWebSocket = async () => {
+      try {
+        // Clean up any existing connection first
         if (pollWsRef.current) {
+          console.log('Listener Dashboard: Cleaning up existing poll WebSocket');
           pollWsRef.current.disconnect();
           pollWsRef.current = null;
         }
-      };
-    }
-  }, [currentBroadcastId, isLive, currentPoll?.id, chatMessages.length]);
+
+        console.log('Listener Dashboard: Setting up poll WebSocket for broadcast:', currentBroadcastId);
+        const connection = await pollService.subscribeToPolls(currentBroadcastId, (data) => {
+          console.log('Listener Dashboard: Received poll update:', data);
+          switch (data.type) {
+            case 'NEW_POLL':
+              if (data.poll && data.poll.isActive) {
+                setCurrentPoll({
+                  ...data.poll,
+                  totalVotes: data.poll.options.reduce((sum, option) => sum + option.votes, 0),
+                  userVoted: false
+                });
+              }
+              break;
+              
+            case 'POLL_UPDATED':
+              if (data.poll && !data.poll.isActive && currentPoll?.id === data.poll.id) {
+                setCurrentPoll(null);
+              }
+              break;
+              
+            case 'POLL_RESULTS':
+              if (data.pollId === currentPoll?.id && data.results) {
+                setCurrentPoll(prev => prev ? {
+                  ...prev,
+                  options: data.results.options,
+                  totalVotes: data.results.totalVotes
+                } : null);
+              }
+              break;
+          }
+        });
+        pollWsRef.current = connection;
+        console.log('Listener Dashboard: Poll WebSocket connected successfully');
+      } catch (error) {
+        console.error('Listener Dashboard: Failed to connect poll WebSocket:', error);
+      }
+    };
+
+    // Setup WebSockets immediately - no delay needed with proper guards
+    setupChatWebSocket();
+    setupSongRequestWebSocket();
+    setupPollWebSocket();
+
+    return () => {
+      console.log('Listener Dashboard: Cleaning up WebSocket connections for broadcast:', currentBroadcastId);
+      if (chatWsRef.current) {
+        chatWsRef.current.disconnect();
+        chatWsRef.current = null;
+      }
+      if (songRequestWsRef.current) {
+        songRequestWsRef.current.disconnect();
+        songRequestWsRef.current = null;
+      }
+      if (pollWsRef.current) {
+        pollWsRef.current.disconnect();
+        pollWsRef.current = null;
+      }
+    };
+  }, [currentBroadcastId, isLive]); // Removed chatMessages.length and currentPoll?.id dependencies to prevent unnecessary re-runs
 
   // Update the scroll event listener
   useEffect(() => {
@@ -683,14 +810,13 @@ export default function ListenerDashboard() {
       };
 
       // Send message to the server
-      await chatService.sendMessage(currentBroadcastId, messageData);
+      const response = await chatService.sendMessage(currentBroadcastId, messageData);
 
-      // The WebSocket will handle adding the message to the UI
-      // If WebSocket is not connected, fetch messages as fallback
-      if (!chatWsRef.current || !chatWsRef.current.isConnected()) {
-        const response = await chatService.getMessages(currentBroadcastId);
-        setChatMessages(response.data);
-      }
+      // Important: Always fetch messages after sending to ensure consistency
+      const updatedMessages = await chatService.getMessages(currentBroadcastId);
+
+      // Update local state with fresh data from server
+      setChatMessages(updatedMessages.data);
 
       // Always scroll to bottom after sending your own message
       scrollToBottom();

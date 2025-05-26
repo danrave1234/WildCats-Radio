@@ -11,8 +11,10 @@ const DJDashboard = lazy(() => import('./pages/DJDashboard'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Notifications = lazy(() => import('./pages/Notifications'));
+const BroadcastHistory = lazy(() => import('./pages/BroadcastHistory'));
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
+import { BroadcastHistoryProvider } from './context/BroadcastHistoryContext';
 import './App.css';
 import './styles/custom-scrollbar.css';
 
@@ -177,6 +179,16 @@ const AppRoutes = () => {
         </Layout>
       } />
       
+      <Route path="/broadcast-history" element={
+        <Layout>
+          <ProtectedRoute 
+            key={getRoutePath()}
+            element={<BroadcastHistory key="broadcast-history" />} 
+            allowedRoles={['DJ', 'ADMIN']} 
+          />
+        </Layout>
+      } />
+      
       <Route path="/logout" element={<Logout />} />
       
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -189,7 +201,9 @@ function App() {
     <Router>
       <AuthProvider>
         <NotificationProvider>
-          <AppRoutes />
+          <BroadcastHistoryProvider>
+            <AppRoutes />
+          </BroadcastHistoryProvider>
         </NotificationProvider>
       </AuthProvider>
     </Router>
