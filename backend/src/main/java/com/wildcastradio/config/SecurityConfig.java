@@ -76,8 +76,7 @@ public class SecurityConfig {
             "http://127.0.0.1:5173",
             "https://wildcat-radio-f05d362144e6.herokuapp.com",
             "https://wildcat-radio.vercel.app",
-            "https://wildcat-radio-f05d362144e6.autoidleapp.com",
-            "http://wildcat-radio-f05d362144e6.autoidleapp.com"
+            "https://wildcat-radio-f05d362144e6.autoidleapp.com"
         ));
 
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));

@@ -4,11 +4,7 @@ This is the frontend application for WildCats Radio, built with React and Vite.
 
 ## Environment Configuration
 
-The application uses environment variables to configure API endpoints and other settings. These are defined in the following files:
-
-- `.env`: Default environment variables
-- `.env.development`: Variables used during local development
-- `.env.production`: Variables used for production deployment
+The application uses environment variables to configure API endpoints and other settings. These are defined in a single `.env` file for all environments.
 
 ### Available Environment Variables
 
@@ -25,7 +21,7 @@ npm install
 npm run dev
 ```
 
-This will use the variables from `.env.development`, which are configured for local development.
+This will use the variables from the `.env` file.
 
 ## Production Build
 
@@ -35,11 +31,11 @@ To build the application for production:
 npm run build
 ```
 
-This will use the variables from `.env.production`, which are configured for the production environment.
+This will use the variables from the `.env` file.
 
 ## Deployment
 
-When deploying to a new environment, make sure to update the environment variables in `.env.production` to point to the correct backend API and WebSocket endpoints.
+When deploying to a new environment, make sure to update the environment variables in the `.env` file to point to the correct backend API and WebSocket endpoints.
 
 You can also override these variables at runtime by setting them in your deployment environment.
 
