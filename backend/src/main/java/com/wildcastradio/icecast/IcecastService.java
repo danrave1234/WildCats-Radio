@@ -298,11 +298,13 @@ public class IcecastService {
     public Map<String, Object> getStreamConfig() {
         Map<String, Object> config = new HashMap<>();
 
-        // Use Google Cloud Icecast configuration
-        config.put("serverIp", icecastHost);
+        // CRITICAL: serverIp should be the Spring Boot app IP, NOT the Icecast host!
+        config.put("serverIp", networkConfig != null ? networkConfig.getServerIp() : "localhost");
         config.put("serverPort", networkConfig != null ? networkConfig.getServerPort() : 8080);
         config.put("icecastPort", icecastPort);
+        config.put("icecastHost", icecastHost); // Add separate field for Icecast host
         config.put("webSocketUrl", getWebSocketUrl());
+        config.put("listenerWebSocketUrl", getListenerWebSocketUrl()); // Add listener WebSocket URL
         config.put("streamUrl", getStreamUrl());
         config.put("icecastUrl", getIcecastUrl());
         config.put("mountPoint", icecastMount);

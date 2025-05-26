@@ -195,11 +195,16 @@ export default function DJDashboard() {
   useEffect(() => {
     if (!serverConfig) return
 
-    const connectStatusWebSocket = () => {
-      const wsUrl = `ws://${serverConfig.serverIp}:8080/ws/listener`
-      console.log('DJ Dashboard connecting to status WebSocket:', wsUrl)
+    const connectStatusWebSocket = async () => {
+      try {
+        // Get the proper WebSocket URL from the backend API
+        const response = await streamService.getConfig();
+        const listenerWsUrl = response.data.data.listenerWebSocketUrl || 
+                             `wss://wildcat-radio-f05d362144e6.autoidleapp.com/ws/listener`;
+        
+        console.log('DJ Dashboard connecting to status WebSocket:', listenerWsUrl)
       
-      statusWsRef.current = new WebSocket(wsUrl)
+        statusWsRef.current = new WebSocket(listenerWsUrl)
 
       statusWsRef.current.onopen = () => {
         console.log('DJ Dashboard status WebSocket connected')
@@ -226,8 +231,13 @@ export default function DJDashboard() {
         setTimeout(connectStatusWebSocket, 3000)
       }
 
-      statusWsRef.current.onerror = (error) => {
-        console.error('DJ Dashboard status WebSocket error:', error)
+        statusWsRef.current.onerror = (error) => {
+          console.error('DJ Dashboard status WebSocket error:', error)
+        }
+      } catch (error) {
+        console.error('Error setting up status WebSocket:', error)
+        // Fallback with a delay
+        setTimeout(connectStatusWebSocket, 5000)
       }
     }
 

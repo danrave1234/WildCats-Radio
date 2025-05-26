@@ -283,16 +283,51 @@ public class NetworkConfig {
 
     public String getWebSocketUrl() {
         // For WebSocket, always use the Spring Boot server IP/domain, NOT the Icecast server
-        String protocol = serverIp.contains(".herokuapp.com") || serverIp.contains(".") ? "wss" : "ws";
-        String port = (serverPort == 80 || serverPort == 443) ? "" : ":" + serverPort;
+        String protocol = determineWebSocketProtocol();
+        String port = shouldIncludePort() ? ":" + serverPort : "";
         return protocol + "://" + serverIp + port + "/ws/live";
     }
 
     public String getListenerWebSocketUrl() {
         // WebSocket URL for listener status updates - Spring Boot app, NOT Icecast server
-        String protocol = serverIp.contains(".herokuapp.com") || serverIp.contains(".") ? "wss" : "ws";
-        String port = (serverPort == 80 || serverPort == 443) ? "" : ":" + serverPort;
+        String protocol = determineWebSocketProtocol();
+        String port = shouldIncludePort() ? ":" + serverPort : "";
         return protocol + "://" + serverIp + port + "/ws/listener";
+    }
+    
+    /**
+     * Determine the correct WebSocket protocol based on deployment environment
+     */
+    private String determineWebSocketProtocol() {
+        // Check for specific cloud deployment domains
+        if (serverIp.contains("herokuapp.com") || 
+            serverIp.contains("autoidleapp.com") || 
+            serverIp.contains("onrender.com") ||
+            serverIp.contains("railway.app") ||
+            serverIp.contains("fly.dev")) {
+            return "wss";
+        }
+        
+        // Check if we're on a standard HTTPS port
+        if (serverPort == 443) {
+            return "wss";
+        }
+        
+        // Default to ws for local development
+        return "ws";
+    }
+    
+    /**
+     * Determine if port should be included in URL
+     */
+    private boolean shouldIncludePort() {
+        // Don't include port for standard ports or cloud deployments
+        return serverPort != 80 && serverPort != 443 && 
+               !serverIp.contains("herokuapp.com") && 
+               !serverIp.contains("autoidleapp.com") &&
+               !serverIp.contains("onrender.com") &&
+               !serverIp.contains("railway.app") &&
+               !serverIp.contains("fly.dev");
     }
 
     public String getStreamUrl() {

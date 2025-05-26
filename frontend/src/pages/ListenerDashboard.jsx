@@ -297,7 +297,7 @@ export default function ListenerDashboard() {
     let isReconnecting = false
     let wsInstance = wsRef.current
 
-    const connectWebSocket = () => {
+    const connectWebSocket = async () => {
       if (reconnectTimer) {
         clearTimeout(reconnectTimer)
         reconnectTimer = null
@@ -307,25 +307,33 @@ export default function ListenerDashboard() {
       isReconnecting = true
       wsConnectingRef.current = true
 
-      // Use environment variable for WebSocket URL with fallback to server config
-      const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || `http://${serverConfig?.serverIp || 'localhost'}:8080`
-      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      const wsUrl = `${protocol}://${new URL(WS_BASE_URL).host}/ws/listener`
-      console.log('Connecting to WebSocket:', wsUrl)
-
-      if (wsInstance) {
-        try {
-          if (wsInstance.readyState !== WebSocket.CLOSING && 
-              wsInstance.readyState !== WebSocket.CLOSED) {
-            wsInstance.close()
-          }
-        } catch (e) {
-          console.warn('Error closing existing WebSocket:', e)
-        }
-      }
-
+      let listenerWsUrl
+      
       try {
-        wsInstance = new WebSocket(wsUrl)
+        // Get the proper WebSocket URL from the backend API
+        const response = await streamService.getConfig();
+        listenerWsUrl = response.data.data.listenerWebSocketUrl || 
+                       `wss://wildcat-radio-f05d362144e6.autoidleapp.com/ws/listener`;
+      } catch (configError) {
+        console.error('Error getting WebSocket config, using fallback:', configError)
+        listenerWsUrl = `wss://wildcat-radio-f05d362144e6.autoidleapp.com/ws/listener`;
+      }
+      
+      try {
+        console.log('Listener Dashboard connecting to WebSocket:', listenerWsUrl)
+
+        if (wsInstance) {
+          try {
+            if (wsInstance.readyState !== WebSocket.CLOSING && 
+                wsInstance.readyState !== WebSocket.CLOSED) {
+              wsInstance.close()
+            }
+          } catch (e) {
+            console.warn('Error closing existing WebSocket:', e)
+          }
+        }
+
+        wsInstance = new WebSocket(listenerWsUrl)
         wsRef.current = wsInstance
 
         wsInstance.onopen = () => {
