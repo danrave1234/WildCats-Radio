@@ -58,4 +58,14 @@ public class SongRequestService {
                 
         return songRequestRepository.countByBroadcast(broadcast);
     }
+
+    public List<SongRequestDTO> getAllSongRequests() {
+        return songRequestRepository.findAll().stream()
+                .map(SongRequestDTO::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    public long getTotalSongRequestCount() {
+        return songRequestRepository.count();
+    }
 } 

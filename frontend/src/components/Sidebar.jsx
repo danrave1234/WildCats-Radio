@@ -10,7 +10,8 @@ import {
   HomeIcon,
   CalendarIcon,
   BellIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  ChartBarIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../context/AuthContext';
 import wildcatRadioLogo from '../assets/wildcatradio_logo.png';
@@ -219,6 +220,22 @@ const Sidebar = ({ userRole }) => {
               >
                 <RadioIcon className="w-6 h-6 mr-3" />
                 <span>Broadcast History</span>
+              </Link>
+            </li>
+          )}
+
+          {(userRole === 'DJ' || userRole === 'ADMIN') && (
+            <li>
+              <Link
+                to="/analytics"
+                className={`flex items-center p-3 text-base font-medium rounded-lg ${
+                  location.pathname === '/analytics'
+                    ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
+                    : 'text-gray-900 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <ChartBarIcon className="w-6 h-6 mr-3" />
+                <span>Analytics</span>
               </Link>
             </li>
           )}
