@@ -6,8 +6,8 @@ import { Stomp } from '@stomp/stompjs';
 
 // Create axios instance with base URL pointing to our backend
 // const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.herokuapp.com/api';
-const API_BASE_URL = 'http://localhost:8080/api';
-
+// const API_BASE_URL = 'http://localhost:8080/api';
+const API_BASE_URL = 'wildcat-radio-f05d362144e6.autoidleapp.com';
 // Cookie helper function
 const getCookie = (name) => {
   const value = `; ${document.cookie}`;
