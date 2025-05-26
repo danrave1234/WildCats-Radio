@@ -391,16 +391,16 @@ const AdminDashboard = () => {
     }
   };
 
-  // Handle starting a test broadcast
-  const startTestBroadcast = async (broadcastId) => {
+  // Handle starting a broadcast
+  const startBroadcast = async (broadcastId) => {
     try {
-      await broadcastService.startTest(broadcastId);
+      await broadcastService.start(broadcastId);
       // Refresh the live broadcasts list
       fetchLiveBroadcasts();
-      alert('Test broadcast started successfully');
+      alert('Broadcast started successfully');
     } catch (error) {
-      console.error('Error starting test broadcast:', error);
-      alert('There was an error starting the test broadcast: ' + error.message);
+      console.error('Error starting broadcast:', error);
+      alert('There was an error starting the broadcast: ' + error.message);
     }
   };
 
@@ -764,9 +764,9 @@ const AdminDashboard = () => {
                                   </button>
                                   <button 
                                     className="text-xs text-purple-600 dark:text-purple-400 hover:underline"
-                                    onClick={() => startTestBroadcast(broadcast.id)}
+                                    onClick={() => startBroadcast(broadcast.id)}
                                   >
-                                    Start Test Broadcast
+                                    Start Broadcast
                                   </button>
                                 </div>
                               </div>

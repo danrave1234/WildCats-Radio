@@ -248,19 +248,45 @@ public class IcecastService {
      * @return true if Icecast server is reachable
      */
     public boolean isServerUp() {
+        // Try HTTPS first (as configured in getIcecastUrl)
+        boolean httpsResult = checkServerWithProtocol(getIcecastUrl());
+        if (httpsResult) {
+            return true;
+        }
+
+        // If HTTPS fails, try HTTP as fallback
+        String httpUrl = getIcecastUrl().replace("https://", "http://");
+        boolean httpResult = checkServerWithProtocol(httpUrl);
+
+        // Log which protocol worked
+        if (httpResult) {
+            logger.info("Icecast server is UP using HTTP protocol (HTTPS failed)");
+        } else {
+            logger.warn("Icecast server is DOWN on both HTTPS and HTTP protocols");
+        }
+
+        return httpResult;
+    }
+
+    /**
+     * Helper method to check server with a specific protocol
+     * @param urlString the full URL to check
+     * @return true if server is reachable with the given protocol
+     */
+    private boolean checkServerWithProtocol(String urlString) {
         try {
-            URL url = new URL(getIcecastUrl());
+            URL url = new URL(urlString);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("HEAD");
             connection.setConnectTimeout(5000);
             connection.setReadTimeout(5000);
             int responseCode = connection.getResponseCode();
             boolean isUp = responseCode < 400;
-            logger.debug("Google Cloud Icecast server status check: {} (response code: {})",
-                    isUp ? "UP" : "DOWN", responseCode);
+            logger.debug("Icecast server status check for {}: {} (response code: {})",
+                    urlString, isUp ? "UP" : "DOWN", responseCode);
             return isUp;
         } catch (IOException e) {
-            logger.warn("Failed to connect to Google Cloud Icecast server: {}", e.getMessage());
+            logger.debug("Failed to connect to Icecast server at {}: {}", urlString, e.getMessage());
             return false;
         }
     }

@@ -35,11 +35,11 @@ const WORKFLOW_STATES = {
 export default function DJDashboard() {
   // Authentication context
   const { currentUser } = useAuth()
-  
+
   // Core workflow state
   const [workflowState, setWorkflowState] = useState(WORKFLOW_STATES.CREATE_BROADCAST)
   const [currentBroadcast, setCurrentBroadcast] = useState(null)
-  
+
   // Broadcast creation form state (simplified - no scheduling)
   const [broadcastForm, setBroadcastForm] = useState({
     title: '',
@@ -47,31 +47,31 @@ export default function DJDashboard() {
   })
   const [formErrors, setFormErrors] = useState({})
   const [isCreatingBroadcast, setIsCreatingBroadcast] = useState(false)
-  
+
   // Core streaming state
   const [isLive, setIsLive] = useState(false)
   const [streamError, setStreamError] = useState(null)
   const [websocketConnected, setWebsocketConnected] = useState(false)
-  
+
   // Network configuration
   const [serverConfig, setServerConfig] = useState(null)
-  
+
   // Listener metrics
   const [listenerCount, setListenerCount] = useState(0)
   const [statusWsConnected, setStatusWsConnected] = useState(false)
-  
+
   // WebSocket and MediaRecorder refs
   const websocketRef = useRef(null)
   const mediaRecorderRef = useRef(null)
   const audioStreamRef = useRef(null)
   const statusWsRef = useRef(null)
-  
+
   // Audio preview state
   const [previewEnabled, setPreviewEnabled] = useState(false)
   const [volume, setVolume] = useState(80)
   const [isMuted, setIsMuted] = useState(false)
   const audioPreviewRef = useRef(null)
-  
+
   // Constants from prototype
   const MAX_MESSAGE_SIZE = 60000
 
@@ -100,7 +100,7 @@ export default function DJDashboard() {
   const chatWsRef = useRef(null)
   const songRequestWsRef = useRef(null)
   const pollWsRef = useRef(null)
-  
+
   // Add abort controller ref for managing HTTP requests
   const abortControllerRef = useRef(null)
 
@@ -197,48 +197,19 @@ export default function DJDashboard() {
 
     const connectStatusWebSocket = async () => {
       try {
-        // Get the proper WebSocket URL from the backend API
-        const response = await streamService.getConfig();
-        const serverUrl = response.data.data.listenerWebSocketUrl;
-        
-        let listenerWsUrl;
-        if (serverUrl) {
-          // If URL already has protocol, convert http/https to ws/wss and extract just the host
-          if (serverUrl.startsWith('http://') || serverUrl.startsWith('https://')) {
-            const url = new URL(serverUrl);
-            const isSecure = serverUrl.startsWith('https://') || window.location.protocol === 'https:';
-            listenerWsUrl = `${isSecure ? 'wss' : 'ws'}://${url.host}/ws/listener`;
-          } else if (serverUrl.startsWith('ws://') || serverUrl.startsWith('wss://')) {
-            // Already a WebSocket URL, just add the path if it's not there
-            listenerWsUrl = serverUrl.endsWith('/ws/listener') ? serverUrl : `${serverUrl}/ws/listener`;
-          } else {
-            // No protocol, determine based on current page protocol
-            const isSecure = window.location.protocol === 'https:';
-            listenerWsUrl = `${isSecure ? 'wss' : 'ws'}://${serverUrl}/ws/listener`;
-          }
-        } else {
-          // Use environment variable with proper WebSocket protocol construction
-          const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL || 'wildcat-radio-f05d362144e6.autoidleapp.com';
-          
-          // Check if running in development mode
-          const isDevelopment = import.meta.env.MODE === 'development' || 
-                               window.location.hostname === 'localhost' || 
-                               window.location.hostname === '127.0.0.1';
-          
-          if (isDevelopment) {
-            listenerWsUrl = 'ws://localhost:8080/ws/listener';
-          } else {
-            // Clean any existing protocol from environment variable
-            const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-            const isSecure = window.location.protocol === 'https:';
-            listenerWsUrl = `${isSecure ? 'wss' : 'ws'}://${cleanHost}/ws/listener`;
-          }
-          
-          console.log('DJ Dashboard: Constructed fallback listener WebSocket URL:', listenerWsUrl);
-        }
-        
+        // Simple WebSocket URL construction using environment variable
+        const wsProtocol = 'wss';
+
+        // Always use the environment variable directly
+        const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
+        // Simple clean - just remove any protocol if present
+        const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
+        const listenerWsUrl = `${wsProtocol}://${cleanHost}/ws/listener`;
+
+        console.log('Using WebSocket URL:', listenerWsUrl);
+
         console.log('DJ Dashboard connecting to status WebSocket:', listenerWsUrl)
-      
+
         statusWsRef.current = new WebSocket(listenerWsUrl)
 
       statusWsRef.current.onopen = () => {
@@ -250,7 +221,7 @@ export default function DJDashboard() {
         try {
           const data = JSON.parse(event.data)
           console.log('DJ Dashboard status message received:', data)
-          
+
           if (data.type === 'STREAM_STATUS') {
             setListenerCount(data.listenerCount || 0)
           }
@@ -309,17 +280,17 @@ export default function DJDashboard() {
         const signal = abortControllerRef.current.signal;
 
         console.log('DJ Dashboard: Fetching initial interaction data for broadcast:', currentBroadcast.id);
-        
+
         // Clear old data immediately when switching broadcasts
         setChatMessages([]);
         setSongRequests([]);
         setPolls([]);
         setActivePoll(null);
-        
+
         // Fetch chat messages
         const chatResponse = await chatService.getMessages(currentBroadcast.id);
         console.log('DJ Dashboard: Loaded initial chat messages:', chatResponse.data?.length || 0);
-        
+
         // Double-check response is for current broadcast before setting state
         if (currentBroadcast.id === currentBroadcast.id && !signal.aborted) {
           setChatMessages(chatResponse.data || []);
@@ -328,7 +299,7 @@ export default function DJDashboard() {
         // Fetch song requests
         const requestsResponse = await songRequestService.getRequests(currentBroadcast.id);
         console.log('DJ Dashboard: Loaded initial song requests:', requestsResponse.data?.length || 0);
-        
+
         if (currentBroadcast.id === currentBroadcast.id && !signal.aborted) {
           setSongRequests(requestsResponse.data || []);
         }
@@ -336,10 +307,10 @@ export default function DJDashboard() {
         // Fetch polls
         const pollsResponse = await pollService.getPolls(currentBroadcast.id);
         console.log('DJ Dashboard: Loaded initial polls:', pollsResponse.data?.length || 0);
-        
+
         if (currentBroadcast.id === currentBroadcast.id && !signal.aborted) {
           setPolls(pollsResponse.data || []);
-          
+
           // Set active poll (most recent one)
           if (pollsResponse.data && pollsResponse.data.length > 0) {
             setActivePoll(pollsResponse.data[0]);
@@ -462,7 +433,7 @@ export default function DJDashboard() {
                 ? { ...poll, ...pollUpdate.poll }
                 : poll
             ));
-            
+
             // Update active poll if it's the one being voted on
             setActivePoll(prev => 
               prev && prev.id === pollUpdate.pollId 
@@ -530,7 +501,7 @@ export default function DJDashboard() {
       ...prev,
       [name]: value
     }))
-    
+
     // Clear error for this field when user starts typing
     if (formErrors[name]) {
       setFormErrors(prev => ({
@@ -542,15 +513,15 @@ export default function DJDashboard() {
 
   const validateForm = () => {
     const errors = {}
-    
+
     if (!broadcastForm.title.trim()) {
       errors.title = 'Title is required'
     }
-    
+
     if (!broadcastForm.description.trim()) {
       errors.description = 'Description is required'
     }
-    
+
     setFormErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -564,7 +535,7 @@ export default function DJDashboard() {
     const minutes = String(date.getMinutes()).padStart(2, '0')
     const seconds = String(date.getSeconds()).padStart(2, '0')
     const milliseconds = String(date.getMilliseconds()).padStart(3, '0')
-    
+
     return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}`
   }
 
@@ -572,10 +543,10 @@ export default function DJDashboard() {
     if (!validateForm()) {
       return
     }
-    
+
     setIsCreatingBroadcast(true)
     setStreamError(null)
-    
+
     try {
       // Create broadcast content only (no scheduling)
       // Use current time + buffer as scheduled times for the API compatibility
@@ -583,7 +554,7 @@ export default function DJDashboard() {
       // Add 30 seconds buffer to account for network latency and processing time
       const bufferedStart = new Date(now.getTime() + 30 * 1000)
       const endTime = new Date(bufferedStart.getTime() + 2 * 60 * 60 * 1000) // Default 2 hours duration
-      
+
       // Send times in local timezone (Philippines time) directly
       const broadcastData = {
         title: broadcastForm.title.trim(),
@@ -591,7 +562,7 @@ export default function DJDashboard() {
         scheduledStart: formatLocalTimeAsISO(bufferedStart),
         scheduledEnd: formatLocalTimeAsISO(endTime)
       }
-      
+
       console.log("DJ Dashboard: Creating broadcast with Philippines local time:", {
         currentTime: now.toLocaleString('en-PH'),
         localStart: bufferedStart.toLocaleString('en-PH'),
@@ -599,19 +570,19 @@ export default function DJDashboard() {
         sentStart: broadcastData.scheduledStart,
         sentEnd: broadcastData.scheduledEnd
       })
-      
+
       const response = await broadcastService.create(broadcastData)
       const createdBroadcast = response.data
-      
+
       setCurrentBroadcast(createdBroadcast)
       setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
-      
+
       // Reset form
       setBroadcastForm({
         title: '',
         description: ''
       })
-      
+
       console.log("Broadcast created successfully:", createdBroadcast)
     } catch (error) {
       console.error("Error creating broadcast:", error)
@@ -626,14 +597,13 @@ export default function DJDashboard() {
       setStreamError("No broadcast instance found")
       return
     }
-    
+
     try {
       setStreamError(null)
-      
-      // Use test mode to bypass server checks for development/testing
-      // Change from broadcastService.start to broadcastService.startTest
-      await broadcastService.startTest(currentBroadcast.id)
-      
+
+      // Use regular mode to properly interact with Icecast server
+      await broadcastService.start(currentBroadcast.id)
+
       // Get microphone access with specific constraints
       const stream = await navigator.mediaDevices.getUserMedia({ 
                   audio: {
@@ -642,30 +612,37 @@ export default function DJDashboard() {
                     autoGainControl: true
                   }
       })
-      
+
       audioStreamRef.current = stream
-      
+
       // Create MediaRecorder with explicit settings matching prototype
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: "audio/webm;codecs=opus",
         audioBitsPerSecond: 128000
       })
-      
+
       mediaRecorderRef.current = mediaRecorder
-      
-      // Get WebSocket URL from server config
-      const wsUrl = serverConfig?.webSocketUrl || await streamService.getStreamUrl()
+
+      // Simple WebSocket URL construction using environment variable
+      const wsProtocol = 'wss';
+
+      // Always use the environment variable directly
+      const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
+      // Simple clean - just remove any protocol if present
+      const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
+      const wsUrl = `${wsProtocol}://${cleanHost}/ws/live`;
+
       console.log(`Connecting to WebSocket: ${wsUrl}`)
-      
+
       // Create WebSocket connection
       const websocket = new WebSocket(wsUrl)
       websocket.binaryType = "arraybuffer"
       websocketRef.current = websocket
-      
+
       websocket.onopen = () => {
         console.log("WebSocket connected")
         setWebsocketConnected(true)
-        
+
         // Set up MediaRecorder data handler
         mediaRecorder.ondataavailable = (event) => {
           if (event.data.size > 0 && websocket.readyState === WebSocket.OPEN) {
@@ -677,7 +654,7 @@ export default function DJDashboard() {
             })
           }
         }
-        
+
         // Use smaller chunk size (250ms) to reduce message size - same as prototype
         mediaRecorder.start(250)
         setIsLive(true)
@@ -685,13 +662,13 @@ export default function DJDashboard() {
         setBroadcastStartTime(new Date())
         console.log("Broadcasting started in test mode")
       }
-      
+
       websocket.onerror = (error) => {
         console.error("WebSocket error:", error)
         setStreamError("Failed to connect to streaming server")
         stopBroadcast()
       }
-      
+
       websocket.onclose = (event) => {
         console.log("WebSocket disconnected:", event.code, event.reason)
         setWebsocketConnected(false)
@@ -699,7 +676,7 @@ export default function DJDashboard() {
           stopBroadcast()
         }
       }
-      
+
           } catch (error) {
       console.error("Error starting broadcast:", error)
       setStreamError(`Error accessing microphone: ${error.message}`)
@@ -709,7 +686,7 @@ export default function DJDashboard() {
 
   const stopBroadcast = async () => {
     console.log("Stopping broadcast")
-    
+
     try {
       // End the broadcast in the database first
       if (currentBroadcast) {
@@ -719,29 +696,29 @@ export default function DJDashboard() {
     } catch (error) {
       console.error("Error ending broadcast in database:", error)
     }
-    
+
     // Stop MediaRecorder
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop()
     }
-    
+
     // Close WebSocket
     if (websocketRef.current && websocketRef.current.readyState === WebSocket.OPEN) {
       websocketRef.current.close()
     }
-    
+
     // Stop audio stream
     if (audioStreamRef.current) {
       audioStreamRef.current.getTracks().forEach(track => track.stop())
     }
-    
+
     // Reset state back to create new broadcast
     setIsLive(false)
     setWebsocketConnected(false)
     setStreamError(null)
     setCurrentBroadcast(null)
     setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
-    
+
     // Reset analytics
     setBroadcastStartTime(null)
     setTotalInteractions(0)
@@ -752,7 +729,7 @@ export default function DJDashboard() {
     setSongRequests([])
     setPolls([])
     setActivePoll(null)
-    
+
     // Clear refs
     websocketRef.current = null
     mediaRecorderRef.current = null
@@ -775,7 +752,7 @@ export default function DJDashboard() {
         }
         audioPreviewRef.current.src = serverConfig.streamUrl
         audioPreviewRef.current.volume = isMuted ? 0 : volume / 100
-        
+
         try {
           await audioPreviewRef.current.play()
           setPreviewEnabled(true)
@@ -790,11 +767,11 @@ export default function DJDashboard() {
   const handleVolumeChange = (e) => {
     const newVolume = parseInt(e.target.value, 10)
     setVolume(newVolume)
-    
+
     if (audioPreviewRef.current) {
       audioPreviewRef.current.volume = isMuted ? 0 : newVolume / 100
     }
-    
+
     if (newVolume === 0) {
       setIsMuted(true)
     } else if (isMuted) {
@@ -840,17 +817,17 @@ export default function DJDashboard() {
         broadcastId: currentBroadcast.id,
         options: validOptions
       }
-      
+
       const response = await pollService.createPoll(pollData)
       const createdPoll = response.data
-      
+
       // Add poll to local state
       setPolls(prev => [createdPoll, ...prev])
       setActivePoll(createdPoll)
-      
+
       // Track poll creation
       setTotalPolls(prev => prev + 1)
-      
+
       // Reset form and close creation panel
       setNewPoll({ question: '', options: ['', ''] })
       setShowPollCreation(false)
@@ -891,13 +868,13 @@ export default function DJDashboard() {
   // Helper function to get broadcast duration
   const getBroadcastDuration = () => {
     if (!broadcastStartTime) return "00:00:00"
-    
+
     const now = new Date()
     const diff = now - broadcastStartTime
     const hours = Math.floor(diff / (1000 * 60 * 60))
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
     const seconds = Math.floor((diff % (1000 * 60)) / 1000)
-    
+
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
   }
 
@@ -935,7 +912,7 @@ export default function DJDashboard() {
                     </div>
                   </div>
                 </div>
-                
+
                 <button
                   onClick={stopBroadcast}
                   className="flex items-center px-6 py-3 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-lg transition-all duration-200 font-semibold"
@@ -1060,18 +1037,18 @@ export default function DJDashboard() {
                         const isDJ = msg.sender && msg.sender.name && msg.sender.name.includes("DJ");
                         const senderName = msg.sender.name || 'Unknown User';
                         const initials = senderName.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
-                        
+
                         let messageDate;
                         try {
                           messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
                         } catch (error) {
                           messageDate = new Date();
                         }
-                        
+
                         const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
                           ? formatDistanceToNow(messageDate, { addSuffix: true }) 
                           : 'Just now';
-                        
+
                         return (
                           <div key={msg.id} className="flex items-start space-x-3">
                             <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs text-white font-medium ${
@@ -1098,7 +1075,7 @@ export default function DJDashboard() {
                       .filter(Boolean)
                   )}
                 </div>
-                
+
                 <div className="border-t border-gray-200 dark:border-gray-700 p-4">
                   <form onSubmit={handleChatSubmit} className="flex space-x-2">
                     <input
@@ -1160,13 +1137,13 @@ export default function DJDashboard() {
                                   by {request.artist}
                                 </span>
                               </div>
-                              
+
                               {request.dedication && (
                                 <p className="text-xs text-gray-600 dark:text-gray-400 italic mb-1">
                                   "{request.dedication}"
                                 </p>
                               )}
-                              
+
                               <div className="text-xs text-gray-500 dark:text-gray-400">
                                 {request.requestedBy?.firstName || 'Anonymous'} • {formatDistanceToNow(new Date(request.timestamp), { addSuffix: true })}
                               </div>
@@ -1205,7 +1182,7 @@ export default function DJDashboard() {
                     </div>
                   </div>
                 </div>
-                
+
                 {/* Poll Creation Form - Expandable */}
                 {showPollCreation && (
                   <div className="border-b border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/20 p-4">
@@ -1252,7 +1229,7 @@ export default function DJDashboard() {
                             + Add Option
                           </button>
                         )}
-                        
+
                         <div className="flex space-x-2 ml-auto">
                           <button
                             type="button"
@@ -1304,7 +1281,7 @@ export default function DJDashboard() {
                                 )}
                               </div>
                             </div>
-                            
+
                             <div className="space-y-2">
                               {poll.options?.map((option, index) => {
                                 const percentage = totalVotes > 0 ? Math.round((option.votes || 0) / totalVotes * 100) : 0;
@@ -1573,7 +1550,7 @@ export default function DJDashboard() {
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
                 Stream Preview
               </h2>
-            
+
                   <div className="flex items-center justify-between">
                       <button 
                 onClick={togglePreview}
