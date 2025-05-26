@@ -256,10 +256,18 @@ public class NetworkConfig {
 
     // URL helpers for various components
     public String getIcecastUrl() {
+        // Check if we're in a production environment (autoidleapp.com or herokuapp.com)
+        if (serverIp.contains("autoidleapp.com") || serverIp.contains("herokuapp.com")) {
+            return "https://" + serverIp + ":" + icecastPort;
+        }
         return "http://" + serverIp + ":" + icecastPort;
     }
 
     public String getWebSocketUrl() {
+        // Check if we're in a production environment (autoidleapp.com or herokuapp.com)
+        if (serverIp.contains("autoidleapp.com") || serverIp.contains("herokuapp.com")) {
+            return "wss://" + serverIp + ":" + serverPort + "/ws/live";
+        }
         return "ws://" + serverIp + ":" + serverPort + "/ws/live";
     }
 
