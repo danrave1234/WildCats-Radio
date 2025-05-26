@@ -5,9 +5,8 @@ import SockJS from 'sockjs-client';
 import { Stomp } from '@stomp/stompjs';
 
 // Create axios instance with base URL pointing to our backend
-// const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.herokuapp.com/api';
-// const API_BASE_URL = 'http://localhost:8080/api';
-const API_BASE_URL = 'wildcat-radio-f05d362144e6.autoidleapp.com';
+// Use environment variable with fallback for local development
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 // Cookie helper function
 const getCookie = (name) => {
   const value = `; ${document.cookie}`;
@@ -79,19 +78,21 @@ export const broadcastService = {
 export const chatService = {
   getMessages: (broadcastId) => api.get(`/chats/${broadcastId}`),
   sendMessage: (broadcastId, message) => api.post(`/chats/${broadcastId}`, message),
-  
+
   // Subscribe to real-time chat messages for a specific broadcast
   subscribeToChatMessages: (broadcastId, callback) => {
-    const socket = new SockJS(`${API_BASE_URL.replace('/api', '')}/ws-radio`);
+    // Use environment variable for WebSocket URL with fallback
+    const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || API_BASE_URL.replace('/api', '');
+    const socket = new SockJS(`${WS_BASE_URL}/ws-radio`);
     const stompClient = Stomp.over(socket);
-    
+
     const token = getCookie('token');
     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
     return new Promise((resolve, reject) => {
       stompClient.connect(headers, (frame) => {
         console.log('Connected to Chat WebSocket for broadcast:', broadcastId);
-        
+
         // Subscribe to broadcast-specific chat messages
         const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/chat`, (message) => {
           try {
@@ -101,7 +102,7 @@ export const chatService = {
             console.error('Error parsing chat message:', error);
           }
         });
-        
+
         resolve({
           disconnect: () => {
             if (subscription) {
@@ -125,19 +126,21 @@ export const chatService = {
 export const songRequestService = {
   getRequests: (broadcastId) => api.get(`/broadcasts/${broadcastId}/song-requests`),
   createRequest: (broadcastId, request) => api.post(`/broadcasts/${broadcastId}/song-requests`, request),
-  
+
   // Subscribe to real-time song requests for a specific broadcast
   subscribeToSongRequests: (broadcastId, callback) => {
-    const socket = new SockJS(`${API_BASE_URL.replace('/api', '')}/ws-radio`);
+    // Use environment variable for WebSocket URL with fallback
+    const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || API_BASE_URL.replace('/api', '');
+    const socket = new SockJS(`${WS_BASE_URL}/ws-radio`);
     const stompClient = Stomp.over(socket);
-    
+
     const token = getCookie('token');
     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
     return new Promise((resolve, reject) => {
       stompClient.connect(headers, (frame) => {
         console.log('Connected to Song Requests WebSocket for broadcast:', broadcastId);
-        
+
         // Subscribe to broadcast-specific song requests
         const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/song-requests`, (message) => {
           try {
@@ -147,7 +150,7 @@ export const songRequestService = {
             console.error('Error parsing song request:', error);
           }
         });
-        
+
         resolve({
           disconnect: () => {
             if (subscription) {
@@ -176,7 +179,9 @@ export const notificationService = {
   getRecent: (since) => api.get(`/notifications/recent?since=${since}`),
   subscribeToNotifications: (callback) => {
     // Using WebSocket for real-time notifications
-    const socket = new SockJS(`${API_BASE_URL.replace('/api', '')}/ws-radio`);
+    // Use environment variable for WebSocket URL with fallback
+    const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || API_BASE_URL.replace('/api', '');
+    const socket = new SockJS(`${WS_BASE_URL}/ws-radio`);
     const stompClient = Stomp.over(socket);
     let isConnected = false;
     let pollingInterval = null;
@@ -188,7 +193,7 @@ export const notificationService = {
       stompClient.connect(headers, (frame) => {
         console.log('Connected to WebSocket:', frame);
         isConnected = true;
-        
+
         stompClient.subscribe('/user/queue/notifications', (message) => {
           try {
             const notification = JSON.parse(message.body);
@@ -197,7 +202,7 @@ export const notificationService = {
             console.error('Error parsing notification:', error);
           }
         });
-        
+
         resolve({
           disconnect: () => {
             if (stompClient && stompClient.connected) {
@@ -214,7 +219,7 @@ export const notificationService = {
       }, (error) => {
         console.error('WebSocket connection error:', error);
         isConnected = false;
-        
+
         // Fallback to polling if WebSocket connection fails
         console.log('WebSocket connection failed. Falling back to polling.');
         pollingInterval = setInterval(async () => {
@@ -283,19 +288,21 @@ export const pollService = {
   endPoll: (pollId) => api.post(`/polls/${pollId}/end`),
   hasUserVoted: (pollId) => api.get(`/polls/${pollId}/has-voted`),
   getUserVote: (pollId) => api.get(`/polls/${pollId}/user-vote`),
-  
+
   // Subscribe to real-time poll updates for a specific broadcast
   subscribeToPolls: (broadcastId, callback) => {
-    const socket = new SockJS(`${API_BASE_URL.replace('/api', '')}/ws-radio`);
+    // Use environment variable for WebSocket URL with fallback
+    const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || API_BASE_URL.replace('/api', '');
+    const socket = new SockJS(`${WS_BASE_URL}/ws-radio`);
     const stompClient = Stomp.over(socket);
-    
+
     const token = getCookie('token');
     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
     return new Promise((resolve, reject) => {
       stompClient.connect(headers, (frame) => {
         console.log('Connected to Polls WebSocket for broadcast:', broadcastId);
-        
+
         // Subscribe to broadcast-specific poll updates
         const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/polls`, (message) => {
           try {
@@ -305,7 +312,7 @@ export const pollService = {
             console.error('Error parsing poll data:', error);
           }
         });
-        
+
         resolve({
           disconnect: () => {
             if (subscription) {
@@ -332,7 +339,7 @@ export const streamService = {
   getStatus: () => api.get('/stream/status'),
   getConfig: () => api.get('/stream/config'),
   getHealth: () => api.get('/stream/health'),
-  
+
   // WebSocket URL for DJs to send audio to the server
   getStreamUrl: () => {
     // Get WebSocket URL from backend config if available
@@ -350,7 +357,7 @@ export const streamService = {
         return `${protocol}://${apiUrl.host}/ws/live`;
       });
   },
-  
+
   // Stream URL for listeners to tune in to the broadcast
   getListenerStreamUrl: () => {
     // First try to get the URL from the backend config
@@ -362,11 +369,11 @@ export const streamService = {
         throw new Error('Stream URL not found in config');
       })
       .catch(() => {
-        // Fallback to default Icecast URL structure
-        return 'http://localhost:8000/live.ogg';
+        // Use environment variable for Icecast URL with fallback
+        return import.meta.env.VITE_ICECAST_URL || 'http://localhost:8000/live.ogg';
       });
   },
-  
+
   // Check if Icecast server is running
   checkIcecastServer: () => {
     return api.get('/stream/health')
