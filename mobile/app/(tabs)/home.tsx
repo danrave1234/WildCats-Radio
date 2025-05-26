@@ -167,18 +167,6 @@ const HomeScreen: React.FC = () => {
             </View>
           )}
         </View>
-
-        {/* Stats Row */}
-        {/* <View className="flex-row justify-between mb-7 space-x-3.5"> */}
-        {/* Slightly more rounded, justify-start */} 
-        {/* Slightly smaller icon, more margin-bottom */} 
-        {/* <Text className={`text-2xl font-bold ${stat.color}`}>{stat.count}</Text> */}
-        {/* <Text className="text-xs text-gray-600 mt-1 text-center">{stat.label}</Text> */}
-        {/* </View> */}
-        {/* )) */}
-        {/* } */}
-        {/* </View> */} 
-
         {/* Recent Broadcasts Section */}
         <View className="mb-7">
           {/* Header for Recent Broadcasts */}
@@ -219,38 +207,6 @@ const HomeScreen: React.FC = () => {
             }
           </View>
         </View>
-
-        {/* Quick Actions */}
-        {/* <View className="mb-6"> */}
-        {/* <Text className="text-xl font-bold text-cordovan mb-3.5">Quick Actions</Text> */}
-        {/* <View className="flex-row flex-wrap justify-between"> */}
-        {/* {[
-              { label: 'View Schedule', icon: 'calendar-outline', screen: '../schedule', color: 'cordovan' },
-              { label: 'My Profile', icon: 'person-outline', screen: '../profile', color: 'mikado_yellow' },
-              { label: 'Request Song', icon: 'musical-notes-outline', screen: '../listen', color: 'cordovan', disabled: !isLive },
-              { label: 'Join Chat', icon: 'chatbubbles-outline', screen: '../listen', color: 'mikado_yellow', disabled: !isLive },
-            ].map((action, index) => {
-              const bgColorKey = action.color === 'cordovan' ? 
-                               (action.disabled ? 'bg-cordovan-300' : 'bg-cordovan-500') :
-                               (action.disabled ? 'bg-mikado_yellow-300' : 'bg-mikado_yellow-500');
-              const iconColor = action.color === 'mikado_yellow' && !action.disabled ? 'black' : 'white';
-              return (
-                <TouchableOpacity
-                  key={index}
-                  className={`bg-white w-[48%] p-4 rounded-2xl shadow-lg items-center justify-center mb-3.5 ${action.disabled ? 'opacity-70' : 'active:opacity-80'}`}
-                  onPress={() => !action.disabled && router.push(action.screen as any)}
-                  disabled={action.disabled}
-                >
-                  <View className={`w-12 h-12 rounded-full items-center justify-center mb-2.5 ${bgColorKey}`}> 
-                    <Ionicons name={action.icon as any} size={24} color={iconColor} />
-                  </View>
-                  <Text className="text-sm font-semibold text-gray-700 text-center">{action.label}</Text>
-                </TouchableOpacity>
-              );
-            })} */}
-        {/* </View> */}
-        {/* </View> */}
-
       </ScrollView>
     </SafeAreaView>
   );

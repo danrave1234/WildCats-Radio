@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://192.168.34.212:8080/api'; // Adjusted base URL
+const API_BASE_URL = 'http://192.168.5.60:8080/api'; // Adjusted base URL
 
 interface AuthResponse {
   token?: string; // Assuming your API returns a token
@@ -63,6 +63,76 @@ export interface Broadcast {
   // Add other fields as returned by your backend
   error?: string; // For error messages from the service
 }
+
+// +++ ChatMessage Types +++
+export interface ChatMessageSender { // Based on UserEntity simplified for DTO
+  id?: number; // Or string depending on your UserEntity's ID type
+  name?: string;
+}
+
+export interface ChatMessageDTO {
+  id: number;
+  content: string;
+  timestamp: string; // ISO 8601 date-time string
+  sender: ChatMessageSender;
+  broadcastId: number;
+  error?: string;
+}
+
+export interface SendChatMessagePayload {
+  content: string;
+}
+
+// +++ SongRequest Types +++
+export interface SongRequestUser { // Based on UserEntity simplified for DTO
+  id?: number; // Or string
+  name?: string;
+}
+export interface SongRequestDTO {
+  id: number;
+  songTitle: string;
+  artist: string;
+  requestedAt: string; // ISO 8601 date-time string
+  status: string; // e.g., "pending", "played", "rejected" - assuming from backend
+  requestedBy: SongRequestUser;
+  broadcastId: number;
+  dedication?: string; // Added optional dedication field
+  error?: string;
+}
+
+export interface CreateSongRequestPayload {
+  songTitle: string;
+  artist: string;
+  dedication?: string; // Added optional dedication field
+}
+
+// +++ Poll Types +++
+export interface PollOptionDTO {
+  id: number;
+  text: string;
+  voteCount: number;
+}
+
+export interface PollDTO {
+  id: number;
+  question: string;
+  options: PollOptionDTO[];
+  isActive: boolean; // Assuming backend provides this
+  isEnded: boolean; // Assuming backend provides this
+  broadcastId: number;
+  // createdBy: UserData; // Might be too complex for listener, simplify if needed
+  createdAt: string; // ISO 8601
+  error?: string;
+}
+
+export interface VoteOnPollPayload {
+  optionId: number;
+  // pollId is usually part of the URL path
+}
+
+// PollResultDTO might be the same as PollDTO or a simplified version
+// For now, let's assume getPollResults returns PollDTO
+export interface PollResultDTO extends PollDTO {}
 
 export const loginUser = async (email: string, password: string): Promise<AuthResponse> => {
   try {
@@ -238,6 +308,253 @@ export const getAllBroadcasts = async (token: string): Promise<Broadcast[] | { e
     return data as Broadcast[];
   } catch (error) {
     console.error('GetAllBroadcasts API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const getUpcomingBroadcasts = async (token: string): Promise<Broadcast[] | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/broadcasts/upcoming`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to fetch upcoming broadcasts. Status: ${response.status}` };
+    }
+    return data as Broadcast[];
+  } catch (error) {
+    console.error('GetUpcomingBroadcasts API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// +++ Chat API Functions +++
+export const getChatMessages = async (broadcastId: number, token: string): Promise<ChatMessageDTO[] | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/chats/${broadcastId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to fetch chat messages. Status: ${response.status}` };
+    }
+    return data as ChatMessageDTO[];
+  } catch (error) {
+    console.error('GetChatMessages API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const sendChatMessage = async (broadcastId: number, payload: SendChatMessagePayload, token: string): Promise<ChatMessageDTO | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/chats/${broadcastId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to send chat message. Status: ${response.status}` };
+    }
+    return data as ChatMessageDTO;
+  } catch (error) {
+    console.error('SendChatMessage API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// +++ Song Request API Functions +++
+export const getSongRequestsForBroadcast = async (broadcastId: number, token: string): Promise<SongRequestDTO[] | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/broadcasts/${broadcastId}/song-requests`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to fetch song requests. Status: ${response.status}` };
+    }
+    return data as SongRequestDTO[];
+  } catch (error) {
+    console.error('GetSongRequests API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const createSongRequest = async (broadcastId: number, payload: CreateSongRequestPayload, token: string): Promise<SongRequestDTO | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/broadcasts/${broadcastId}/song-requests`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to create song request. Status: ${response.status}` };
+    }
+    return data as SongRequestDTO;
+  } catch (error) {
+    console.error('CreateSongRequest API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// +++ Poll API Functions +++
+export const getActivePollsForBroadcast = async (broadcastId: number, token: string): Promise<PollDTO[] | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/polls/broadcast/${broadcastId}/active`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to fetch active polls. Status: ${response.status}` };
+    }
+    return data as PollDTO[];
+  } catch (error) {
+    console.error('GetActivePolls API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const voteOnPoll = async (pollId: number, payload: VoteOnPollPayload, token: string): Promise<PollResultDTO | { error: string }> => {
+  // Note: PollController has /{pollId}/vote and VoteRequest DTO has pollId.
+  // Assuming the pollId in the path is the primary one.
+  try {
+    const response = await fetch(`${API_BASE_URL}/polls/${pollId}/vote`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload), // VoteRequest DTO just needs optionId if pollId is in path
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to vote on poll. Status: ${response.status}` };
+    }
+    return data as PollResultDTO; 
+  } catch (error) {
+    console.error('VoteOnPoll API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const getPollResults = async (pollId: number, token: string): Promise<PollResultDTO | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/polls/${pollId}/results`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to fetch poll results. Status: ${response.status}` };
+    }
+    return data as PollResultDTO;
+  } catch (error) {
+    console.error('GetPollResults API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const hasUserVotedOnPoll = async (pollId: number, token: string): Promise<boolean | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/polls/${pollId}/has-voted`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({})); // Try to parse error, default to empty obj
+      return { error: data.message || data.error || `Failed to check if user voted. Status: ${response.status}` };
+    }
+    const hasVoted: boolean = await response.json();
+    return hasVoted;
+  } catch (error) {
+    console.error('HasUserVotedOnPoll API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const getUserVoteForPoll = async (pollId: number, token: string): Promise<{ optionId: number } | { error: string; status?: number }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/polls/${pollId}/user-vote`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    
+    if (response.status === 404) { // Specific handling for "not found" which means user hasn't voted
+        return { error: 'User has not voted on this poll.', status: 404 };
+    }
+    
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to get user vote. Status: ${response.status}`, status: response.status };
+    }
+    // Backend returns optionId directly as Long. Wrap it in an object for consistency if desired or return number.
+    return { optionId: data as number }; 
+  } catch (error) {
+    console.error('GetUserVoteForPoll API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// Also, a function to get a single broadcast's details might be useful
+export const getBroadcastDetails = async (broadcastId: number, token: string): Promise<Broadcast | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/broadcasts/${broadcastId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to fetch broadcast details. Status: ${response.status}` };
+    }
+    return data as Broadcast;
+  } catch (error) {
+    console.error('GetBroadcastDetails API error:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
     return { error: errorMessage };
   }

@@ -12,7 +12,6 @@ import {
   Animated,
   Easing,
 } from 'react-native';
-import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useAuth } from '../../context/AuthContext';
 import {
   getMe,
@@ -26,7 +25,13 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import AnimatedTextInput from '../../components/ui/AnimatedTextInput';
 import "../../global.css";
 
-type ProfileTab = 'Personal Information' | 'Security' | 'Preferences';
+type ProfileTabKey = 'Personal Information' | 'Security' | 'Preferences';
+
+interface ProfileTabInfo {
+  key: ProfileTabKey;
+  name: string; // Display name (can be shorter than key)
+  icon: keyof typeof Ionicons.glyphMap;
+}
 
 // Function to generate initials from full name
 const getInitials = (fullName: string = '') => {
@@ -41,22 +46,24 @@ const ProfileScreen: React.FC = () => {
   const [userData, setUserData] = useState<UserData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<ProfileTab>('Personal Information');
+  const [activeTab, setActiveTab] = useState<ProfileTabKey>('Personal Information');
 
   // States for animated underline
-  const [tabLayouts, setTabLayouts] = useState<Record<ProfileTab, { x: number; width: number } | undefined>>(
-    {} as Record<ProfileTab, { x: number; width: number } | undefined>
+  const [tabLayouts, setTabLayouts] = useState<Record<ProfileTabKey, { x: number; width: number } | undefined>>(
+    {} as Record<ProfileTabKey, { x: number; width: number } | undefined>
   );
   const underlinePosition = useRef(new Animated.Value(0)).current;
   const underlineWidth = useRef(new Animated.Value(0)).current;
   const [isInitialLayoutDone, setIsInitialLayoutDone] = useState(false);
 
-  // States for swipe animation
-  const slideAnimation = useRef(new Animated.Value(0)).current;
-  const [isAnimating, setIsAnimating] = useState(false);
+  // Define tab information
+  const tabDefinitions: ProfileTabInfo[] = useMemo(() => [
+    { key: 'Personal Information', name: 'Personal Info', icon: 'person-outline' },
+    { key: 'Security', name: 'Security', icon: 'lock-closed-outline' },
+    { key: 'Preferences', name: 'Preferences', icon: 'settings-outline' },
+  ], []);
 
-  // Define tab names array for easier mapping and indexing
-  const tabNames: ProfileTab[] = useMemo(() => ['Personal Information', 'Security', 'Preferences'], []);
+  const tabKeys: ProfileTabKey[] = useMemo(() => tabDefinitions.map(t => t.key), [tabDefinitions]);
 
   // States for Personal Information Edit Form
   const [isEditingPersonalInfo, setIsEditingPersonalInfo] = useState(false);
@@ -72,93 +79,9 @@ const ProfileScreen: React.FC = () => {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
-  // Animate tab change with slide effect
-  const animateTabChange = (newTab: ProfileTab, direction: 'left' | 'right') => {
-    if (isAnimating) return;
-    
-    setIsAnimating(true);
-    const slideDistance = direction === 'left' ? -300 : 300;
-    
-    // First, slide current content out
-    Animated.timing(slideAnimation, {
-      toValue: slideDistance,
-      duration: 200,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start(() => {
-      // Change tab while content is off-screen
-      setActiveTab(newTab);
-      
-      // Reset position to opposite side
-      slideAnimation.setValue(-slideDistance);
-      
-      // Slide new content in
-      Animated.timing(slideAnimation, {
-        toValue: 0,
-        duration: 200,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }).start(() => {
-        setIsAnimating(false);
-      });
-    });
-  };
-
-  // Swipe gesture handler with animation
-  const handleSwipeGesture = (event: any) => {
-    const { translationX, state } = event.nativeEvent;
-    
-    if (state === State.ACTIVE) {
-      // During swipe, move content with finger
-      if (!isAnimating) {
-        slideAnimation.setValue(translationX * 0.5); // Damping factor for smoother feel
-      }
-    } else if (state === State.END) {
-      const swipeThreshold = 80; // Reduced threshold for better responsiveness
-      const currentIndex = tabNames.indexOf(activeTab);
-      
-      if (translationX > swipeThreshold && currentIndex > 0) {
-        // Swipe right - go to previous tab
-        animateTabChange(tabNames[currentIndex - 1], 'right');
-      } else if (translationX < -swipeThreshold && currentIndex < tabNames.length - 1) {
-        // Swipe left - go to next tab
-        animateTabChange(tabNames[currentIndex + 1], 'left');
-      } else if ((translationX > swipeThreshold && currentIndex === 0) || 
-                 (translationX < -swipeThreshold && currentIndex === tabNames.length - 1)) {
-        // Bounce effect when at first/last tab
-        const bounceDirection = translationX > 0 ? 50 : -50;
-        Animated.sequence([
-          Animated.timing(slideAnimation, {
-            toValue: bounceDirection,
-            duration: 150,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
-          }),
-          Animated.spring(slideAnimation, {
-            toValue: 0,
-            tension: 400,
-            friction: 25,
-            useNativeDriver: true,
-          })
-        ]).start();
-      } else {
-        // Snap back to original position if threshold not met
-        Animated.spring(slideAnimation, {
-          toValue: 0,
-          tension: 300,
-          friction: 30,
-          useNativeDriver: true,
-        }).start();
-      }
-    } else if (state === State.CANCELLED || state === State.FAILED) {
-      // Snap back on cancel/fail
-      Animated.spring(slideAnimation, {
-        toValue: 0,
-        tension: 300,
-        friction: 30,
-        useNativeDriver: true,
-      }).start();
-    }
+  // Simplified tab change - no content animation
+  const handleTabPress = (newTab: ProfileTabKey) => {
+    setActiveTab(newTab);
   };
 
   // Effect to animate underline when activeTab or layouts change
@@ -166,7 +89,7 @@ const ProfileScreen: React.FC = () => {
     const currentTabLayout = tabLayouts[activeTab];
 
     if (currentTabLayout && currentTabLayout.width > 0) {
-      if (!isInitialLayoutDone && activeTab === tabNames[0]) {
+      if (!isInitialLayoutDone && activeTab === tabKeys[0]) {
         // Set initial position and width without animation for the first tab
         underlinePosition.setValue(currentTabLayout.x);
         underlineWidth.setValue(currentTabLayout.width);
@@ -178,7 +101,7 @@ const ProfileScreen: React.FC = () => {
             toValue: currentTabLayout.x,
             duration: 250,
             easing: Easing.out(Easing.ease),
-            useNativeDriver: false, // width/x animations might need this
+            useNativeDriver: false, 
           }),
           Animated.timing(underlineWidth, {
             toValue: currentTabLayout.width,
@@ -188,17 +111,14 @@ const ProfileScreen: React.FC = () => {
           }),
         ]).start();
       }
-    } else if (!isInitialLayoutDone && activeTab === tabNames[0] && tabLayouts[tabNames[0]] === undefined) {
-      // Special handling if the very first tab layout isn't ready but it's the active one
-      // This helps to set a default for the first render if needed, though onLayout should catch it.
+    } else if (!isInitialLayoutDone && activeTab === tabKeys[0] && tabLayouts[tabKeys[0]] === undefined) {
       const firstPotentialLayout = Object.values(tabLayouts)[0];
-      if(firstPotentialLayout) { // Attempt to set if any layout is available (likely the first one)
+      if(firstPotentialLayout) { 
         underlinePosition.setValue(firstPotentialLayout.x);
         underlineWidth.setValue(firstPotentialLayout.width);
-        // setIsInitialLayoutDone(true); // Don't set true until the *active* first tab is confirmed
       }
     }
-  }, [activeTab, tabLayouts, underlinePosition, underlineWidth, isInitialLayoutDone, tabNames]);
+  }, [activeTab, tabLayouts, underlinePosition, underlineWidth, isInitialLayoutDone, tabKeys]);
 
   const fetchUserData = async (showLoading = true) => {
     if (!authToken) {
@@ -215,7 +135,6 @@ const ProfileScreen: React.FC = () => {
         setUserData(null);
       } else {
         setUserData(data);
-        // Populate form fields when data is fetched
         setFirstName(data.firstName || (data.fullName || data.name || '').split(' ')[0] || '');
         setLastName(data.lastName || (data.fullName || data.name || '').split(' ').slice(1).join(' ') || '');
         setEmail(data.email || '');
@@ -253,7 +172,7 @@ const ProfileScreen: React.FC = () => {
     } else {
       Alert.alert('Success', response.message || 'Profile updated successfully!');
       setIsEditingPersonalInfo(false);
-      fetchUserData(false); // Refresh user data without full loading indicator
+      fetchUserData(false); 
     }
   };
   
@@ -286,23 +205,14 @@ const ProfileScreen: React.FC = () => {
   };
 
   const renderTabContent = () => {
-    const cardPadding = "p-6 md:p-8"; // Consistent padding for cards
+    const cardPadding = "p-6 md:p-8"; 
     const formVerticalSpacing = "space-y-6";
     const buttonGroupSpacing = "mt-10";
 
+    // Content views no longer wrapped in PanGestureHandler or Animated.View for sliding
     if (isEditingPersonalInfo && activeTab === 'Personal Information') {
       return (
-        <PanGestureHandler
-          onGestureEvent={handleSwipeGesture}
-          onHandlerStateChange={handleSwipeGesture}
-          activeOffsetX={20}
-          failOffsetY={15}
-        >
-          <Animated.View 
-            style={{
-              transform: [{ translateX: slideAnimation }],
-            }}
-            className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
+        <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
             <Text className="text-2xl font-semibold text-cordovan mb-8">Edit Personal Information</Text>
           <View className={formVerticalSpacing}>
             <AnimatedTextInput
@@ -370,25 +280,14 @@ const ProfileScreen: React.FC = () => {
               <Text className="text-black font-bold text-base">Save Changes</Text>
             </Pressable>
           </View>
-        </Animated.View>
-        </PanGestureHandler>
+        </View>
       );
     }
 
     switch (activeTab) {
       case 'Personal Information':
         return (
-          <PanGestureHandler
-            onGestureEvent={handleSwipeGesture}
-            onHandlerStateChange={handleSwipeGesture}
-            activeOffsetX={20}
-            failOffsetY={15}
-          >
-            <Animated.View 
-              style={{
-                transform: [{ translateX: slideAnimation }],
-              }}
-              className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
+          <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
             <View className="flex-row justify-between items-center mb-6">
               <Text className="text-2xl font-semibold text-cordovan">Personal Information</Text>
               <Pressable 
@@ -429,22 +328,11 @@ const ProfileScreen: React.FC = () => {
                 <Text className="text-lg text-gray-800 mt-0.5">{userData?.email || email || 'N/A'}</Text>
               </View>
             </View>
-          </Animated.View>
-          </PanGestureHandler>
+          </View>
         );
       case 'Security':
         return (
-          <PanGestureHandler
-            onGestureEvent={handleSwipeGesture}
-            onHandlerStateChange={handleSwipeGesture}
-            activeOffsetX={20}
-            failOffsetY={15}
-          >
-            <Animated.View 
-              style={{
-                transform: [{ translateX: slideAnimation }],
-              }}
-              className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
+          <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
             <Text className="text-2xl font-semibold text-cordovan mb-8">Change Password</Text>
             {passwordError && <Text className="text-sm text-red-600 mb-5 -mt-2 text-center font-medium">{passwordError}</Text>}
             <View className={formVerticalSpacing}>
@@ -502,30 +390,18 @@ const ProfileScreen: React.FC = () => {
                   onPress={handleChangePassword}
                   disabled={isChangingPassword}
                 >
-                  {isChangingPassword && <ActivityIndicator size="small" color="#000000" className="mr-2" />}
+                  {isChangingPassword && <ActivityIndicator size="small" color="#000000" className="mr-2" />}                  
                   <Text className="text-black font-bold text-base">Update Password</Text>
                 </Pressable>
             </View>
-          </Animated.View>
-          </PanGestureHandler>
+          </View>
         );
       case 'Preferences':
         return (
-          <PanGestureHandler
-            onGestureEvent={handleSwipeGesture}
-            onHandlerStateChange={handleSwipeGesture}
-            activeOffsetX={20}
-            failOffsetY={15}
-          >
-            <Animated.View 
-              style={{
-                transform: [{ translateX: slideAnimation }],
-              }}
-              className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
+          <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
             <Text className="text-2xl font-semibold text-gray-900">Preferences</Text>
             <Text className="text-gray-600 mt-4 text-base">User preferences and app settings will be available here in a future update.</Text>
-          </Animated.View>
-          </PanGestureHandler>
+          </View>
         );
       default: return null;
     }
@@ -543,7 +419,7 @@ const ProfileScreen: React.FC = () => {
   if (error && !userData && !isEditingPersonalInfo) {
     return (
       <SafeAreaView className="flex-1 justify-center items-center bg-gray-100 p-6 text-center">
-        <Ionicons name="cloud-offline-outline" size={64} color="#7F1D1D" /> {/* Darker red for icon */}
+        <Ionicons name="cloud-offline-outline" size={64} color="#7F1D1D" /> 
         <Text className="text-2xl font-semibold text-gray-800 mt-6 mb-2">Unable to Load Profile</Text>
         <Text className="text-gray-600 mb-8 text-base leading-relaxed">{error}</Text>
         <TouchableOpacity 
@@ -581,43 +457,44 @@ const ProfileScreen: React.FC = () => {
 
       {/* Tab Navigation - below fixed header, above scrollable content */}
       <View className="flex-row bg-white border-b border-gray-200 shadow-sm relative">
-        {tabNames.map((tabName, index) => (
+        {tabDefinitions.map((tabDef, index) => (
           <Pressable
-            key={tabName}
+            key={tabDef.key}
             onLayout={(event) => {
               const { x, width } = event.nativeEvent.layout;
               setTabLayouts((prev) => ({
                 ...prev,
-                [tabName]: { x, width },
+                [tabDef.key]: { x, width },
               }));
             }}
-            className={`flex-1 items-center justify-center py-4 px-4`}
-            onPress={() => {
-              const currentIndex = tabNames.indexOf(activeTab);
-              const newIndex = tabNames.indexOf(tabName as ProfileTab);
-              if (currentIndex !== newIndex && !isAnimating) {
-                const direction = newIndex > currentIndex ? 'left' : 'right';
-                animateTabChange(tabName as ProfileTab, direction);
-              }
-            }}
-            android_ripple={{ color: 'transparent' }}
+            style={({ pressed }) => [
+                { opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1 },
+            ]}
+            className={`flex-1 items-center justify-center py-3 flex-row`}
+            onPress={() => handleTabPress(tabDef.key)} // Use new handler
+            android_ripple={{ color: 'rgba(0,0,0,0.05)' }} 
           >
+            <Ionicons 
+                name={tabDef.icon}
+                size={20}
+                color={activeTab === tabDef.key ? '#8C1D18' : (Platform.OS === 'ios' ? '#6b7280' : '#4B5563')}
+            />
             <Text
-              className={`text-base font-medium text-center ${ 
-                activeTab === tabName ? 'text-cordovan' : 'text-gray-600 hover:text-gray-800'
+              className={`ml-1.5 text-sm ${ 
+                activeTab === tabDef.key ? 'font-semibold text-cordovan' : 'text-gray-600'
               }`}
             >
-              {tabName}
+              {tabDef.name}
             </Text>
           </Pressable>
         ))}
-        {/* Animated Underline */}
+        {/* Animated Underline */} 
         <Animated.View
           style={{
             position: 'absolute',
             bottom: 0,
-            height: 2, // Underline thickness
-            backgroundColor: '#8C1D18', // Cordovan color for the underline
+            height: 3, 
+            backgroundColor: '#B5830F', // Changed to Mikado Yellow
             transform: [{ translateX: underlinePosition }],
             width: underlineWidth,
           }}
