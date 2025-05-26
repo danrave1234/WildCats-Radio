@@ -275,7 +275,6 @@ export default function DJDashboard() {
         const chatResponse = await chatService.getMessages(currentBroadcast.id);
         console.log('DJ Dashboard: Loaded initial chat messages:', chatResponse.data?.length || 0);
         
-        // Double-check response is for current broadcast before setting state
         if (currentBroadcast.id === currentBroadcast.id && !signal.aborted) {
           setChatMessages(chatResponse.data || []);
         }
@@ -289,16 +288,21 @@ export default function DJDashboard() {
         }
 
         // Fetch polls
-        const pollsResponse = await pollService.getPolls(currentBroadcast.id);
-        console.log('DJ Dashboard: Loaded initial polls:', pollsResponse.data?.length || 0);
-        
-        if (currentBroadcast.id === currentBroadcast.id && !signal.aborted) {
-          setPolls(pollsResponse.data || []);
+        try {
+          const pollsResponse = await pollService.getPollsForBroadcast(currentBroadcast.id);
+          console.log('DJ Dashboard: Loaded initial polls:', pollsResponse.data?.length || 0);
           
-          // Set active poll (most recent one)
-          if (pollsResponse.data && pollsResponse.data.length > 0) {
-            setActivePoll(pollsResponse.data[0]);
+          if (currentBroadcast.id === currentBroadcast.id && !signal.aborted) {
+            setPolls(pollsResponse.data || []);
+            
+            // Set active poll (most recent one)
+            if (pollsResponse.data && pollsResponse.data.length > 0) {
+              setActivePoll(pollsResponse.data[0]);
+            }
           }
+        } catch (pollError) {
+          console.warn('DJ Dashboard: Error fetching polls:', pollError);
+          // Continue execution - we can still function without polls
         }
       } catch (error) {
         // Ignore aborted requests

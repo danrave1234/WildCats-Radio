@@ -125,6 +125,8 @@ export const chatService = {
 export const songRequestService = {
   getRequests: (broadcastId) => api.get(`/broadcasts/${broadcastId}/song-requests`),
   createRequest: (broadcastId, request) => api.post(`/broadcasts/${broadcastId}/song-requests`, request),
+  getAllRequests: () => api.get('/song-requests'), // For analytics - get all song requests
+  getStats: () => api.get('/song-requests/stats'), // For analytics - get song request statistics
   
   // Subscribe to real-time song requests for a specific broadcast
   subscribeToSongRequests: (broadcastId, callback) => {
