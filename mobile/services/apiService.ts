@@ -43,6 +43,27 @@ export interface ApiResponse {
   // Include other common response fields if any
 }
 
+// Define the Broadcast type based on BroadcastDTO and usage
+export interface BroadcastDJ {
+  id?: number;
+  name?: string;
+  // Add other DJ related fields if available
+}
+
+export interface Broadcast {
+  id: number;
+  title: string;
+  description?: string;
+  scheduledStart: string; // ISO 8601 date-time string
+  scheduledEnd: string;   // ISO 8601 date-time string
+  actualStart?: string;    // ISO 8601 date-time string, present if started/live/ended
+  actualEnd?: string;      // ISO 8601 date-time string, present if ended
+  dj?: BroadcastDJ;
+  status?: string; // e.g., "SCHEDULED", "LIVE", "ENDED"
+  // Add other fields as returned by your backend
+  error?: string; // For error messages from the service
+}
+
 export const loginUser = async (email: string, password: string): Promise<AuthResponse> => {
   try {
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
@@ -175,6 +196,48 @@ export const changeUserPassword = async (
     return data;
   } catch (error) {
     console.error('ChangePassword API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const getLiveBroadcasts = async (token: string): Promise<Broadcast[] | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/broadcasts/live`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to fetch live broadcasts. Status: ${response.status}` };
+    }
+    return data as Broadcast[];
+  } catch (error) {
+    console.error('GetLiveBroadcasts API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const getAllBroadcasts = async (token: string): Promise<Broadcast[] | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/broadcasts`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to fetch all broadcasts. Status: ${response.status}` };
+    }
+    return data as Broadcast[];
+  } catch (error) {
+    console.error('GetAllBroadcasts API error:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
     return { error: errorMessage };
   }

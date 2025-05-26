@@ -1,20 +1,19 @@
 import React from 'react';
-import { Stack } from 'expo-router';
+import { Stack, Tabs } from 'expo-router';
 
 const AuthStackLayout: React.FC = () => {
   return (
-    <Stack
+    <Tabs
       screenOptions={{
         headerShown: false,
-        animation: 'slide_from_right',
-        animationDuration: 250,
       }}
+      tabBar={() => null}
     >
-      <Stack.Screen name="login" />
-      <Stack.Screen name="signup" />
+      <Tabs.Screen name="login" />
+      <Tabs.Screen name="signup" />
       {/* <Stack.Screen name="forgot-password" /> */}
       {/* Add other auth screens here that are direct children of the 'auth' folder */}
-    </Stack>
+    </Tabs>
   );
 };
 

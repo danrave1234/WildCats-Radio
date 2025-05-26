@@ -1,144 +1,259 @@
-import React from 'react';
-import { View, Text, SafeAreaView, StyleSheet, ScrollView } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, SafeAreaView, ScrollView, ActivityIndicator, TouchableOpacity, Platform, Image } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons'; // For icons
-
-// Dummy Data
-const recentBroadcasts = [
-  { id: '1', title: 'Morning Commute Mix', date: '2024-07-28', duration: '1:30:00' },
-  { id: '2', title: 'Indie Vibes Only', date: '2024-07-27', duration: '2:00:00' },
-  { id: '3', title: 'Late Night Chill Hop', date: '2024-07-26', duration: '1:45:00' },
-];
-
-const lastLogin = '2024-07-28, 10:00 AM';
-const isRadioLive = true; // Can be toggled
+import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../context/AuthContext';
+import { getLiveBroadcasts, getAllBroadcasts, Broadcast } from '../../services/apiService'; // Assuming apiService exports these
+import '../../global.css'; // Tailwind CSS
+import { format, parseISO, formatDistanceToNowStrict, isToday, isYesterday, differenceInDays } from 'date-fns';
 
 const HomeScreen: React.FC = () => {
   const router = useRouter();
+  const { authToken } = useAuth();
+  const [liveBroadcasts, setLiveBroadcasts] = useState<Broadcast[]>([]);
+  const [recentBroadcasts, setRecentBroadcasts] = useState<Broadcast[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const isLive = liveBroadcasts.length > 0;
+  const currentLiveBroadcast = isLive ? liveBroadcasts[0] : null;
+
+  const fetchData = useCallback(async () => {
+    if (!authToken) {
+      setError('Authentication token not found. Please log in.');
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [liveRes, recentRes] = await Promise.all([
+        getLiveBroadcasts(authToken),
+        getAllBroadcasts(authToken),
+      ]);
+
+      if ('error' in liveRes) {
+        setError(prevError => prevError ? `${prevError}; ${liveRes.error}` : liveRes.error);
+      } else {
+        setLiveBroadcasts(liveRes);
+      }
+
+      if ('error' in recentRes) {
+        setError(prevError => prevError ? `${prevError}; ${recentRes.error}` : recentRes.error);
+      } else {
+        const sortedRecent = recentRes
+          .sort((a: Broadcast, b: Broadcast) => {
+            const dateA = new Date(a.actualStart || a.scheduledStart).getTime();
+            const dateB = new Date(b.actualStart || b.scheduledStart).getTime();
+            return dateB - dateA;
+          })
+          .slice(0, 3);
+        setRecentBroadcasts(sortedRecent);
+      }
+    } catch (apiError: any) {
+      setError(apiError.message || 'An unexpected error occurred while fetching data.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [authToken]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const formatRelativeTime = (dateString: string): string => {
+    const date = parseISO(dateString);
+    if (isToday(date)) {
+      return 'Today';
+    }
+    if (isYesterday(date)) {
+      return 'Yesterday';
+    }
+    const daysAgo = differenceInDays(new Date(), date);
+    if (daysAgo > 1 && daysAgo <= 7) {
+        return `${daysAgo} days ago`;
+    }
+    return format(date, 'MMM d'); // Fallback for older dates
+  };
+
+  const renderBroadcastTimeInfo = (broadcast: Broadcast): string => {
+    if (broadcast.actualStart && !broadcast.actualEnd) { // Live
+      return `Started ${formatDistanceToNowStrict(parseISO(broadcast.actualStart))} ago`;
+    }
+    // For recent/ended or upcoming, use the relative time formatter
+    return formatRelativeTime(broadcast.actualStart || broadcast.scheduledStart);
+  };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView className="flex-1 justify-center items-center bg-anti-flash_white">
+        <ActivityIndicator size="large" color="#91403E" />
+        <Text className="mt-4 text-gray-600 text-lg">Loading Dashboard...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (error && !isLoading) {
+    return (
+      <SafeAreaView className="flex-1 justify-center items-center bg-anti-flash_white p-6 text-center">
+        <Ionicons name="cloud-offline-outline" size={64} color="#7F1D1D" />
+        <Text className="text-2xl font-semibold text-gray-800 mt-6 mb-2">Unable to Load Dashboard</Text>
+        <Text className="text-gray-600 mb-8 text-base leading-relaxed">{error}</Text>
+        <TouchableOpacity
+            className="bg-cordovan py-3 px-8 rounded-lg shadow-md active:opacity-80"
+            onPress={fetchData}
+        >
+             <Text className="text-white font-semibold text-base">Try Again</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <Stack.Screen options={{ title: 'Dashboard', headerShown: false }} />
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.headerTitle}>Wildcat Radio Dashboard</Text>
-
-        {/* Live Broadcast Indicator */}
-        <View style={[styles.card, styles.liveIndicatorCard]}>
-          <Text style={styles.cardTitle}>Broadcast Status</Text>
-          <View style={styles.liveStatusContainer}>
-            <View style={[styles.liveDot, { backgroundColor: isRadioLive ? '#4ade80' : '#f87171' }]} />
-            <Text style={styles.liveText}>{isRadioLive ? 'Currently LIVE' : 'Currently OFFLINE'}</Text>
-          </View>
+    <SafeAreaView className="flex-1 bg-anti-flash_white">
+      {/* <Stack.Screen options={{ headerShown: false }} /> */}
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 120, paddingTop: 12 }}
+        showsVerticalScrollIndicator={false}
+        className="px-5 md:px-7"
+      >
+        {/* Welcome Message */}
+        <View className="mb-6">
+          <Text className="text-3xl font-bold text-gray-800">Welcome, Listener!</Text>
+          <Text className="text-gray-600">Here's what's happening with Wildcat Radio.</Text>
         </View>
 
-        {/* Recent Broadcasts */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Recent Broadcasts</Text>
-          {recentBroadcasts.map((item) => (
-            <View key={item.id} style={styles.broadcastItem}>
-              <Ionicons name="musical-notes-outline" size={22} color="#91403E" />
-              <View style={styles.broadcastDetails}>
-                <Text style={styles.broadcastTitle}>{item.title}</Text>
-                <Text style={styles.broadcastMeta}>Date: {item.date} | Duration: {item.duration}</Text>
+        {/* Logo */}
+        <View className="items-center mb-7">
+          <Image 
+            source={require('../../assets/images/wildcat_radio_logo_transparent.png')}
+            className="w-65 h-40" // Adjust width and height as needed
+            resizeMode="contain"
+          />
+        </View>
+
+        {/* Broadcast Status Card */}
+        <View className="bg-white p-5 rounded-2xl shadow-lg mb-7"> {/* Slightly more rounded, increased padding/margin */}
+          <View className="flex-row justify-between items-center mb-4">
+            <Text className="text-xl font-bold text-gray-800">Broadcast Status</Text>
+            <TouchableOpacity
+              className="bg-cordovan py-2.5 px-4 rounded-lg flex-row items-center shadow-md active:opacity-80"
+              onPress={() => router.push('../listen' as any)}
+            >
+              {!!isLive && (
+                <View className="bg-mikado_yellow py-1 px-2.5 rounded mr-2 flex-row items-center self-stretch">
+                  <Text className="text-black font-extrabold text-xs tracking-wider">LIVE</Text>
+                </View>
+              )}
+              <Text className="text-white font-semibold text-sm">Listen Now</Text>
+              <Ionicons name="headset-outline" size={18} color="white" style={{ marginLeft: 6 }} />
+            </TouchableOpacity>
+          </View>
+
+          {isLive && currentLiveBroadcast ? (
+            <View className="flex-row items-center mt-1">
+              <Ionicons name="radio-outline" size={30} color="#91403E" className="mr-3.5" />
+              <View className="flex-1">
+                <Text className="text-lg font-bold text-cordovan leading-tight">{currentLiveBroadcast.title}</Text>
+                <Text className="text-sm text-gray-600 mt-0.5">
+                  with {currentLiveBroadcast.dj?.name || 'Wildcat Radio'} • {renderBroadcastTimeInfo(currentLiveBroadcast)}
+                </Text>
               </View>
             </View>
-          ))}
+          ) : (
+            <View className="flex-row items-center mt-1">
+              <Ionicons name="radio-outline" size={30} color="#6B7280" className="mr-3.5" />
+              <Text className="text-lg text-gray-700">Currently Off Air</Text>
+            </View>
+          )}
         </View>
 
-        {/* Last Logged In */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Activity</Text>
-          <View style={styles.activityItem}>
-            <Ionicons name="time-outline" size={22} color="#4f46e5" />
-            <Text style={styles.activityText}>Last login: {lastLogin}</Text>
+        {/* Stats Row */}
+        {/* <View className="flex-row justify-between mb-7 space-x-3.5"> */}
+        {/* Slightly more rounded, justify-start */} 
+        {/* Slightly smaller icon, more margin-bottom */} 
+        {/* <Text className={`text-2xl font-bold ${stat.color}`}>{stat.count}</Text> */}
+        {/* <Text className="text-xs text-gray-600 mt-1 text-center">{stat.label}</Text> */}
+        {/* </View> */}
+        {/* )) */}
+        {/* } */}
+        {/* </View> */} 
+
+        {/* Recent Broadcasts Section */}
+        <View className="mb-7">
+          {/* Header for Recent Broadcasts */}
+          <View className="flex-row justify-between items-center mb-3.5 px-1">
+            <Text className="text-xl font-bold text-cordovan">Recent Broadcasts</Text>
+            <TouchableOpacity onPress={() => router.push('../schedule' as any)}>
+              <Text className="text-sm font-semibold text-cordovan active:opacity-70 hover:underline">See All</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Recent Broadcasts Card */}
+          <View className="bg-white p-5 rounded-2xl shadow-lg"> {/* Removed mb-7 from here */}
+            {recentBroadcasts.length > 0 ? 
+              recentBroadcasts.map((item, index) => (
+                <React.Fragment key={item.id}>
+                  <TouchableOpacity
+                    className="flex-row items-center py-4 active:bg-gray-50 rounded-lg -mx-1.5 px-1.5"
+                    onPress={() => console.log("Tapped recent broadcast:", item.title)}
+                  >
+                    <View className="bg-cordovan w-10 h-10 rounded-full items-center justify-center mr-4 shadow-sm">
+                      <Ionicons name="disc-outline" size={20} color="white" />
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-base font-semibold text-gray-800 leading-snug">{item.title}</Text>
+                      <Text className="text-sm text-gray-600 mt-0.5">
+                        {item.dj?.name || 'Wildcat Radio'} • {renderBroadcastTimeInfo(item)}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward-outline" size={22} color="#A0A0A0" />
+                  </TouchableOpacity>
+                  {index < recentBroadcasts.length - 1 && (
+                    <View className="h-px bg-gray-200 my-1 border-0 border-t border-dashed border-gray-300 mx-4" />
+                  )}
+                </React.Fragment>
+              ))
+             : 
+              <Text className="text-gray-600 py-4 text-center">No recent broadcasts to display.</Text>
+            }
           </View>
         </View>
-        
+
+        {/* Quick Actions */}
+        {/* <View className="mb-6"> */}
+        {/* <Text className="text-xl font-bold text-cordovan mb-3.5">Quick Actions</Text> */}
+        {/* <View className="flex-row flex-wrap justify-between"> */}
+        {/* {[
+              { label: 'View Schedule', icon: 'calendar-outline', screen: '../schedule', color: 'cordovan' },
+              { label: 'My Profile', icon: 'person-outline', screen: '../profile', color: 'mikado_yellow' },
+              { label: 'Request Song', icon: 'musical-notes-outline', screen: '../listen', color: 'cordovan', disabled: !isLive },
+              { label: 'Join Chat', icon: 'chatbubbles-outline', screen: '../listen', color: 'mikado_yellow', disabled: !isLive },
+            ].map((action, index) => {
+              const bgColorKey = action.color === 'cordovan' ? 
+                               (action.disabled ? 'bg-cordovan-300' : 'bg-cordovan-500') :
+                               (action.disabled ? 'bg-mikado_yellow-300' : 'bg-mikado_yellow-500');
+              const iconColor = action.color === 'mikado_yellow' && !action.disabled ? 'black' : 'white';
+              return (
+                <TouchableOpacity
+                  key={index}
+                  className={`bg-white w-[48%] p-4 rounded-2xl shadow-lg items-center justify-center mb-3.5 ${action.disabled ? 'opacity-70' : 'active:opacity-80'}`}
+                  onPress={() => !action.disabled && router.push(action.screen as any)}
+                  disabled={action.disabled}
+                >
+                  <View className={`w-12 h-12 rounded-full items-center justify-center mb-2.5 ${bgColorKey}`}> 
+                    <Ionicons name={action.icon as any} size={24} color={iconColor} />
+                  </View>
+                  <Text className="text-sm font-semibold text-gray-700 text-center">{action.label}</Text>
+                </TouchableOpacity>
+              );
+            })} */}
+        {/* </View> */}
+        {/* </View> */}
+
       </ScrollView>
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#E9ECEC', // anti-flash_white
-  },
-  container: {
-    padding: 20,
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1f2937', // gray-800
-    marginBottom: 25,
-    textAlign: 'center',
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 18,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 5,
-    elevation: 3,
-  },
-  liveIndicatorCard: {
-    alignItems: 'center',
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#374151', // gray-700
-    marginBottom: 15,
-  },
-  liveStatusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  liveDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 10,
-  },
-  liveText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1f2937',
-  },
-  broadcastItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6', // gray-100
-  },
-  broadcastDetails: {
-    marginLeft: 15,
-    flex: 1,
-  },
-  broadcastTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#111827', // gray-900
-  },
-  broadcastMeta: {
-    fontSize: 13,
-    color: '#6b7280', // gray-500
-    marginTop: 3,
-  },
-  activityItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  activityText: {
-    fontSize: 15,
-    color: '#374151', // gray-700
-    marginLeft: 10,
-  },
-});
 
 export default HomeScreen; 

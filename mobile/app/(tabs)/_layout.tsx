@@ -1,13 +1,15 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import CustomTabBar from '../../components/navigation/CustomTabBar'; // We will create this next
+import CustomTabBar from '../../components/navigation/CustomTabBar';
+import CustomHeader from '../../components/navigation/CustomHeader';
 
 export default function TabLayout() {
   return (
     <Tabs
       tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{
-        headerShown: false, // Individual screens can override this if needed
+        headerShown: true,
+        header: (props) => <CustomHeader {...props} />,
       }}
     >
       <Tabs.Screen name="home" />

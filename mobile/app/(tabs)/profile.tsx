@@ -292,7 +292,12 @@ const ProfileScreen: React.FC = () => {
 
     if (isEditingPersonalInfo && activeTab === 'Personal Information') {
       return (
-        <PanGestureHandler onGestureEvent={handleSwipeGesture} onHandlerStateChange={handleSwipeGesture}>
+        <PanGestureHandler
+          onGestureEvent={handleSwipeGesture}
+          onHandlerStateChange={handleSwipeGesture}
+          activeOffsetX={20}
+          failOffsetY={15}
+        >
           <Animated.View 
             style={{
               transform: [{ translateX: slideAnimation }],
@@ -373,7 +378,12 @@ const ProfileScreen: React.FC = () => {
     switch (activeTab) {
       case 'Personal Information':
         return (
-          <PanGestureHandler onGestureEvent={handleSwipeGesture} onHandlerStateChange={handleSwipeGesture}>
+          <PanGestureHandler
+            onGestureEvent={handleSwipeGesture}
+            onHandlerStateChange={handleSwipeGesture}
+            activeOffsetX={20}
+            failOffsetY={15}
+          >
             <Animated.View 
               style={{
                 transform: [{ translateX: slideAnimation }],
@@ -424,7 +434,12 @@ const ProfileScreen: React.FC = () => {
         );
       case 'Security':
         return (
-          <PanGestureHandler onGestureEvent={handleSwipeGesture} onHandlerStateChange={handleSwipeGesture}>
+          <PanGestureHandler
+            onGestureEvent={handleSwipeGesture}
+            onHandlerStateChange={handleSwipeGesture}
+            activeOffsetX={20}
+            failOffsetY={15}
+          >
             <Animated.View 
               style={{
                 transform: [{ translateX: slideAnimation }],
@@ -496,7 +511,12 @@ const ProfileScreen: React.FC = () => {
         );
       case 'Preferences':
         return (
-          <PanGestureHandler onGestureEvent={handleSwipeGesture} onHandlerStateChange={handleSwipeGesture}>
+          <PanGestureHandler
+            onGestureEvent={handleSwipeGesture}
+            onHandlerStateChange={handleSwipeGesture}
+            activeOffsetX={20}
+            failOffsetY={15}
+          >
             <Animated.View 
               style={{
                 transform: [{ translateX: slideAnimation }],
@@ -542,21 +562,21 @@ const ProfileScreen: React.FC = () => {
   return (
     <SafeAreaView className="flex-1 bg-gray-100">
       {/* Fixed Profile Header */}
-      <View className="bg-gray-50 pt-12 pb-8 px-6 items-center border-b border-gray-200 shadow-sm relative">
+      <View className="bg-gray-50 pt-5 pb-3 px-6 items-center border-b border-gray-200 shadow-sm relative">
         {/* Logout Icon Button */}
         <Pressable
           onPress={handleLogout}
-          className="absolute top-4 right-4 p-3 z-10"
+          className="absolute top-2.5 right-2.5 p-2 z-10"
           android_ripple={{ color: 'rgba(0,0,0,0.1)', borderless: true }}
         >
-          <Ionicons name="exit-outline" size={28} color="#8C1D18" />
+          <Ionicons name="exit-outline" size={24} color="#8C1D18" />
         </Pressable>
 
-        <View className="w-32 h-32 rounded-full bg-mikado_yellow justify-center items-center mb-5 border-4 border-white shadow-xl">
-          <Text className="text-5xl font-bold text-black">{getInitials(currentDisplayName)}</Text>
+        <View className="w-24 h-24 rounded-full bg-mikado_yellow justify-center items-center mb-2 border-4 border-white shadow-lg">
+          <Text className="text-3xl font-bold text-black">{getInitials(currentDisplayName)}</Text>
         </View>
-        <Text className="text-3xl font-semibold text-gray-900 mb-1.5">{currentDisplayName}</Text>
-        <Text className="text-base text-gray-500">{memberSinceText}</Text>
+        <Text className="text-xl font-semibold text-gray-900 mb-1">{currentDisplayName}</Text>
+        <Text className="text-sm text-gray-500">{memberSinceText}</Text>
       </View>
 
       {/* Tab Navigation - below fixed header, above scrollable content */}
@@ -606,7 +626,8 @@ const ProfileScreen: React.FC = () => {
       
       <ScrollView 
         className="flex-1"
-        contentContainerStyle={{ paddingBottom: Platform.OS === 'ios' ? 40 : 30, paddingTop: 24}} 
+        contentContainerStyle={{ paddingBottom: Platform.OS === 'ios' ? 40 : 30, paddingTop: 24}}
+        showsVerticalScrollIndicator={true}
       >
         <View className="px-4 md:px-6">
           {renderTabContent()}
