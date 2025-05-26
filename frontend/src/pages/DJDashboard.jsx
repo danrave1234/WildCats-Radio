@@ -197,6 +197,13 @@ export default function DJDashboard() {
 
     const connectStatusWebSocket = async () => {
       try {
+        // Clean up any existing connection first
+        if (statusWsRef.current) {
+          console.log('DJ Dashboard: Cleaning up existing status WebSocket');
+          statusWsRef.current.close();
+          statusWsRef.current = null;
+        }
+
         // Simple WebSocket URL construction using environment variable
         const wsProtocol = 'wss';
 
