@@ -41,33 +41,34 @@ export default {
         maroon: {
           50: "#fdf2f2",
           100: "#f9e6e6",
-          200: "#f5c7c7",
-          300: "#eba8a8",
-          400: "#e58080",
-          500: "#d45a5a",
-          600: "#b83b3b",
-          700: "#8a2424", // Primary maroon color from the logo
-          800: "#6e1c1c", // Darker maroon for hover states
-          900: "#521414",
-          950: "#3b0e0e",
+          200: "#f3cdcd",
+          300: "#e9b4b4",
+          400: "#df9b9b",
+          500: "#b65f5d",
+          600: "#91403E",
+          700: "#833a38",
+          800: "#753332",
+          900: "#672d2c",
+          950: "#591f1e",
         },
         gold: {
-          50: "#fffbeb",
-          100: "#fef3c7",
-          200: "#fde68a",
-          300: "#fcd34d",
-          400: "#fbbf24", // Medium gold
-          500: "#f59e0b", // Primary gold from the logo
-          600: "#d97706", // Darker gold for hover states
-          700: "#b45309",
-          800: "#92400e",
-          900: "#78350f",
-          950: "#451a03",
+          50: "#fff9e6",
+          100: "#fff3cc",
+          200: "#ffe799",
+          300: "#ffdb66",
+          400: "#ffcf33",
+          500: "#F4BE03",
+          600: "#e6b303",
+          700: "#cc9f02",
+          800: "#b38b02",
+          900: "#997701",
+          950: "#806401",
         },
         wildcats: {
-          background: "#f8f5f2", // Light beige background
-          card: "#ffffff",
-          accent: "#fef3c7", // Light gold accent
+          white: "#FFFFFF",
+          background: "#E9ECEC",
+          maroon: "#91403E",
+          yellow: "#F4BE03",
         }
       },
       borderRadius: {
@@ -76,8 +77,8 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       boxShadow: {
-        'maroon': '0 4px 14px 0 rgba(138, 36, 36, 0.15)',
-        'gold': '0 4px 14px 0 rgba(245, 158, 11, 0.15)',
+        'maroon': '0 4px 14px 0 rgba(145, 64, 62, 0.15)',
+        'gold': '0 4px 14px 0 rgba(244, 190, 3, 0.15)',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

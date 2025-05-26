@@ -4,65 +4,72 @@
 
 @layer base {
   :root {
-    --background: 30 30% 96%;
+    /* CSS Variables for the new radio colors */
+    --wildcats-white: 0 0% 100%;
+    --wildcats-background: 195 6% 92%;
+    --wildcats-yellow: 46 98% 48%;
+    --wildcats-maroon: 2 39% 41%;
+
+    /* System theme colors */
+    --background: var(--wildcats-background);
     --foreground: 0 0% 10%;
-    --primary: 349 89% 34%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 35 92% 33%;
-    --secondary-foreground: 0 0% 98%;
-    --accent: 35 100% 88%;
-    --accent-foreground: 35 92% 33%;
+    --primary: var(--wildcats-maroon);
+    --primary-foreground: 0 0% 100%;
+    --secondary: var(--wildcats-yellow);
+    --secondary-foreground: 0 0% 10%;
+    --accent: var(--wildcats-yellow);
+    --accent-foreground: var(--wildcats-maroon);
     --card: 0 0% 100%;
     --card-foreground: 0 0% 10%;
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 10%;
-    --border: 0 0% 90%;
-    --input: 0 0% 90%;
-    --ring: 349 89% 34%;
+    --border: 195 6% 85%;
+    --input: 195 6% 85%;
+    --ring: var(--wildcats-maroon);
     --radius: 0.5rem;
   }
   
   .dark {
     --background: 222 47% 11%;
     --foreground: 0 0% 98%;
-    --primary: 349 89% 34%;
+    --primary: var(--wildcats-maroon);
     --primary-foreground: 0 0% 98%;
-    --secondary: 35 92% 33%;
+    --secondary: var(--wildcats-yellow);
     --secondary-foreground: 0 0% 98%;
-    --accent: 35 92% 20%;
-    --accent-foreground: 35 92% 80%;
+    --accent: var(--wildcats-yellow);
+    --accent-foreground: var(--wildcats-maroon);
     --card: 222 47% 14%;
     --card-foreground: 0 0% 98%;
     --popover: 222 47% 14%;
     --popover-foreground: 0 0% 98%;
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
-    --ring: 349 89% 34%;
+    --ring: var(--wildcats-maroon);
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-maroon-700 hover:bg-maroon-800 text-white font-medium rounded-md py-2 px-4 
+    @apply bg-maroon-600 hover:bg-maroon-700 text-white font-medium rounded-md py-2 px-4 
            focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-500 
            transition-colors duration-200;
   }
   
   .btn-secondary {
-    @apply bg-gold-500 hover:bg-gold-600 text-white font-medium rounded-md py-2 px-4 
+    @apply bg-gold-500 hover:bg-gold-600 text-black font-medium rounded-md py-2 px-4 
            focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gold-400 
            transition-colors duration-200;
   }
   
   .btn-outline {
-    @apply border border-maroon-700 text-maroon-700 hover:bg-maroon-50 font-medium rounded-md py-2 px-4 
+    @apply border border-maroon-600 text-maroon-600 hover:bg-maroon-50 font-medium rounded-md py-2 px-4 
            focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-500 
            dark:border-maroon-500 dark:text-maroon-400 dark:hover:bg-maroon-900/30 
            transition-colors duration-200;
   }
   
   .card {
-    @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 
+    @apply bg-wildcats-white dark:bg-gray-800 rounded-lg shadow-md p-6 
            border border-gray-100 dark:border-gray-700 
            hover:shadow-lg transition-shadow duration-200;
   }
@@ -84,17 +91,45 @@
            shadow-sm
            transition-colors duration-200;
   }
+  
+  /* Chat message utility classes */
+  .chat-message {
+    @apply break-words break-all whitespace-normal max-w-full overflow-hidden;
+  }
+  
+  .chat-messages-container {
+    @apply scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600;
+  }
 }
 
 @media (prefers-color-scheme: light) {
   :root {
     color: #213547;
-    background-color: var(--wildcats-background);
+    background-color: #E9ECEC;
   }
   a:hover {
-    color: #747bff;
+    color: #91403E;
   }
   button {
-    background-color: #f9f9f9;
+    background-color: #FFFFFF;
   }
+}
+
+/* Custom word wrapping for chat bubbles */
+.overflow-wrap-anywhere {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Fix chat container heights */
+.chat-messages-container {
+  scrollbar-width: thin;
+  max-height: 100%;
+}
+
+/* Make sure chat bubbles don't overflow */
+.message-bubble {
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }

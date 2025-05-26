@@ -8,19 +8,19 @@ import org.springframework.stereotype.Service;
 @Service
 public class StreamingConfigService {
 
-    @Value("${shoutcast.server.url:localhost}")
+    @Value("${icecast.server.url:localhost}")
     private String serverUrl;
     
-    @Value("${shoutcast.server.port:8000}")
+    @Value("${icecast.port:8000}")
     private int serverPort;
     
-    @Value("${shoutcast.server.admin.password:admin}")
+    @Value("${icecast.admin.password:hackme}")
     private String adminPassword;
     
-    @Value("${shoutcast.server.source.password:hackme}")
+    @Value("${icecast.source.password:hackme}")
     private String sourcePassword;
     
-    @Value("${shoutcast.server.mount:/stream/1}")
+    @Value("${icecast.mount.point:/live.ogg}")
     private String mountPoint;
 
     private final StreamingConfigRepository streamingConfigRepository;
@@ -64,8 +64,8 @@ public class StreamingConfigService {
                 serverUrl,           // Server URL from properties
                 serverPort,          // Port from properties
                 mountPoint,          // Mount point from properties
-                adminPassword,       // Admin password from properties
-                "SHOUTCAST"          // Protocol
+                sourcePassword,      // Source password from properties
+                "ICECAST"            // Protocol
         );
         
         return streamingConfigRepository.save(defaultConfig);

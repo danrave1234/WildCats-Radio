@@ -40,10 +40,13 @@ public class SecurityConfig {
                 .requestMatchers("/api/user/register").permitAll()
                 .requestMatchers("/api/user/verify").permitAll()
                 .requestMatchers("/api/stream/status").permitAll()
+                .requestMatchers("/api/stream/config").permitAll()
+                .requestMatchers("/api/stream/health").permitAll()
                 // Allow all stream-related endpoints
                 .requestMatchers("/api/stream/**").permitAll()
-                .requestMatchers("/api/shoutcast/**").permitAll()
                 // Websocket endpoints
+                .requestMatchers("/ws/live").permitAll()
+                .requestMatchers("/ws/listener").permitAll()
                 .requestMatchers("/stream").permitAll()
                 .requestMatchers("/ws-radio/**").permitAll()
                 // Swagger UI endpoints if you use it
@@ -64,11 +67,20 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList("*")); // For development
+        
+        // For development - specify exact origins instead of using wildcards with credentials
+        configuration.setAllowedOrigins(Arrays.asList(
+            "http://localhost:3000",   // React development server
+            "http://localhost:5173",   // Vite development server
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:5173"
+        ));
+        
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("authorization", "content-type", "x-auth-token"));
+        configuration.setAllowedHeaders(Arrays.asList("*")); // Allow all headers including authorization
         configuration.setExposedHeaders(Arrays.asList("x-auth-token"));
-        configuration.setAllowCredentials(false); // Must be false for '*' origin
+        configuration.setAllowCredentials(true); // Enable credentials for JWT tokens
+        configuration.setMaxAge(3600L); // Cache preflight for 1 hour
         
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);

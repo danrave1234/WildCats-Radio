@@ -101,6 +101,19 @@ export default function Schedule() {
     setToast({ visible: true, message, type })
   }
 
+  // Helper function to format local date/time as ISO string without timezone conversion
+  const formatLocalTimeAsISO = (date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    const seconds = String(date.getSeconds()).padStart(2, '0')
+    const milliseconds = String(date.getMilliseconds()).padStart(3, '0')
+    
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}`
+  }
+
   // Check user role from authentication
   useEffect(() => {
     const checkUserRole = async () => {
@@ -112,6 +125,57 @@ export default function Schedule() {
     checkUserRole()
   }, [])
 
+  // Helper function to get minimum allowed date (today)
+  const getMinDate = () => {
+    const today = new Date()
+    return today.toISOString().split('T')[0]
+  }
+
+  // Helper function to get minimum allowed time for today
+  const getMinTime = () => {
+    const now = new Date()
+    // If the selected date is today, minimum time is current time + 2 minutes
+    if (broadcastDetails.date === getMinDate()) {
+      const minTime = new Date(now.getTime() + 2 * 60 * 1000) // 2 minutes from now
+      return minTime.toTimeString().slice(0, 5) // HH:MM format
+    }
+    return "00:00" // If future date, any time is allowed
+  }
+
+  // Helper function to validate time input in real-time
+  const validateTimeInput = (time, fieldName) => {
+    if (!broadcastDetails.date || !time) return true
+
+    // Use proper date construction to avoid timezone issues
+    const [year, month, day] = broadcastDetails.date.split('-').map(Number)
+    const [hour, minute] = time.split(':').map(Number)
+    const selectedDateTime = new Date(year, month - 1, day, hour, minute, 0)
+    
+    const now = new Date()
+    const minAllowedTime = new Date(now.getTime() + 60 * 1000) // 1 minute buffer
+
+    if (selectedDateTime < minAllowedTime) {
+      return false
+    }
+    return true
+  }
+
+  // Helper function to check if end time is after start time
+  const isEndTimeAfterStartTime = () => {
+    if (!broadcastDetails.date || !broadcastDetails.startTime || !broadcastDetails.endTime) {
+      return true // Don't show error if any field is empty
+    }
+    
+    const [year, month, day] = broadcastDetails.date.split('-').map(Number)
+    const [startHour, startMinute] = broadcastDetails.startTime.split(':').map(Number)
+    const [endHour, endMinute] = broadcastDetails.endTime.split(':').map(Number)
+    
+    const startTime = new Date(year, month - 1, day, startHour, startMinute, 0)
+    const endTime = new Date(year, month - 1, day, endHour, endMinute, 0)
+    
+    return endTime > startTime
+  }
+
   // Fetch upcoming broadcasts
   useEffect(() => {
     const fetchUpcomingBroadcasts = async () => {
@@ -121,21 +185,33 @@ export default function Schedule() {
 
         // Transform the data to match our expected format
         const broadcasts = response.data.map(broadcast => {
-          // Parse dates using UTC to avoid timezone issues
+          // Parse the ISO datetime strings from backend - these are in UTC
           const startDateTime = new Date(broadcast.scheduledStart)
           const endDateTime = new Date(broadcast.scheduledEnd)
 
-          // Extract the date in YYYY-MM-DD format but respect the original date provided by backend
-          // This ensures we don't shift days due to timezone
+          // For display purposes, extract the local time components
+          // This preserves the intended time in the user's timezone
           const dateStr = broadcast.scheduledStart.split('T')[0]
+          
+          // Format times in local timezone for display
+          const startTime = startDateTime.toLocaleTimeString([], { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: false 
+          })
+          const endTime = endDateTime.toLocaleTimeString([], { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: false 
+          })
 
           return {
             id: broadcast.id,
             title: broadcast.title,
             description: broadcast.description,
             date: dateStr,
-            startTime: startDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            endTime: endDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            startTime: startTime,
+            endTime: endTime,
             dj: broadcast.createdBy ? broadcast.createdBy.name : 'Unknown DJ',
             details: broadcast.details || ''
           }
@@ -185,23 +261,73 @@ export default function Schedule() {
     try {
       setIsLoading(true)
 
+      // Validate that the selected date/time is not in the past
+      const now = new Date()
+      
+      // Use the same date construction method as for the API to ensure consistency
+      const [validateYear, validateMonth, validateDay] = broadcastDetails.date.split('-').map(Number)
+      const [validateStartHour, validateStartMinute] = broadcastDetails.startTime.split(':').map(Number)
+      const [validateEndHour, validateEndMinute] = broadcastDetails.endTime.split(':').map(Number)
+      
+      const selectedStart = new Date(validateYear, validateMonth - 1, validateDay, validateStartHour, validateStartMinute, 0)
+      const selectedEnd = new Date(validateYear, validateMonth - 1, validateDay, validateEndHour, validateEndMinute, 0)
+
+      // Check if start time is in the past (with 1 minute buffer)
+      const minAllowedTime = new Date(now.getTime() + 60 * 1000) // 1 minute from now
+      if (selectedStart < minAllowedTime) {
+        showToast("Start time cannot be in the past. Please select a future time.", "error")
+        return
+      }
+
+      // Check if end time is before start time
+      if (selectedEnd <= selectedStart) {
+        showToast("End time must be after start time.", "error")
+        return
+      }
+
+      // Check if the duration is reasonable (at least 15 minutes, max 8 hours)
+      const durationMs = selectedEnd - selectedStart
+      const durationMinutes = durationMs / (1000 * 60)
+      if (durationMinutes < 15) {
+        showToast("Broadcast duration must be at least 15 minutes.", "error")
+        return
+      }
+      if (durationMinutes > 8 * 60) {
+        showToast("Broadcast duration cannot exceed 8 hours.", "error")
+        return
+      }
+
       // Format the date and time for the API
       const date = broadcastDetails.date
 
-      // Create date objects preserving the exact date and time selected by user
-      // Format YYYY-MM-DDThh:mm ensures correct date parsing
-      const startDateTime = new Date(`${date}T${broadcastDetails.startTime}:00`)
-      const endDateTime = new Date(`${date}T${broadcastDetails.endTime}:00`)
+      // Fix timezone issue: Instead of using template literals which cause timezone conversion,
+      // construct dates using the Date constructor with explicit values to avoid UTC conversion
+      const [year, month, day] = date.split('-').map(Number)
+      const [startHour, startMinute] = broadcastDetails.startTime.split(':').map(Number)
+      const [endHour, endMinute] = broadcastDetails.endTime.split(':').map(Number)
 
-      // Create the request payload - use the dates exactly as selected
-      // Don't adjust for timezone as this would shift the date
+      // Create date objects in local timezone
+      const startDateTime = new Date(year, month - 1, day, startHour, startMinute, 0)
+      const endDateTime = new Date(year, month - 1, day, endHour, endMinute, 0)
+
+      // Create the request payload - use local time instead of UTC
       const broadcastData = {
         title: broadcastDetails.title,
         description: broadcastDetails.description,
-        scheduledStart: startDateTime.toISOString(),
-        scheduledEnd: endDateTime.toISOString(),
+        scheduledStart: formatLocalTimeAsISO(startDateTime),
+        scheduledEnd: formatLocalTimeAsISO(endDateTime),
         details: broadcastDetails.details
       }
+
+      console.log("Schedule: Creating broadcast with Philippines local time:", {
+        userSelectedDate: broadcastDetails.date,
+        userSelectedStart: broadcastDetails.startTime,
+        userSelectedEnd: broadcastDetails.endTime,
+        localStart: startDateTime.toLocaleString('en-PH'),
+        localEnd: endDateTime.toLocaleString('en-PH'),
+        sentStart: broadcastData.scheduledStart,
+        sentEnd: broadcastData.scheduledEnd
+      })
 
       let response
       let successMessage
@@ -211,7 +337,7 @@ export default function Schedule() {
         response = await broadcastService.update(broadcastDetails.id, broadcastData)
         successMessage = "Broadcast updated successfully!"
       } else {
-        // Create new broadcast
+        // Create new scheduled broadcast (this creates both schedule and broadcast entities)
         response = await broadcastService.schedule(broadcastData)
         successMessage = "Broadcast scheduled successfully!"
       }
@@ -222,8 +348,8 @@ export default function Schedule() {
         title: response.data.title,
         description: response.data.description,
         date: date, // Use the original date directly
-        startTime: new Date(`${date}T${broadcastDetails.startTime}`).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        endTime: new Date(`${date}T${broadcastDetails.endTime}`).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        startTime: broadcastDetails.startTime, // Use the original time strings directly
+        endTime: broadcastDetails.endTime,
         dj: response.data.createdBy?.name || (userRole === "DJ" ? "You (DJ)" : "Admin"),
         details: broadcastDetails.details,
       }
@@ -498,6 +624,7 @@ export default function Schedule() {
                               label="Date"
                               id="date"
                               required={true}
+                              min={getMinDate()}
                           />
                         </div>
                         <div>
@@ -509,11 +636,20 @@ export default function Schedule() {
                           </label>
                           <TimeSelector
                               value={broadcastDetails.startTime}
-                              onChange={(time) => handleBroadcastDetailsChange({ target: { name: 'startTime', value: time } })}
+                              onChange={(time) => {
+                                const isValid = validateTimeInput(time, 'startTime')
+                                if (isValid || !time) {
+                                  handleBroadcastDetailsChange({ target: { name: 'startTime', value: time } })
+                                }
+                              }}
                               label="Start Time"
                               id="startTime"
                               required={true}
+                              min={getMinTime()}
                           />
+                          {broadcastDetails.startTime && !validateTimeInput(broadcastDetails.startTime, 'startTime') && (
+                            <p className="mt-1 text-sm text-red-600">Start time cannot be in the past</p>
+                          )}
                         </div>
                         <div>
                           <label
@@ -528,7 +664,12 @@ export default function Schedule() {
                               label="End Time"
                               id="endTime"
                               required={true}
+                              min={broadcastDetails.startTime || getMinTime()}
                           />
+                          {broadcastDetails.startTime && broadcastDetails.endTime && 
+                           !isEndTimeAfterStartTime() && (
+                            <p className="mt-1 text-sm text-red-600">End time must be after start time</p>
+                          )}
                         </div>
                         <div className="sm:col-span-2">
                           <label

@@ -1,57 +1,58 @@
 package com.wildcastradio.config;
 
+import com.wildcastradio.icecast.IcecastStreamHandler;
+import com.wildcastradio.icecast.ListenerStatusHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
-import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
-import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
-import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
 
-import com.wildcastradio.ShoutCast.AudioStreamHandler;
-
+/**
+ * WebSocket configuration for the application.
+ * Configures WebSocket endpoints for audio streaming and listener status updates.
+ */
 @Configuration
 @EnableWebSocket
-@EnableWebSocketMessageBroker
-public class WebSocketConfig implements WebSocketMessageBrokerConfigurer, WebSocketConfigurer {
-
+public class WebSocketConfig implements WebSocketConfigurer {
+    
+    private final IcecastStreamHandler icecastStreamHandler;
+    private final ListenerStatusHandler listenerStatusHandler;
+    
     @Autowired
-    private AudioStreamHandler audioStreamHandler;
-
-    @Override
-    public void configureMessageBroker(MessageBrokerRegistry config) {
-        config.enableSimpleBroker("/topic", "/queue");
-        config.setApplicationDestinationPrefixes("/app");
+    public WebSocketConfig(IcecastStreamHandler icecastStreamHandler, 
+                          ListenerStatusHandler listenerStatusHandler) {
+        this.icecastStreamHandler = icecastStreamHandler;
+        this.listenerStatusHandler = listenerStatusHandler;
     }
-
-    @Override
-    public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.addEndpoint("/ws-radio")
-                .setAllowedOriginPatterns("*")
-                .withSockJS();
-    }
-
-    @Override
-    public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        // Register the audio stream handler for binary data (no STOMP)
-        registry.addHandler(audioStreamHandler, "/stream")
-                .setAllowedOriginPatterns("*");
-    }
-
+    
     /**
-     * Configure WebSocket container settings
-     * Increase message sizes for audio streaming
+     * Configures WebSocket buffer sizes and timeouts
      */
     @Bean
     public ServletServerContainerFactoryBean createWebSocketContainer() {
         ServletServerContainerFactoryBean container = new ServletServerContainerFactoryBean();
+        // Set larger buffer sizes for audio data (64KB)
+        container.setMaxBinaryMessageBufferSize(65536); 
         container.setMaxTextMessageBufferSize(65536);
-        container.setMaxBinaryMessageBufferSize(1024 * 1024); // 1MB
-        container.setMaxSessionIdleTimeout(3600000L); // 1 hour
+        // Increase timeout to handle potential network delays
+        container.setAsyncSendTimeout(30000L);
         return container;
+    }
+    
+    /**
+     * Register WebSocket handlers and configure allowed origins
+     */
+    @Override
+    public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+        // Audio streaming endpoint for DJs
+        registry.addHandler(icecastStreamHandler, "/ws/live")
+                .setAllowedOriginPatterns("*"); // Use patterns instead of origins for CORS compatibility
+        
+        // Status updates endpoint for listeners  
+        registry.addHandler(listenerStatusHandler, "/ws/listener")
+                .setAllowedOriginPatterns("*");
     }
 }
