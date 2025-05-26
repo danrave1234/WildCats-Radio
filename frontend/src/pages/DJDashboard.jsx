@@ -214,7 +214,7 @@ export default function DJDashboard() {
           if (data.type === 'STREAM_STATUS') {
             setListenerCount(data.listenerCount || 0)
           }
-        } catch (error) {
+          } catch (error) {
           console.error('Error parsing status WebSocket message:', error)
         }
       }
@@ -510,6 +510,19 @@ export default function DJDashboard() {
     return Object.keys(errors).length === 0
   }
 
+  // Helper function to format local date/time as ISO string without timezone conversion
+  const formatLocalTimeAsISO = (date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    const seconds = String(date.getSeconds()).padStart(2, '0')
+    const milliseconds = String(date.getMilliseconds()).padStart(3, '0')
+    
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}`
+  }
+
   const createBroadcast = async () => {
     if (!validateForm()) {
       return
@@ -526,12 +539,21 @@ export default function DJDashboard() {
       const bufferedStart = new Date(now.getTime() + 30 * 1000)
       const endTime = new Date(bufferedStart.getTime() + 2 * 60 * 60 * 1000) // Default 2 hours duration
       
+      // Send times in local timezone (Philippines time) directly
       const broadcastData = {
         title: broadcastForm.title.trim(),
         description: broadcastForm.description.trim(),
-        scheduledStart: bufferedStart.toISOString(),
-        scheduledEnd: endTime.toISOString()
+        scheduledStart: formatLocalTimeAsISO(bufferedStart),
+        scheduledEnd: formatLocalTimeAsISO(endTime)
       }
+      
+      console.log("DJ Dashboard: Creating broadcast with Philippines local time:", {
+        currentTime: now.toLocaleString('en-PH'),
+        localStart: bufferedStart.toLocaleString('en-PH'),
+        localEnd: endTime.toLocaleString('en-PH'),
+        sentStart: broadcastData.scheduledStart,
+        sentEnd: broadcastData.scheduledEnd
+      })
       
       const response = await broadcastService.create(broadcastData)
       const createdBroadcast = response.data
@@ -569,11 +591,11 @@ export default function DJDashboard() {
       
       // Get microphone access with specific constraints
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
+                  audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                  }
       })
       
       audioStreamRef.current = stream
@@ -633,7 +655,7 @@ export default function DJDashboard() {
         }
       }
       
-    } catch (error) {
+          } catch (error) {
       console.error("Error starting broadcast:", error)
       setStreamError(`Error accessing microphone: ${error.message}`)
       stopBroadcast()
@@ -712,7 +734,7 @@ export default function DJDashboard() {
         try {
           await audioPreviewRef.current.play()
           setPreviewEnabled(true)
-        } catch (error) {
+    } catch (error) {
           console.error("Error starting preview:", error)
           setStreamError("Could not start audio preview")
         }
@@ -837,10 +859,10 @@ export default function DJDashboard() {
   return (
     <div className="relative min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Main Content */}
-      <div className="container mx-auto px-4 py-6">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">
-          DJ Dashboard
-        </h1>
+    <div className="container mx-auto px-4 py-6">
+      <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">
+        DJ Dashboard
+      </h1>
 
         {/* Live Streaming Bar - Fixed at top when live */}
         {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
@@ -883,15 +905,15 @@ export default function DJDashboard() {
 
         {/* Workflow Progress Indicator - Hidden when live */}
         {workflowState !== WORKFLOW_STATES.STREAMING_LIVE && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
-          <div className="p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
+        <div className="p-6">
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
               Broadcast Workflow
-            </h2>
-            
+          </h2>
+
             <div className="flex items-center justify-between">
               {/* Step 1: Create Broadcast Content */}
-              <div className="flex items-center">
+            <div className="flex items-center">
                 <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
                   workflowState === WORKFLOW_STATES.CREATE_BROADCAST 
                     ? 'border-blue-500 bg-blue-500 text-white' 
@@ -907,8 +929,8 @@ export default function DJDashboard() {
                 </div>
                 <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
                   Create Broadcast
-                </span>
-              </div>
+              </span>
+            </div>
 
               {/* Arrow */}
               <div className="flex-1 h-0.5 bg-gray-300 dark:bg-gray-600 mx-4"></div>
@@ -931,7 +953,7 @@ export default function DJDashboard() {
                 <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
                   Ready to Stream
                 </span>
-              </div>
+          </div>
 
               {/* Arrow */}
               <div className="flex-1 h-0.5 bg-gray-300 dark:bg-gray-600 mx-4"></div>
@@ -954,12 +976,12 @@ export default function DJDashboard() {
         </div>
         )}
 
-        {/* Error Display */}
-        {streamError && (
+          {/* Error Display */}
+          {streamError && (
           <div className="mb-6 p-4 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md">
-            {streamError}
-          </div>
-        )}
+              {streamError}
+                  </div>
+          )}
 
         {/* Live Interactive Dashboard - When streaming live */}
         {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
@@ -1042,13 +1064,13 @@ export default function DJDashboard() {
                       className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-maroon-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       maxLength={1500}
                     />
-                    <button
+                      <button
                       type="submit"
                       disabled={!chatMessage.trim()}
                       className="px-3 py-2 bg-maroon-600 text-white rounded-md hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                     >
                       <PaperAirplaneIcon className="h-4 w-4" />
-                    </button>
+                      </button>
                   </form>
                 </div>
               </div>
@@ -1124,7 +1146,7 @@ export default function DJDashboard() {
                       <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded-full">
                         {polls.length}
                       </span>
-                      <button
+                        <button
                         onClick={() => setShowPollCreation(!showPollCreation)}
                         className={`w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-200 ${
                           showPollCreation 
@@ -1169,12 +1191,12 @@ export default function DJDashboard() {
                                 className="px-2 py-2 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                               >
                                 <XMarkIcon className="h-4 w-4" />
-                              </button>
-                            )}
+                        </button>
+            )}
                           </div>
                         ))}
-                      </div>
-                      
+                </div>
+
                       <div className="flex items-center justify-between">
                         {newPoll.options.length < 5 && (
                           <button
@@ -1506,56 +1528,56 @@ export default function DJDashboard() {
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
                 Stream Preview
               </h2>
-              
-              <div className="flex items-center justify-between">
-                <button 
-                  onClick={togglePreview}
-                  disabled={!serverConfig?.streamUrl}
-                  className={`flex items-center px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed transition-colors ${
-                    previewEnabled
-                      ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200 focus:ring-yellow-500'
-                      : 'bg-gray-100 text-gray-800 hover:bg-gray-200 focus:ring-gray-500'
-                  }`}
+            
+                  <div className="flex items-center justify-between">
+                      <button 
+                onClick={togglePreview}
+                disabled={!serverConfig?.streamUrl}
+                className={`flex items-center px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed transition-colors ${
+                  previewEnabled
+                    ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200 focus:ring-yellow-500'
+                    : 'bg-gray-100 text-gray-800 hover:bg-gray-200 focus:ring-gray-500'
+                }`}
+              >
+                {previewEnabled ? (
+                  <>
+                    <PauseIcon className="h-4 w-4 mr-2" />
+                              Stop Preview
+                            </>
+                          ) : (
+                            <>
+                    <PlayIcon className="h-4 w-4 mr-2" />
+                    Start Preview
+                            </>
+                          )}
+                        </button>
+
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={toggleMute}
+                  className="p-2 text-gray-700 dark:text-gray-300 hover:text-yellow-600 dark:hover:text-yellow-400"
                 >
-                  {previewEnabled ? (
-                    <>
-                      <PauseIcon className="h-4 w-4 mr-2" />
-                      Stop Preview
-                    </>
+                  {isMuted ? (
+                    <SpeakerXMarkIcon className="h-5 w-5" />
                   ) : (
-                    <>
-                      <PlayIcon className="h-4 w-4 mr-2" />
-                      Start Preview
-                    </>
+                    <SpeakerWaveIcon className="h-5 w-5" />
                   )}
                 </button>
-
-                <div className="flex items-center space-x-3">
-                  <button
-                    onClick={toggleMute}
-                    className="p-2 text-gray-700 dark:text-gray-300 hover:text-yellow-600 dark:hover:text-yellow-400"
-                  >
-                    {isMuted ? (
-                      <SpeakerXMarkIcon className="h-5 w-5" />
-                    ) : (
-                      <SpeakerWaveIcon className="h-5 w-5" />
-                    )}
-                  </button>
                   <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={volume}
-                    onChange={handleVolumeChange}
-                    className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-600"
-                  />
-                  <span className="text-sm text-gray-700 dark:text-gray-300 min-w-[2.5rem] text-right">
-                    {volume}%
-                  </span>
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={volume}
+                  onChange={handleVolumeChange}
+                  className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-600"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300 min-w-[2.5rem] text-right">
+                  {volume}%
+                      </span>
+                    </div>
+                    </div>
                 </div>
-              </div>
-            </div>
-          </div>
+                      </div>
         )}
 
         {/* Network Information - Hidden when live */}
@@ -1563,45 +1585,45 @@ export default function DJDashboard() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
             <div className="p-6">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
-                Network Information
+              Network Information
               </h2>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="font-medium text-gray-700 dark:text-gray-300">Server IP:</span>
-                  <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.serverIp}</code>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-700 dark:text-gray-300">Server Port:</span>
-                  <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.serverPort}</code>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-700 dark:text-gray-300">WebSocket URL:</span>
-                  <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.webSocketUrl}</code>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-700 dark:text-gray-300">Icecast URL:</span>
-                  <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.icecastUrl}</code>
-                </div>
-                <div className="md:col-span-2">
-                  <span className="font-medium text-gray-700 dark:text-gray-300">Stream URL:</span>
-                  <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.streamUrl}</code>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                <span className="font-medium text-gray-700 dark:text-gray-300">Server IP:</span>
+                <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.serverIp}</code>
+                      </div>
+              <div>
+                <span className="font-medium text-gray-700 dark:text-gray-300">Server Port:</span>
+                <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.serverPort}</code>
+                    </div>
+                    <div>
+                <span className="font-medium text-gray-700 dark:text-gray-300">WebSocket URL:</span>
+                <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.webSocketUrl}</code>
+                    </div>
+                    <div>
+                <span className="font-medium text-gray-700 dark:text-gray-300">Icecast URL:</span>
+                <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.icecastUrl}</code>
+                      </div>
+              <div className="md:col-span-2">
+                <span className="font-medium text-gray-700 dark:text-gray-300">Stream URL:</span>
+                <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.streamUrl}</code>
                 </div>
               </div>
 
-              <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-md">
-                <p className="text-sm text-blue-700 dark:text-blue-200">
+            <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-md">
+              <p className="text-sm text-blue-700 dark:text-blue-200">
                   <strong>Current Status:</strong> {workflowState === WORKFLOW_STATES.CREATE_BROADCAST ? 'Ready to create broadcast' : 
                   workflowState === WORKFLOW_STATES.READY_TO_STREAM ? 'Broadcast created, ready to go live' : 
                   'Broadcasting live'} 
                   {workflowState === WORKFLOW_STATES.STREAMING_LIVE && listenerCount > 0 && 
                   ` • ${listenerCount} listener${listenerCount !== 1 ? 's' : ''} tuned in`}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+              </p>
+                            </div>
+                                </div>
+                            </div>
+                              )}
       </div>
-    </div>
+                            </div>
   )
 } 
