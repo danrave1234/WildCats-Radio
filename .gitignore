@@ -129,6 +129,10 @@ Thumbs.db
 # Production
 /build
 
+# Frontend build artifacts copied to backend
+backend/src/main/resources/static/assets/
+backend/target/classes/static/
+
 # Misc
 .env.local
 .env.development.local

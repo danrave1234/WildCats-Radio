@@ -61,6 +61,7 @@ export const authService = {
 export const broadcastService = {
   getAll: () => api.get('/broadcasts'),
   getById: (id) => api.get(`/broadcasts/${id}`),
+  create: (broadcastData) => api.post('/broadcasts', broadcastData),
   schedule: (broadcastData) => api.post('/broadcasts/schedule', broadcastData),
   update: (id, broadcastData) => api.put(`/broadcasts/${id}`, broadcastData),
   delete: (id) => api.delete(`/broadcasts/${id}`),
@@ -71,18 +72,99 @@ export const broadcastService = {
   getAnalytics: (id) => api.get(`/broadcasts/${id}/analytics`),
   getUpcoming: () => api.get('/broadcasts/upcoming'),
   getLive: () => api.get('/broadcasts/live'),
+  getActiveBroadcast: () => api.get('/broadcasts/live').then(response => response.data[0] || null),
 };
 
 // Services for chat messages
 export const chatService = {
   getMessages: (broadcastId) => api.get(`/chats/${broadcastId}`),
   sendMessage: (broadcastId, message) => api.post(`/chats/${broadcastId}`, message),
+  
+  // Subscribe to real-time chat messages for a specific broadcast
+  subscribeToChatMessages: (broadcastId, callback) => {
+    const socket = new SockJS(`${API_BASE_URL.replace('/api', '')}/ws-radio`);
+    const stompClient = Stomp.over(socket);
+    
+    const token = getCookie('token');
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+    return new Promise((resolve, reject) => {
+      stompClient.connect(headers, (frame) => {
+        console.log('Connected to Chat WebSocket for broadcast:', broadcastId);
+        
+        // Subscribe to broadcast-specific chat messages
+        const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/chat`, (message) => {
+          try {
+            const chatMessage = JSON.parse(message.body);
+            callback(chatMessage);
+          } catch (error) {
+            console.error('Error parsing chat message:', error);
+          }
+        });
+        
+        resolve({
+          disconnect: () => {
+            if (subscription) {
+              subscription.unsubscribe();
+            }
+            if (stompClient && stompClient.connected) {
+              stompClient.disconnect();
+            }
+          },
+          isConnected: () => stompClient.connected
+        });
+      }, (error) => {
+        console.error('Chat WebSocket connection error:', error);
+        reject(error);
+      });
+    });
+  }
 };
 
 // Services for song requests
 export const songRequestService = {
   getRequests: (broadcastId) => api.get(`/broadcasts/${broadcastId}/song-requests`),
   createRequest: (broadcastId, request) => api.post(`/broadcasts/${broadcastId}/song-requests`, request),
+  
+  // Subscribe to real-time song requests for a specific broadcast
+  subscribeToSongRequests: (broadcastId, callback) => {
+    const socket = new SockJS(`${API_BASE_URL.replace('/api', '')}/ws-radio`);
+    const stompClient = Stomp.over(socket);
+    
+    const token = getCookie('token');
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+    return new Promise((resolve, reject) => {
+      stompClient.connect(headers, (frame) => {
+        console.log('Connected to Song Requests WebSocket for broadcast:', broadcastId);
+        
+        // Subscribe to broadcast-specific song requests
+        const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/song-requests`, (message) => {
+          try {
+            const songRequest = JSON.parse(message.body);
+            callback(songRequest);
+          } catch (error) {
+            console.error('Error parsing song request:', error);
+          }
+        });
+        
+        resolve({
+          disconnect: () => {
+            if (subscription) {
+              subscription.unsubscribe();
+            }
+            if (stompClient && stompClient.connected) {
+              stompClient.disconnect();
+            }
+          },
+          isConnected: () => stompClient.connected
+        });
+      }, (error) => {
+        console.error('Song Requests WebSocket connection error:', error);
+        reject(error);
+      });
+    });
+  }
 };
 
 // Services for notifications
@@ -96,39 +178,67 @@ export const notificationService = {
     // Using WebSocket for real-time notifications
     const socket = new SockJS(`${API_BASE_URL.replace('/api', '')}/ws-radio`);
     const stompClient = Stomp.over(socket);
+    let isConnected = false;
+    let pollingInterval = null;
 
     const token = getCookie('token');
     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-    stompClient.connect(headers, () => {
-      stompClient.subscribe('/user/queue/notifications', (message) => {
-        const notification = JSON.parse(message.body);
-        callback(notification);
-      });
-    }, (error) => {
-      console.error('WebSocket connection error:', error);
-      // Fallback to polling if WebSocket connection fails
-      console.log('WebSocket connection failed. Falling back to polling.');
-      const intervalId = setInterval(() => {
-        notificationService.getUnread().then(response => {
-          if (response.data && response.data.length > 0) {
-            response.data.forEach(notification => callback(notification));
+    return new Promise((resolve, reject) => {
+      stompClient.connect(headers, (frame) => {
+        console.log('Connected to WebSocket:', frame);
+        isConnected = true;
+        
+        stompClient.subscribe('/user/queue/notifications', (message) => {
+          try {
+            const notification = JSON.parse(message.body);
+            callback(notification);
+          } catch (error) {
+            console.error('Error parsing notification:', error);
           }
         });
-      }, 30000); // Poll every 30 seconds as fallback
+        
+        resolve({
+          disconnect: () => {
+            if (stompClient && stompClient.connected) {
+              stompClient.disconnect();
+            }
+            if (pollingInterval) {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+            }
+            isConnected = false;
+          },
+          isConnected: () => isConnected
+        });
+      }, (error) => {
+        console.error('WebSocket connection error:', error);
+        isConnected = false;
+        
+        // Fallback to polling if WebSocket connection fails
+        console.log('WebSocket connection failed. Falling back to polling.');
+        pollingInterval = setInterval(async () => {
+          try {
+            const response = await notificationService.getUnread();
+            if (response.data && response.data.length > 0) {
+              response.data.forEach(notification => callback(notification));
+            }
+          } catch (pollError) {
+            console.error('Polling error:', pollError);
+          }
+        }, 30000); // Poll every 30 seconds as fallback
 
-      return {
-        disconnect: () => clearInterval(intervalId)
-      };
+        resolve({
+          disconnect: () => {
+            if (pollingInterval) {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+            }
+          },
+          isConnected: () => false
+        });
+      });
     });
-
-    return {
-      disconnect: () => {
-        if (stompClient && stompClient.connected) {
-          stompClient.disconnect();
-        }
-      }
-    };
   },
   // Helper methods for broadcast-specific notifications
   getBroadcastNotifications: () => {
@@ -173,19 +283,104 @@ export const pollService = {
   endPoll: (pollId) => api.post(`/polls/${pollId}/end`),
   hasUserVoted: (pollId) => api.get(`/polls/${pollId}/has-voted`),
   getUserVote: (pollId) => api.get(`/polls/${pollId}/user-vote`),
+  
+  // Subscribe to real-time poll updates for a specific broadcast
+  subscribeToPolls: (broadcastId, callback) => {
+    const socket = new SockJS(`${API_BASE_URL.replace('/api', '')}/ws-radio`);
+    const stompClient = Stomp.over(socket);
+    
+    const token = getCookie('token');
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+    return new Promise((resolve, reject) => {
+      stompClient.connect(headers, (frame) => {
+        console.log('Connected to Polls WebSocket for broadcast:', broadcastId);
+        
+        // Subscribe to broadcast-specific poll updates
+        const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/polls`, (message) => {
+          try {
+            const pollData = JSON.parse(message.body);
+            callback(pollData);
+          } catch (error) {
+            console.error('Error parsing poll data:', error);
+          }
+        });
+        
+        resolve({
+          disconnect: () => {
+            if (subscription) {
+              subscription.unsubscribe();
+            }
+            if (stompClient && stompClient.connected) {
+              stompClient.disconnect();
+            }
+          },
+          isConnected: () => stompClient.connected
+        });
+      }, (error) => {
+        console.error('Polls WebSocket connection error:', error);
+        reject(error);
+      });
+    });
+  },
 };
 
-// Services for Shoutcast streaming
+// Services for Icecast streaming
 export const streamService = {
   start: () => api.post('/stream/start'),
   stop: () => api.post('/stream/stop'),
   getStatus: () => api.get('/stream/status'),
+  getConfig: () => api.get('/stream/config'),
+  getHealth: () => api.get('/stream/health'),
+  
+  // WebSocket URL for DJs to send audio to the server
   getStreamUrl: () => {
-    // Extract the hostname from API_BASE_URL for WebSocket connection
-    const apiUrl = new URL(API_BASE_URL);
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${protocol}://${apiUrl.host}/stream`;
+    // Get WebSocket URL from backend config if available
+    return api.get('/stream/config')
+      .then(response => {
+        if (response.data.success && response.data.data.webSocketUrl) {
+          return response.data.data.webSocketUrl;
+        }
+        throw new Error('WebSocket URL not found in config');
+      })
+      .catch(() => {
+        // Fallback to constructing URL if API call fails
+        const apiUrl = new URL(API_BASE_URL);
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        return `${protocol}://${apiUrl.host}/ws/live`;
+      });
   },
+  
+  // Stream URL for listeners to tune in to the broadcast
+  getListenerStreamUrl: () => {
+    // First try to get the URL from the backend config
+    return api.get('/stream/config')
+      .then(response => {
+        if (response.data.success && response.data.data.streamUrl) {
+          return response.data.data.streamUrl;
+        }
+        throw new Error('Stream URL not found in config');
+      })
+      .catch(() => {
+        // Fallback to default Icecast URL structure
+        return 'http://localhost:8000/live.ogg';
+      });
+  },
+  
+  // Check if Icecast server is running
+  checkIcecastServer: () => {
+    return api.get('/stream/health')
+      .then(response => {
+        if (response.data.icecastServer === 'UP') {
+          return { isUp: true, status: response.data };
+        }
+        return { isUp: false, status: response.data };
+      })
+      .catch(error => {
+        console.error('Error checking Icecast server:', error);
+        return { isUp: false, error: error.message };
+      });
+  }
 };
 
 export default api;

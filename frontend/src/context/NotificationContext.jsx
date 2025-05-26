@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { notificationService } from '../services/api';
+import { useAuth } from './AuthContext';
 
 const NotificationContext = createContext();
 
@@ -7,13 +8,62 @@ export function NotificationProvider({ children }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const { isAuthenticated } = useAuth();
+  const wsConnection = useRef(null);
 
-  // Fetch notifications on mount
+  // Fetch notifications on mount and when user logs in
   useEffect(() => {
-    fetchNotifications();
-  }, []);
+    if (isAuthenticated) {
+      fetchNotifications();
+      connectToWebSocket();
+    } else {
+      // Clean up when user logs out
+      disconnectWebSocket();
+      setNotifications([]);
+      setUnreadCount(0);
+    }
+
+    return () => {
+      disconnectWebSocket();
+    };
+  }, [isAuthenticated]);
+
+  const connectToWebSocket = async () => {
+    if (!isAuthenticated || wsConnection.current) {
+      return; // Don't connect if not authenticated or already connected
+    }
+
+    try {
+      console.log('Connecting to WebSocket for real-time notifications...');
+      const connection = await notificationService.subscribeToNotifications((notification) => {
+        console.log('Received real-time notification:', notification);
+        addNotification(notification);
+      });
+      
+      wsConnection.current = connection;
+      
+      // Check if connection is actually established
+      setIsConnected(connection.isConnected());
+      console.log('WebSocket connection established:', connection.isConnected());
+    } catch (error) {
+      console.error('Failed to connect to WebSocket:', error);
+      setIsConnected(false);
+    }
+  };
+
+  const disconnectWebSocket = () => {
+    if (wsConnection.current) {
+      console.log('Disconnecting from WebSocket...');
+      wsConnection.current.disconnect();
+      wsConnection.current = null;
+      setIsConnected(false);
+    }
+  };
 
   const fetchNotifications = async () => {
+    if (!isAuthenticated) return;
+    
     try {
       const response = await notificationService.getAll();
       setNotifications(response.data);
@@ -63,7 +113,10 @@ export function NotificationProvider({ children }) {
       markAsRead,
       markAllAsRead,
       addNotification,
-      fetchNotifications
+      fetchNotifications,
+      isConnected,
+      connectToWebSocket,
+      disconnectWebSocket
     }}>
       {children}
     </NotificationContext.Provider>

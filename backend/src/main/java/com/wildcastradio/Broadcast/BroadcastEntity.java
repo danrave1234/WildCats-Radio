@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.wildcastradio.ChatMessage.ChatMessageEntity;
+import com.wildcastradio.Schedule.ScheduleEntity;
 import com.wildcastradio.SongRequest.SongRequestEntity;
 import com.wildcastradio.User.UserEntity;
 
@@ -19,6 +20,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 
 @Entity
@@ -34,12 +36,6 @@ public class BroadcastEntity {
 
     @Column
     private String description;
-
-    @Column
-    private LocalDateTime scheduledStart;
-
-    @Column
-    private LocalDateTime scheduledEnd;
 
     @Column
     private LocalDateTime actualStart;
@@ -59,6 +55,10 @@ public class BroadcastEntity {
     @JoinColumn(name = "created_by_id", nullable = false)
     private UserEntity createdBy;
 
+    @OneToOne
+    @JoinColumn(name = "schedule_id", nullable = false)
+    private ScheduleEntity schedule;
+
     @OneToMany(mappedBy = "broadcast", cascade = CascadeType.ALL)
     private List<ChatMessageEntity> chatMessages = new ArrayList<>();
 
@@ -75,20 +75,19 @@ public class BroadcastEntity {
     }
     
     // All args constructor
-    public BroadcastEntity(Long id, String title, String description, LocalDateTime scheduledStart,
-                          LocalDateTime scheduledEnd, LocalDateTime actualStart, LocalDateTime actualEnd,
-                          BroadcastStatus status, String streamUrl, UserEntity createdBy,
+    public BroadcastEntity(Long id, String title, String description, LocalDateTime actualStart,
+                          LocalDateTime actualEnd, BroadcastStatus status, String streamUrl, 
+                          UserEntity createdBy, ScheduleEntity schedule,
                           List<ChatMessageEntity> chatMessages, List<SongRequestEntity> songRequests) {
         this.id = id;
         this.title = title;
         this.description = description;
-        this.scheduledStart = scheduledStart;
-        this.scheduledEnd = scheduledEnd;
         this.actualStart = actualStart;
         this.actualEnd = actualEnd;
         this.status = status;
         this.streamUrl = streamUrl;
         this.createdBy = createdBy;
+        this.schedule = schedule;
         this.chatMessages = chatMessages;
         this.songRequests = songRequests;
     }
@@ -116,22 +115,6 @@ public class BroadcastEntity {
 
     public void setDescription(String description) {
         this.description = description;
-    }
-
-    public LocalDateTime getScheduledStart() {
-        return scheduledStart;
-    }
-
-    public void setScheduledStart(LocalDateTime scheduledStart) {
-        this.scheduledStart = scheduledStart;
-    }
-
-    public LocalDateTime getScheduledEnd() {
-        return scheduledEnd;
-    }
-
-    public void setScheduledEnd(LocalDateTime scheduledEnd) {
-        this.scheduledEnd = scheduledEnd;
     }
 
     public LocalDateTime getActualStart() {
@@ -175,6 +158,14 @@ public class BroadcastEntity {
         this.createdBy = createdBy;
     }
 
+    public ScheduleEntity getSchedule() {
+        return schedule;
+    }
+
+    public void setSchedule(ScheduleEntity schedule) {
+        this.schedule = schedule;
+    }
+
     public List<ChatMessageEntity> getChatMessages() {
         return chatMessages;
     }
@@ -189,5 +180,14 @@ public class BroadcastEntity {
 
     public void setSongRequests(List<SongRequestEntity> songRequests) {
         this.songRequests = songRequests;
+    }
+
+    // Helper methods to access schedule information
+    public LocalDateTime getScheduledStart() {
+        return schedule != null ? schedule.getScheduledStart() : null;
+    }
+
+    public LocalDateTime getScheduledEnd() {
+        return schedule != null ? schedule.getScheduledEnd() : null;
     }
 } 
