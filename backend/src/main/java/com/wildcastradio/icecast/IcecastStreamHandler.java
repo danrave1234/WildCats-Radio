@@ -30,6 +30,7 @@ import com.wildcastradio.config.NetworkConfig;
 public class IcecastStreamHandler extends BinaryWebSocketHandler {
     private static final Logger logger = LoggerFactory.getLogger(IcecastStreamHandler.class);
     private Process ffmpeg;
+    private volatile boolean isConnected = false;
     
     private final NetworkConfig networkConfig;
     private final IcecastService icecastService;
@@ -50,16 +51,29 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
         String serverIp = networkConfig.getServerIp();
         logger.info("Using server IP: {}", serverIp);
 
-        // Build FFmpeg command for Icecast
+        // Build FFmpeg command for Icecast with improved reliability
         List<String> cmd = new ArrayList<>(Arrays.asList(
                 "ffmpeg",
                 "-f", "webm", "-i", "pipe:0",  // Read WebM from stdin
                 "-c:a", "libvorbis", "-b:a", "128k",  // Convert to Ogg Vorbis
                 "-content_type", "application/ogg",
                 "-ice_name", "WildCats Radio Live",
-                "-ice_description", "Live audio broadcast",
-                "-f", "ogg"
+                "-ice_description", "Live audio broadcast"
         ));
+
+        // Add reconnection settings if enabled
+        if (networkConfig.isFfmpegReconnectEnabled()) {
+            cmd.addAll(Arrays.asList(
+                "-reconnect", "1",           // Enable reconnection
+                "-reconnect_at_eof", "1",    // Reconnect at end of file
+                "-reconnect_streamed", "1",  // Reconnect for streaming protocols
+                "-reconnect_delay_max", String.valueOf(networkConfig.getFfmpegReconnectDelayMax()), // Max delay between reconnect attempts
+                "-rw_timeout", String.valueOf(networkConfig.getFfmpegRwTimeout())    // Read/write timeout (in microseconds)
+            ));
+        }
+
+        cmd.add("-f");
+        cmd.add("ogg");
 
         // Add Icecast URL with dynamic IP and source credentials
         cmd.add("icecast://source:hackme@" + serverIp + ":" + networkConfig.getIcecastPort() + "/live.ogg");
@@ -69,7 +83,7 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
         // Try to start FFmpeg with retry logic for 403 errors
         boolean started = false;
         final int[] attempts = {0}; // Use array to make it effectively final
-        int maxAttempts = 3;
+        int maxAttempts = networkConfig.getFfmpegRetryAttempts();
         
         while (!started && attempts[0] < maxAttempts) {
             attempts[0]++;
@@ -91,12 +105,30 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                             // Check for successful connection indicators
                             if (line.contains("Opening") && line.contains("for writing")) {
                                 connectionSuccessful = true;
+                                isConnected = true;
                                 logger.info("FFmpeg successfully connected to Icecast");
                             }
                             
                             // Check for 403 Forbidden error
                             if (line.contains("403") && line.contains("Forbidden")) {
                                 logger.warn("FFmpeg received 403 Forbidden from Icecast (attempt {})", attempts[0]);
+                                break;
+                            }
+                            
+                            // Check for connection errors
+                            if (line.contains("Error number -10053") || 
+                                line.contains("Connection aborted") ||
+                                line.contains("WSAECONNABORTED")) {
+                                logger.warn("FFmpeg connection aborted (attempt {}): {}", attempts[0], line);
+                                isConnected = false;
+                                break;
+                            }
+                            
+                            // Check for other network errors
+                            if (line.contains("Connection refused") || 
+                                line.contains("Network is unreachable") ||
+                                line.contains("Connection timed out")) {
+                                logger.warn("FFmpeg network error (attempt {}): {}", attempts[0], line);
                                 break;
                             }
                         }
@@ -201,6 +233,7 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
         
         if (ffmpeg != null) {
             logger.info("Terminating FFmpeg process");
+            isConnected = false;
             ffmpeg.destroy();
             try {
                 // Wait for process to terminate and check exit value
