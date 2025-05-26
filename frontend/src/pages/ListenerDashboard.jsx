@@ -308,17 +308,26 @@ export default function ListenerDashboard() {
       wsConnectingRef.current = true
 
       let listenerWsUrl
-      
+
       try {
         // Get the proper WebSocket URL from the backend API
         const response = await streamService.getConfig();
-        listenerWsUrl = response.data.data.listenerWebSocketUrl || 
-                       `wss://wildcat-radio-f05d362144e6.autoidleapp.com/ws/listener`;
+        let wsUrl = response.data.data.listenerWebSocketUrl || 
+                   `wildcat-radio-f05d362144e6.autoidleapp.com/ws/listener`;
+
+        // Ensure URL doesn't have protocol duplicated
+        if (wsUrl.startsWith('http://') || wsUrl.startsWith('https://')) {
+          // Replace http:// or https:// with wss://
+          listenerWsUrl = wsUrl.replace(/^http(s)?:\/\//i, 'wss://');
+        } else {
+          // Add wss:// if no protocol is present
+          listenerWsUrl = `wss://${wsUrl}`;
+        }
       } catch (configError) {
         console.error('Error getting WebSocket config, using fallback:', configError)
         listenerWsUrl = `wss://wildcat-radio-f05d362144e6.autoidleapp.com/ws/listener`;
       }
-      
+
       try {
         console.log('Listener Dashboard connecting to WebSocket:', listenerWsUrl)
 
