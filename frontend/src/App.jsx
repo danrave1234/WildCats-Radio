@@ -15,8 +15,14 @@ const BroadcastHistory = lazy(() => import('./pages/BroadcastHistory'));
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { BroadcastHistoryProvider } from './context/BroadcastHistoryContext';
+import { AudioStreamProvider } from './context/AudioStreamContext';
+import PersistentStreamBar from './components/PersistentStreamBar';
+import { initWebSocketBaseUrl } from './services/websocket';
 import './App.css';
 import './styles/custom-scrollbar.css';
+
+// Initialize WebSocket service with base URL
+initWebSocketBaseUrl(`http://${window.location.hostname}:8080`);
 
 // Loading component
 const LoadingFallback = () => (
@@ -181,14 +187,14 @@ const AppRoutes = () => {
       
       <Route path="/broadcast-history" element={
         <Layout>
-          <ProtectedRoute 
+          <ProtectedRoute
             key={getRoutePath()}
-            element={<BroadcastHistory key="broadcast-history" />} 
-            allowedRoles={['DJ', 'ADMIN']} 
+            element={<BroadcastHistory key="broadcast-history" />}
+            allowedRoles={['DJ', 'ADMIN']}
           />
         </Layout>
       } />
-      
+
       <Route path="/logout" element={<Logout />} />
       
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -202,7 +208,10 @@ function App() {
       <AuthProvider>
         <NotificationProvider>
           <BroadcastHistoryProvider>
-            <AppRoutes />
+            <AudioStreamProvider>
+                <PersistentStreamBar />
+                <AppRoutes />
+            </AudioStreamProvider>
           </BroadcastHistoryProvider>
         </NotificationProvider>
       </AuthProvider>

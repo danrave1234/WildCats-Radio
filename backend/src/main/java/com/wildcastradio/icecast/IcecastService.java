@@ -1,6 +1,7 @@
 package com.wildcastradio.icecast;
 
 import com.wildcastradio.config.NetworkConfig;
+import com.wildcastradio.utils.RateLimitedLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +12,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -211,14 +213,46 @@ public class IcecastService {
         try {
             URL url = new URL(networkConfig.getIcecastUrl());
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("HEAD");
-            connection.setConnectTimeout(3000);
-            connection.setReadTimeout(3000);
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(5000); // Increase timeout to 5 seconds
+            connection.setReadTimeout(5000);     // Increase read timeout too
+            connection.setInstanceFollowRedirects(true);
+            
+            // Add standard browser User-Agent to avoid rejection
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+            
             int responseCode = connection.getResponseCode();
+            
+            // Use rate-limited logging - only log every 30 seconds
+            RateLimitedLogger.info(logger, "icecast-server-check", Duration.ofSeconds(30), 
+                    "Icecast server check - URL: {}, Response code: {}", url, responseCode);
+            
+            // Consider any successful response as server up (2xx or 3xx)
             return responseCode < 400;
         } catch (IOException e) {
             logger.warn("Failed to connect to Icecast server: {}", e.getMessage());
-            return false;
+            
+            // Try a second attempt directly to the mount point
+            try {
+                URL mountUrl = new URL(networkConfig.getStreamUrl());
+                HttpURLConnection mountConnection = (HttpURLConnection) mountUrl.openConnection();
+                mountConnection.setRequestMethod("HEAD");
+                mountConnection.setConnectTimeout(3000);
+                mountConnection.setReadTimeout(3000);
+                mountConnection.setRequestProperty("User-Agent", "Mozilla/5.0");
+                
+                int mountResponseCode = mountConnection.getResponseCode();
+                
+                // Use rate-limited logging for the mount point check as well
+                RateLimitedLogger.info(logger, "icecast-mount-check", Duration.ofSeconds(30),
+                        "Icecast mount point check - URL: {}, Response code: {}", mountUrl, mountResponseCode);
+                
+                // Even 404 means server is up (just no source connected)
+                return mountResponseCode < 500;
+            } catch (IOException mountError) {
+                logger.warn("Failed second attempt to Icecast mount point: {}", mountError.getMessage());
+                return false;
+            }
         }
     }
 

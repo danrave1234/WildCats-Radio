@@ -1,9 +1,11 @@
 import { Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useAudioStream } from '../context/AudioStreamContext';
 import Sidebar from './Sidebar';
 
 const Layout = ({ children }) => {
   const { currentUser, isAuthenticated } = useAuth();
+  const { isStreamBarVisible } = useAudioStream();
   
   return (
     <div className="min-h-screen flex bg-wildcats-background dark:bg-gray-900">
@@ -11,7 +13,7 @@ const Layout = ({ children }) => {
       {isAuthenticated && <Sidebar userRole={currentUser?.role} />}
       
       {/* Main Content */}
-      <div className={`flex-1 flex flex-col transition-all duration-300 md:ml-64`}>
+      <div className={`flex-1 flex flex-col transition-all duration-300 md:ml-64 ${isStreamBarVisible ? 'mt-12' : ''}`}>
         <main className="flex-1 p-4 md:p-6 lg:p-8">
           <div className="max-w-7xl mx-auto">
             {children || <Outlet />}

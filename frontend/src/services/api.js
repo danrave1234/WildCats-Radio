@@ -5,8 +5,8 @@ import SockJS from 'sockjs-client';
 import { Stomp } from '@stomp/stompjs';
 
 // Create axios instance with base URL pointing to our backend
-// const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.herokuapp.com/api';
-const API_BASE_URL = 'http://localhost:8080/api';
+// Dynamically determine API URL based on current host
+const API_BASE_URL = `http://${window.location.hostname}:8080/api`;
 
 // Cookie helper function
 const getCookie = (name) => {
@@ -82,11 +82,17 @@ export const chatService = {
   
   // Subscribe to real-time chat messages for a specific broadcast
   subscribeToChatMessages: (broadcastId, callback) => {
-    const socket = new SockJS(`${API_BASE_URL.replace('/api', '')}/ws-radio`);
-    const stompClient = Stomp.over(socket);
+    const socketUrl = `${API_BASE_URL.replace('/api', '')}/ws-radio`;
+    // Use a factory function that returns a new SockJS instance each time
+    const socketFactory = () => new SockJS(socketUrl);
+    
+    const stompClient = Stomp.over(socketFactory);
     
     const token = getCookie('token');
     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+    // Disable debug logging in production
+    stompClient.debug = process.env.NODE_ENV === 'production' ? () => {} : console.log;
 
     return new Promise((resolve, reject) => {
       stompClient.connect(headers, (frame) => {
@@ -128,11 +134,17 @@ export const songRequestService = {
   
   // Subscribe to real-time song requests for a specific broadcast
   subscribeToSongRequests: (broadcastId, callback) => {
-    const socket = new SockJS(`${API_BASE_URL.replace('/api', '')}/ws-radio`);
-    const stompClient = Stomp.over(socket);
+    const socketUrl = `${API_BASE_URL.replace('/api', '')}/ws-radio`;
+    // Use a factory function that returns a new SockJS instance each time
+    const socketFactory = () => new SockJS(socketUrl);
+    
+    const stompClient = Stomp.over(socketFactory);
     
     const token = getCookie('token');
     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+    // Disable debug logging in production
+    stompClient.debug = process.env.NODE_ENV === 'production' ? () => {} : console.log;
 
     return new Promise((resolve, reject) => {
       stompClient.connect(headers, (frame) => {
@@ -176,13 +188,22 @@ export const notificationService = {
   getRecent: (since) => api.get(`/notifications/recent?since=${since}`),
   subscribeToNotifications: (callback) => {
     // Using WebSocket for real-time notifications
-    const socket = new SockJS(`${API_BASE_URL.replace('/api', '')}/ws-radio`);
-    const stompClient = Stomp.over(socket);
+    const socketUrl = `${API_BASE_URL.replace('/api', '')}/ws-radio`;
+    // Use a factory function that returns a new SockJS instance each time
+    const socketFactory = () => new SockJS(socketUrl);
+    
+    const stompClient = Stomp.over(socketFactory);
     let isConnected = false;
     let pollingInterval = null;
 
     const token = getCookie('token');
     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+    // Disable debug logging in production
+    stompClient.debug = process.env.NODE_ENV === 'production' ? () => {} : console.log;
+
+    // Configure reconnect options
+    stompClient.reconnectDelay = 5000; // 5 seconds delay between reconnect attempts
 
     return new Promise((resolve, reject) => {
       stompClient.connect(headers, (frame) => {
@@ -286,11 +307,17 @@ export const pollService = {
   
   // Subscribe to real-time poll updates for a specific broadcast
   subscribeToPolls: (broadcastId, callback) => {
-    const socket = new SockJS(`${API_BASE_URL.replace('/api', '')}/ws-radio`);
-    const stompClient = Stomp.over(socket);
+    const socketUrl = `${API_BASE_URL.replace('/api', '')}/ws-radio`;
+    // Use a factory function that returns a new SockJS instance each time
+    const socketFactory = () => new SockJS(socketUrl);
+    
+    const stompClient = Stomp.over(socketFactory);
     
     const token = getCookie('token');
     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    
+    // Disable debug logging in production
+    stompClient.debug = process.env.NODE_ENV === 'production' ? () => {} : console.log;
 
     return new Promise((resolve, reject) => {
       stompClient.connect(headers, (frame) => {
@@ -330,6 +357,23 @@ export const streamService = {
   start: () => api.post('/stream/start'),
   stop: () => api.post('/stream/stop'),
   getStatus: () => api.get('/stream/status'),
+  // New simple status method that won't trigger OPTIONS preflight
+  getSimpleStatus: () => {
+    // Use fetch directly with no auth headers to avoid OPTIONS preflight
+    return fetch(`${API_BASE_URL.replace('/api', '')}/api/stream/simple-status`)
+      .then(response => response.text())
+      .then(text => {
+        const [isLive, isUp] = text.split(',').map(val => val === 'true');
+        return { 
+          live: isLive, 
+          server: isUp ? 'UP' : 'DOWN' 
+        };
+      })
+      .catch(error => {
+        console.error('Error checking simple status:', error);
+        return { live: false, server: 'DOWN' };
+      });
+  },
   getConfig: () => api.get('/stream/config'),
   getHealth: () => api.get('/stream/health'),
   
@@ -362,8 +406,8 @@ export const streamService = {
         throw new Error('Stream URL not found in config');
       })
       .catch(() => {
-        // Fallback to default Icecast URL structure
-        return 'http://localhost:8000/live.ogg';
+        // Fallback to default Icecast URL structure using current hostname
+        return `http://${window.location.hostname}:8000/live.ogg`;
       });
   },
   

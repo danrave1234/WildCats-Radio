@@ -12,6 +12,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.wildcastradio.icecast.IcecastService;
+import com.wildcastradio.utils.RateLimitedLogger;
+
+import java.time.Duration;
 
 /**
  * REST controller for stream management and configuration.
@@ -41,7 +44,10 @@ public class StreamController {
             response.put("success", true);
             response.put("data", config);
             
-            logger.info("Stream config requested: {}", config);
+            // Use rate-limited logging - only log every 30 seconds
+            RateLimitedLogger.info(logger, "stream-config-requested", Duration.ofSeconds(30),
+                    "Stream config requested: {}", config);
+            
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
@@ -66,7 +72,10 @@ public class StreamController {
             response.put("data", status);
             response.put("timestamp", System.currentTimeMillis());
             
-            logger.debug("Stream status requested: {}", status);
+            // Use rate-limited logging for debug logs as well
+            RateLimitedLogger.debug(logger, "stream-status-requested", Duration.ofSeconds(30),
+                    "Stream status requested: {}", status);
+            
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
@@ -76,6 +85,17 @@ public class StreamController {
             errorResponse.put("error", "Failed to get stream status: " + e.getMessage());
             return ResponseEntity.internalServerError().body(errorResponse);
         }
+    }
+    
+    /**
+     * Simple status endpoint that returns only essential information
+     * designed to avoid triggering CORS preflight requests
+     */
+    @GetMapping("/simple-status")
+    public String getSimpleStatus() {
+        boolean isLive = icecastService.isStreamLive();
+        boolean isUp = icecastService.isServerUp();
+        return String.format("%b,%b", isLive, isUp);  // Returns "true,true" or "false,false" etc.
     }
     
     /**
