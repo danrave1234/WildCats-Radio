@@ -7,9 +7,12 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://wildcat-radio-f05d362144e6.autoidleapp.com',
+        // Use localhost for local development, production URL for deployed frontend
+        target: process.env.NODE_ENV === 'development' 
+          ? 'http://localhost:8080' 
+          : 'https://wildcat-radio-f05d362144e6.autoidleapp.com',
         changeOrigin: true,
-        secure: true
+        secure: process.env.NODE_ENV !== 'development'
       }
     }
   },
