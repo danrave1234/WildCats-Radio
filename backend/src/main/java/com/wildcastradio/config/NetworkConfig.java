@@ -35,6 +35,9 @@ public class NetworkConfig {
     @Value("${icecast.host:#{null}}")
     private String configuredIcecastHost;
 
+    @Value("${app.domain:#{null}}")
+    private String configuredAppDomain;
+
     @Value("${ffmpeg.reconnect.enabled:true}")
     private boolean ffmpegReconnectEnabled;
 
@@ -48,6 +51,7 @@ public class NetworkConfig {
     private int ffmpegRetryAttempts;
 
     private String serverIp;
+    private String icecastHost;
 
     // Known virtual adapter patterns to avoid
     private static final Set<String> VIRTUAL_ADAPTER_PATTERNS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
@@ -61,22 +65,25 @@ public class NetworkConfig {
 
     @PostConstruct
     public void init() {
+        // Separate server IP detection from Icecast host configuration
         serverIp = detectServerIp();
+        icecastHost = determineIcecastHost();
+        
         logger.info("Detected network interfaces:");
         logAllNetworkInterfaces();
-        logger.info("Selected server IP: {} on port: {}, Icecast on port: {}", 
-                serverIp, serverPort, icecastPort);
+        logger.info("Spring Boot app - IP: {} on port: {}", serverIp, serverPort);
+        logger.info("Icecast server - Host: {} on port: {}", icecastHost, icecastPort);
     }
 
     /**
      * Enhanced IP detection that prioritizes real network connections over virtual adapters
-     * or uses a manually configured host if available
+     * This method determines the Spring Boot application's IP/domain, NOT the Icecast server
      */
     private String detectServerIp() {
-        // Check if a host is configured in properties
-        if (configuredIcecastHost != null && !configuredIcecastHost.isEmpty()) {
-            logger.info("Using configured Icecast host: {}", configuredIcecastHost);
-            return configuredIcecastHost;
+        // Check if an app domain is configured (for production deployments like Heroku)
+        if (configuredAppDomain != null && !configuredAppDomain.isEmpty()) {
+            logger.info("Using configured app domain: {}", configuredAppDomain);
+            return configuredAppDomain;
         }
 
         try {
@@ -138,6 +145,20 @@ public class NetworkConfig {
             logger.error("Error detecting server IP address", e);
             return "localhost";
         }
+    }
+
+    /**
+     * Determine the Icecast server host (separate from Spring Boot app)
+     */
+    private String determineIcecastHost() {
+        if (configuredIcecastHost != null && !configuredIcecastHost.isEmpty()) {
+            logger.info("Using configured Icecast host: {}", configuredIcecastHost);
+            return configuredIcecastHost;
+        }
+        
+        // Fallback to localhost if no Icecast host is configured
+        logger.warn("No Icecast host configured, falling back to localhost");
+        return "localhost";
     }
 
     /**
@@ -256,30 +277,36 @@ public class NetworkConfig {
 
     // URL helpers for various components
     public String getIcecastUrl() {
-        // Use configured Google Cloud Icecast host if available
-        if (configuredIcecastHost != null && !configuredIcecastHost.isEmpty()) {
-            return "http://" + configuredIcecastHost + ":" + icecastPort;
-        }
-        return "http://" + serverIp + ":" + icecastPort;
+        // Always use the dedicated Icecast host (Google Cloud Icecast server)
+        return "http://" + icecastHost + ":" + icecastPort;
     }
 
     public String getWebSocketUrl() {
-        // For WebSocket, always use the Spring Boot server IP/domain, not the Icecast server
-        return "ws://" + serverIp + ":" + serverPort + "/ws/live";
+        // For WebSocket, always use the Spring Boot server IP/domain, NOT the Icecast server
+        String protocol = serverIp.contains(".herokuapp.com") || serverIp.contains(".") ? "wss" : "ws";
+        String port = (serverPort == 80 || serverPort == 443) ? "" : ":" + serverPort;
+        return protocol + "://" + serverIp + port + "/ws/live";
     }
 
     public String getListenerWebSocketUrl() {
-        // WebSocket URL for listener status updates
-        return "ws://" + serverIp + ":" + serverPort + "/ws/listener";
+        // WebSocket URL for listener status updates - Spring Boot app, NOT Icecast server
+        String protocol = serverIp.contains(".herokuapp.com") || serverIp.contains(".") ? "wss" : "ws";
+        String port = (serverPort == 80 || serverPort == 443) ? "" : ":" + serverPort;
+        return protocol + "://" + serverIp + port + "/ws/listener";
     }
 
     public String getStreamUrl() {
+        // Stream URL points to Icecast server
         return getIcecastUrl() + "/live.ogg";
     }
 
     // Getters
     public String getServerIp() {
         return serverIp;
+    }
+
+    public String getIcecastHost() {
+        return icecastHost;
     }
 
     public int getServerPort() {

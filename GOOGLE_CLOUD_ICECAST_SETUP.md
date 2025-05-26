@@ -25,7 +25,10 @@ WildCats Radio now supports streaming through a Google Cloud-hosted Icecast serv
 Set these environment variables for Google Cloud deployment:
 
 ```properties
-# Google Cloud Icecast Configuration
+# Spring Boot Application Domain (CRITICAL: This should be your deployed app URL)
+APP_DOMAIN=your-app.herokuapp.com  # Replace with your actual deployment URL
+
+# Google Cloud Icecast Server Configuration (for audio streaming only)
 ICECAST_HOST=34.142.131.206
 ICECAST_PORT=8000
 ICECAST_USERNAME=source
@@ -215,21 +218,42 @@ Multiple health check endpoints are available:
    - Verify WebSocket URL generation
    - Review browser console for connection errors
 
+### Critical Architecture Note
+
+**IMPORTANT**: There are TWO separate servers in this setup:
+
+1. **Spring Boot Application** (your deployed app on Heroku, etc.)
+   - Handles WebSocket connections: `/ws/live` and `/ws/listener`
+   - Serves API endpoints
+   - Runs FFmpeg to convert and forward audio
+
+2. **Google Cloud Icecast Server** (`34.142.131.206:8000`)
+   - Only handles audio streaming to listeners
+   - Receives stream from FFmpeg
+   - Serves HTTP audio stream to listeners
+
+**WebSocket URLs should NEVER point to the Icecast server!**
+
 ### Advanced Troubleshooting
 
-4. **Network Latency Issues**
+4. **WebSocket Connection to Wrong Server**
+   - **Problem**: Frontend trying to connect to `ws://34.142.131.206:8080/ws/listener`
+   - **Solution**: WebSocket should connect to your Spring Boot app, not Icecast server
+   - **Fix**: Set `APP_DOMAIN` environment variable to your deployed app URL
+
+5. **Network Latency Issues**
    - Monitor for dropped packets or retransmissions
    - Consider TCP optimization for high packet rates
    - Check if VM has sufficient RX/TX queues
    - Reference: [Google Cloud TCP optimization](https://cloud.google.com/compute/docs/troubleshooting/troubleshooting-networking)
 
-5. **Firewall Configuration**
+6. **Firewall Configuration**
    - Ensure Google Cloud firewall rules allow traffic on port 8000
    - Verify that all required network traffic is explicitly permitted
    - Check for 10-minute idle connection timeout and adjust TCP keep-alive settings
    - Reference: [Google Cloud firewall troubleshooting](https://cloud.google.com/compute/docs/troubleshooting/troubleshooting-networking)
 
-6. **Connection Drops**
+7. **Connection Drops**
    - Default idle connection timeout is 10 minutes - adjust if needed
    - Implement TCP keep-alive for long-running connections
    - Monitor for connection pooling issues
@@ -252,9 +276,13 @@ gcloud compute firewall-rules list --filter="name~icecast"
 
 Test WebSocket connectivity:
 ```javascript
+// CORRECT: Connect to your Spring Boot app
 const ws = new WebSocket('ws://your-app.herokuapp.com/ws/listener');
 ws.onopen = () => console.log('Connected');
 ws.onmessage = (event) => console.log('Message:', event.data);
+
+// WRONG: Don't connect to Icecast server
+// const ws = new WebSocket('ws://34.142.131.206:8080/ws/listener'); // This will fail!
 ```
 
 ### Performance Monitoring
