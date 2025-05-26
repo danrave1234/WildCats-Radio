@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,12 +7,12 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
-  TextInput,
   Platform,
   Pressable,
   Animated,
   Easing,
 } from 'react-native';
+import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useAuth } from '../../context/AuthContext';
 import {
   getMe,
@@ -23,6 +23,7 @@ import {
   ChangePasswordPayload,
 } from '../../services/apiService';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import AnimatedTextInput from '../../components/ui/AnimatedTextInput';
 import "../../global.css";
 
 type ProfileTab = 'Personal Information' | 'Security' | 'Preferences';
@@ -50,8 +51,12 @@ const ProfileScreen: React.FC = () => {
   const underlineWidth = useRef(new Animated.Value(0)).current;
   const [isInitialLayoutDone, setIsInitialLayoutDone] = useState(false);
 
+  // States for swipe animation
+  const slideAnimation = useRef(new Animated.Value(0)).current;
+  const [isAnimating, setIsAnimating] = useState(false);
+
   // Define tab names array for easier mapping and indexing
-  const tabNames: ProfileTab[] = ['Personal Information', 'Security', 'Preferences'];
+  const tabNames: ProfileTab[] = useMemo(() => ['Personal Information', 'Security', 'Preferences'], []);
 
   // States for Personal Information Edit Form
   const [isEditingPersonalInfo, setIsEditingPersonalInfo] = useState(false);
@@ -66,6 +71,95 @@ const ProfileScreen: React.FC = () => {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  // Animate tab change with slide effect
+  const animateTabChange = (newTab: ProfileTab, direction: 'left' | 'right') => {
+    if (isAnimating) return;
+    
+    setIsAnimating(true);
+    const slideDistance = direction === 'left' ? -300 : 300;
+    
+    // First, slide current content out
+    Animated.timing(slideAnimation, {
+      toValue: slideDistance,
+      duration: 200,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start(() => {
+      // Change tab while content is off-screen
+      setActiveTab(newTab);
+      
+      // Reset position to opposite side
+      slideAnimation.setValue(-slideDistance);
+      
+      // Slide new content in
+      Animated.timing(slideAnimation, {
+        toValue: 0,
+        duration: 200,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start(() => {
+        setIsAnimating(false);
+      });
+    });
+  };
+
+  // Swipe gesture handler with animation
+  const handleSwipeGesture = (event: any) => {
+    const { translationX, state } = event.nativeEvent;
+    
+    if (state === State.ACTIVE) {
+      // During swipe, move content with finger
+      if (!isAnimating) {
+        slideAnimation.setValue(translationX * 0.5); // Damping factor for smoother feel
+      }
+    } else if (state === State.END) {
+      const swipeThreshold = 80; // Reduced threshold for better responsiveness
+      const currentIndex = tabNames.indexOf(activeTab);
+      
+      if (translationX > swipeThreshold && currentIndex > 0) {
+        // Swipe right - go to previous tab
+        animateTabChange(tabNames[currentIndex - 1], 'right');
+      } else if (translationX < -swipeThreshold && currentIndex < tabNames.length - 1) {
+        // Swipe left - go to next tab
+        animateTabChange(tabNames[currentIndex + 1], 'left');
+      } else if ((translationX > swipeThreshold && currentIndex === 0) || 
+                 (translationX < -swipeThreshold && currentIndex === tabNames.length - 1)) {
+        // Bounce effect when at first/last tab
+        const bounceDirection = translationX > 0 ? 50 : -50;
+        Animated.sequence([
+          Animated.timing(slideAnimation, {
+            toValue: bounceDirection,
+            duration: 150,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.spring(slideAnimation, {
+            toValue: 0,
+            tension: 400,
+            friction: 25,
+            useNativeDriver: true,
+          })
+        ]).start();
+      } else {
+        // Snap back to original position if threshold not met
+        Animated.spring(slideAnimation, {
+          toValue: 0,
+          tension: 300,
+          friction: 30,
+          useNativeDriver: true,
+        }).start();
+      }
+    } else if (state === State.CANCELLED || state === State.FAILED) {
+      // Snap back on cancel/fail
+      Animated.spring(slideAnimation, {
+        toValue: 0,
+        tension: 300,
+        friction: 30,
+        useNativeDriver: true,
+      }).start();
+    }
+  };
 
   // Effect to animate underline when activeTab or layouts change
   useEffect(() => {
@@ -141,7 +235,7 @@ const ProfileScreen: React.FC = () => {
   const handleLogout = async () => {
     try {
       await signOut();
-    } catch (e) {
+    } catch {
       Alert.alert('Logout Failed', 'Could not log out. Please try again.');
     }
   };
@@ -192,30 +286,53 @@ const ProfileScreen: React.FC = () => {
   };
 
   const renderTabContent = () => {
-    const inputBaseClass = "border border-gray-300 p-4 rounded-lg text-gray-800 bg-white text-base shadow-sm transition-all duration-300 ease-in-out focus:border-cordovan focus:ring-2 focus:ring-cordovan focus:ring-opacity-50 focus:shadow-md";
-    const labelBaseClass = "text-sm font-medium text-gray-600 mb-2";
-    const nonEditableInputClass = "border border-gray-200 p-4 rounded-lg text-gray-500 bg-gray-100 text-base shadow-sm";
     const cardPadding = "p-6 md:p-8"; // Consistent padding for cards
     const formVerticalSpacing = "space-y-6";
     const buttonGroupSpacing = "mt-10";
 
     if (isEditingPersonalInfo && activeTab === 'Personal Information') {
       return (
-        <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
-          <Text className="text-2xl font-semibold text-cordovan mb-8">Edit Personal Information</Text>
+        <PanGestureHandler onGestureEvent={handleSwipeGesture} onHandlerStateChange={handleSwipeGesture}>
+          <Animated.View 
+            style={{
+              transform: [{ translateX: slideAnimation }],
+            }}
+            className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
+            <Text className="text-2xl font-semibold text-cordovan mb-8">Edit Personal Information</Text>
           <View className={formVerticalSpacing}>
-            <View>
-              <Text className="text-sm font-medium text-cordovan mb-1">First Name</Text>
-              <TextInput className={inputBaseClass} value={firstName} onChangeText={setFirstName} placeholder="John" editable={!isUpdatingProfile}/>
-            </View>
-            <View>
-              <Text className="text-sm font-medium text-cordovan mb-1">Last Name</Text>
-              <TextInput className={inputBaseClass} value={lastName} onChangeText={setLastName} placeholder="Doe" editable={!isUpdatingProfile}/>
-            </View>
-            <View>
-              <Text className="text-sm font-medium text-cordovan mb-1">Email (Cannot be changed)</Text>
-              <TextInput className={nonEditableInputClass} value={email} editable={false}/>
-            </View>
+            <AnimatedTextInput
+              label="First Name"
+              value={firstName}
+              onChangeText={setFirstName}
+              editable={!isUpdatingProfile}
+              autoCapitalize="words"
+            />
+            <AnimatedTextInput
+              label="Last Name"
+              value={lastName}
+              onChangeText={setLastName}
+              editable={!isUpdatingProfile}
+              autoCapitalize="words"
+            />
+            <AnimatedTextInput
+              label="Email (Cannot be changed)"
+              value={email}
+              editable={false}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              labelColor="#6B7280"
+              activeLabelColor="#6B7280"
+              borderColor="#D1D5DB"
+              activeBorderColor="#D1D5DB"
+              inputStyle={{
+                color: '#6B7280',
+                backgroundColor: '#F9FAFB',
+              }}
+              inputContainerStyle={{
+                backgroundColor: '#F9FAFB',
+                opacity: 0.7,
+              }}
+            />
           </View>
           <View className={`flex-row justify-end items-center ${buttonGroupSpacing}`}>
             <Pressable
@@ -248,14 +365,20 @@ const ProfileScreen: React.FC = () => {
               <Text className="text-black font-bold text-base">Save Changes</Text>
             </Pressable>
           </View>
-        </View>
+        </Animated.View>
+        </PanGestureHandler>
       );
     }
 
     switch (activeTab) {
       case 'Personal Information':
         return (
-          <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
+          <PanGestureHandler onGestureEvent={handleSwipeGesture} onHandlerStateChange={handleSwipeGesture}>
+            <Animated.View 
+              style={{
+                transform: [{ translateX: slideAnimation }],
+              }}
+              className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
             <View className="flex-row justify-between items-center mb-6">
               <Text className="text-2xl font-semibold text-cordovan">Personal Information</Text>
               <Pressable 
@@ -296,26 +419,46 @@ const ProfileScreen: React.FC = () => {
                 <Text className="text-lg text-gray-800 mt-0.5">{userData?.email || email || 'N/A'}</Text>
               </View>
             </View>
-          </View>
+          </Animated.View>
+          </PanGestureHandler>
         );
       case 'Security':
         return (
-          <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
+          <PanGestureHandler onGestureEvent={handleSwipeGesture} onHandlerStateChange={handleSwipeGesture}>
+            <Animated.View 
+              style={{
+                transform: [{ translateX: slideAnimation }],
+              }}
+              className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
             <Text className="text-2xl font-semibold text-cordovan mb-8">Change Password</Text>
             {passwordError && <Text className="text-sm text-red-600 mb-5 -mt-2 text-center font-medium">{passwordError}</Text>}
             <View className={formVerticalSpacing}>
-                <View>
-                  <Text className="text-sm font-medium text-cordovan mb-1">Current Password</Text>
-                  <TextInput className={inputBaseClass} value={currentPassword} onChangeText={setCurrentPassword} placeholder="Enter current password" secureTextEntry editable={!isChangingPassword}/>
-                </View>
-                <View>
-                  <Text className="text-sm font-medium text-cordovan mb-1">New Password</Text>
-                  <TextInput className={inputBaseClass} value={newPassword} onChangeText={setNewPassword} placeholder="Enter new password" secureTextEntry editable={!isChangingPassword}/>
-                </View>
-                <View>
-                  <Text className="text-sm font-medium text-cordovan mb-1">Confirm New Password</Text>
-                  <TextInput className={inputBaseClass} value={confirmNewPassword} onChangeText={setConfirmNewPassword} placeholder="Confirm new password" secureTextEntry editable={!isChangingPassword}/>
-                </View>
+                <AnimatedTextInput
+                  label="Current Password"
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  secureTextEntry
+                  editable={!isChangingPassword}
+                  autoCapitalize="none"
+                />
+                <AnimatedTextInput
+                  label="New Password"
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  secureTextEntry
+                  editable={!isChangingPassword}
+                  autoCapitalize="none"
+                  error={passwordError?.includes('password') && !passwordError?.includes('match')}
+                />
+                <AnimatedTextInput
+                  label="Confirm New Password"
+                  value={confirmNewPassword}
+                  onChangeText={setConfirmNewPassword}
+                  secureTextEntry
+                  editable={!isChangingPassword}
+                  autoCapitalize="none"
+                  error={passwordError?.includes('match')}
+                />
             </View>
             <View className={`flex-row justify-end items-center ${buttonGroupSpacing}`}>
                 <Pressable
@@ -348,14 +491,21 @@ const ProfileScreen: React.FC = () => {
                   <Text className="text-black font-bold text-base">Update Password</Text>
                 </Pressable>
             </View>
-          </View>
+          </Animated.View>
+          </PanGestureHandler>
         );
       case 'Preferences':
         return (
-          <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
+          <PanGestureHandler onGestureEvent={handleSwipeGesture} onHandlerStateChange={handleSwipeGesture}>
+            <Animated.View 
+              style={{
+                transform: [{ translateX: slideAnimation }],
+              }}
+              className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
             <Text className="text-2xl font-semibold text-gray-900">Preferences</Text>
             <Text className="text-gray-600 mt-4 text-base">User preferences and app settings will be available here in a future update.</Text>
-          </View>
+          </Animated.View>
+          </PanGestureHandler>
         );
       default: return null;
     }
@@ -422,7 +572,14 @@ const ProfileScreen: React.FC = () => {
               }));
             }}
             className={`flex-1 items-center justify-center py-4 px-4`}
-            onPress={() => setActiveTab(tabName as ProfileTab)}
+            onPress={() => {
+              const currentIndex = tabNames.indexOf(activeTab);
+              const newIndex = tabNames.indexOf(tabName as ProfileTab);
+              if (currentIndex !== newIndex && !isAnimating) {
+                const direction = newIndex > currentIndex ? 'left' : 'right';
+                animateTabChange(tabName as ProfileTab, direction);
+              }
+            }}
             android_ripple={{ color: 'transparent' }}
           >
             <Text
