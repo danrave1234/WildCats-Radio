@@ -31,6 +31,8 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
     private static final Logger logger = LoggerFactory.getLogger(IcecastStreamHandler.class);
     private Process ffmpeg;
     private volatile boolean isConnected = false;
+    private Thread loggingThread;
+    private volatile boolean shouldStopLogging = false;
     
     private final NetworkConfig networkConfig;
     private final IcecastService icecastService;
@@ -93,13 +95,21 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                 pb.redirectErrorStream(true);
                 ffmpeg = pb.start();
 
+                // Reset the logging flag
+                shouldStopLogging = false;
+
                 // Start a thread to monitor FFmpeg output and detect errors
-                Thread loggingThread = new Thread(() -> {
+                loggingThread = new Thread(() -> {
                     try (BufferedReader reader = new BufferedReader(new InputStreamReader(ffmpeg.getInputStream()))) {
                         String line;
                         boolean connectionSuccessful = false;
                         
-                        while ((line = reader.readLine()) != null) {
+                        while ((line = reader.readLine()) != null && !shouldStopLogging) {
+                            // Break immediately if we should stop logging
+                            if (shouldStopLogging) {
+                                break;
+                            }
+                            
                             logger.info("FFmpeg: {}", line);
                             
                             // Check for successful connection indicators
@@ -133,14 +143,19 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                             }
                         }
                         
-                        if (!connectionSuccessful) {
+                        if (!connectionSuccessful && !shouldStopLogging) {
                             logger.warn("FFmpeg connection may have failed");
                         }
                         
+                        logger.debug("FFmpeg logging thread terminated");
+                        
                     } catch (IOException e) {
-                        logger.warn("Error reading FFmpeg output: {}", e.getMessage());
+                        if (!shouldStopLogging) {
+                            logger.warn("Error reading FFmpeg output: {}", e.getMessage());
+                        }
                     }
                 });
+                loggingThread.setName("FFmpeg-Logger-" + session.getId());
                 loggingThread.setDaemon(true);
                 loggingThread.start();
 
@@ -231,6 +246,22 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
         // Publish event to trigger status update
         eventPublisher.publishEvent(new StreamStatusChangeEvent(this, false));
         
+        // Stop the logging thread first
+        if (loggingThread != null && loggingThread.isAlive()) {
+            shouldStopLogging = true;
+            loggingThread.interrupt();
+            try {
+                loggingThread.join(2000); // Wait max 2 seconds for logging thread to finish
+                if (loggingThread.isAlive()) {
+                    logger.warn("Logging thread did not terminate gracefully");
+                }
+            } catch (InterruptedException e) {
+                logger.warn("Interrupted while waiting for logging thread to terminate");
+                Thread.currentThread().interrupt();
+            }
+            loggingThread = null;
+        }
+        
         if (ffmpeg != null) {
             logger.info("Terminating FFmpeg process");
             isConnected = false;
@@ -262,6 +293,12 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
         
         // Publish event to trigger status update
         eventPublisher.publishEvent(new StreamStatusChangeEvent(this, false));
+        
+        // Stop the logging thread first
+        if (loggingThread != null && loggingThread.isAlive()) {
+            shouldStopLogging = true;
+            loggingThread.interrupt();
+        }
         
         if (ffmpeg != null && ffmpeg.isAlive()) {
             ffmpeg.destroy();
