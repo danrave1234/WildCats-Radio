@@ -207,6 +207,22 @@ const Sidebar = ({ userRole }) => {
             </Link>
           </li>
 
+          {(userRole === 'DJ' || userRole === 'ADMIN') && (
+            <li>
+              <Link
+                to="/broadcast-history"
+                className={`flex items-center p-3 text-base font-medium rounded-lg ${
+                  location.pathname === '/broadcast-history'
+                    ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
+                    : 'text-gray-900 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <RadioIcon className="w-6 h-6 mr-3" />
+                <span>Broadcast History</span>
+              </Link>
+            </li>
+          )}
+
           <li>
             <Link
               to="/schedule"
