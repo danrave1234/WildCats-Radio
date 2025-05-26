@@ -199,8 +199,43 @@ export default function DJDashboard() {
       try {
         // Get the proper WebSocket URL from the backend API
         const response = await streamService.getConfig();
-        const listenerWsUrl = response.data.data.listenerWebSocketUrl || 
-                             `wss://wildcat-radio-f05d362144e6.autoidleapp.com/ws/listener`;
+        const serverUrl = response.data.data.listenerWebSocketUrl;
+        
+        let listenerWsUrl;
+        if (serverUrl) {
+          // If URL already has protocol, convert http/https to ws/wss and extract just the host
+          if (serverUrl.startsWith('http://') || serverUrl.startsWith('https://')) {
+            const url = new URL(serverUrl);
+            const isSecure = serverUrl.startsWith('https://') || window.location.protocol === 'https:';
+            listenerWsUrl = `${isSecure ? 'wss' : 'ws'}://${url.host}/ws/listener`;
+          } else if (serverUrl.startsWith('ws://') || serverUrl.startsWith('wss://')) {
+            // Already a WebSocket URL, just add the path if it's not there
+            listenerWsUrl = serverUrl.endsWith('/ws/listener') ? serverUrl : `${serverUrl}/ws/listener`;
+          } else {
+            // No protocol, determine based on current page protocol
+            const isSecure = window.location.protocol === 'https:';
+            listenerWsUrl = `${isSecure ? 'wss' : 'ws'}://${serverUrl}/ws/listener`;
+          }
+        } else {
+          // Use environment variable with proper WebSocket protocol construction
+          const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL || 'wildcat-radio-f05d362144e6.autoidleapp.com';
+          
+          // Check if running in development mode
+          const isDevelopment = import.meta.env.MODE === 'development' || 
+                               window.location.hostname === 'localhost' || 
+                               window.location.hostname === '127.0.0.1';
+          
+          if (isDevelopment) {
+            listenerWsUrl = 'ws://localhost:8080/ws/listener';
+          } else {
+            // Clean any existing protocol from environment variable
+            const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
+            const isSecure = window.location.protocol === 'https:';
+            listenerWsUrl = `${isSecure ? 'wss' : 'ws'}://${cleanHost}/ws/listener`;
+          }
+          
+          console.log('DJ Dashboard: Constructed fallback listener WebSocket URL:', listenerWsUrl);
+        }
         
         console.log('DJ Dashboard connecting to status WebSocket:', listenerWsUrl)
       

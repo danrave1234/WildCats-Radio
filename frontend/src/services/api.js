@@ -4,9 +4,39 @@ import { handleSecuritySoftwareErrors } from './errorHandler';
 import SockJS from 'sockjs-client';
 import { Stomp } from '@stomp/stompjs';
 
+// Helper function to get the correct protocol for the current environment
+const getProtocol = (forWebSocket = false) => {
+  const isSecure = window.location.protocol === 'https:';
+  if (forWebSocket) {
+    return isSecure ? 'wss:' : 'wss:';
+  }
+  // Always use HTTPS for API requests
+  return 'https:';
+};
+
+// Simple function to construct URLs from environment variables
+// Environment variables should NOT include protocols as specified in .env comments
+const constructUrl = (envVar, fallbackHost, fallbackPath = '', forWebSocket = false) => {
+  const protocol = getProtocol(forWebSocket);
+
+  // Always use the environment variable directly, regardless of development or production mode
+  const host = envVar;
+
+  // Simple clean - just remove any protocol if present
+  const cleanHost = host.replace(/^(https?:\/\/|wss?:\/\/)/, '');
+
+  return `${protocol}//${cleanHost}${fallbackPath}`;
+};
+
+
 // Create axios instance with base URL pointing to our backend
-// Use environment variable with fallback for local development
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
+const API_BASE_URL = constructUrl(
+  import.meta.env.VITE_API_BASE_URL,
+  false
+);
+
+console.log('API_BASE_URL constructed:', API_BASE_URL);
+
 // Cookie helper function
 const getCookie = (name) => {
   const value = `; ${document.cookie}`;
@@ -81,59 +111,48 @@ export const chatService = {
 
   // Subscribe to real-time chat messages for a specific broadcast
   subscribeToChatMessages: (broadcastId, callback) => {
-    // First try to get WebSocket URL from API, fallback to environment variables
-    const getWebSocketUrl = async () => {
-      try {
-        const response = await api.get('/stream/config');
-        if (response.data.success && response.data.data.serverIp) {
-          const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-          const port = response.data.data.serverPort && response.data.data.serverPort !== 443 && response.data.data.serverPort !== 80 
-                      ? `:${response.data.data.serverPort}` : '';
-          return `${protocol}//${response.data.data.serverIp}${port}`;
-        }
-        throw new Error('Invalid API response');
-      } catch (error) {
-        console.warn('Failed to get WebSocket URL from API, using fallback:', error);
-        return import.meta.env.VITE_WS_BASE_URL || API_BASE_URL.replace('/api', '');
-      }
-    };
+    // Use the environment variable directly - no fallbacks needed
+    const wsBaseUrl = constructUrl(
+      import.meta.env.VITE_WS_BASE_URL,
+      '',
+      '',
+      false // HTTP for SockJS
+    );
 
-    return getWebSocketUrl().then(wsBaseUrl => {
-      const socket = new SockJS(`${wsBaseUrl}/ws-radio`);
-      const stompClient = Stomp.over(socket);
+    const socket = new SockJS(`${wsBaseUrl}/ws-radio`);
+    const stompClient = Stomp.over(socket);
 
-      const token = getCookie('token');
-      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const token = getCookie('token');
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-      return new Promise((resolve, reject) => {
-        stompClient.connect(headers, () => {
-          console.log('Connected to Chat WebSocket for broadcast:', broadcastId);
+    return new Promise((resolve, reject) => {
+      stompClient.connect(headers, () => {
+        console.log('Connected to Chat WebSocket for broadcast:', broadcastId);
 
-          // Subscribe to broadcast-specific chat messages
-          const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/chat`, (message) => {
-            try {
-              const chatMessage = JSON.parse(message.body);
-              callback(chatMessage);
-            } catch (error) {
-              console.error('Error parsing chat message:', error);
-            }
-          });
-
-          resolve({
-            disconnect: () => {
-              if (subscription) {
-                subscription.unsubscribe();
-              }
-              if (stompClient && stompClient.connected) {
-                stompClient.disconnect();
-              }
-            },
-            isConnected: () => stompClient.connected
-          });
-        }, (error) => {
-          console.error('Chat WebSocket connection error:', error);
-          reject(error);
+        // Subscribe to broadcast-specific chat messages
+        const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/chat`, (message) => {
+          try {
+            const chatMessage = JSON.parse(message.body);
+            callback(chatMessage);
+          } catch (error) {
+            console.error('Error parsing chat message:', error);
+          }
         });
+
+        resolve({
+          disconnect: () => {
+            if (subscription) {
+              subscription.unsubscribe();
+            }
+            if (stompClient && stompClient.connected) {
+              stompClient.disconnect();
+            }
+          },
+          isConnected: () => stompClient.connected
+        });
+      }, (error) => {
+        console.error('Chat WebSocket connection error:', error);
+        reject(error);
       });
     });
   }
@@ -146,59 +165,48 @@ export const songRequestService = {
 
   // Subscribe to real-time song requests for a specific broadcast
   subscribeToSongRequests: (broadcastId, callback) => {
-    // First try to get WebSocket URL from API, fallback to environment variables
-    const getWebSocketUrl = async () => {
-      try {
-        const response = await api.get('/stream/config');
-        if (response.data.success && response.data.data.serverIp) {
-          const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-          const port = response.data.data.serverPort && response.data.data.serverPort !== 443 && response.data.data.serverPort !== 80 
-                      ? `:${response.data.data.serverPort}` : '';
-          return `${protocol}//${response.data.data.serverIp}${port}`;
-        }
-        throw new Error('Invalid API response');
-      } catch (error) {
-        console.warn('Failed to get WebSocket URL from API, using fallback:', error);
-        return import.meta.env.VITE_WS_BASE_URL || API_BASE_URL.replace('/api', '');
-      }
-    };
+    // Use the environment variable directly - no fallbacks needed
+    const wsBaseUrl = constructUrl(
+      import.meta.env.VITE_WS_BASE_URL,
+      '',
+      '',
+      false // HTTP for SockJS
+    );
 
-    return getWebSocketUrl().then(wsBaseUrl => {
-      const socket = new SockJS(`${wsBaseUrl}/ws-radio`);
-      const stompClient = Stomp.over(socket);
+    const socket = new SockJS(`${wsBaseUrl}/ws-radio`);
+    const stompClient = Stomp.over(socket);
 
-      const token = getCookie('token');
-      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const token = getCookie('token');
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-      return new Promise((resolve, reject) => {
-        stompClient.connect(headers, () => {
-          console.log('Connected to Song Requests WebSocket for broadcast:', broadcastId);
+    return new Promise((resolve, reject) => {
+      stompClient.connect(headers, () => {
+        console.log('Connected to Song Requests WebSocket for broadcast:', broadcastId);
 
-          // Subscribe to broadcast-specific song requests
-          const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/song-requests`, (message) => {
-            try {
-              const songRequest = JSON.parse(message.body);
-              callback(songRequest);
-            } catch (error) {
-              console.error('Error parsing song request:', error);
-            }
-          });
-
-          resolve({
-            disconnect: () => {
-              if (subscription) {
-                subscription.unsubscribe();
-              }
-              if (stompClient && stompClient.connected) {
-                stompClient.disconnect();
-              }
-            },
-            isConnected: () => stompClient.connected
-          });
-        }, (error) => {
-          console.error('Song Requests WebSocket connection error:', error);
-          reject(error);
+        // Subscribe to broadcast-specific song requests
+        const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/song-requests`, (message) => {
+          try {
+            const songRequest = JSON.parse(message.body);
+            callback(songRequest);
+          } catch (error) {
+            console.error('Error parsing song request:', error);
+          }
         });
+
+        resolve({
+          disconnect: () => {
+            if (subscription) {
+              subscription.unsubscribe();
+            }
+            if (stompClient && stompClient.connected) {
+              stompClient.disconnect();
+            }
+          },
+          isConnected: () => stompClient.connected
+        });
+      }, (error) => {
+        console.error('Song Requests WebSocket connection error:', error);
+        reject(error);
       });
     });
   }
@@ -212,85 +220,74 @@ export const notificationService = {
   getByType: (type) => api.get(`/notifications/by-type/${type}`),
   getRecent: (since) => api.get(`/notifications/recent?since=${since}`),
     subscribeToNotifications: (callback) => {
-    // First try to get WebSocket URL from API, fallback to environment variables
-    const getWebSocketUrl = async () => {
-      try {
-        const response = await api.get('/stream/config');
-        if (response.data.success && response.data.data.serverIp) {
-          const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-          const port = response.data.data.serverPort && response.data.data.serverPort !== 443 && response.data.data.serverPort !== 80 
-                      ? `:${response.data.data.serverPort}` : '';
-          return `${protocol}//${response.data.data.serverIp}${port}`;
-        }
-        throw new Error('Invalid API response');
-      } catch (error) {
-        console.warn('Failed to get WebSocket URL from API, using fallback:', error);
-        return import.meta.env.VITE_WS_BASE_URL || 'https://wildcat-radio-f05d362144e6.autoidleapp.com';
-      }
-    };
+    // Use the environment variable directly - no fallbacks needed
+    const wsBaseUrl = constructUrl(
+      import.meta.env.VITE_WS_BASE_URL,
+      '',
+      '',
+      false // HTTP for SockJS
+    );
 
-    return getWebSocketUrl().then(wsBaseUrl => {
-      const socket = new SockJS(`${wsBaseUrl}/ws-radio`);
-      const stompClient = Stomp.over(socket);
-      let isConnected = false;
-      let pollingInterval = null;
+    const socket = new SockJS(`${wsBaseUrl}/ws-radio`);
+    const stompClient = Stomp.over(socket);
+    let isConnected = false;
+    let pollingInterval = null;
 
-      const token = getCookie('token');
-      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const token = getCookie('token');
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-      return new Promise((resolve) => {
-        stompClient.connect(headers, (frame) => {
-          console.log('Connected to WebSocket:', frame);
-          isConnected = true;
+    return new Promise((resolve) => {
+      stompClient.connect(headers, (frame) => {
+        console.log('Connected to WebSocket:', frame);
+        isConnected = true;
 
-          stompClient.subscribe('/user/queue/notifications', (message) => {
-            try {
-              const notification = JSON.parse(message.body);
-              callback(notification);
-            } catch (error) {
-              console.error('Error parsing notification:', error);
+        stompClient.subscribe('/user/queue/notifications', (message) => {
+          try {
+            const notification = JSON.parse(message.body);
+            callback(notification);
+          } catch (error) {
+            console.error('Error parsing notification:', error);
+          }
+        });
+
+        resolve({
+          disconnect: () => {
+            if (stompClient && stompClient.connected) {
+              stompClient.disconnect();
             }
-          });
-
-          resolve({
-            disconnect: () => {
-              if (stompClient && stompClient.connected) {
-                stompClient.disconnect();
-              }
-              if (pollingInterval) {
-                clearInterval(pollingInterval);
-                pollingInterval = null;
-              }
-              isConnected = false;
-            },
-            isConnected: () => isConnected
-          });
-        }, (error) => {
-          console.error('WebSocket connection error:', error);
-          isConnected = false;
-
-          // Fallback to polling if WebSocket connection fails
-          console.log('WebSocket connection failed. Falling back to polling.');
-          pollingInterval = setInterval(async () => {
-            try {
-              const response = await notificationService.getUnread();
-              if (response.data && response.data.length > 0) {
-                response.data.forEach(notification => callback(notification));
-              }
-            } catch (pollError) {
-              console.error('Polling error:', pollError);
+            if (pollingInterval) {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
             }
-          }, 30000); // Poll every 30 seconds as fallback
+            isConnected = false;
+          },
+          isConnected: () => isConnected
+        });
+      }, (error) => {
+        console.error('WebSocket connection error:', error);
+        isConnected = false;
 
-          resolve({
-            disconnect: () => {
-              if (pollingInterval) {
-                clearInterval(pollingInterval);
-                pollingInterval = null;
-              }
-            },
-            isConnected: () => false
-          });
+        // Fallback to polling if WebSocket connection fails
+        console.log('WebSocket connection failed. Falling back to polling.');
+        pollingInterval = setInterval(async () => {
+          try {
+            const response = await notificationService.getUnread();
+            if (response.data && response.data.length > 0) {
+              response.data.forEach(notification => callback(notification));
+            }
+          } catch (pollError) {
+            console.error('Polling error:', pollError);
+          }
+        }, 30000); // Poll every 30 seconds as fallback
+
+        resolve({
+          disconnect: () => {
+            if (pollingInterval) {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+            }
+          },
+          isConnected: () => false
         });
       });
     });
@@ -341,59 +338,48 @@ export const pollService = {
 
   // Subscribe to real-time poll updates for a specific broadcast
   subscribeToPolls: (broadcastId, callback) => {
-    // First try to get WebSocket URL from API, fallback to environment variables
-    const getWebSocketUrl = async () => {
-      try {
-        const response = await api.get('/stream/config');
-        if (response.data.success && response.data.data.serverIp) {
-          const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-          const port = response.data.data.serverPort && response.data.data.serverPort !== 443 && response.data.data.serverPort !== 80 
-                      ? `:${response.data.data.serverPort}` : '';
-          return `${protocol}//${response.data.data.serverIp}${port}`;
-        }
-        throw new Error('Invalid API response');
-      } catch (error) {
-        console.warn('Failed to get WebSocket URL from API, using fallback:', error);
-        return import.meta.env.VITE_WS_BASE_URL || API_BASE_URL.replace('/api', '');
-      }
-    };
+    // Use the environment variable directly - no fallbacks needed
+    const wsBaseUrl = constructUrl(
+      import.meta.env.VITE_WS_BASE_URL,
+      '',
+      '',
+      false // HTTP for SockJS
+    );
 
-    return getWebSocketUrl().then(wsBaseUrl => {
-      const socket = new SockJS(`${wsBaseUrl}/ws-radio`);
-      const stompClient = Stomp.over(socket);
+    const socket = new SockJS(`${wsBaseUrl}/ws-radio`);
+    const stompClient = Stomp.over(socket);
 
-      const token = getCookie('token');
-      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const token = getCookie('token');
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-      return new Promise((resolve, reject) => {
-        stompClient.connect(headers, () => {
-          console.log('Connected to Polls WebSocket for broadcast:', broadcastId);
+    return new Promise((resolve, reject) => {
+      stompClient.connect(headers, () => {
+        console.log('Connected to Polls WebSocket for broadcast:', broadcastId);
 
-          // Subscribe to broadcast-specific poll updates
-          const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/polls`, (message) => {
-            try {
-              const pollData = JSON.parse(message.body);
-              callback(pollData);
-            } catch (error) {
-              console.error('Error parsing poll data:', error);
-            }
-          });
-
-          resolve({
-            disconnect: () => {
-              if (subscription) {
-                subscription.unsubscribe();
-              }
-              if (stompClient && stompClient.connected) {
-                stompClient.disconnect();
-              }
-            },
-            isConnected: () => stompClient.connected
-          });
-        }, (error) => {
-          console.error('Polls WebSocket connection error:', error);
-          reject(error);
+        // Subscribe to broadcast-specific poll updates
+        const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/polls`, (message) => {
+          try {
+            const pollData = JSON.parse(message.body);
+            callback(pollData);
+          } catch (error) {
+            console.error('Error parsing poll data:', error);
+          }
         });
+
+        resolve({
+          disconnect: () => {
+            if (subscription) {
+              subscription.unsubscribe();
+            }
+            if (stompClient && stompClient.connected) {
+              stompClient.disconnect();
+            }
+          },
+          isConnected: () => stompClient.connected
+        });
+      }, (error) => {
+        console.error('Polls WebSocket connection error:', error);
+        reject(error);
       });
     });
   },
@@ -409,36 +395,25 @@ export const streamService = {
 
   // WebSocket URL for DJs to send audio to the server
   getStreamUrl: () => {
-    // Get WebSocket URL from backend config if available
-    return api.get('/stream/config')
-      .then(response => {
-        if (response.data.success && response.data.data.webSocketUrl) {
-          return response.data.data.webSocketUrl;
-        }
-        throw new Error('WebSocket URL not found in config');
-      })
-      .catch(() => {
-        // Fallback to constructing URL if API call fails
-        const apiUrl = new URL(API_BASE_URL);
-        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-        return `${protocol}://${apiUrl.host}/ws/live`;
-      });
+    // Always use environment variable directly
+    const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
+    const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+
+    return Promise.resolve(`${protocol}://${cleanHost}/ws/live`);
   },
 
   // Stream URL for listeners to tune in to the broadcast
   getListenerStreamUrl: () => {
-    // First try to get the URL from the backend config
-    return api.get('/stream/config')
-      .then(response => {
-        if (response.data.success && response.data.data.streamUrl) {
-          return response.data.data.streamUrl;
-        }
-        throw new Error('Stream URL not found in config');
-      })
-      .catch(() => {
-        // Use environment variable for Icecast URL with fallback
-        return import.meta.env.VITE_ICECAST_URL || 'http://localhost:8000/live.ogg';
-      });
+    // Use environment variable directly
+    return Promise.resolve(
+      constructUrl(
+        import.meta.env.VITE_ICECAST_URL,
+        '',
+        '',
+        false // HTTP for audio stream
+      )
+    );
   },
 
   // Check if Icecast server is running

@@ -307,26 +307,16 @@ export default function ListenerDashboard() {
       isReconnecting = true
       wsConnectingRef.current = true
 
-      let listenerWsUrl
+      // Simple WebSocket URL construction using environment variable
+      const wsProtocol = 'wss';
 
-      try {
-        // Get the proper WebSocket URL from the backend API
-        const response = await streamService.getConfig();
-        let wsUrl = response.data.data.listenerWebSocketUrl || 
-                   `wildcat-radio-f05d362144e6.autoidleapp.com/ws/listener`;
+      // Always use the environment variable directly
+      const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
+      // Simple clean - just remove any protocol if present
+      const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
+      const listenerWsUrl = `${wsProtocol}://${cleanHost}/ws/listener`;
 
-        // Ensure URL doesn't have protocol duplicated
-        if (wsUrl.startsWith('http://') || wsUrl.startsWith('https://')) {
-          // Replace http:// or https:// with wss://
-          listenerWsUrl = wsUrl.replace(/^http(s)?:\/\//i, 'wss://');
-        } else {
-          // Add wss:// if no protocol is present
-          listenerWsUrl = `wss://${wsUrl}`;
-        }
-      } catch (configError) {
-        console.error('Error getting WebSocket config, using fallback:', configError)
-        listenerWsUrl = `wss://wildcat-radio-f05d362144e6.autoidleapp.com/ws/listener`;
-      }
+      console.log('Using WebSocket URL:', listenerWsUrl);
 
       try {
         console.log('Listener Dashboard connecting to WebSocket:', listenerWsUrl)
