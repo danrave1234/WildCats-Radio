@@ -180,8 +180,18 @@ export default function DJDashboard() {
     const fetchServerConfig = async () => {
       try {
         const config = await streamService.getConfig()
-        setServerConfig(config.data.data)
-        console.log("Server config loaded:", config.data.data)
+        const configData = config.data.data;
+        
+        // Only update if the config has actually changed
+        setServerConfig(prevConfig => {
+          if (!prevConfig || 
+              prevConfig.serverIp !== configData.serverIp || 
+              prevConfig.serverPort !== configData.serverPort) {
+            console.log("Server config loaded:", configData)
+            return configData;
+          }
+          return prevConfig;
+        });
       } catch (error) {
         console.error("Error fetching server config:", error)
         setStreamError("Failed to get server configuration")
@@ -191,14 +201,19 @@ export default function DJDashboard() {
     fetchServerConfig()
   }, [])
 
-  // Set up WebSocket connection for listener status updates
+  // Set up WebSocket connection for listener status updates - runs once
   useEffect(() => {
-    if (!serverConfig) return
+    let reconnectTimer = null;
+    let isConnecting = false;
+    let shouldReconnect = true;
 
     const connectStatusWebSocket = async () => {
+      if (isConnecting) return;
+      isConnecting = true;
+
       try {
         // Clean up any existing connection first
-        if (statusWsRef.current) {
+        if (statusWsRef.current && statusWsRef.current.readyState !== WebSocket.CLOSED) {
           console.log('DJ Dashboard: Cleaning up existing status WebSocket');
           statusWsRef.current.close();
           statusWsRef.current = null;
@@ -213,55 +228,76 @@ export default function DJDashboard() {
         const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
         const listenerWsUrl = `${wsProtocol}://${cleanHost}/ws/listener`;
 
-        console.log('Using WebSocket URL:', listenerWsUrl);
-
-        console.log('DJ Dashboard connecting to status WebSocket:', listenerWsUrl)
+        console.log('DJ Dashboard: Using WebSocket URL:', listenerWsUrl);
+        console.log('DJ Dashboard: Connecting to status WebSocket:', listenerWsUrl)
 
         statusWsRef.current = new WebSocket(listenerWsUrl)
 
-      statusWsRef.current.onopen = () => {
-        console.log('DJ Dashboard status WebSocket connected')
-        setStatusWsConnected(true)
-      }
-
-      statusWsRef.current.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          console.log('DJ Dashboard status message received:', data)
-
-          if (data.type === 'STREAM_STATUS') {
-            setListenerCount(data.listenerCount || 0)
-          }
-          } catch (error) {
-          console.error('Error parsing status WebSocket message:', error)
+        statusWsRef.current.onopen = () => {
+          console.log('DJ Dashboard: Status WebSocket connected successfully')
+          setStatusWsConnected(true)
+          isConnecting = false;
         }
-      }
 
-      statusWsRef.current.onclose = () => {
-        console.log('DJ Dashboard status WebSocket disconnected, attempting to reconnect...')
-        setStatusWsConnected(false)
-        // Reconnect after 3 seconds
-        setTimeout(connectStatusWebSocket, 3000)
-      }
+        statusWsRef.current.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            console.log('DJ Dashboard: Status message received:', data)
+
+            if (data.type === 'STREAM_STATUS') {
+              setListenerCount(data.listenerCount || 0)
+            }
+          } catch (error) {
+            console.error('DJ Dashboard: Error parsing status WebSocket message:', error)
+          }
+        }
+
+        statusWsRef.current.onclose = (event) => {
+          console.log('DJ Dashboard: Status WebSocket closed with code:', event.code, 'reason:', event.reason)
+          setStatusWsConnected(false)
+          isConnecting = false;
+          
+          // Only reconnect if it wasn't a normal close and we should reconnect
+          if (shouldReconnect && event.code !== 1000) {
+            console.log('DJ Dashboard: Scheduling reconnection in 3 seconds...')
+            reconnectTimer = setTimeout(connectStatusWebSocket, 3000)
+          } else {
+            console.log('DJ Dashboard: Not reconnecting - normal close or component unmounting')
+          }
+        }
 
         statusWsRef.current.onerror = (error) => {
-          console.error('DJ Dashboard status WebSocket error:', error)
+          console.error('DJ Dashboard: Status WebSocket error:', error)
+          isConnecting = false;
         }
       } catch (error) {
-        console.error('Error setting up status WebSocket:', error)
+        console.error('DJ Dashboard: Error setting up status WebSocket:', error)
+        isConnecting = false;
         // Fallback with a delay
-        setTimeout(connectStatusWebSocket, 5000)
+        if (shouldReconnect) {
+          reconnectTimer = setTimeout(connectStatusWebSocket, 5000)
+        }
       }
     }
 
-    connectStatusWebSocket()
+    // Only start if we don't already have a connection
+    if (!statusWsRef.current) {
+      connectStatusWebSocket()
+    }
 
     return () => {
+      console.log('DJ Dashboard: Cleaning up status WebSocket connection')
+      shouldReconnect = false;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       if (statusWsRef.current) {
-        statusWsRef.current.close()
+        statusWsRef.current.close(1000, 'Component unmounting');
+        statusWsRef.current = null;
       }
     }
-  }, [serverConfig])
+  }, []) // Run once on mount
 
   // Fetch initial data when broadcast becomes available
   useEffect(() => {
