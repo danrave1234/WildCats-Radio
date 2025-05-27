@@ -65,9 +65,12 @@ export function NotificationProvider({ children }) {
     if (!isAuthenticated) return;
     
     try {
-      const response = await notificationService.getAll();
-      setNotifications(response.data);
-      setUnreadCount(response.data.filter(n => !n.read).length);
+      const [notificationsResponse, unreadCountResponse] = await Promise.all([
+        notificationService.getAll(),
+        notificationService.getUnreadCount()
+      ]);
+      setNotifications(notificationsResponse.data);
+      setUnreadCount(unreadCountResponse.data);
     } catch (error) {
       console.error('Error fetching notifications:', error);
     }

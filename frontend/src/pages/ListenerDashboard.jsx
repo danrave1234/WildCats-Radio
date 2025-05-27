@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import {
   PlayIcon,
@@ -9,10 +9,8 @@ import {
   SpeakerXMarkIcon,
   PaperAirplaneIcon,
   MusicalNoteIcon,
-  ChatBubbleLeftRightIcon,
   ArrowPathIcon,
 } from "@heroicons/react/24/solid";
-import AudioVisualizer from "../components/AudioVisualizer";
 import { broadcastService, chatService, songRequestService, pollService, streamService } from "../services/api";
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from "../context/AuthContext";
@@ -27,13 +25,10 @@ export default function ListenerDashboard() {
   // Get streaming context
   const { 
     isLive,
-    isListening,
     audioPlaying,
     volume,
     isMuted,
     listenerCount,
-    startListening,
-    stopListening,
     toggleAudio,
     updateVolume,
     toggleMute,
@@ -49,31 +44,22 @@ export default function ListenerDashboard() {
   const [currentBroadcastId, setCurrentBroadcastId] = useState(null);
   const [currentBroadcast, setCurrentBroadcast] = useState(null);
 
-  // Audio visualizer state
-  const [audioData, setAudioData] = useState(new Uint8Array(0));
-  const [visualizerEnabled, setVisualizerEnabled] = useState(true);
-
   // Chat state
   const [chatMessages, setChatMessages] = useState([]);
   const [chatMessage, setChatMessage] = useState('');
-  const [showChat, setShowChat] = useState(false);
 
   // Song request state
-  const [songRequests, setSongRequests] = useState([]);
   const [songRequest, setSongRequest] = useState({ title: '', artist: '' });
-  const [showSongRequests, setShowSongRequests] = useState(false);
 
   // Poll state
-  const [polls, setPolls] = useState([]);
   const [activePoll, setActivePoll] = useState(null);
-  const [showPolls, setShowPolls] = useState(false);
   const [userVotes, setUserVotes] = useState({});
   
   // UI state
   const [activeTab, setActiveTab] = useState("song");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [pollLoading, setPollLoading] = useState(false);
-  const [currentSong, setCurrentSong] = useState(null);
+  const [_currentSong, _setCurrentSong] = useState(null);
 
   // Local audio state for the dashboard player (separate from streaming context)
   const [localAudioPlaying, setLocalAudioPlaying] = useState(false);
@@ -85,7 +71,7 @@ export default function ListenerDashboard() {
   const [selectedPollOption, setSelectedPollOption] = useState(null);
   
   // Chat timestamp update state
-  const [chatTimestampTick, setChatTimestampTick] = useState(0);
+  const [_chatTimestampTick, _setChatTimestampTick] = useState(0);
   
   // WebSocket references for interactions
   const chatWsRef = useRef(null);
@@ -97,12 +83,13 @@ export default function ListenerDashboard() {
   const chatContainerRef = useRef(null);
   const abortControllerRef = useRef(null);
   
-  // Audio processing for visualizer
-  const audioContextRef = useRef(null);
-  const analyserRef = useRef(null);
-  const audioSourceRef = useRef(null);
-  const animationRef = useRef(null);
-  
+  // Audio refs from ListenerDashboard2.jsx
+  const audioRef = useRef(null);
+  const statusCheckInterval = useRef(null);
+  const wsRef = useRef(null);
+  const wsConnectingRef = useRef(false);
+  const heartbeatInterval = useRef(null);
+
   // Load current broadcast on component mount
   useEffect(() => {
     const fetchCurrentBroadcast = async () => {
@@ -178,13 +165,6 @@ export default function ListenerDashboard() {
       }, 100);
     }
   };
-
-  // Audio refs from ListenerDashboard2.jsx
-  const audioRef = useRef(null);
-  const statusCheckInterval = useRef(null);
-  const wsRef = useRef(null);
-  const wsConnectingRef = useRef(false);
-  const heartbeatInterval = useRef(null);
 
   // Initialize audio element when serverConfig is available
   useEffect(() => {
@@ -847,7 +827,7 @@ export default function ListenerDashboard() {
   // Update chat timestamps every minute
   useEffect(() => {
     const interval = setInterval(() => {
-      setChatTimestampTick(prev => prev + 1);
+      _setChatTimestampTick(prev => prev + 1);
     }, 60000); // Update every minute
 
     return () => clearInterval(interval);
@@ -1289,7 +1269,7 @@ export default function ListenerDashboard() {
                     {isDJ ? 'DJ' : initials}
                   </div>
                   <div className="ml-2">
-                    <span className="font-medium text-sm text-gray-900 dark:text-white">{senderName}</span>
+                    <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{senderName}</span>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
                       {formattedTimeAgo} ago
                     </div>
@@ -1341,10 +1321,12 @@ export default function ListenerDashboard() {
     <div className="container mx-auto px-4 pb-6 bg-gray-100 dark:bg-gray-900">
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 pt-6">Broadcast Stream</h2>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main content area - left 2/3 */}
-        <div className="lg:col-span-2 flex flex-col">
-          <div className="bg-maroon-700 rounded-lg overflow-hidden mb-6 h-[200px] flex flex-col justify-center relative">
+      {/* Desktop: Grid layout */}
+      <div className="hidden lg:grid lg:grid-cols-3 lg:gap-6">
+        {/* Desktop Left Column - Broadcast + Song Request/Poll */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Broadcast Stream Visualizer */}
+          <div className="bg-maroon-700 rounded-lg overflow-hidden h-[200px] flex flex-col justify-center relative">
             {/* Live indicator */}
             <div className="absolute top-4 left-4 z-10">
               {isLive ? (
@@ -1387,10 +1369,10 @@ export default function ListenerDashboard() {
 
                     <div className="mt-4">
                       <p className="text-xs uppercase opacity-60">NOW PLAYING</p>
-                      {currentSong ? (
+                      {_currentSong ? (
                         <>
-                          <p className="text-sm font-medium">{currentSong.title}</p>
-                          <p className="text-xs opacity-70">{currentSong.artist}</p>
+                          <p className="text-sm font-medium">{_currentSong.title}</p>
+                          <p className="text-xs opacity-70">{_currentSong.artist}</p>
                         </>
                       ) : (
                         <p className="text-sm opacity-70">No track information available</p>
@@ -1464,7 +1446,7 @@ export default function ListenerDashboard() {
             )}
           </div>
 
-          {/* Interactive section tabs */}
+          {/* Desktop Song Request/Poll section */}
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-grow">
             {/* Tab headers */}
             <div className="flex">
@@ -1509,7 +1491,7 @@ export default function ListenerDashboard() {
               </button>
             </div>
 
-            {/* Tab content */}
+            {/* Desktop Tab content */}
             <div className="bg-white dark:bg-gray-800 flex-grow flex flex-col h-[450px]">
               {/* Song Request Tab */}
               {activeTab === "song" && (
@@ -1587,7 +1569,7 @@ export default function ListenerDashboard() {
                 </div>
               )}
 
-              {/* Poll Tab */}
+              {/* Desktop Poll Tab */}
               {activeTab === "poll" && (
                 <div className="p-6 flex-grow flex flex-col h-full">
                   {isLive ? (
@@ -1665,11 +1647,11 @@ export default function ListenerDashboard() {
                                               className={`h-2 rounded-full transition-all duration-300 ${
                                                 isUserChoice ? 'bg-green-500' : 'bg-gray-400'
                                               }`}
-                                      style={{ width: `${percentage}%` }}
+                                              style={{ width: `${percentage}%` }}
                                             />
                                           </div>
                                           <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                                      {percentage}%
+                                            {percentage}%
                                           </div>
                                         </div>
                                       )}
@@ -1695,7 +1677,7 @@ export default function ListenerDashboard() {
                                 </span>
                               </div>
                             ) : (
-                            <button
+                              <button
                                 onClick={handlePollVote}
                                 disabled={!selectedPollOption || pollLoading}
                                 className={`px-8 py-2 rounded-lg font-medium transition-colors ${
@@ -1705,7 +1687,7 @@ export default function ListenerDashboard() {
                                 }`}
                               >
                                 {pollLoading ? 'Voting...' : 'Vote'}
-                            </button>
+                              </button>
                             )}
                           </div>
                         </div>
@@ -1735,7 +1717,7 @@ export default function ListenerDashboard() {
           </div>
         </div>
 
-        {/* Live chat section - right 1/3 */}
+        {/* Desktop Right Column - Live Chat */}
         <div className="lg:col-span-1 flex flex-col">
           <div className="bg-maroon-700 text-white p-3 rounded-t-lg">
             <h3 className="font-medium">Live Chat</h3>
@@ -1817,7 +1799,7 @@ export default function ListenerDashboard() {
                       >
                         <path 
                           fillRule="evenodd" 
-                          d="M16.707 10.293a1 1 0 010 1.414l-6 6a1 1 0 01-1.414 0l-6-6a1 1 0 111.414-1.414L10 15.586l5.293-5.293a1 1 0 011.414 0z" 
+                          d="M16.707 10.293a1 1 0 010 1.414l-6 6a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" 
                           clipRule="evenodd" 
                         />
                       </svg>
@@ -1873,6 +1855,545 @@ export default function ListenerDashboard() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile: Flex column layout with custom order */}
+      <div className="flex flex-col space-y-6 lg:hidden">
+        {/* Mobile: Broadcast Stream - First */}
+        <div className="order-1">
+          <div className="bg-maroon-700 rounded-lg overflow-hidden h-[200px] flex flex-col justify-center relative">
+            {/* Live indicator */}
+            <div className="absolute top-4 left-4 z-10">
+              {isLive ? (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-600 text-white">
+                  <span className="h-2 w-2 rounded-full bg-white mr-1 animate-pulse"></span>
+                  LIVE ({Math.max(listenerCount, localListenerCount)} listeners)
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-600 text-white">
+                  OFF AIR
+                </span>
+              )}
+            </div>
+
+            {/* Stream Error Display */}
+            {streamError && (
+              <div className="absolute top-12 left-4 right-4 p-2 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md text-xs">
+                {streamError}
+              </div>
+            )}
+
+            {isLive ? (
+              <>
+                <div className="flex p-4">
+                  {/* Album art / Left section */}
+                  <div className="w-24 h-24 bg-maroon-800 flex items-center justify-center text-white text-2xl rounded-lg">
+                    $
+                  </div>
+
+                  {/* Track info */}
+                  <div className="ml-4 text-white">
+                    <h3 className="text-xl font-bold">{currentBroadcast?.title || "Loading..."}</h3>
+                    <p className="text-sm opacity-80">
+                      {currentBroadcast?.host?.name 
+                        ? `Hosted by ${currentBroadcast.host.name}` 
+                        : currentBroadcast?.dj?.name 
+                          ? `Hosted by ${currentBroadcast.dj.name}`
+                          : "Loading..."}
+                    </p>
+
+                    <div className="mt-4">
+                      <p className="text-xs uppercase opacity-60">NOW PLAYING</p>
+                      {_currentSong ? (
+                        <>
+                          <p className="text-sm font-medium">{_currentSong.title}</p>
+                          <p className="text-xs opacity-70">{_currentSong.artist}</p>
+                        </>
+                      ) : (
+                        <p className="text-sm opacity-70">No track information available</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Play/Pause and Refresh Controls */}
+                  <div className="ml-auto flex flex-col items-center justify-center space-y-2">
+                    <button
+                      onClick={togglePlay}
+                      disabled={!serverConfig}
+                      className={`p-3 rounded-full ${
+                        !serverConfig
+                          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                          : localAudioPlaying
+                          ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
+                          : 'bg-green-100 text-green-800 hover:bg-green-200'
+                      }`}
+                      aria-label={localAudioPlaying ? 'Pause' : 'Play'}
+                    >
+                      {localAudioPlaying ? (
+                        <PauseIcon className="h-6 w-6" />
+                      ) : (
+                        <PlayIcon className="h-6 w-6" />
+                      )}
+                    </button>
+
+                    <button
+                      onClick={refreshStream}
+                      className="p-2 text-white hover:text-gray-300"
+                      aria-label="Refresh Stream"
+                    >
+                      <ArrowPathIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Volume control */}
+                <div className="flex items-center px-4 py-3">
+                  <button onClick={handleMuteToggle} className="text-white mr-2">
+                    {isMuted ? (
+                      <SpeakerXMarkIcon className="h-5 w-5" />
+                    ) : (
+                      <SpeakerWaveIcon className="h-5 w-5" />
+                    )}
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={volume}
+                    onChange={handleVolumeChange}
+                    className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  />
+                  <div className="ml-2 text-white text-xs w-7 text-right">{volume}%</div>
+                </div>
+              </>
+            ) : (
+              <div className="text-center text-white">
+                <h2 className="text-2xl font-bold mb-3">WildCats Radio</h2>
+                <p className="mb-2">No broadcast currently active</p>
+                {nextBroadcast ? (
+                  <p className="text-sm opacity-70">
+                    Next broadcast: {nextBroadcast.title} on {nextBroadcast.date} at {nextBroadcast.time}
+                  </p>
+                ) : (
+                  <p className="text-sm opacity-70">No upcoming broadcasts scheduled</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Mobile: Live Chat - Second */}
+        <div className="order-2">
+          <div className="bg-maroon-700 text-white p-3 rounded-t-lg">
+            <h3 className="font-medium">Live Chat</h3>
+            <p className="text-xs opacity-70">{Math.max(listenerCount, localListenerCount)} listeners online</p>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 border border-t-0 border-gray-200 dark:border-gray-700 rounded-b-lg flex-grow flex flex-col h-[400px]">
+            {isLive ? (
+              <>
+                <div 
+                  ref={chatContainerRef}
+                  className="flex-grow overflow-y-auto p-4 space-y-4 chat-messages-container relative"
+                >
+                  {chatMessages.map((msg) => {
+                    const isDJ = msg.sender && msg.sender.name.includes("DJ");
+                    const initials = msg.sender.name.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
+
+                    // Parse the createdAt timestamp from the backend
+                    let messageDate;
+                    try {
+                      messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
+                    } catch (error) {
+                      console.error('Error parsing message date:', error);
+                      messageDate = new Date();
+                    }
+
+                    // Format relative time (updated every minute due to chatTimestampTick)
+                    const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
+                      ? formatDistanceToNow(messageDate, { addSuffix: false }) 
+                      : 'Just now';
+
+                    // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
+                    const formattedTimeAgo = timeAgo
+                      .replace(' seconds', ' sec')
+                      .replace(' second', ' sec')
+                      .replace(' minutes', ' min')
+                      .replace(' minute', ' min')
+                      .replace(' hours', ' hour')
+                      .replace(' days', ' day')
+                      .replace(' months', ' month')
+                      .replace(' years', ' year');
+
+                    return (
+                      <div key={msg.id} className="mb-4">
+                        <div className="flex items-center mb-1">
+                          <div className={`h-8 w-8 min-w-[2rem] rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
+                            {isDJ ? 'DJ' : initials}
+                          </div>
+                          <div className="ml-2 overflow-hidden">
+                            <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{msg.sender.name}</span>
+                          </div>
+                        </div>
+                        <div className="ml-10 space-y-1">
+                          <div className={`rounded-lg p-3 message-bubble ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
+                            <p className="text-sm text-gray-800 dark:text-gray-200 chat-message" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content}</p>
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 pl-1">
+                            {formattedTimeAgo} ago
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Scroll to bottom button */}
+                {showScrollBottom && (
+                  <div className="absolute bottom-20 right-4">
+                    <button
+                      onClick={scrollToBottom}
+                      className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full p-2.5 shadow-lg transition-all duration-200 ease-in-out flex items-center justify-center"
+                      aria-label="Scroll to bottom"
+                    >
+                      <svg 
+                        xmlns="http://www.w3.org/2000/svg" 
+                        className="h-5 w-5" 
+                        viewBox="0 0 20 20" 
+                        fill="currentColor"
+                      >
+                        <path 
+                          fillRule="evenodd" 
+                          d="M16.707 10.293a1 1 0 010 1.414l-6 6a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" 
+                          clipRule="evenodd" 
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+
+                <div className="p-2 border-t border-gray-200 dark:border-gray-700 mt-auto">
+                  <form onSubmit={handleChatSubmit} className="flex flex-col">
+                    <div className="flex mb-1">
+                      <input
+                        type="text"
+                        value={chatMessage}
+                        onChange={(e) => {
+                          // Limit input to 1500 characters
+                          if (e.target.value.length <= 1500) {
+                            setChatMessage(e.target.value);
+                          }
+                        }}
+                        placeholder="Type your message..."
+                        className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white max-w-full"
+                        maxLength={1500}
+                      />
+                      <button
+                        type="submit"
+                        disabled={!chatMessage.trim() || chatMessage.length > 1500}
+                        className={`${
+                          !chatMessage.trim() || chatMessage.length > 1500
+                            ? 'bg-gray-400 cursor-not-allowed'
+                            : 'bg-maroon-700 hover:bg-maroon-800 dark:bg-maroon-600'
+                        } text-white p-2 rounded-r-md flex-shrink-0`}
+                      >
+                        <PaperAirplaneIcon className="h-5 w-5" />
+                      </button>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className={`${
+                        chatMessage.length > 1500 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'
+                      }`}>
+                        {chatMessage.length}/1500 characters
+                      </span>
+                      {chatMessage.length > 1500 && (
+                        <span className="text-red-500">Message too long</span>
+                      )}
+                    </div>
+                  </form>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <p className="text-gray-500 dark:text-gray-400">Chat is only available during live broadcasts</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Mobile: Song Request/Poll - Third */}
+        <div className="order-3">
+          <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-grow">
+            {/* Tab headers */}
+            <div className="flex">
+              <button
+                onClick={() => setActiveTab("song")}
+                className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
+                  activeTab === "song"
+                    ? "border-b-2 border-maroon-700 text-maroon-700 dark:border-maroon-500 dark:text-maroon-400"
+                    : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 border-b border-gray-200 dark:border-gray-700"
+                }`}
+              >
+                <div className="flex justify-center items-center">
+                  <MusicalNoteIcon className="h-5 w-5 mr-2" />
+                  Song Request
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab("poll")}
+                className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
+                  activeTab === "poll"
+                    ? "border-b-2 border-maroon-700 text-maroon-700 dark:border-maroon-500 dark:text-maroon-400"
+                    : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 border-b border-gray-200 dark:border-gray-700"
+                }`}
+              >
+                <div className="flex justify-center items-center">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-5 w-5 mr-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                    />
+                  </svg>
+                  Poll
+                </div>
+              </button>
+            </div>
+
+            {/* Mobile Tab content */}
+            <div className="bg-white dark:bg-gray-800 flex-grow flex flex-col h-[350px]">
+              {/* Song Request Tab */}
+              {activeTab === "song" && (
+                <div className="p-6 flex-grow flex flex-col h-full">
+                  {isLive ? (
+                    <form onSubmit={handleSongRequestSubmit} className="space-y-5 flex-grow flex flex-col">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Song Title
+                        </label>
+                        <input
+                          type="text"
+                          value={songRequest.title}
+                          onChange={(e) => setSongRequest({ ...songRequest, title: e.target.value })}
+                          placeholder="Enter song title"
+                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Artist
+                        </label>
+                        <input
+                          type="text"
+                          value={songRequest.artist}
+                          onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
+                          placeholder="Enter artist name"
+                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                          required
+                        />
+                      </div>
+
+                      <div className="flex-grow">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Dedication (Optional)
+                        </label>
+                        <textarea
+                          value={songRequest.dedication}
+                          onChange={(e) => setSongRequest({ ...songRequest, dedication: e.target.value })}
+                          placeholder="Add a message or dedication"
+                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white h-full min-h-[80px]"
+                        />
+                      </div>
+
+                      <div className="mt-auto flex justify-between items-center">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Song requests are subject to availability.
+                        </p>
+                        <button
+                          type="submit"
+                          className="bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-2 px-6 rounded"
+                        >
+                          Submit Request
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center w-full">
+                        <div className="flex items-center mb-8 justify-center">
+                          <div className="bg-pink-100 dark:bg-maroon-900/30 rounded-full p-3 mr-4">
+                            <MusicalNoteIcon className="h-6 w-6 text-maroon-600 dark:text-maroon-400" />
+                          </div>
+                          <div>
+                            <h3 className="font-medium text-gray-900 dark:text-white text-lg">Request a Song</h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">Let us know what you'd like to hear next</p>
+                          </div>
+                        </div>
+                        <p className="text-gray-500 dark:text-gray-400">Song requests are only available during live broadcasts</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Mobile Poll Tab */}
+              {activeTab === "poll" && (
+                <div className="p-6 flex-grow flex flex-col h-full">
+                  {isLive ? (
+                    <>
+                      {pollLoading && !activePoll ? (
+                        <div className="text-center py-8 flex-grow flex items-center justify-center">
+                          <p className="text-gray-500 dark:text-gray-400 animate-pulse">Loading polls...</p>
+                        </div>
+                      ) : activePoll ? (
+                        <div className="flex-grow flex flex-col">
+                          {/* Poll Question */}
+                          <div className="mb-4">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                              {activePoll.question || activePoll.title}
+                            </h3>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                              {activePoll.userVoted ? 'You have voted' : 'Choose your answer and click Vote'}
+                            </div>
+                          </div>
+
+                          {/* Poll Options */}
+                          <div className="space-y-3 mb-6 flex-grow">
+                            {activePoll.options.map((option) => {
+                              const percentage = activePoll.userVoted 
+                                ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 
+                                : 0;
+                              const isSelected = selectedPollOption === option.id;
+                              const isUserChoice = activePoll.userVotedFor === option.id;
+                              
+                              return (
+                                <div key={option.id} className="space-y-1">
+                                  <div 
+                                    className={`w-full border-2 rounded-lg overflow-hidden cursor-pointer transition-all duration-200 ${
+                                      activePoll.userVoted 
+                                        ? isUserChoice
+                                          ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                                          : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
+                                        : isSelected
+                                          ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20'
+                                          : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 hover:border-maroon-300'
+                                    }`}
+                                    onClick={() => !activePoll.userVoted && handlePollOptionSelect(option.id)}
+                                  >
+                                    <div className="p-3">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                          {option.optionText || option.text}
+                                        </span>
+                                        <div className="flex items-center">
+                                          {activePoll.userVoted && (
+                                            <span className="text-xs text-gray-600 dark:text-gray-400 mr-2">
+                                              {option.votes || 0} votes
+                                            </span>
+                                          )}
+                                          {isSelected && !activePoll.userVoted && (
+                                            <div className="w-4 h-4 bg-maroon-500 rounded-full flex items-center justify-center">
+                                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                                            </div>
+                                          )}
+                                          {isUserChoice && activePoll.userVoted && (
+                                            <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                                              <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                              </svg>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                      
+                                      {/* Progress bar for voted polls */}
+                                      {activePoll.userVoted && (
+                                        <div className="mt-2">
+                                          <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                                            <div 
+                                              className={`h-2 rounded-full transition-all duration-300 ${
+                                                isUserChoice ? 'bg-green-500' : 'bg-gray-400'
+                                              }`}
+                                              style={{ width: `${percentage}%` }}
+                                            />
+                                          </div>
+                                          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                                            {percentage}%
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Vote Button */}
+                          <div className="mt-auto flex justify-center">
+                            {activePoll.userVoted ? (
+                              <div className="text-center">
+                                <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                                  Total votes: {activePoll.totalVotes || 0}
+                                </div>
+                                <span className="inline-flex items-center px-4 py-2 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 rounded-lg">
+                                  <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                  You have voted
+                                </span>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={handlePollVote}
+                                disabled={!selectedPollOption || pollLoading}
+                                className={`px-8 py-2 rounded-lg font-medium transition-colors ${
+                                  selectedPollOption && !pollLoading
+                                    ? 'bg-yellow-500 hover:bg-yellow-600 text-black' 
+                                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                }`}
+                              >
+                                {pollLoading ? 'Voting...' : 'Vote'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 flex-grow flex items-center justify-center">
+                          <div>
+                            <p className="text-gray-500 dark:text-gray-400 mb-2">No active polls</p>
+                            <p className="text-sm text-gray-400 dark:text-gray-500">Active polls will appear during live broadcasts</p>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center w-full">
+                        <div className="mb-8">
+                          <h3 className="text-xl font-medium text-gray-900 dark:text-white">Vote</h3>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">selects which you prefer the most?</p>
+                        </div>
+                        <p className="text-gray-500 dark:text-gray-400">Polls are only available during live broadcasts</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -324,6 +324,7 @@ export const songRequestService = {
 export const notificationService = {
   getAll: () => api.get('/api/notifications'),
   getUnread: () => api.get('/api/notifications/unread'),
+  getUnreadCount: () => api.get('/api/notifications/count-unread'),
   markAsRead: (id) => api.put(`/api/notifications/${id}/read`),
   getByType: (type) => api.get(`/api/notifications/by-type/${type}`),
   getRecent: (since) => api.get(`/api/notifications/recent?since=${since}`),
