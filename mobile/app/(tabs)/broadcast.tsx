@@ -24,6 +24,7 @@ import { Stack, useLocalSearchParams, useNavigation } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import CustomHeader from '../../components/navigation/CustomHeader';
 import { useAuth } from '../../context/AuthContext';
+import { useBroadcastContext, useNotificationContext } from './_layout';
 import {
   Broadcast,
   ChatMessageDTO,
@@ -225,22 +226,12 @@ interface NowPlayingInfo {
 }
 
 const BroadcastScreen: React.FC = () => {
+  // ALL HOOKS MUST BE CALLED FIRST - BEFORE ANY CONDITIONAL LOGIC
   const authContext = useAuth();
   const navigation = useNavigation();
+  const { setIsBroadcastListening } = useBroadcastContext();
+  const { setIsNotificationOpen } = useNotificationContext();
   
-  // Early safety check for auth context
-  if (!authContext) {
-    return (
-      <View className="flex-1 justify-center items-center bg-anti-flash_white">
-        <ActivityIndicator size="large" color="#91403E" />
-        <Text className="mt-4 text-gray-600 text-lg">Loading authentication...</Text>
-      </View>
-    );
-  }
-
-  const authToken = authContext.authToken;
-  const user = (authContext as any)?.user as UserAuthData | undefined;
-
   const params = useLocalSearchParams();
   const routeBroadcastId = params.broadcastId ? parseInt(params.broadcastId as string, 10) : null;
 
@@ -258,7 +249,7 @@ const BroadcastScreen: React.FC = () => {
   const [isRefreshingBroadcast, setIsRefreshingBroadcast] = useState(false);
 
   const [currentBroadcast, setCurrentBroadcast] = useState<Broadcast | null>(null);
-  // Mock Now Playing Data - replace with API call
+  // Mock Now Playing Data - replace with actual data structure from API
   const [nowPlayingInfo, setNowPlayingInfo] = useState<NowPlayingInfo | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessageDTO[]>([]);
   const [songRequests, setSongRequests] = useState<SongRequestDTO[]>([]);
@@ -270,9 +261,37 @@ const BroadcastScreen: React.FC = () => {
   const [chatInput, setChatInput] = useState('');
   const [songTitleInput, setSongTitleInput] = useState('');
   const [artistInput, setArtistInput] = useState('');
-  const [dedicationInput, setDedicationInput] = useState('');
 
   const chatScrollViewRef = useRef<ScrollView>(null);
+
+  const [tabLayouts, setTabLayouts] = useState<Record<string, { x: number; width: number } | undefined>>({});
+  const underlinePosition = useRef(new Animated.Value(0)).current;
+  const underlineWidth = useRef(new Animated.Value(0)).current;
+  const [isInitialLayoutDone, setIsInitialLayoutDone] = useState(false);
+
+  // Keyboard animation states
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const tabContentTranslateY = useRef(new Animated.Value(0)).current;
+
+  // Poster to tune-in transition animation states
+  const tuneInTranslateX = useRef(new Animated.Value(Dimensions.get('window').width)).current;
+  
+  // Real-time update refs
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+
+  // Early safety check for auth context - AFTER all hooks are called
+  if (!authContext) {
+    return (
+      <View className="flex-1 justify-center items-center bg-anti-flash_white">
+        <ActivityIndicator size="large" color="#91403E" />
+        <Text className="mt-4 text-gray-600 text-lg">Loading authentication...</Text>
+      </View>
+    );
+  }
+
+  const authToken = authContext.authToken;
+  const user = (authContext as any)?.user as UserAuthData | undefined;
 
   const listenerName = useMemo(() => {
     if (!user || typeof user !== 'object') return 'Listener';
@@ -296,24 +315,11 @@ const BroadcastScreen: React.FC = () => {
     return 'Listener';
   }, [user]);
 
-  const [tabLayouts, setTabLayouts] = useState<Record<string, { x: number; width: number } | undefined>>({});
-  const underlinePosition = useRef(new Animated.Value(0)).current;
-  const underlineWidth = useRef(new Animated.Value(0)).current;
-  const [isInitialLayoutDone, setIsInitialLayoutDone] = useState(false);
-
-  // Keyboard animation states
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const tabContentTranslateY = useRef(new Animated.Value(0)).current;
-
-  // Poster to tune-in transition animation states
-  const tuneInTranslateX = useRef(new Animated.Value(Dimensions.get('window').width)).current;
-  
-  // Tab bar animation state
-  const tabBarTranslateY = useRef(new Animated.Value(0)).current;
-
-  // Real-time update refs
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const tabDefinitions: TabDefinition[] = useMemo(() => [
+    { name: 'Chat', icon: 'chatbubbles-outline', key: 'chat' },
+    { name: 'Requests', icon: 'musical-notes-outline', key: 'requests' },
+    { name: 'Polls', icon: 'stats-chart-outline', key: 'polls' },
+  ], []);
 
   // WebSocket integration - for receiving real-time updates only
   const { isConnected: wsIsConnected } = useWebSocket({
@@ -418,12 +424,6 @@ const BroadcastScreen: React.FC = () => {
     };
   }, [tabContentTranslateY]);
 
-  const tabDefinitions: TabDefinition[] = useMemo(() => [
-    { name: 'Chat', icon: 'chatbubbles-outline', key: 'chat' },
-    { name: 'Requests', icon: 'musical-notes-outline', key: 'requests' },
-    { name: 'Polls', icon: 'stats-chart-outline', key: 'polls' },
-  ], []);
-
   useEffect(() => {
     const currentTabLayout = tabLayouts[activeTab];
     if (currentTabLayout && currentTabLayout.width > 0) {
@@ -454,52 +454,42 @@ const BroadcastScreen: React.FC = () => {
   const animateToTuneIn = useCallback(() => {
     // Set listening state first so the interface renders
     setIsListening(true);
+    // Notify parent about listening state change
+    setIsBroadcastListening(true);
     
     // Wait for next frame to ensure component is rendered before animation starts
     requestAnimationFrame(() => {
-      // Start parallel animations for tune-in interface and tab bar
-      Animated.parallel([
-        // Slide tune-in interface from right with spring for natural feel
-        Animated.spring(tuneInTranslateX, {
-          toValue: 0,
-          tension: 65, // Lower tension for slower, smoother movement
-          friction: 10, // Balanced friction for natural movement
-          useNativeDriver: true,
-        }),
-        // Hide tab bar by sliding it down
-        Animated.timing(tabBarTranslateY, {
-          toValue: 100, // Slide down by 100px (enough to hide it)
-          duration: 500, // Longer duration to match back animation
-          easing: Easing.out(Easing.cubic), // Smoother ease-out curve
-          useNativeDriver: true,
-        }),
-      ]).start();
-    });
-  }, [tuneInTranslateX, tabBarTranslateY]);
-
-  // Animation function for going back to poster
-  const animateBackToPoster = useCallback(() => {
-    // Start parallel animations for tune-in interface and tab bar
-    Animated.parallel([
-      // Use spring animation for tune-in interface slide out for smoother feel
+      // Start animation for tune-in interface (tab bar handled by CustomTabBar)
       Animated.spring(tuneInTranslateX, {
-        toValue: Dimensions.get('window').width,
+        toValue: 0,
         tension: 65, // Lower tension for slower, smoother movement
         friction: 10, // Balanced friction for natural movement
         useNativeDriver: true,
-      }),
-      // Show tab bar by sliding it back up - match tune-in animation timing
-      Animated.timing(tabBarTranslateY, {
-        toValue: 0, // Slide back to original position
-        duration: 500, // Longer duration for slower animation
-        easing: Easing.out(Easing.cubic), // Smoother ease-out curve
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
+      }).start();
+    });
+  }, [tuneInTranslateX, setIsBroadcastListening]);
+
+  // Animation function for going back to poster
+  const animateBackToPoster = useCallback(() => {
+    // Notify parent about listening state change
+    setIsBroadcastListening(false);
+    
+    // Start animation for tune-in interface (tab bar handled by CustomTabBar)
+    Animated.spring(tuneInTranslateX, {
+      toValue: Dimensions.get('window').width,
+      tension: 65, // Lower tension for slower, smoother movement
+      friction: 10, // Balanced friction for natural movement
+      useNativeDriver: true,
+    }).start(() => {
       // Animation completed, update listening state
       setIsListening(false);
     });
-  }, [tuneInTranslateX, tabBarTranslateY]);
+  }, [tuneInTranslateX, setIsBroadcastListening]);
+
+  // Notification state change handler for the broadcast screen's CustomHeader
+  const handleNotificationStateChange = useCallback((isOpen: boolean) => {
+    setIsNotificationOpen(isOpen);
+  }, [setIsNotificationOpen]);
 
   // Reset animations when going back to poster (without animation)
   useEffect(() => {
@@ -508,10 +498,19 @@ const BroadcastScreen: React.FC = () => {
       // Use requestAnimationFrame to ensure this happens after render cycle
       requestAnimationFrame(() => {
         tuneInTranslateX.setValue(Dimensions.get('window').width);
-        tabBarTranslateY.setValue(0);
       });
     }
-  }, [isListening, tuneInTranslateX, tabBarTranslateY]);
+  }, [isListening, tuneInTranslateX]);
+
+  // Cleanup effect to reset broadcast listening state on unmount
+  useEffect(() => {
+    return () => {
+      // Reset broadcast listening state when component unmounts
+      setIsBroadcastListening(false);
+      // Also reset notification state to ensure tab bar is visible
+      setIsNotificationOpen(false);
+    };
+  }, [setIsBroadcastListening, setIsNotificationOpen]);
 
   const loadInitialDataForBroadcastScreen = useCallback(async (isBackgroundUpdate = false) => {
     if (!authToken || !authContext) {
@@ -667,39 +666,6 @@ const BroadcastScreen: React.FC = () => {
     }
   }, [chatMessages]);
 
-  // Control tab bar animation based on listening state
-  useEffect(() => {
-    // Pass the animation value to the tab bar through navigation options
-    const tabBarStyle = {
-      transform: [{ translateY: tabBarTranslateY }],
-    };
-    
-    // Set options on current navigation
-    navigation.setOptions({
-      tabBarStyle,
-    });
-    
-    // Also set on parent navigation for redundancy
-    const parent = navigation.getParent();
-    if (parent) {
-      parent.setOptions({
-        tabBarStyle,
-      });
-    }
-    
-    // Cleanup: reset tab bar when component unmounts
-    return () => {
-      navigation.setOptions({
-        tabBarStyle: undefined,
-      });
-      if (parent) {
-        parent.setOptions({
-          tabBarStyle: undefined,
-        });
-      }
-    };
-  }, [navigation, tabBarTranslateY]);
-
   // Handle WebSocket reconnection when app becomes active
   useEffect(() => {
     const handleWebSocketReconnection = (nextAppState: AppStateStatus) => {
@@ -784,7 +750,6 @@ const BroadcastScreen: React.FC = () => {
     const payload = {
       songTitle: songTitleInput,
       artist: artistInput,
-      dedication: dedicationInput.trim() || undefined,
     };
     const result = await createSongRequest(currentBroadcast.id, payload, authToken);
     if ('error' in result) {
@@ -793,7 +758,6 @@ const BroadcastScreen: React.FC = () => {
       Alert.alert("Success", "Song requested successfully!");
       setSongTitleInput('');
       setArtistInput('');
-      setDedicationInput('');
     }
     setIsSubmitting(false);
   };
@@ -1091,150 +1055,163 @@ const BroadcastScreen: React.FC = () => {
   );
 
   const renderRequestsTab = () => (
-    <ScrollView 
-      style={styles.tabContentContainer} 
-      className="flex-1 bg-gray-50" 
-      contentContainerStyle={{ paddingBottom: 30}}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefreshingRequests}
-          onRefresh={refreshRequestsData}
-          colors={['#91403E']}
-          tintColor="#91403E"
-          title="Pull to refresh requests"
-          titleColor="#91403E"
-        />
-      }
-    >
-      <View className="px-5 pt-6 pb-5">
-        <View className="flex-row items-center mb-3">
-          <View className="bg-red-500/10 p-3 rounded-full mr-3">
-            <MaterialCommunityIcons name="music-note-plus" size={26} color="#EF4444" /> 
+    <View style={styles.tabContentContainer} className="flex-1 bg-gray-50">
+      {/* Fixed Request Song Header */}
+      <View className="px-5 pt-6 pb-4 bg-gradient-to-r from-white to-gray-50 border-b border-gray-100">
+        <View className="flex-row items-center justify-between">
+          <View className="flex-row items-center flex-1">
+            <View className="bg-red-500/10 p-3 rounded-full mr-3">
+              <MaterialCommunityIcons name="music-note-plus" size={26} color="#EF4444" /> 
+            </View>
+            <View>
+              <Text className="text-xl font-bold text-gray-800">Request a Song</Text>
+              <Text className="text-sm text-gray-600">Let us know what you'd like to hear next</Text>
+            </View>
           </View>
-          <View>
-            <Text className="text-xl font-bold text-gray-800">Request a Song</Text>
-            <Text className="text-sm text-gray-600">Let us know what you'd like to hear next</Text>
+          
+          {/* Status indicator */}
+          <View className="flex-row items-center">
+            {isRefreshingRequests && (
+              <ActivityIndicator size="small" color="#EF4444" className="mr-2" />
+            )}
           </View>
         </View>
-
-        <View className="mt-5">
-          <Text className="text-sm font-medium text-gray-700 mb-1.5 ml-1">Song Title</Text>
-          <TextInput
-            placeholder="Enter song title"
-            value={songTitleInput}
-            onChangeText={setSongTitleInput}
-            editable={!isSubmitting && !!currentBroadcast}
-            className="bg-white border border-gray-300 rounded-lg p-3.5 text-base shadow-sm text-gray-800 placeholder-gray-400 focus:border-mikado_yellow focus:ring-1 focus:ring-mikado_yellow"
-          />
-        </View>
-
-        <View className="mt-5">
-          <Text className="text-sm font-medium text-gray-700 mb-1.5 ml-1">Artist</Text>
-          <TextInput
-            placeholder="Enter artist name"
-            value={artistInput}
-            onChangeText={setArtistInput}
-            editable={!isSubmitting && !!currentBroadcast}
-            className="bg-white border border-gray-300 rounded-lg p-3.5 text-base shadow-sm text-gray-800 placeholder-gray-400 focus:border-mikado_yellow focus:ring-1 focus:ring-mikado_yellow"
-          />
-        </View>
-
-        <View className="mt-5">
-          <Text className="text-sm font-medium text-gray-700 mb-1.5 ml-1">Dedication (Optional)</Text>
-          <TextInput
-            placeholder="Add a message or dedication"
-            value={dedicationInput}
-            onChangeText={setDedicationInput}
-            editable={!isSubmitting && !!currentBroadcast}
-            multiline
-            numberOfLines={4}
-            textAlignVertical="top"
-            className="bg-white border border-gray-300 rounded-lg p-3.5 text-base shadow-sm h-28 text-gray-800 placeholder-gray-400 focus:border-mikado_yellow focus:ring-1 focus:ring-mikado_yellow"
-            style={{ height: 112 }}
-          />
-        </View>
-
-        <TouchableOpacity
-          className={`py-3.5 px-5 rounded-lg shadow-md items-center mt-8 ${currentBroadcast && songTitleInput.trim() && artistInput.trim() && !isSubmitting ? 'bg-mikado_yellow active:bg-mikado_yellow/90' : 'bg-gray-300'}`}
-          onPress={handleCreateSongRequest}
-          disabled={isSubmitting || !currentBroadcast || !songTitleInput.trim() || !artistInput.trim()}
-        >
-          {isSubmitting ? <ActivityIndicator color="#27272a" size="small"/> : <Text className="text-zinc-900 font-semibold text-base">Submit Request</Text>}
-        </TouchableOpacity>
-
-        <Text className="text-xs text-gray-500 text-center mt-8 px-4">
-          Song requests are subject to availability and DJ's playlist.
-        </Text>
       </View>
-    </ScrollView>
+
+      <ScrollView
+        className="flex-1 bg-gray-50"
+        contentContainerStyle={{ paddingBottom: 30 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshingRequests}
+            onRefresh={refreshRequestsData}
+            colors={['#91403E']}
+            tintColor="#91403E"
+            title="Pull to refresh requests"
+            titleColor="#91403E"
+          />
+        }
+      >
+        <View className="px-5 pt-4">
+          <View className="mt-2">
+            <Text className="text-sm font-medium text-gray-700 mb-1.5 ml-1">Song Title</Text>
+            <TextInput
+              placeholder="Enter song title"
+              placeholderTextColor="#6B7280"
+              value={songTitleInput}
+              onChangeText={setSongTitleInput}
+              editable={!isSubmitting && !!currentBroadcast}
+              className="bg-white border border-gray-300 rounded-lg p-3.5 text-base shadow-sm text-gray-800 focus:border-mikado_yellow focus:ring-1 focus:ring-mikado_yellow"
+              style={{ fontSize: 16 }}
+            />
+          </View>
+
+          <View className="mt-5">
+            <Text className="text-sm font-medium text-gray-700 mb-1.5 ml-1">Artist</Text>
+            <TextInput
+              placeholder="Enter artist name"
+              placeholderTextColor="#6B7280" 
+              value={artistInput}
+              onChangeText={setArtistInput}
+              editable={!isSubmitting && !!currentBroadcast}
+              className="bg-white border border-gray-300 rounded-lg p-3.5 text-base shadow-sm text-gray-800 focus:border-mikado_yellow focus:ring-1 focus:ring-mikado_yellow"
+              style={{ fontSize: 16 }}
+            />
+          </View>
+
+          <TouchableOpacity
+            className={`py-3.5 px-5 rounded-lg shadow-md items-center mt-8 ${currentBroadcast && songTitleInput.trim() && artistInput.trim() && !isSubmitting ? 'bg-mikado_yellow active:bg-mikado_yellow/90' : 'bg-gray-300'}`}
+            onPress={handleCreateSongRequest}
+            disabled={isSubmitting || !currentBroadcast || !songTitleInput.trim() || !artistInput.trim()}
+          >
+            {isSubmitting ? <ActivityIndicator color="#27272a" size="small"/> : <Text className="text-zinc-900 font-semibold text-base">Submit Request</Text>}
+          </TouchableOpacity>
+
+          <Text className="text-xs text-gray-500 text-center mt-8 px-4">
+            Song requests are subject to availability and DJ's playlist.
+          </Text>
+        </View>
+      </ScrollView>
+    </View>
   );
 
  const renderPollsTab = () => (
-    <ScrollView 
-      style={styles.tabContentContainer} 
-      className="flex-1 bg-gray-50" 
-      contentContainerStyle={{ paddingBottom: 30}}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefreshingPolls}
-          onRefresh={refreshPollsData}
-          colors={['#91403E']}
-          tintColor="#91403E"
-          title="Pull to refresh polls"
-          titleColor="#91403E"
-        />
-      }
-    >
-      <View className="px-5 pt-6 pb-3">
-        <View className="flex-row items-center mb-3">
-          <View className="bg-green-500/10 p-3 rounded-full mr-3">
-            <Ionicons name="stats-chart-outline" size={26} color="#22C55E" /> 
+    <View style={styles.tabContentContainer} className="flex-1 bg-gray-50">
+      {/* Fixed Polls Header */}
+      <View className="px-5 pt-6 pb-4 bg-gradient-to-r from-white to-gray-50 border-b border-gray-100">
+        <View className="flex-row items-center justify-between">
+          <View className="flex-row items-center flex-1">
+            <View className="bg-green-500/10 p-3 rounded-full mr-3">
+              <Ionicons name="stats-chart-outline" size={26} color="#22C55E" /> 
+            </View>
+            <View>
+              <Text className="text-xl font-bold text-gray-800">Active Polls</Text>
+              <Text className="text-sm text-gray-600">Voice your opinion on current topics</Text>
+            </View>
           </View>
-          <View>
-            <Text className="text-xl font-bold text-gray-800">Active Polls</Text>
-            <Text className="text-sm text-gray-600">Voice your opinion on current topics</Text>
+          
+          {/* Status indicator */}
+          <View className="flex-row items-center">
+            {isRefreshingPolls && (
+              <ActivityIndicator size="small" color="#22C55E" className="mr-2" />
+            )}
           </View>
         </View>
       </View>
 
-      <View className="px-5">
-        {(isLoading && activePolls.length === 0) && <ActivityIndicator color="#91403E" className="my-5"/>}
-        {!isLoading && activePolls.length === 0 && (
-          <View className="items-center justify-center py-10 flex-1">
-            <Ionicons name="stats-chart-outline" size={40} color="#A0A0A0" />
-            <Text className="text-gray-500 mt-2">No active polls right now.</Text>
-          </View>
-        )}
-        {activePolls.length > 0 && (
-          <View className="flex-1">
-            {activePolls.map(poll => (
-              <View key={poll.id} className="bg-white p-4 rounded-lg shadow mb-3">
-                <Text className="text-base font-semibold text-gray-800 mb-2">{poll.question}</Text>
-                {poll.options.map(opt => (
-                  <TouchableOpacity
-                    key={opt.id} 
-                    className={`bg-gray-100 p-3 rounded-md my-1 active:bg-gray-200 hover:bg-gray-200 border border-gray-200 ${isSubmitting ? 'opacity-70' : ''}`}
-                    onPress={() => !isSubmitting && currentBroadcast && handleVoteOnPoll(poll.id, opt.id)}
-                    disabled={isSubmitting || !currentBroadcast || !poll.isActive}
-                  >
-                    <View className="flex-row justify-between items-center">
-                      <Text className={`text-sm ${!poll.isActive ? 'text-gray-400' : 'text-gray-700'}`}>{opt.text}</Text>
-                      {(poll.isEnded) && <Text className="text-xs text-cordovan font-medium">{opt.voteCount} votes</Text>}
-                    </View>
-                  </TouchableOpacity>
-                ))}
-                {!poll.isActive && poll.isEnded && (
-                    <Text className="text-xs text-gray-500 font-semibold mt-2 text-right">Poll Ended</Text>
-                )}
-                {!poll.isActive && !poll.isEnded && (
-                    <Text className="text-xs text-gray-400 font-semibold mt-2 text-right">Poll Not Yet Active</Text>
-                )}
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
-    </ScrollView>
+      <ScrollView
+        className="flex-1 bg-gray-50"
+        contentContainerStyle={{ paddingBottom: 30 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshingPolls}
+            onRefresh={refreshPollsData}
+            colors={['#91403E']}
+            tintColor="#91403E"
+            title="Pull to refresh polls"
+            titleColor="#91403E"
+          />
+        }
+      >
+        <View className="px-5 pt-4">
+          {(isLoading && activePolls.length === 0) && <ActivityIndicator color="#91403E" className="my-5"/>}
+          {!isLoading && activePolls.length === 0 && (
+            <View className="items-center justify-center py-10 flex-1">
+              <Ionicons name="stats-chart-outline" size={40} color="#A0A0A0" />
+              <Text className="text-gray-500 mt-2">No active polls right now.</Text>
+            </View>
+          )}
+          {activePolls.length > 0 && (
+            <View className="flex-1">
+              {activePolls.map(poll => (
+                <View key={poll.id} className="bg-white p-4 rounded-lg shadow mb-3">
+                  <Text className="text-base font-semibold text-gray-800 mb-2">{poll.question}</Text>
+                  {poll.options.map(opt => (
+                    <TouchableOpacity
+                      key={opt.id} 
+                      className={`bg-gray-100 p-3 rounded-md my-1 active:bg-gray-200 hover:bg-gray-200 border border-gray-200 ${isSubmitting ? 'opacity-70' : ''}`}
+                      onPress={() => !isSubmitting && currentBroadcast && handleVoteOnPoll(poll.id, opt.id)}
+                      disabled={isSubmitting || !currentBroadcast || !poll.isActive}
+                    >
+                      <View className="flex-row justify-between items-center">
+                        <Text className={`text-sm ${!poll.isActive ? 'text-gray-400' : 'text-gray-700'}`}>{opt.text}</Text>
+                        {(poll.isEnded) && <Text className="text-xs text-cordovan font-medium">{opt.voteCount} votes</Text>}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                  {!poll.isActive && poll.isEnded && (
+                      <Text className="text-xs text-gray-500 font-semibold mt-2 text-right">Poll Ended</Text>
+                  )}
+                  {!poll.isActive && !poll.isEnded && (
+                      <Text className="text-xs text-gray-400 font-semibold mt-2 text-right">Poll Not Yet Active</Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      </ScrollView>
+    </View>
   );
 
   const renderTabContent = () => {
@@ -1317,7 +1294,7 @@ const BroadcastScreen: React.FC = () => {
               <View className="flex-1">
                 <View className="flex-row items-center mb-1">
                   <View className="w-2 h-2 bg-cordovan rounded-full mr-2" />
-                  <Text className="text-gray-600 text-xs font-bold uppercase tracking-wide">
+                  <Text className="text-gray-800 text-sm font-bold uppercase tracking-wide">
                     NOW PLAYING
                   </Text>
                 </View>
@@ -1374,6 +1351,7 @@ const BroadcastScreen: React.FC = () => {
         showBackButton={isListening}
         onBackPress={isListening ? animateBackToPoster : undefined}
         showNotification={true}
+        onNotificationStateChange={handleNotificationStateChange}
       />
       
       {!currentBroadcast && !isLoading ? (

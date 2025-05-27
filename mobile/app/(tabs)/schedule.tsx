@@ -38,8 +38,8 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // Constants for calendar layout
 const HORIZONTAL_PADDING_SCREEN = 20; // Corresponds to px-5 on the ScrollView
-const PADDING_CALENDAR_CARD = 12;    // Corresponds to p-3 on the calendar card View
-const GAP_BETWEEN_CELLS = 4;         // Corresponds to gap-1 in Tailwind (0.25rem = 4px)
+const PADDING_CALENDAR_CARD = 16;    // Adjusted for p-4 on the calendar grid container
+const GAP_BETWEEN_CELLS = 8;         // Increased from 4 to 8 (corresponds to gap-2)
 const NUM_DAYS_IN_WEEK = 7;
 
 const calculateDayCellSize = () => {
@@ -187,7 +187,7 @@ const ScheduleScreen: React.FC = () => {
         style={[
           styles.dayCellTouchable,
           isSelectedDate && {
-            transform: [{ scale: 0.95 }],
+            transform: [{ scale: 0.98 }],
             shadowColor: '#B5830F',
             shadowOffset: { width: 0, height: 4 },
             shadowOpacity: 0.3,
@@ -200,13 +200,17 @@ const ScheduleScreen: React.FC = () => {
       >
         <View 
           className={`
-            w-full h-full items-center justify-center rounded-xl relative overflow-hidden
+            w-full h-full items-center justify-center rounded-lg relative overflow-hidden
             ${isCurrentDisplayMonth ? 'bg-white' : 'bg-gray-100/50'} 
             ${isSelectedDate ? 'bg-mikado_yellow' : isTodayDate ? 'bg-cordovan/15' : ''}
-            border-2 border-transparent
+            border border-transparent
             ${isSelectedDate ? 'border-mikado_yellow' : isTodayDate ? 'border-cordovan/40' : hasBroadcasts ? 'border-cordovan/20' : ''}
           `}
           style={[
+            {
+              width: DAY_CELL_SIZE,
+              height: DAY_CELL_SIZE,
+            },
             isSelectedDate && {
               shadowColor: '#B5830F',
               shadowOffset: { width: 0, height: 2 },
@@ -222,7 +226,7 @@ const ScheduleScreen: React.FC = () => {
           {/* Pulse effect for today */}
           {isTodayDate && !isSelectedDate && (
             <View 
-              className="absolute inset-0 bg-cordovan/10 rounded-xl"
+              className="absolute inset-0 bg-cordovan/10 rounded-lg"
               style={{
                 opacity: 0.6,
               }}
@@ -231,7 +235,7 @@ const ScheduleScreen: React.FC = () => {
           
           <Text
             className={`
-              text-sm font-semibold
+              text-base font-semibold
               ${isSelectedDate ? 'text-black' : isTodayDate ? 'text-cordovan font-bold' : isCurrentDisplayMonth ? 'text-gray-700' : 'text-gray-400'}
             `}
           >
@@ -416,10 +420,18 @@ const ScheduleScreen: React.FC = () => {
               backgroundColor: '#91403E',
             }}
           >
-            <View className="flex-row mb-2">
+            <View className="flex-row justify-center gap-2 mb-2">
               {weekdays.map(day => (
-                <View key={day} style={[styles.weekdayCell, {width: DAY_CELL_SIZE}]}>
-                  <Text className="text-sm font-bold text-white/95 tracking-wider">
+                <View 
+                  key={day} 
+                  style={[
+                    styles.weekdayCell, 
+                    {
+                      width: DAY_CELL_SIZE,
+                    }
+                  ]}
+                >
+                  <Text className="text-xs font-bold text-white/95 tracking-wider">
                     {day.toUpperCase()}
                   </Text>
                 </View>
@@ -429,7 +441,7 @@ const ScheduleScreen: React.FC = () => {
           
           {/* Day Cells Grid */}
           <View className="p-4 bg-gray-50/30">
-            <View className="flex-row flex-wrap gap-2 justify-start">
+            <View className="flex-row flex-wrap gap-2 justify-center">
               {daysForCalendarGrid.map(day => renderDayCell(day))}
             </View>
           </View>
@@ -671,6 +683,8 @@ const styles = StyleSheet.create({
   dayCellTouchable: {
     width: DAY_CELL_SIZE,
     height: DAY_CELL_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
     // No margin here, gap on parent will handle it
   },
   weekdayCell: {

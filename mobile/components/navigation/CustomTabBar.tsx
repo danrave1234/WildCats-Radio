@@ -23,13 +23,21 @@ const TabBarIcon: React.FC<TabBarIconProps> = ({ name, size = ICON_SIZE, color }
   return <Ionicons name={name} size={size} color={color} />;
 };
 
-const CustomTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, navigation }) => {
+interface CustomTabBarProps extends BottomTabBarProps {
+  isNotificationOpen?: boolean;
+  isBroadcastListening?: boolean;
+}
+
+const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigation, isNotificationOpen = false, isBroadcastListening = false }) => {
   // Animation values for the indicator line
   const [tabLayouts, setTabLayouts] = useState<Record<string, { x: number; width: number } | undefined>>({});
   const underlinePosition = useRef(new Animated.Value(0)).current;
   const underlineWidth = useRef(new Animated.Value(0)).current;
   const underlineOpacity = useRef(new Animated.Value(1)).current;
   const [isInitialLayoutDone, setIsInitialLayoutDone] = useState(false);
+  
+  // Tab bar hide animation
+  const tabBarTranslateY = useRef(new Animated.Value(0)).current;
 
   // Safety check for required props
   if (!state || !state.routes || !descriptors || !navigation) {
@@ -85,8 +93,40 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, navigat
     }
   }, [state?.index, tabLayouts, underlinePosition, underlineWidth, underlineOpacity, isInitialLayoutDone]);
 
+  // Effect to handle tab bar hide/show animation based on notification or broadcast state
+  useEffect(() => {
+    // Priority: notification takes precedence over broadcast listening
+    if (isNotificationOpen) {
+      // Hide tab bar by sliding down for notifications - faster to sync with notification opening
+      Animated.timing(tabBarTranslateY, {
+        toValue: TAB_BAR_HEIGHT + 20, // Move down by tab bar height plus some extra
+        duration: 250, // Faster animation to sync with notification
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    } else if (isBroadcastListening) {
+      // Hide tab bar by sliding down for broadcast tune-in - slower animation to match screen transition
+      Animated.timing(tabBarTranslateY, {
+        toValue: TAB_BAR_HEIGHT + 20, // Move down by tab bar height plus some extra
+        duration: 500, // Slower animation to match broadcast screen transition
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    } else {
+      // Show tab bar by sliding up - use moderate speed that works well for both scenarios
+      Animated.timing(tabBarTranslateY, {
+        toValue: 0,
+        duration: 350, // Balanced duration that works well for both notification and broadcast returns
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isNotificationOpen, isBroadcastListening, tabBarTranslateY]);
+
   return (
-    <Animated.View style={[styles.container, animatedStyle]}>
+    <Animated.View style={[styles.container, animatedStyle, {
+      transform: [{ translateY: tabBarTranslateY }]
+    }]}>
       <View style={styles.tabBar}>
         {/* Animated Line Indicator - Placed at top of container */}
         <Animated.View
