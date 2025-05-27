@@ -9,7 +9,7 @@ export default function TabLayout() {
       tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{
         headerShown: true,
-        header: (props) => <CustomHeader {...props} />,
+        header: () => <CustomHeader />,
       }}
     >
       <Tabs.Screen name="home" />

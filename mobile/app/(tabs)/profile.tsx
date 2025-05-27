@@ -67,8 +67,7 @@ const ProfileScreen: React.FC = () => {
 
   // States for Personal Information Edit Form
   const [isEditingPersonalInfo, setIsEditingPersonalInfo] = useState(false);
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
@@ -135,8 +134,8 @@ const ProfileScreen: React.FC = () => {
         setUserData(null);
       } else {
         setUserData(data);
-        setFirstName(data.firstName || (data.fullName || data.name || '').split(' ')[0] || '');
-        setLastName(data.lastName || (data.fullName || data.name || '').split(' ').slice(1).join(' ') || '');
+        // Use the name field from the backend
+        setFullName(data.name || '');
         setEmail(data.email || '');
       }
     } catch (apiError: any) {
@@ -163,7 +162,12 @@ const ProfileScreen: React.FC = () => {
     if (!userData?.id || !authToken) return;
     setIsUpdatingProfile(true);
     setError(null);
-    const payload: UpdateUserProfilePayload = { firstName, lastName };
+    
+    // Send the name directly to match backend's UserDTO structure
+    const payload: UpdateUserProfilePayload = { 
+      fullName: fullName.trim() 
+    };
+    
     const response = await updateUserProfile(userData.id, authToken, payload);
     setIsUpdatingProfile(false);
     if (response.error) {
@@ -216,16 +220,9 @@ const ProfileScreen: React.FC = () => {
             <Text className="text-2xl font-semibold text-cordovan mb-8">Edit Personal Information</Text>
           <View className={formVerticalSpacing}>
             <AnimatedTextInput
-              label="First Name"
-              value={firstName}
-              onChangeText={setFirstName}
-              editable={!isUpdatingProfile}
-              autoCapitalize="words"
-            />
-            <AnimatedTextInput
-              label="Last Name"
-              value={lastName}
-              onChangeText={setLastName}
+              label="Full Name"
+              value={fullName}
+              onChangeText={setFullName}
               editable={!isUpdatingProfile}
               autoCapitalize="words"
             />
@@ -308,16 +305,8 @@ const ProfileScreen: React.FC = () => {
             <View className="flex-row items-center py-4 border-b border-gray-200">
               <Ionicons name="person-outline" size={22} color="#8C1D18" className="mr-4" />
               <View>
-                <Text className="text-sm text-cordovan font-medium">FIRST NAME</Text>
-                <Text className="text-lg text-gray-800 mt-0.5">{userData?.firstName || firstName || 'N/A'}</Text>
-              </View>
-            </View>
-
-            <View className="flex-row items-center py-4 border-b border-gray-200">
-              <Ionicons name="person-outline" size={22} color="#8C1D18" className="mr-4" />
-              <View>
-                <Text className="text-sm text-cordovan font-medium">LAST NAME</Text>
-                <Text className="text-lg text-gray-800 mt-0.5">{userData?.lastName || lastName || 'N/A'}</Text>
+                <Text className="text-sm text-cordovan font-medium">FULL NAME</Text>
+                <Text className="text-lg text-gray-800 mt-0.5">{fullName || 'N/A'}</Text>
               </View>
             </View>
 
@@ -442,7 +431,7 @@ const ProfileScreen: React.FC = () => {
     );
   }
   
-  const currentDisplayName = userData?.fullName || userData?.name || 'User Name';
+  const currentDisplayName = userData?.name || 'User Name';
   const memberSinceText = userData?.memberSince || `Listener since ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
 
   return (

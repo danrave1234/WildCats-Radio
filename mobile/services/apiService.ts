@@ -24,8 +24,7 @@ export interface UserData {
 
 // Interface for updating user profile (firstName, lastName, email)
 export interface UpdateUserProfilePayload {
-  firstName?: string;
-  lastName?: string;
+  fullName?: string;
   email?: string;
   // Add any other updatable fields here
 }

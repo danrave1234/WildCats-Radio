@@ -455,41 +455,44 @@ const BroadcastScreen: React.FC = () => {
     // Set listening state first so the interface renders
     setIsListening(true);
     
-    // Start parallel animations for tune-in interface and tab bar
-    Animated.parallel([
-      // Slide tune-in interface from right
-      Animated.timing(tuneInTranslateX, {
-        toValue: 0,
-        duration: 600, // Longer duration for smoother feel
-        easing: Easing.out(Easing.cubic), // iOS-like easing curve
-        useNativeDriver: true,
-      }),
-      // Hide tab bar by sliding it down
-      Animated.timing(tabBarTranslateY, {
-        toValue: 100, // Slide down by 100px (enough to hide it)
-        duration: 400, // Slightly faster than tune-in animation
-        easing: Easing.in(Easing.cubic), // Accelerate as it goes down
-        useNativeDriver: true,
-      }),
-    ]).start();
+    // Wait for next frame to ensure component is rendered before animation starts
+    requestAnimationFrame(() => {
+      // Start parallel animations for tune-in interface and tab bar
+      Animated.parallel([
+        // Slide tune-in interface from right with spring for natural feel
+        Animated.spring(tuneInTranslateX, {
+          toValue: 0,
+          tension: 65, // Lower tension for slower, smoother movement
+          friction: 10, // Balanced friction for natural movement
+          useNativeDriver: true,
+        }),
+        // Hide tab bar by sliding it down
+        Animated.timing(tabBarTranslateY, {
+          toValue: 100, // Slide down by 100px (enough to hide it)
+          duration: 500, // Longer duration to match back animation
+          easing: Easing.out(Easing.cubic), // Smoother ease-out curve
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
   }, [tuneInTranslateX, tabBarTranslateY]);
 
   // Animation function for going back to poster
   const animateBackToPoster = useCallback(() => {
     // Start parallel animations for tune-in interface and tab bar
     Animated.parallel([
-      // Slide tune-in interface back to the right
-      Animated.timing(tuneInTranslateX, {
+      // Use spring animation for tune-in interface slide out for smoother feel
+      Animated.spring(tuneInTranslateX, {
         toValue: Dimensions.get('window').width,
-        duration: 500, // Slightly faster for back navigation
-        easing: Easing.in(Easing.cubic), // iOS-like back navigation easing
+        tension: 65, // Lower tension for slower, smoother movement
+        friction: 10, // Balanced friction for natural movement
         useNativeDriver: true,
       }),
-      // Show tab bar by sliding it back up
+      // Show tab bar by sliding it back up - match tune-in animation timing
       Animated.timing(tabBarTranslateY, {
         toValue: 0, // Slide back to original position
-        duration: 400, // Slightly faster than tune-in animation
-        easing: Easing.out(Easing.cubic), // Decelerate as it comes up
+        duration: 500, // Longer duration for slower animation
+        easing: Easing.out(Easing.cubic), // Smoother ease-out curve
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -502,8 +505,11 @@ const BroadcastScreen: React.FC = () => {
   useEffect(() => {
     if (!isListening) {
       // Reset animation values immediately when going back to poster
-      tuneInTranslateX.setValue(Dimensions.get('window').width);
-      tabBarTranslateY.setValue(0);
+      // Use requestAnimationFrame to ensure this happens after render cycle
+      requestAnimationFrame(() => {
+        tuneInTranslateX.setValue(Dimensions.get('window').width);
+        tabBarTranslateY.setValue(0);
+      });
     }
   }, [isListening, tuneInTranslateX, tabBarTranslateY]);
 
@@ -1365,7 +1371,6 @@ const BroadcastScreen: React.FC = () => {
       
       {/* Custom Header - Always visible */}
       <CustomHeader 
-        title="Wildcat Radio"
         showBackButton={isListening}
         onBackPress={isListening ? animateBackToPoster : undefined}
         showNotification={true}
