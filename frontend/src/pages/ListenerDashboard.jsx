@@ -208,7 +208,7 @@ export default function ListenerDashboard() {
             try {
               const streamUrl = serverConfig.streamUrl.startsWith('http') 
                 ? serverConfig.streamUrl 
-                : `http://${serverConfig.streamUrl}`
+                : `https://${serverConfig.streamUrl}`
 
               if (audioRef.current) {
                 console.log('Resetting audio src to:', streamUrl)
@@ -241,7 +241,7 @@ export default function ListenerDashboard() {
 
       const streamUrl = serverConfig.streamUrl.startsWith('http') 
         ? serverConfig.streamUrl 
-        : `http://${serverConfig.streamUrl}`
+        : `https://${serverConfig.streamUrl}`
       audioRef.current.src = streamUrl
       console.log('Stream URL set:', streamUrl)
     }
@@ -993,9 +993,9 @@ export default function ListenerDashboard() {
       } else {
         console.log('Starting playback')
         const currentSrc = audioRef.current.src
-        const expectedSrc = serverConfig.streamUrl.startsWith('http') 
-          ? serverConfig.streamUrl 
-          : `http://${serverConfig.streamUrl}`
+        const expectedSrc = serverConfig.streamUrl.startsWith('http')
+          ? serverConfig.streamUrl
+          : `https://${serverConfig.streamUrl}`
 
         if (!currentSrc || currentSrc !== expectedSrc || currentSrc.includes('localhost:5173') || currentSrc.startsWith('blob:') || currentSrc === 'about:blank') {
           console.log('Setting new stream URL:', expectedSrc)
@@ -1086,7 +1086,7 @@ export default function ListenerDashboard() {
 
         const streamUrl = serverConfig.streamUrl.startsWith('http') 
           ? serverConfig.streamUrl 
-          : `http://${serverConfig.streamUrl}`
+          : `https://${serverConfig.streamUrl}`
 
         console.log('Setting new stream URL during refresh:', streamUrl)
 
@@ -1103,9 +1103,9 @@ export default function ListenerDashboard() {
 
         try {
           audioRef.current.pause()
-          const streamUrl = serverConfig.streamUrl.startsWith('http') 
-            ? serverConfig.streamUrl 
-            : `http://${serverConfig.streamUrl}`
+          const streamUrl = serverConfig.streamUrl.startsWith('http')
+            ? serverConfig.streamUrl
+            : `https://${serverConfig.streamUrl}`
           audioRef.current.src = streamUrl
         } catch (cleanupError) {
           console.error('Error cleaning up audio element:', cleanupError)

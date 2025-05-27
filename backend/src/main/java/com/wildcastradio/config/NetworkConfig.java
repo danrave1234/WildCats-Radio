@@ -277,9 +277,8 @@ public class NetworkConfig {
 
     // URL helpers for various components
     public String getIcecastUrl() {
-        // Use HTTPS for port 443, HTTP for other ports
-        String protocol = (icecastPort == 443) ? "https" : "http";
-        return protocol + "://" + icecastHost + ":" + icecastPort;
+        // Always use HTTPS and port 443 for Vercel deployment compatibility
+        return "https://" + icecastHost + ":" + 443;
     }
 
     public String getWebSocketUrl() {
