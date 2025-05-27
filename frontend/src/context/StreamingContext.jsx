@@ -174,6 +174,76 @@ export function StreamingProvider({ children }) {
     localStorage.setItem('wildcats_muted', isMuted.toString());
   };
 
+  // Restore MediaRecorder for DJ after page refresh or reconnection
+  const restoreDJStreaming = async () => {
+    if (!isLive || !currentBroadcast) {
+      console.log('Cannot restore DJ streaming: not live or no current broadcast');
+      return false;
+    }
+
+    try {
+      console.log('Attempting to restore DJ streaming...');
+
+      // Get microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+
+      audioStreamRef.current = stream;
+
+      // Create new MediaRecorder
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: "audio/webm;codecs=opus",
+        audioBitsPerSecond: 128000
+      });
+
+      mediaRecorderRef.current = mediaRecorder;
+
+      // Ensure WebSocket is connected
+      if (!djWebSocketRef.current || djWebSocketRef.current.readyState !== WebSocket.OPEN) {
+        console.log('WebSocket not connected, connecting...');
+        connectDJWebSocket();
+        
+        // Wait for WebSocket to connect
+        return new Promise((resolve) => {
+          const checkConnection = () => {
+            if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+              setupMediaRecorderConnection();
+              resolve(true);
+            } else {
+              setTimeout(checkConnection, 100);
+            }
+          };
+          checkConnection();
+        });
+      } else {
+        setupMediaRecorderConnection();
+        return true;
+      }
+
+      function setupMediaRecorderConnection() {
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+            event.data.arrayBuffer().then(buffer => {
+              djWebSocketRef.current.send(buffer);
+            });
+          }
+        };
+
+        mediaRecorder.start(250);
+        console.log('DJ streaming restored successfully');
+      }
+
+    } catch (error) {
+      console.error('Error restoring DJ streaming:', error);
+      return false;
+    }
+  };
+
   // Check and restore DJ state
   const checkAndRestoreDJState = async () => {
     try {
@@ -185,16 +255,32 @@ export function StreamingProvider({ children }) {
         setCurrentBroadcast(activeBroadcast);
         setIsLive(true);
 
-        // Only reconnect WebSocket for streaming if user was previously broadcasting
+        // Check local storage to see if this user was the one broadcasting
         const djState = localStorage.getItem(STORAGE_KEYS.DJ_BROADCASTING_STATE);
         if (djState) {
           const parsed = JSON.parse(djState);
-          if (parsed.isLive && parsed.websocketConnected) {
-            // Attempt to reconnect streaming WebSocket
+          // If local state shows this user was broadcasting and the broadcast matches
+          if (parsed.isLive && parsed.currentBroadcast?.id === activeBroadcast.id) {
+            console.log('Restoring DJ streaming connection for active broadcast');
+            
+            // Reconnect DJ WebSocket for streaming
             connectDJWebSocket();
+            
+            // Note: MediaRecorder cannot be restored automatically after page refresh
+            // due to browser security - microphone access requires user interaction
+            // The DJ will need to manually start streaming again by clicking the start button
+            console.log('MediaRecorder requires manual restart due to browser security');
+          } else {
+            console.log('Active broadcast found but this user was not the broadcaster');
+            // This user is viewing someone else's active broadcast
+            setWebsocketConnected(false);
           }
+        } else {
+          console.log('No local DJ state found, user is viewing active broadcast');
+          setWebsocketConnected(false);
         }
       } else {
+        console.log('No active broadcast found on server');
         // No active broadcast on server, clear local state
         setIsLive(false);
         setCurrentBroadcast(null);
@@ -208,6 +294,8 @@ export function StreamingProvider({ children }) {
       setIsLive(false);
       setCurrentBroadcast(null);
       setWebsocketConnected(false);
+      localStorage.removeItem(STORAGE_KEYS.DJ_BROADCASTING_STATE);
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_BROADCAST);
     }
   };
 
@@ -243,15 +331,47 @@ export function StreamingProvider({ children }) {
   const restoreAudioPlayback = () => {
     if (!audioRef.current && serverConfig?.streamUrl) {
       audioRef.current = new Audio();
-      audioRef.current.src = serverConfig.streamUrl;
+      
+      // Improve URL handling and add fallback formats
+      let streamUrl = serverConfig.streamUrl;
+      
+      // Ensure proper protocol
+      if (!streamUrl.startsWith('http')) {
+        streamUrl = `http://${streamUrl}`;
+      }
+
+      // Set CORS mode for external streams
+      audioRef.current.crossOrigin = 'anonymous';
+      audioRef.current.preload = 'none';
+      audioRef.current.src = streamUrl;
       audioRef.current.volume = isMuted ? 0 : volume / 100;
+
+      // Add error handling for format issues
+      audioRef.current.addEventListener('error', (e) => {
+        console.error('Audio restore error:', e);
+        const error = audioRef.current.error;
+        if (error && error.code === error.MEDIA_ERR_SRC_NOT_SUPPORTED && streamUrl.includes('.ogg')) {
+          console.log('OGG format not supported during restore, trying fallback...');
+          const fallbackUrl = streamUrl.replace('.ogg', '');
+          audioRef.current.src = fallbackUrl;
+          audioRef.current.load();
+        }
+      });
 
       audioRef.current.play().then(() => {
         setAudioPlaying(true);
-        console.log('Audio playback restored');
+        console.log('Audio playback restored successfully');
       }).catch(error => {
         console.log('Could not auto-restore audio playback (user interaction required):', error);
         setAudioPlaying(false);
+        
+        // Try fallback format if it's a format issue
+        if (error.name === 'NotSupportedError' && streamUrl.includes('.ogg')) {
+          console.log('Trying fallback format for restoration...');
+          const fallbackUrl = streamUrl.replace('.ogg', '');
+          audioRef.current.src = fallbackUrl;
+          audioRef.current.load();
+        }
       });
     }
   };
@@ -316,6 +436,54 @@ export function StreamingProvider({ children }) {
         if (djReconnectTimerRef.current) {
           clearTimeout(djReconnectTimerRef.current);
           djReconnectTimerRef.current = null;
+        }
+
+        // If we have an existing MediaRecorder that was recording (after reconnection),
+        // we need to re-establish the data flow to the new WebSocket connection
+        if (mediaRecorderRef.current && audioStreamRef.current && isLive) {
+          console.log('Reconnecting existing MediaRecorder to new WebSocket connection');
+          
+          // Check if MediaRecorder is still recording
+          if (mediaRecorderRef.current.state === 'recording') {
+            console.log('MediaRecorder is still recording, re-establishing data flow');
+            
+            // Re-establish the ondataavailable handler for the new WebSocket
+            mediaRecorderRef.current.ondataavailable = (event) => {
+              if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+                event.data.arrayBuffer().then(buffer => {
+                  djWebSocketRef.current.send(buffer);
+                  console.log('Audio data sent through reconnected WebSocket, size:', event.data.size);
+                });
+              }
+            };
+            
+            // The MediaRecorder is already running, so we don't need to restart it
+            console.log('MediaRecorder reconnected successfully to new WebSocket');
+          } else if (mediaRecorderRef.current.state === 'inactive' && audioStreamRef.current.active) {
+            console.log('MediaRecorder was stopped, restarting for reconnected WebSocket');
+            
+            // Set up the data handler first
+            mediaRecorderRef.current.ondataavailable = (event) => {
+              if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+                event.data.arrayBuffer().then(buffer => {
+                  djWebSocketRef.current.send(buffer);
+                  console.log('Audio data sent through reconnected WebSocket, size:', event.data.size);
+                });
+              }
+            };
+            
+            // Restart the MediaRecorder
+            try {
+              mediaRecorderRef.current.start(250);
+              console.log('MediaRecorder restarted successfully');
+            } catch (error) {
+              console.error('Failed to restart MediaRecorder:', error);
+            }
+          } else if (!audioStreamRef.current.active) {
+            console.warn('Audio stream is no longer active, cannot reconnect MediaRecorder');
+          }
+        } else if (isLive && !mediaRecorderRef.current) {
+          console.log('WebSocket reconnected but no MediaRecorder found. This may require manual intervention.');
         }
       };
 
@@ -738,14 +906,75 @@ export function StreamingProvider({ children }) {
         audioRef.current = new Audio();
       }
 
-      audioRef.current.src = serverConfig.streamUrl;
+      // Improve URL handling and add fallback formats
+      let streamUrl = serverConfig.streamUrl;
+      
+      // Ensure proper protocol
+      if (!streamUrl.startsWith('http')) {
+        streamUrl = `http://${streamUrl}`;
+      }
+
+      console.log('Attempting to play stream:', streamUrl);
+      
+      // Set CORS mode for external streams
+      audioRef.current.crossOrigin = 'anonymous';
+      audioRef.current.preload = 'none';
+      audioRef.current.src = streamUrl;
       audioRef.current.volume = isMuted ? 0 : volume / 100;
+
+      // Add better error handling for unsupported formats
+      audioRef.current.addEventListener('error', (e) => {
+        console.error('Audio error event:', e);
+        const error = audioRef.current.error;
+        if (error) {
+          console.error('Audio error details:', {
+            code: error.code,
+            message: error.message,
+            MEDIA_ERR_ABORTED: error.MEDIA_ERR_ABORTED,
+            MEDIA_ERR_NETWORK: error.MEDIA_ERR_NETWORK,
+            MEDIA_ERR_DECODE: error.MEDIA_ERR_DECODE,
+            MEDIA_ERR_SRC_NOT_SUPPORTED: error.MEDIA_ERR_SRC_NOT_SUPPORTED
+          });
+          
+          // Try alternative format if OGG is not supported
+          if (error.code === error.MEDIA_ERR_SRC_NOT_SUPPORTED && streamUrl.includes('.ogg')) {
+            console.log('OGG format not supported, trying MP3 fallback...');
+            const mp3Url = streamUrl.replace('.ogg', '.mp3');
+            audioRef.current.src = mp3Url;
+            audioRef.current.load();
+          }
+        }
+      });
+
+      // Add load event listener for better debugging
+      audioRef.current.addEventListener('loadstart', () => {
+        console.log('Audio loading started for:', streamUrl);
+      });
+
+      audioRef.current.addEventListener('canplay', () => {
+        console.log('Audio can start playing');
+      });
 
       audioRef.current.play().then(() => {
         setAudioPlaying(true);
-        console.log('Audio playback started');
+        console.log('Audio playback started successfully');
       }).catch(error => {
         console.error('Error starting audio playback:', error);
+        
+        // Try to provide more helpful error messages
+        if (error.name === 'NotSupportedError') {
+          console.warn('Stream format not supported, trying alternative...');
+          // Try with different extension
+          if (streamUrl.includes('.ogg')) {
+            const alternativeUrl = streamUrl.replace('.ogg', '');
+            console.log('Trying stream without .ogg extension:', alternativeUrl);
+            audioRef.current.src = alternativeUrl;
+            audioRef.current.load();
+            audioRef.current.play().catch(fallbackError => {
+              console.error('Fallback also failed:', fallbackError);
+            });
+          }
+        }
       });
 
       connectListenerWebSocket();
@@ -907,6 +1136,53 @@ export function StreamingProvider({ children }) {
     };
   }, []);
 
+  // Add page visibility handling to prevent disconnections when tab becomes inactive
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('Page became hidden, maintaining WebSocket connections...');
+        // Don't disconnect WebSockets when page becomes hidden
+        // Just log the state change
+      } else {
+        console.log('Page became visible, checking connection status...');
+        // When page becomes visible again, check if we need to reconnect
+        if (isAuthenticated && currentUser) {
+          if (currentUser.role === 'DJ' || currentUser.role === 'ADMIN') {
+            // Check if DJ should still be connected
+            if (isLive && !websocketConnected) {
+              console.log('Reconnecting DJ WebSocket after page visibility change');
+              connectDJWebSocket();
+            }
+          }
+          // Always ensure status WebSocket is connected
+          if (!statusWebSocketRef.current || statusWebSocketRef.current.readyState !== WebSocket.OPEN) {
+            console.log('Reconnecting status WebSocket after page visibility change');
+            connectStatusWebSocket();
+          }
+        }
+      }
+    };
+
+    const handleBeforeUnload = (event) => {
+      // Only show warning if actively broadcasting
+      if (isLive && websocketConnected) {
+        const message = 'You are currently broadcasting. Leaving this page will end your broadcast. Are you sure you want to leave?';
+        event.preventDefault();
+        event.returnValue = message;
+        return message;
+      }
+    };
+
+    // Add event listeners
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isAuthenticated, currentUser, isLive, websocketConnected]);
+
   const value = {
     // State
     isLive,
@@ -923,6 +1199,7 @@ export function StreamingProvider({ children }) {
     startBroadcast,
     stopBroadcast,
     connectDJWebSocket,
+    restoreDJStreaming,
 
     // Listener Functions  
     startListening,

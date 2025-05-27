@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react";
-import { useParams, useLocation } from "react-router-dom";
+import { useParams, useLocation, useNavigate } from "react-router-dom";
 import {
   PlayIcon,
   PauseIcon,
@@ -10,6 +10,9 @@ import {
   PaperAirplaneIcon,
   MusicalNoteIcon,
   ArrowPathIcon,
+  UserPlusIcon,
+  ArrowRightOnRectangleIcon,
+  ExclamationTriangleIcon,
 } from "@heroicons/react/24/solid";
 import { broadcastService, chatService, songRequestService, pollService, streamService } from "../services/api";
 import { formatDistanceToNow } from 'date-fns';
@@ -19,6 +22,7 @@ import { useStreaming } from "../context/StreamingContext";
 export default function ListenerDashboard() {
   const { id: broadcastIdParam } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const { currentUser } = useAuth();
   const isSpecificBroadcast = location.pathname.startsWith('/broadcast/');
   
@@ -89,6 +93,15 @@ export default function ListenerDashboard() {
   const wsRef = useRef(null);
   const wsConnectingRef = useRef(false);
   const heartbeatInterval = useRef(null);
+
+  // Navigation functions
+  const handleLoginRedirect = () => {
+    navigate('/login');
+  };
+
+  const handleRegisterRedirect = () => {
+    navigate('/register');
+  };
 
   // Load current broadcast on component mount
   useEffect(() => {
@@ -311,8 +324,8 @@ export default function ListenerDashboard() {
                     type: 'LISTENER_STATUS',
                     action: 'START_LISTENING',
                     broadcastId: currentBroadcastId,
-                    userId: currentUser?.id,
-                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous',
+                    userId: currentUser?.id || null,
+                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
                     timestamp: Date.now()
                   };
                   wsRef.current.send(JSON.stringify(message));
@@ -336,8 +349,8 @@ export default function ListenerDashboard() {
                     type: 'LISTENER_STATUS',
                     action: 'HEARTBEAT',
                     broadcastId: currentBroadcastId,
-                    userId: currentUser?.id,
-                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous',
+                    userId: currentUser?.id || null,
+                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
                     timestamp: Date.now()
                   };
                   wsRef.current.send(JSON.stringify(message));
@@ -425,8 +438,8 @@ export default function ListenerDashboard() {
               type: 'LISTENER_STATUS',
               action: 'STOP_LISTENING',
               broadcastId: currentBroadcastId,
-              userId: currentUser?.id,
-              userName: currentUser?.firstName || currentUser?.name || 'Anonymous',
+              userId: currentUser?.id || null,
+              userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
               timestamp: Date.now()
             };
             wsRef.current.send(JSON.stringify(message));
@@ -445,7 +458,7 @@ export default function ListenerDashboard() {
         }
       }
     };
-  }, [serverConfig]);
+  }, [currentBroadcastId]); // Removed isLive dependency and unnecessary dependencies to prevent unnecessary re-runs
 
   // Send player status when playing state changes
   useEffect(() => {
@@ -591,9 +604,10 @@ export default function ListenerDashboard() {
   // - Broadcast status: Real-time via WebSocket
   // - Listener count: Real-time via WebSocket
   useEffect(() => {
-    // Guard: Only setup WebSockets if we have a valid broadcast ID and are live
-    if (!currentBroadcastId || currentBroadcastId <= 0 || !isLive) {
-      // Cleanup any existing connections when not live
+    // Guard: Only setup WebSockets if we have a valid broadcast ID
+    // We allow unauthenticated users to connect to WebSockets for listening to chat/polls
+    if (!currentBroadcastId || currentBroadcastId <= 0) {
+      // Cleanup any existing connections when no valid broadcast
       if (chatWsRef.current) {
         chatWsRef.current.disconnect();
         chatWsRef.current = null;
@@ -822,7 +836,7 @@ export default function ListenerDashboard() {
         broadcastWsRef.current = null;
       }
     };
-  }, [currentBroadcastId, isLive]); // Removed chatMessages.length and activePoll?.id dependencies to prevent unnecessary re-runs
+  }, [currentBroadcastId]); // Removed chatMessages.length and activePoll?.id dependencies to prevent unnecessary re-runs
 
   // Update chat timestamps every minute
   useEffect(() => {
@@ -849,6 +863,10 @@ export default function ListenerDashboard() {
   // Handle chat submission
   const handleChatSubmit = async (e) => {
     e.preventDefault();
+    if (!currentUser) {
+      handleLoginRedirect();
+      return;
+    }
     if (!chatMessage.trim() || !currentBroadcastId) return;
 
     // Validate message length
@@ -1012,7 +1030,7 @@ export default function ListenerDashboard() {
   }, [currentBroadcastId, isLive]);
 
   // Toggle play/pause with enhanced logic from ListenerDashboard2.jsx
-  const togglePlay = () => {
+  const togglePlay = async () => {
     console.log('Toggle play called, current state:', { 
       localAudioPlaying, 
       wsReadyState: wsRef.current?.readyState,
@@ -1044,8 +1062,8 @@ export default function ListenerDashboard() {
             type: 'LISTENER_STATUS',
             action: 'STOP_LISTENING',
             broadcastId: currentBroadcastId,
-            userId: currentUser?.id,
-            userName: currentUser?.firstName || currentUser?.name || 'Anonymous',
+            userId: currentUser?.id || null,
+            userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
             timestamp: Date.now()
           };
           wsRef.current.send(JSON.stringify(message));
@@ -1053,94 +1071,168 @@ export default function ListenerDashboard() {
         }
       } else {
         console.log('Starting playback')
-        const currentSrc = audioRef.current.src
-        const expectedSrc = serverConfig.streamUrl.startsWith('http') 
-          ? serverConfig.streamUrl 
-          : `http://${serverConfig.streamUrl}`
 
-        if (!currentSrc || currentSrc !== expectedSrc || currentSrc.includes('localhost:5173') || currentSrc.startsWith('blob:') || currentSrc === 'about:blank') {
-          console.log('Setting new stream URL:', expectedSrc)
-          audioRef.current.src = expectedSrc
-          audioRef.current.load()
+        // Clear any previous errors
+        setStreamError(null);
+
+        // Improved URL handling with format fallbacks
+        let streamUrl = serverConfig.streamUrl;
+        
+        // Ensure proper protocol
+        if (!streamUrl.startsWith('http')) {
+          streamUrl = `http://${streamUrl}`;
         }
 
-        let playPromise
+        console.log('Primary stream URL:', streamUrl);
+
+        // Create array of fallback URLs for better browser compatibility
+        const streamUrls = [
+          streamUrl, // Original URL (likely .ogg)
+          streamUrl.replace('.ogg', ''), // Without extension
+          streamUrl.replace('.ogg', '.mp3'), // MP3 fallback
+          streamUrl.replace('.ogg', '.aac'), // AAC fallback
+        ];
+
+        // Remove duplicates
+        const uniqueUrls = [...new Set(streamUrls)];
+        console.log('Trying stream URLs in order:', uniqueUrls);
+
+        // Try URLs sequentially
+        const tryStreamUrl = async (urls, index = 0) => {
+          if (index >= urls.length) {
+            throw new Error('All stream formats failed to load');
+          }
+
+          const currentUrl = urls[index];
+          console.log(`Trying stream URL ${index + 1}/${urls.length}:`, currentUrl);
+
+          return new Promise((resolve, reject) => {
+            // Set up audio element for this attempt
+            audioRef.current.src = currentUrl;
+            audioRef.current.load();
+
+            // Set up event listeners for this attempt
+            const handleCanPlay = () => {
+              console.log('Audio can play with URL:', currentUrl);
+              cleanup();
+              resolve(currentUrl);
+            };
+
+            const handleError = (e) => {
+              console.log(`URL ${currentUrl} failed:`, e);
+              cleanup();
+              tryStreamUrl(urls, index + 1).then(resolve).catch(reject);
+            };
+
+            const handleLoadStart = () => {
+              console.log('Loading started for:', currentUrl);
+            };
+
+            const cleanup = () => {
+              audioRef.current.removeEventListener('canplay', handleCanPlay);
+              audioRef.current.removeEventListener('error', handleError);
+              audioRef.current.removeEventListener('loadstart', handleLoadStart);
+            };
+
+            // Add event listeners
+            audioRef.current.addEventListener('canplay', handleCanPlay, { once: true });
+            audioRef.current.addEventListener('error', handleError, { once: true });
+            audioRef.current.addEventListener('loadstart', handleLoadStart, { once: true });
+
+            // Set a timeout to try next URL if this one takes too long
+            setTimeout(() => {
+              if (audioRef.current.readyState === 0) { // HAVE_NOTHING
+                console.log('URL taking too long, trying next:', currentUrl);
+                cleanup();
+                tryStreamUrl(urls, index + 1).then(resolve).catch(reject);
+              }
+            }, 5000); // 5 second timeout
+          });
+        };
+
         try {
-          playPromise = audioRef.current.play()
-          console.log('Play method called')
-        } catch (playError) {
-          console.error('Error calling play method:', playError)
-          setStreamError(`Error starting playback: ${playError.message}`)
-          return
-        }
+          const workingUrl = await tryStreamUrl(uniqueUrls);
+          console.log('Found working stream URL:', workingUrl);
 
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => {
-              console.log('Playback started successfully')
-              setLocalAudioPlaying(true); // Update local state
-              console.log('Stream playing')
-              setStreamError(null)
-              
-              // Notify server that listener started playing
-              if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                if (!currentUser) {
-                  console.warn('No current user available for listener status message');
+          // Set final configuration
+          audioRef.current.volume = isMuted ? 0 : volume / 100;
+          audioRef.current.crossOrigin = 'anonymous';
+
+          // Attempt to play
+          const playPromise = audioRef.current.play();
+          
+          if (playPromise !== undefined) {
+            playPromise
+              .then(() => {
+                console.log('Playback started successfully');
+                setLocalAudioPlaying(true);
+                setStreamError(null);
+
+                // Notify server that listener started playing
+                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                  const message = {
+                    type: 'LISTENER_STATUS',
+                    action: 'START_LISTENING',
+                    broadcastId: currentBroadcastId,
+                    userId: currentUser?.id || null,
+                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
+                    timestamp: Date.now()
+                  };
+                  wsRef.current.send(JSON.stringify(message));
+                  console.log('Sent listener start message to server:', message);
                 }
-                const message = {
-                  type: 'LISTENER_STATUS',
-                  action: 'START_LISTENING',
-                  broadcastId: currentBroadcastId,
-                  userId: currentUser?.id,
-                  userName: currentUser?.firstName || currentUser?.name || 'Anonymous',
-                  timestamp: Date.now()
-                };
-                wsRef.current.send(JSON.stringify(message));
-                console.log('Sent listener start message to server:', message);
-              }
-            })
-            .catch(error => {
-              console.error("Playback failed:", error)
+              })
+              .catch(error => {
+                console.error("Playback failed:", error);
 
-              if (error.name === 'NotAllowedError') {
-                setStreamError("Browser blocked autoplay. Please click play again to start listening.")
-              } else if (error.name === 'NotSupportedError') {
-                setStreamError("Your browser doesn't support this audio format. Try refreshing or use a different browser.")
-              } else if (error.name === 'AbortError') {
-                setStreamError("Playback was interrupted. Please try again.")
-              } else {
-                setStreamError(`Playback failed: ${error.message}. Please check if the stream is live.`)
-              }
-              setLocalAudioPlaying(false); // Update local state on error
-              console.log('Stream paused')
-              
-              // Notify server that listener stopped playing due to error
-              if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                const message = {
-                  type: 'LISTENER_STATUS',
-                  action: 'STOP_LISTENING',
-                  broadcastId: currentBroadcastId,
-                  userId: currentUser?.id,
-                  userName: currentUser?.firstName || currentUser?.name || 'Anonymous',
-                  timestamp: Date.now()
-                };
-                wsRef.current.send(JSON.stringify(message));
-                console.log('Sent listener stop message to server (due to error):', message);
-              }
-            })
-        } else {
-          console.warn('Play promise is undefined, cannot track playback status')
+                if (error.name === 'NotAllowedError') {
+                  setStreamError("Browser blocked autoplay. Please click play again to start listening.");
+                } else if (error.name === 'NotSupportedError') {
+                  setStreamError("Your browser doesn't support this audio format. Please try a different browser or check if the stream is live.");
+                } else if (error.name === 'AbortError') {
+                  setStreamError("Playback was interrupted. Please try again.");
+                } else {
+                  setStreamError(`Playback failed: ${error.message}. Please check if the stream is live.`);
+                }
+                setLocalAudioPlaying(false);
+                console.log('Stream paused due to error');
+                
+                // Notify server that listener stopped playing due to error
+                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                  const message = {
+                    type: 'LISTENER_STATUS',
+                    action: 'STOP_LISTENING',
+                    broadcastId: currentBroadcastId,
+                    userId: currentUser?.id || null,
+                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
+                    timestamp: Date.now()
+                  };
+                  wsRef.current.send(JSON.stringify(message));
+                  console.log('Sent listener stop message to server (due to error):', message);
+                }
+              });
+          } else {
+            console.warn('Play promise is undefined, cannot track playback status');
+          }
+        } catch (error) {
+          console.error('All stream URLs failed:', error);
+          setStreamError('Unable to load audio stream. The broadcast may not be live or your browser may not support the stream format.');
+          setLocalAudioPlaying(false);
         }
       }
     } catch (error) {
-      console.error("Error toggling playback:", error)
-      setStreamError(`Playback error: ${error.message}. Please try again.`)
+      console.error("Error toggling playback:", error);
+      setStreamError(`Playback error: ${error.message}. Please try again.`);
     }
   }
 
   // Handle song request submission
   const handleSongRequestSubmit = async (e) => {
     e.preventDefault();
+    if (!currentUser) {
+      handleLoginRedirect();
+      return;
+    }
     if (!songRequest.title.trim() || !songRequest.artist.trim() || !currentBroadcastId) return;
 
     try {
@@ -1167,12 +1259,20 @@ export default function ListenerDashboard() {
 
   // Handle poll option selection
   const handlePollOptionSelect = (optionId) => {
+    if (!currentUser) {
+      handleLoginRedirect();
+      return;
+    }
     if (!activePoll || activePoll.userVoted || !isLive) return;
     setSelectedPollOption(optionId);
   };
 
   // Handle poll vote submission
   const handlePollVote = async () => {
+    if (!currentUser) {
+      handleLoginRedirect();
+      return;
+    }
     if (!activePoll || !selectedPollOption || activePoll.userVoted || !isLive) return;
 
     try {
@@ -1287,38 +1387,68 @@ export default function ListenerDashboard() {
   );
 
   // Render chat input
-  const renderChatInput = () => (
-    <form onSubmit={handleChatSubmit} className="flex items-center">
-      <input
-        type="text"
-        value={chatMessage}
-        onChange={(e) => {
-          // Limit input to 1500 characters
-          if (e.target.value.length <= 1500) {
-            setChatMessage(e.target.value);
-          }
-        }}
-        placeholder="Type your message..."
-        className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 focus:border-transparent"
-        disabled={!isLive}
-        maxLength={1500}
-      />
-      <button
-        type="submit"
-        disabled={!isLive || !chatMessage.trim() || chatMessage.length > 1500}
-        className={`p-2 rounded-r-md ${
-          isLive && chatMessage.trim() && chatMessage.length <= 1500
-            ? "bg-maroon-700 hover:bg-maroon-800 text-white"
-            : "bg-gray-300 text-gray-500 cursor-not-allowed"
-        }`}
-      >
-        <PaperAirplaneIcon className="h-5 w-5" />
-      </button>
-    </form>
-  );
+  const renderChatInput = () => {
+    if (!currentUser) {
+      return (
+        <div className="p-4 bg-gray-50 dark:bg-gray-700 border-t border-gray-200 dark:border-gray-600">
+          <div className="text-center">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+              Join the conversation! Login or create an account to chat with other listeners.
+            </p>
+            <div className="flex space-x-2 justify-center">
+              <button
+                onClick={handleLoginRedirect}
+                className="flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
+              >
+                <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
+                Login
+              </button>
+              <button
+                onClick={handleRegisterRedirect}
+                className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
+              >
+                <UserPlusIcon className="h-4 w-4 mr-2" />
+                Register
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <form onSubmit={handleChatSubmit} className="flex items-center">
+        <input
+          type="text"
+          value={chatMessage}
+          onChange={(e) => {
+            // Limit input to 1500 characters
+            if (e.target.value.length <= 1500) {
+              setChatMessage(e.target.value);
+            }
+          }}
+          placeholder="Type your message..."
+          className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 focus:border-transparent"
+          disabled={!isLive}
+          maxLength={1500}
+        />
+        <button
+          type="submit"
+          disabled={!isLive || !chatMessage.trim() || chatMessage.length > 1500}
+          className={`p-2 rounded-r-md ${
+            isLive && chatMessage.trim() && chatMessage.length <= 1500
+              ? "bg-maroon-700 hover:bg-maroon-800 text-white"
+              : "bg-gray-300 text-gray-500 cursor-not-allowed"
+          }`}
+        >
+          <PaperAirplaneIcon className="h-5 w-5" />
+        </button>
+      </form>
+    );
+  };
 
   return (
-    <div className="container mx-auto px-4 pb-6 bg-gray-100 dark:bg-gray-900">
+    <div className="container mx-auto px-4 mb-8 bg-gray-100 dark:bg-gray-900">
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 pt-6">Broadcast Stream</h2>
 
       {/* Desktop: Grid layout */}
@@ -1497,59 +1627,96 @@ export default function ListenerDashboard() {
               {activeTab === "song" && (
                 <div className="p-6 flex-grow flex flex-col h-full">
                   {isLive ? (
-                    <form onSubmit={handleSongRequestSubmit} className="space-y-5 flex-grow flex flex-col">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Song Title
-                        </label>
-                        <input
-                          type="text"
-                          value={songRequest.title}
-                          onChange={(e) => setSongRequest({ ...songRequest, title: e.target.value })}
-                          placeholder="Enter song title"
-                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          required
-                        />
-                      </div>
+                    <>
+                      {!currentUser ? (
+                        <div className="flex items-center justify-center h-full">
+                          <div className="text-center w-full">
+                            <div className="flex items-center mb-6 justify-center">
+                              <div className="bg-yellow-100 dark:bg-yellow-900/30 rounded-full p-3 mr-4">
+                                <MusicalNoteIcon className="h-6 w-6 text-yellow-600 dark:text-yellow-400" />
+                              </div>
+                              <div>
+                                <h3 className="font-medium text-gray-900 dark:text-white text-lg">Request a Song</h3>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">Let the DJ know what you'd like to hear</p>
+                              </div>
+                            </div>
+                            <p className="text-gray-600 dark:text-gray-400 mb-4">
+                              Login or create an account to request songs during live broadcasts
+                            </p>
+                            <div className="flex space-x-3 justify-center">
+                              <button
+                                onClick={handleLoginRedirect}
+                                className="flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
+                              >
+                                <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
+                                Login
+                              </button>
+                              <button
+                                onClick={handleRegisterRedirect}
+                                className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
+                              >
+                                <UserPlusIcon className="h-4 w-4 mr-2" />
+                                Register
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <form onSubmit={handleSongRequestSubmit} className="space-y-5 flex-grow flex flex-col">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Song Title
+                            </label>
+                            <input
+                              type="text"
+                              value={songRequest.title}
+                              onChange={(e) => setSongRequest({ ...songRequest, title: e.target.value })}
+                              placeholder="Enter song title"
+                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              required
+                            />
+                          </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Artist
-                        </label>
-                        <input
-                          type="text"
-                          value={songRequest.artist}
-                          onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
-                          placeholder="Enter artist name"
-                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          required
-                        />
-                      </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Artist
+                            </label>
+                            <input
+                              type="text"
+                              value={songRequest.artist}
+                              onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
+                              placeholder="Enter artist name"
+                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              required
+                            />
+                          </div>
 
-                      <div className="flex-grow">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Dedication (Optional)
-                        </label>
-                        <textarea
-                          value={songRequest.dedication}
-                          onChange={(e) => setSongRequest({ ...songRequest, dedication: e.target.value })}
-                          placeholder="Add a message or dedication"
-                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white h-full min-h-[120px]"
-                        />
-                      </div>
+                          <div className="flex-grow">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Dedication (Optional)
+                            </label>
+                            <textarea
+                              value={songRequest.dedication}
+                              onChange={(e) => setSongRequest({ ...songRequest, dedication: e.target.value })}
+                              placeholder="Add a message or dedication"
+                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white h-full min-h-[120px]"
+                            />
+                          </div>
 
-                      <div className="mt-auto flex justify-between items-center">
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          Song requests are subject to availability and DJ's playlist.
-                        </p>
-                        <button
-                          type="submit"
-                          className="bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-2 px-6 rounded"
-                        >
-                          Submit Request
-                        </button>
-                      </div>
-                    </form>
+                          <div className="mt-auto flex justify-between items-center">
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              Song requests are subject to availability and DJ's playlist.
+                            </p>
+                            <button
+                              type="submit"
+                              className="bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-2 px-6 rounded"
+                            >
+                              Submit Request
+                            </button>
+                          </div>
+                        </form>
+                      )}
+                    </>
                   ) : (
                     <div className="flex items-center justify-center h-full">
                       <div className="text-center w-full">
@@ -1586,32 +1753,40 @@ export default function ListenerDashboard() {
                               {activePoll.question || activePoll.title}
                             </h3>
                             <div className="text-sm text-gray-600 dark:text-gray-400">
-                              {activePoll.userVoted ? 'You have voted' : 'Choose your answer and click Vote'}
+                              {!currentUser 
+                                ? 'Login to participate in the poll'
+                                : activePoll.userVoted 
+                                  ? 'You have voted' 
+                                  : 'Choose your answer and click Vote'
+                              }
                             </div>
                           </div>
 
                           {/* Poll Options */}
                           <div className="space-y-3 mb-6 flex-grow">
                             {activePoll.options.map((option) => {
-                              const percentage = activePoll.userVoted 
+                              const percentage = (activePoll.userVoted && currentUser) 
                                 ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 
                                 : 0;
                               const isSelected = selectedPollOption === option.id;
                               const isUserChoice = activePoll.userVotedFor === option.id;
+                              const canInteract = currentUser && !activePoll.userVoted;
                               
                               return (
                                 <div key={option.id} className="space-y-1">
                                   <div 
-                                    className={`w-full border-2 rounded-lg overflow-hidden cursor-pointer transition-all duration-200 ${
-                                      activePoll.userVoted 
-                                        ? isUserChoice
-                                          ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
-                                          : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
-                                        : isSelected
-                                          ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20'
-                                          : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 hover:border-maroon-300'
+                                    className={`w-full border-2 rounded-lg overflow-hidden transition-all duration-200 ${
+                                      !currentUser
+                                        ? 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 cursor-not-allowed opacity-75'
+                                        : activePoll.userVoted 
+                                          ? isUserChoice
+                                            ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                                            : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
+                                          : isSelected
+                                            ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20 cursor-pointer'
+                                            : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 hover:border-maroon-300 cursor-pointer'
                                     }`}
-                                    onClick={() => !activePoll.userVoted && handlePollOptionSelect(option.id)}
+                                    onClick={() => canInteract && handlePollOptionSelect(option.id)}
                                   >
                                     <div className="p-3">
                                       <div className="flex items-center justify-between">
@@ -1619,17 +1794,17 @@ export default function ListenerDashboard() {
                                           {option.optionText || option.text}
                                         </span>
                                         <div className="flex items-center">
-                                          {activePoll.userVoted && (
+                                          {(activePoll.userVoted && currentUser) && (
                                             <span className="text-xs text-gray-600 dark:text-gray-400 mr-2">
                                               {option.votes || 0} votes
                                             </span>
                                           )}
-                                          {isSelected && !activePoll.userVoted && (
+                                          {isSelected && canInteract && (
                                             <div className="w-4 h-4 bg-maroon-500 rounded-full flex items-center justify-center">
                                               <div className="w-2 h-2 bg-white rounded-full"></div>
                                             </div>
                                           )}
-                                          {isUserChoice && activePoll.userVoted && (
+                                          {isUserChoice && (activePoll.userVoted && currentUser) && (
                                             <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
                                               <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
                                                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -1640,7 +1815,7 @@ export default function ListenerDashboard() {
                                       </div>
                                       
                                       {/* Progress bar for voted polls */}
-                                      {activePoll.userVoted && (
+                                      {(activePoll.userVoted && currentUser) && (
                                         <div className="mt-2">
                                           <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                                             <div 
@@ -1664,7 +1839,29 @@ export default function ListenerDashboard() {
 
                           {/* Vote Button */}
                           <div className="mt-auto flex justify-center">
-                            {activePoll.userVoted ? (
+                            {!currentUser ? (
+                              <div className="text-center">
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                                  Login to participate in polls
+                                </p>
+                                <div className="flex space-x-2 justify-center">
+                                  <button
+                                    onClick={handleLoginRedirect}
+                                    className="flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
+                                  >
+                                    <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
+                                    Login
+                                  </button>
+                                  <button
+                                    onClick={handleRegisterRedirect}
+                                    className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
+                                  >
+                                    <UserPlusIcon className="h-4 w-4 mr-2" />
+                                    Register
+                                  </button>
+                                </div>
+                              </div>
+                            ) : activePoll.userVoted ? (
                               <div className="text-center">
                                 <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                                   Total votes: {activePoll.totalVotes || 0}
@@ -1808,44 +2005,68 @@ export default function ListenerDashboard() {
                 )}
 
                 <div className="p-2 border-t border-gray-200 dark:border-gray-700 mt-auto">
-                  <form onSubmit={handleChatSubmit} className="flex flex-col">
-                    <div className="flex mb-1">
-                      <input
-                        type="text"
-                        value={chatMessage}
-                        onChange={(e) => {
-                          // Limit input to 1500 characters
-                          if (e.target.value.length <= 1500) {
-                            setChatMessage(e.target.value);
-                          }
-                        }}
-                        placeholder="Type your message..."
-                        className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white max-w-full"
-                        maxLength={1500}
-                      />
-                      <button
-                        type="submit"
-                        disabled={!chatMessage.trim() || chatMessage.length > 1500}
-                        className={`${
-                          !chatMessage.trim() || chatMessage.length > 1500
-                            ? 'bg-gray-400 cursor-not-allowed'
-                            : 'bg-maroon-700 hover:bg-maroon-800 dark:bg-maroon-600'
-                        } text-white p-2 rounded-r-md flex-shrink-0`}
-                      >
-                        <PaperAirplaneIcon className="h-5 w-5" />
-                      </button>
+                  {!currentUser ? (
+                    <div className="p-2 text-center">
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                        Join the conversation! Login or create an account to chat.
+                      </p>
+                      <div className="flex space-x-2 justify-center">
+                        <button
+                          onClick={handleLoginRedirect}
+                          className="flex items-center px-3 py-1.5 bg-maroon-600 hover:bg-maroon-700 text-white text-xs font-medium rounded-md transition-colors"
+                        >
+                          <ArrowRightOnRectangleIcon className="h-3 w-3 mr-1" />
+                          Login
+                        </button>
+                        <button
+                          onClick={handleRegisterRedirect}
+                          className="flex items-center px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-black text-xs font-medium rounded-md transition-colors"
+                        >
+                          <UserPlusIcon className="h-3 w-3 mr-1" />
+                          Register
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className={`${
-                        chatMessage.length > 1500 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'
-                      }`}>
-                        {chatMessage.length}/1500 characters
-                      </span>
-                      {chatMessage.length > 1500 && (
-                        <span className="text-red-500">Message too long</span>
-                      )}
-                    </div>
-                  </form>
+                  ) : (
+                    <form onSubmit={handleChatSubmit} className="flex flex-col">
+                      <div className="flex mb-1">
+                        <input
+                          type="text"
+                          value={chatMessage}
+                          onChange={(e) => {
+                            // Limit input to 1500 characters
+                            if (e.target.value.length <= 1500) {
+                              setChatMessage(e.target.value);
+                            }
+                          }}
+                          placeholder="Type your message..."
+                          className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white max-w-full"
+                          maxLength={1500}
+                        />
+                        <button
+                          type="submit"
+                          disabled={!chatMessage.trim() || chatMessage.length > 1500}
+                          className={`${
+                            !chatMessage.trim() || chatMessage.length > 1500
+                              ? 'bg-gray-400 cursor-not-allowed'
+                              : 'bg-maroon-700 hover:bg-maroon-800 dark:bg-maroon-600'
+                          } text-white p-2 rounded-r-md flex-shrink-0`}
+                        >
+                          <PaperAirplaneIcon className="h-5 w-5" />
+                        </button>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className={`${
+                          chatMessage.length > 1500 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'
+                        }`}>
+                          {chatMessage.length}/1500 characters
+                        </span>
+                        {chatMessage.length > 1500 && (
+                          <span className="text-red-500">Message too long</span>
+                        )}
+                      </div>
+                    </form>
+                  )}
                 </div>
               </>
             ) : (
@@ -2075,44 +2296,68 @@ export default function ListenerDashboard() {
                 )}
 
                 <div className="p-2 border-t border-gray-200 dark:border-gray-700 mt-auto">
-                  <form onSubmit={handleChatSubmit} className="flex flex-col">
-                    <div className="flex mb-1">
-                      <input
-                        type="text"
-                        value={chatMessage}
-                        onChange={(e) => {
-                          // Limit input to 1500 characters
-                          if (e.target.value.length <= 1500) {
-                            setChatMessage(e.target.value);
-                          }
-                        }}
-                        placeholder="Type your message..."
-                        className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white max-w-full"
-                        maxLength={1500}
-                      />
-                      <button
-                        type="submit"
-                        disabled={!chatMessage.trim() || chatMessage.length > 1500}
-                        className={`${
-                          !chatMessage.trim() || chatMessage.length > 1500
-                            ? 'bg-gray-400 cursor-not-allowed'
-                            : 'bg-maroon-700 hover:bg-maroon-800 dark:bg-maroon-600'
-                        } text-white p-2 rounded-r-md flex-shrink-0`}
-                      >
-                        <PaperAirplaneIcon className="h-5 w-5" />
-                      </button>
+                  {!currentUser ? (
+                    <div className="p-2 text-center">
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                        Join the conversation! Login or create an account to chat.
+                      </p>
+                      <div className="flex space-x-2 justify-center">
+                        <button
+                          onClick={handleLoginRedirect}
+                          className="flex items-center px-3 py-1.5 bg-maroon-600 hover:bg-maroon-700 text-white text-xs font-medium rounded-md transition-colors"
+                        >
+                          <ArrowRightOnRectangleIcon className="h-3 w-3 mr-1" />
+                          Login
+                        </button>
+                        <button
+                          onClick={handleRegisterRedirect}
+                          className="flex items-center px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-black text-xs font-medium rounded-md transition-colors"
+                        >
+                          <UserPlusIcon className="h-3 w-3 mr-1" />
+                          Register
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className={`${
-                        chatMessage.length > 1500 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'
-                      }`}>
-                        {chatMessage.length}/1500 characters
-                      </span>
-                      {chatMessage.length > 1500 && (
-                        <span className="text-red-500">Message too long</span>
-                      )}
-                    </div>
-                  </form>
+                  ) : (
+                    <form onSubmit={handleChatSubmit} className="flex flex-col">
+                      <div className="flex mb-1">
+                        <input
+                          type="text"
+                          value={chatMessage}
+                          onChange={(e) => {
+                            // Limit input to 1500 characters
+                            if (e.target.value.length <= 1500) {
+                              setChatMessage(e.target.value);
+                            }
+                          }}
+                          placeholder="Type your message..."
+                          className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white max-w-full"
+                          maxLength={1500}
+                        />
+                        <button
+                          type="submit"
+                          disabled={!chatMessage.trim() || chatMessage.length > 1500}
+                          className={`${
+                            !chatMessage.trim() || chatMessage.length > 1500
+                              ? 'bg-gray-400 cursor-not-allowed'
+                              : 'bg-maroon-700 hover:bg-maroon-800 dark:bg-maroon-600'
+                          } text-white p-2 rounded-r-md flex-shrink-0`}
+                        >
+                          <PaperAirplaneIcon className="h-5 w-5" />
+                        </button>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className={`${
+                          chatMessage.length > 1500 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'
+                        }`}>
+                          {chatMessage.length}/1500 characters
+                        </span>
+                        {chatMessage.length > 1500 && (
+                          <span className="text-red-500">Message too long</span>
+                        )}
+                      </div>
+                    </form>
+                  )}
                 </div>
               </>
             ) : (
@@ -2177,59 +2422,96 @@ export default function ListenerDashboard() {
               {activeTab === "song" && (
                 <div className="p-6 flex-grow flex flex-col h-full">
                   {isLive ? (
-                    <form onSubmit={handleSongRequestSubmit} className="space-y-5 flex-grow flex flex-col">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Song Title
-                        </label>
-                        <input
-                          type="text"
-                          value={songRequest.title}
-                          onChange={(e) => setSongRequest({ ...songRequest, title: e.target.value })}
-                          placeholder="Enter song title"
-                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          required
-                        />
-                      </div>
+                    <>
+                      {!currentUser ? (
+                        <div className="flex items-center justify-center h-full">
+                          <div className="text-center w-full">
+                            <div className="flex items-center mb-6 justify-center">
+                              <div className="bg-yellow-100 dark:bg-yellow-900/30 rounded-full p-3 mr-4">
+                                <MusicalNoteIcon className="h-6 w-6 text-yellow-600 dark:text-yellow-400" />
+                              </div>
+                              <div>
+                                <h3 className="font-medium text-gray-900 dark:text-white text-lg">Request a Song</h3>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">Let the DJ know what you'd like to hear</p>
+                              </div>
+                            </div>
+                            <p className="text-gray-600 dark:text-gray-400 mb-4">
+                              Login or create an account to request songs during live broadcasts
+                            </p>
+                            <div className="flex space-x-3 justify-center">
+                              <button
+                                onClick={handleLoginRedirect}
+                                className="flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
+                              >
+                                <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
+                                Login
+                              </button>
+                              <button
+                                onClick={handleRegisterRedirect}
+                                className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
+                              >
+                                <UserPlusIcon className="h-4 w-4 mr-2" />
+                                Register
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <form onSubmit={handleSongRequestSubmit} className="space-y-5 flex-grow flex flex-col">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Song Title
+                            </label>
+                            <input
+                              type="text"
+                              value={songRequest.title}
+                              onChange={(e) => setSongRequest({ ...songRequest, title: e.target.value })}
+                              placeholder="Enter song title"
+                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              required
+                            />
+                          </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Artist
-                        </label>
-                        <input
-                          type="text"
-                          value={songRequest.artist}
-                          onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
-                          placeholder="Enter artist name"
-                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          required
-                        />
-                      </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Artist
+                            </label>
+                            <input
+                              type="text"
+                              value={songRequest.artist}
+                              onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
+                              placeholder="Enter artist name"
+                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              required
+                            />
+                          </div>
 
-                      <div className="flex-grow">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Dedication (Optional)
-                        </label>
-                        <textarea
-                          value={songRequest.dedication}
-                          onChange={(e) => setSongRequest({ ...songRequest, dedication: e.target.value })}
-                          placeholder="Add a message or dedication"
-                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white h-full min-h-[80px]"
-                        />
-                      </div>
+                          <div className="flex-grow">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Dedication (Optional)
+                            </label>
+                            <textarea
+                              value={songRequest.dedication}
+                              onChange={(e) => setSongRequest({ ...songRequest, dedication: e.target.value })}
+                              placeholder="Add a message or dedication"
+                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white h-full min-h-[120px]"
+                            />
+                          </div>
 
-                      <div className="mt-auto flex justify-between items-center">
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          Song requests are subject to availability.
-                        </p>
-                        <button
-                          type="submit"
-                          className="bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-2 px-6 rounded"
-                        >
-                          Submit Request
-                        </button>
-                      </div>
-                    </form>
+                          <div className="mt-auto flex justify-between items-center">
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              Song requests are subject to availability and DJ's playlist.
+                            </p>
+                            <button
+                              type="submit"
+                              className="bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-2 px-6 rounded"
+                            >
+                              Submit Request
+                            </button>
+                          </div>
+                        </form>
+                      )}
+                    </>
                   ) : (
                     <div className="flex items-center justify-center h-full">
                       <div className="text-center w-full">
@@ -2266,32 +2548,40 @@ export default function ListenerDashboard() {
                               {activePoll.question || activePoll.title}
                             </h3>
                             <div className="text-sm text-gray-600 dark:text-gray-400">
-                              {activePoll.userVoted ? 'You have voted' : 'Choose your answer and click Vote'}
+                              {!currentUser 
+                                ? 'Login to participate in the poll'
+                                : activePoll.userVoted 
+                                  ? 'You have voted' 
+                                  : 'Choose your answer and click Vote'
+                              }
                             </div>
                           </div>
 
                           {/* Poll Options */}
                           <div className="space-y-3 mb-6 flex-grow">
                             {activePoll.options.map((option) => {
-                              const percentage = activePoll.userVoted 
+                              const percentage = (activePoll.userVoted && currentUser) 
                                 ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 
                                 : 0;
                               const isSelected = selectedPollOption === option.id;
                               const isUserChoice = activePoll.userVotedFor === option.id;
+                              const canInteract = currentUser && !activePoll.userVoted;
                               
                               return (
                                 <div key={option.id} className="space-y-1">
                                   <div 
-                                    className={`w-full border-2 rounded-lg overflow-hidden cursor-pointer transition-all duration-200 ${
-                                      activePoll.userVoted 
-                                        ? isUserChoice
-                                          ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
-                                          : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
-                                        : isSelected
-                                          ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20'
-                                          : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 hover:border-maroon-300'
+                                    className={`w-full border-2 rounded-lg overflow-hidden transition-all duration-200 ${
+                                      !currentUser
+                                        ? 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 cursor-not-allowed opacity-75'
+                                        : activePoll.userVoted 
+                                          ? isUserChoice
+                                            ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                                            : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
+                                          : isSelected
+                                            ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20 cursor-pointer'
+                                            : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 hover:border-maroon-300 cursor-pointer'
                                     }`}
-                                    onClick={() => !activePoll.userVoted && handlePollOptionSelect(option.id)}
+                                    onClick={() => canInteract && handlePollOptionSelect(option.id)}
                                   >
                                     <div className="p-3">
                                       <div className="flex items-center justify-between">
@@ -2299,17 +2589,17 @@ export default function ListenerDashboard() {
                                           {option.optionText || option.text}
                                         </span>
                                         <div className="flex items-center">
-                                          {activePoll.userVoted && (
+                                          {(activePoll.userVoted && currentUser) && (
                                             <span className="text-xs text-gray-600 dark:text-gray-400 mr-2">
                                               {option.votes || 0} votes
                                             </span>
                                           )}
-                                          {isSelected && !activePoll.userVoted && (
+                                          {isSelected && canInteract && (
                                             <div className="w-4 h-4 bg-maroon-500 rounded-full flex items-center justify-center">
                                               <div className="w-2 h-2 bg-white rounded-full"></div>
                                             </div>
                                           )}
-                                          {isUserChoice && activePoll.userVoted && (
+                                          {isUserChoice && (activePoll.userVoted && currentUser) && (
                                             <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
                                               <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
                                                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -2320,7 +2610,7 @@ export default function ListenerDashboard() {
                                       </div>
                                       
                                       {/* Progress bar for voted polls */}
-                                      {activePoll.userVoted && (
+                                      {(activePoll.userVoted && currentUser) && (
                                         <div className="mt-2">
                                           <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                                             <div 
@@ -2344,7 +2634,29 @@ export default function ListenerDashboard() {
 
                           {/* Vote Button */}
                           <div className="mt-auto flex justify-center">
-                            {activePoll.userVoted ? (
+                            {!currentUser ? (
+                              <div className="text-center">
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                                  Login to participate in polls
+                                </p>
+                                <div className="flex space-x-2 justify-center">
+                                  <button
+                                    onClick={handleLoginRedirect}
+                                    className="flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
+                                  >
+                                    <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
+                                    Login
+                                  </button>
+                                  <button
+                                    onClick={handleRegisterRedirect}
+                                    className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
+                                  >
+                                    <UserPlusIcon className="h-4 w-4 mr-2" />
+                                    Register
+                                  </button>
+                                </div>
+                              </div>
+                            ) : activePoll.userVoted ? (
                               <div className="text-center">
                                 <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                                   Total votes: {activePoll.totalVotes || 0}
@@ -2428,6 +2740,35 @@ export default function ListenerDashboard() {
               <div className="md:col-span-2">
                 <span className="font-medium text-gray-700 dark:text-gray-300">Stream URL:</span>
                 <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.streamUrl}</code>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {streamError && (
+        <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-lg">
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400" />
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-red-800 dark:text-red-200">
+                Audio Playback Issue
+              </h3>
+              <div className="mt-1 text-sm text-red-700 dark:text-red-300">
+                <p>{streamError}</p>
+                {streamError.includes('format') && (
+                  <div className="mt-2 space-y-1">
+                    <p className="font-medium">Try these solutions:</p>
+                    <ul className="list-disc list-inside space-y-1 ml-2">
+                      <li>Refresh the page and try again</li>
+                      <li>Use Chrome, Firefox, or Edge browser</li>
+                      <li>Check if the DJ is currently broadcasting</li>
+                      <li>Ensure your internet connection is stable</li>
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -45,7 +45,10 @@ export default function DJDashboard() {
     listenerCount,
     startBroadcast: startStreamingBroadcast,
     stopBroadcast: stopStreamingBroadcast,
-    serverConfig
+    restoreDJStreaming,
+    serverConfig,
+    mediaRecorderRef,
+    audioStreamRef
   } = useStreaming()
 
   // Core workflow state
@@ -62,11 +65,10 @@ export default function DJDashboard() {
 
   // Core streaming state
   const [streamError, setStreamError] = useState(null)
+  const [isRestoringAudio, setIsRestoringAudio] = useState(false)
 
   // WebSocket and MediaRecorder refs
   const websocketRef = useRef(null)
-  const mediaRecorderRef = useRef(null)
-  const audioStreamRef = useRef(null)
   const statusWsRef = useRef(null)
 
   // Audio preview state
@@ -480,7 +482,9 @@ export default function DJDashboard() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      stopBroadcast()
+      // DON'T automatically stop broadcast on unmount - let it persist for navigation
+      // The global StreamingContext handles broadcast state persistence
+      // Only cleanup component-specific WebSocket connections
       if (statusWsRef.current) {
         statusWsRef.current.close()
       }
@@ -643,6 +647,25 @@ export default function DJDashboard() {
     } catch (error) {
       console.error("Error stopping broadcast:", error)
       setStreamError(`Error stopping broadcast: ${error.message}`)
+    }
+  }
+
+  const handleRestoreAudio = async () => {
+    setIsRestoringAudio(true);
+    setStreamError(null);
+    
+    try {
+      const success = await restoreDJStreaming();
+      if (success) {
+        console.log('Audio streaming restored successfully');
+      } else {
+        setStreamError('Failed to restore audio streaming. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error restoring audio streaming:', error);
+      setStreamError(`Error restoring audio: ${error.message}`);
+    } finally {
+      setIsRestoringAudio(false);
     }
   }
 
@@ -824,6 +847,12 @@ export default function DJDashboard() {
                         <span>{websocketConnected ? 'Connected' : 'Disconnected'}</span>
                       </div>
                       <div className="flex items-center">
+                        <span className={`h-2 w-2 rounded-full mr-2 ${
+                          mediaRecorderRef.current && audioStreamRef.current && mediaRecorderRef.current.state === 'recording' ? 'bg-green-300' : 'bg-orange-300'
+                        }`}></span>
+                        <span>{mediaRecorderRef.current && audioStreamRef.current && mediaRecorderRef.current.state === 'recording' ? 'Audio Streaming' : 'Audio Disconnected'}</span>
+                      </div>
+                      <div className="flex items-center">
                         <span className="font-semibold mr-1">{listenerCount}</span>
                         <span>listener{listenerCount !== 1 ? 's' : ''}</span>
                       </div>
@@ -831,13 +860,27 @@ export default function DJDashboard() {
                   </div>
                 </div>
 
-                <button
-                  onClick={stopBroadcast}
-                  className="flex items-center px-6 py-3 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-lg transition-all duration-200 font-semibold"
-                >
-                  <StopIcon className="h-5 w-5 mr-2" />
-                  End Broadcast
-                </button>
+                <div className="flex items-center space-x-3">
+                  {/* Audio Restoration Button - Show when audio is not streaming */}
+                  {(!mediaRecorderRef.current || !audioStreamRef.current || mediaRecorderRef.current.state !== 'recording') && (
+                    <button
+                      onClick={handleRestoreAudio}
+                      disabled={isRestoringAudio}
+                      className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black rounded-lg transition-all duration-200 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <MicrophoneIcon className="h-4 w-4 mr-2" />
+                      {isRestoringAudio ? 'Restoring...' : 'Restore Audio'}
+                    </button>
+                  )}
+
+                  <button
+                    onClick={stopBroadcast}
+                    className="flex items-center px-6 py-3 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-lg transition-all duration-200 font-semibold"
+                  >
+                    <StopIcon className="h-5 w-5 mr-2" />
+                    End Broadcast
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -921,6 +964,22 @@ export default function DJDashboard() {
           <div className="mb-6 p-4 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md">
               {streamError}
                   </div>
+          )}
+
+          {/* Audio Restoration Notice - Show when live but audio not streaming */}
+          {workflowState === WORKFLOW_STATES.STREAMING_LIVE && (!mediaRecorderRef.current || !audioStreamRef.current || mediaRecorderRef.current.state !== 'recording') && (
+            <div className="mb-6 p-4 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 rounded-md border-l-4 border-yellow-500">
+              <div className="flex items-center">
+                <MicrophoneIcon className="h-5 w-5 mr-3 flex-shrink-0" />
+                <div>
+                  <h3 className="font-semibold">Audio Streaming Disconnected</h3>
+                  <p className="text-sm mt-1">
+                    Your broadcast is live, but audio streaming has been disconnected. 
+                    Click "Restore Audio" in the live bar above to reconnect your microphone and resume audio streaming.
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
 
         {/* Live Interactive Dashboard - When streaming live */}

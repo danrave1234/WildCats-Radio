@@ -49,7 +49,7 @@ export default defineConfig(({ mode }) => {
         process.env.VITE_USE_LOCAL_BACKEND || 'false'
       ),
       'import.meta.env.VITE_API_BASE_URL': JSON.stringify(
-        'wildcat-radio-f05d362144e6.autoidleapp.com/api'
+        'wildcat-radio-f05d362144e6.autoidleapp.com'
       ),
       'import.meta.env.VITE_WS_BASE_URL': JSON.stringify(
         'wildcat-radio-f05d362144e6.autoidleapp.com'
