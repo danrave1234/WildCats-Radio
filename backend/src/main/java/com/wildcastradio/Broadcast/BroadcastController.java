@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -116,6 +117,7 @@ public class BroadcastController {
     }
 
     @PostMapping("/{id}/start")
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<BroadcastDTO> startBroadcast(
             @PathVariable Long id,
             Authentication authentication) {
@@ -132,6 +134,7 @@ public class BroadcastController {
     }
 
     @PostMapping("/{id}/end")
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<BroadcastDTO> endBroadcast(
             @PathVariable Long id,
             Authentication authentication) {
@@ -169,6 +172,7 @@ public class BroadcastController {
      * Temporary endpoint to start broadcasts in test mode without Icecast integration.
      */
     @PostMapping("/{id}/start-test")
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<BroadcastDTO> startBroadcastTestMode(
             @PathVariable Long id,
             Authentication authentication) {

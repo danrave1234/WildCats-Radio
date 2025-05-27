@@ -79,24 +79,26 @@ public class StreamController {
     }
     
     /**
-     * Get WebSocket URL for streaming
+     * Get WebSocket URLs for streaming and listening
      */
     @GetMapping("/websocket-url")
     public ResponseEntity<Map<String, Object>> getWebSocketUrl() {
         try {
-            String wsUrl = icecastService.getWebSocketUrl();
+            String djWsUrl = icecastService.getWebSocketUrl();
+            String listenerWsUrl = icecastService.getListenerWebSocketUrl();
             
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
-            response.put("webSocketUrl", wsUrl);
+            response.put("webSocketUrl", djWsUrl);  // For DJ streaming
+            response.put("listenerWebSocketUrl", listenerWsUrl);  // For listener status updates
             
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
-            logger.error("Error getting WebSocket URL", e);
+            logger.error("Error getting WebSocket URLs", e);
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("success", false);
-            errorResponse.put("error", "Failed to get WebSocket URL: " + e.getMessage());
+            errorResponse.put("error", "Failed to get WebSocket URLs: " + e.getMessage());
             return ResponseEntity.internalServerError().body(errorResponse);
         }
     }

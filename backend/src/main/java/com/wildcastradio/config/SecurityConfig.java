@@ -67,21 +67,24 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        
+
         // For development - specify exact origins instead of using wildcards with credentials
         configuration.setAllowedOrigins(Arrays.asList(
             "http://localhost:3000",   // React development server
             "http://localhost:5173",   // Vite development server
             "http://127.0.0.1:3000",
-            "http://127.0.0.1:5173"
+            "http://127.0.0.1:5173",
+            "https://wildcat-radio-f05d362144e6.herokuapp.com",
+            "https://wildcat-radio.vercel.app",
+            "https://wildcat-radio-f05d362144e6.autoidleapp.com"
         ));
-        
+
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*")); // Allow all headers including authorization
         configuration.setExposedHeaders(Arrays.asList("x-auth-token"));
         configuration.setAllowCredentials(true); // Enable credentials for JWT tokens
         configuration.setMaxAge(3600L); // Cache preflight for 1 hour
-        
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
