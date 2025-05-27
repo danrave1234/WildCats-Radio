@@ -78,8 +78,9 @@ const CustomHeader = ({
   const isAnimatingBack = useRef(false);
 
   useEffect(() => {
-    if (showBackButton) {
-      // Back button animation - using springs for natural movement
+    if (showBackButton && !isAnimatingBack.current) {
+      // Only show back button if we're NOT in the middle of animating back
+      // This prevents the button from reappearing during transition and causing logo delay
       Animated.parallel([
         Animated.timing(anim.opacity, {
           toValue: 1, duration: 400, easing: Easing.out(Easing.cubic), useNativeDriver: true
@@ -104,27 +105,28 @@ const CustomHeader = ({
           useNativeDriver: true
         })
       ]).start();
-    } else if (!isAnimatingBack.current) {
-      // Reset animations when going back to normal state
-      // Only do this if we're not in the middle of a back animation
+    } else {
+      // INSTANTLY remove back button - no animation, no conditions
       anim.opacity.setValue(0);
       anim.y.setValue(-20);
       
-      // Use very fast animation to match the main transition
-      Animated.parallel([
-        Animated.spring(logoTranslateX, {
-          toValue: 0,
-          tension: 180, // Higher tension for quicker movement
-          friction: 12, // Lower friction for faster initial movement
-          useNativeDriver: true
-        }),
-        Animated.spring(logoScale, {
-          toValue: 1,
-          tension: 180, // Higher tension for quicker movement
-          friction: 12, // Lower friction for faster initial movement
-          useNativeDriver: true
-        })
-      ]).start();
+      // Only animate logo if not already animating back
+      if (!isAnimatingBack.current) {
+        Animated.parallel([
+          Animated.spring(logoTranslateX, {
+            toValue: 0,
+            tension: 65, // Match exactly with broadcast screen animation
+            friction: 10, // Match exactly with broadcast screen animation
+            useNativeDriver: true
+          }),
+          Animated.spring(logoScale, {
+            toValue: 1,
+            tension: 65, // Match exactly with broadcast screen animation
+            friction: 10, // Match exactly with broadcast screen animation
+            useNativeDriver: true
+          })
+        ]).start();
+      }
     }
   }, [showBackButton, anim, logoTranslateX, logoScale]);
 
@@ -132,20 +134,24 @@ const CustomHeader = ({
     // When back is pressed, set animating flag to prevent conflicts
     isAnimatingBack.current = true;
     
+    // INSTANTLY hide back button to prevent exit animation interference
+    anim.opacity.setValue(0);
+    anim.y.setValue(-20);
+    
     if (onBackPress) {
-      // Start animating the logo BEFORE triggering the screen transition
-      // Slowed down animation for smoother feel
+      // Start animating the logo IMMEDIATELY after hiding back button
+      // Match EXACT parameters with main screen animation for perfect sync
       Animated.parallel([
         Animated.spring(logoTranslateX, {
           toValue: 0,
-          tension: 65, // Lower tension for slower movement
-          friction: 10, // Balanced friction for smooth motion
+          tension: 65, // Match exactly with broadcast screen animation
+          friction: 10, // Match exactly with broadcast screen animation
           useNativeDriver: true
         }),
         Animated.spring(logoScale, {
           toValue: 1,
-          tension: 65, // Lower tension for slower movement
-          friction: 10, // Balanced friction for smooth motion
+          tension: 65, // Match exactly with broadcast screen animation
+          friction: 10, // Match exactly with broadcast screen animation
           useNativeDriver: true
         })
       ]).start(() => {
