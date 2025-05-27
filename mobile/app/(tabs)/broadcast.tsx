@@ -66,46 +66,14 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
-    // Only animate once per message to prevent double animation on optimistic updates
+    // Skip animations for all messages (appear instantly)
     if (hasAnimated.current) return;
     
-    // Skip animation for own messages (they appear instantly)
-    if (isOwnMessage) {
-      slideAnim.setValue(0);
-      opacityAnim.setValue(1);
-      scaleAnim.setValue(1);
-      hasAnimated.current = true;
-      return;
-    }
-    
-    // Much faster stagger for responsive feel - only 15ms delay between messages
-    const animationDelay = index * 15;
-    
-    Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 200, // Reduced from 400ms to 200ms
-        delay: animationDelay,
-        easing: Easing.out(Easing.ease), // Simpler, faster easing
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: 1,
-        duration: 150, // Reduced from 300ms to 150ms
-        delay: animationDelay,
-        useNativeDriver: true,
-      }),
-      Animated.timing(scaleAnim, {
-        toValue: 1,
-        duration: 180, // Reduced from 350ms to 180ms
-        delay: animationDelay,
-        easing: Easing.out(Easing.ease), // Simpler easing for faster feel
-        useNativeDriver: true,
-      }),
-    ]).start();
-    
+    slideAnim.setValue(0);
+    opacityAnim.setValue(1);
+    scaleAnim.setValue(1);
     hasAnimated.current = true;
-  }, [slideAnim, opacityAnim, scaleAnim, index, isOwnMessage]);
+  }, [slideAnim, opacityAnim, scaleAnim]);
 
   // Update timestamps every minute
   useEffect(() => {
@@ -269,7 +237,6 @@ const BroadcastScreen: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState('chat');
   const [isLoading, setIsLoading] = useState(true);
-  const [isPollingData, setIsPollingData] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -290,7 +257,6 @@ const BroadcastScreen: React.FC = () => {
   const [userMessageIds, setUserMessageIds] = useState<Set<number>>(new Set());
   const [isListening, setIsListening] = useState(false);
   const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
-  const [useWebSocketMode, setUseWebSocketMode] = useState(true); // Toggle between WS and polling
 
   const [chatInput, setChatInput] = useState('');
   const [songTitleInput, setSongTitleInput] = useState('');
@@ -326,10 +292,10 @@ const BroadcastScreen: React.FC = () => {
   const underlineWidth = useRef(new Animated.Value(0)).current;
   const [isInitialLayoutDone, setIsInitialLayoutDone] = useState(false);
 
-  // WebSocket integration
+  // WebSocket integration - always active
   const { sendChatMessage: wsSendChatMessage, isConnected: wsIsConnected } = useWebSocket({
-    broadcastId: useWebSocketMode ? currentBroadcast?.id || null : null,
-    authToken: useWebSocketMode ? authToken : null,
+    broadcastId: currentBroadcast?.id || null,
+    authToken: authToken,
     onNewMessage: useCallback((message: ChatMessageDTO) => {
       console.log('📨 Received WebSocket message:', message);
       setChatMessages(prev => {
@@ -394,10 +360,8 @@ const BroadcastScreen: React.FC = () => {
       setIsWebSocketConnected(true);
     }, []),
     onDisconnect: useCallback(() => {
-      console.log('💬 WebSocket disconnected, falling back to polling...');
+      console.log('💬 WebSocket disconnected');
       setIsWebSocketConnected(false);
-      // Auto fallback to polling mode
-      setUseWebSocketMode(false);
     }, []),
     onError: useCallback((error: Event) => {
       console.error('WebSocket error:', error);
@@ -408,12 +372,7 @@ const BroadcastScreen: React.FC = () => {
   // Sync WebSocket connection state
   useEffect(() => {
     setIsWebSocketConnected(wsIsConnected);
-    // Re-enable WebSocket mode when connection is restored
-    if (wsIsConnected && !useWebSocketMode) {
-      console.log('🔄 WebSocket reconnected, re-enabling WebSocket mode');
-      setUseWebSocketMode(true);
-    }
-  }, [wsIsConnected, useWebSocketMode]);
+  }, [wsIsConnected]);
 
   const tabDefinitions: TabDefinition[] = useMemo(() => [
     { name: 'Chat', icon: 'chatbubbles-outline', key: 'chat' },
@@ -546,79 +505,7 @@ const BroadcastScreen: React.FC = () => {
     loadInitialDataForBroadcastScreen();
   }, [loadInitialDataForBroadcastScreen]);
 
-  // Fallback polling - only when WebSocket is not connected
-  useEffect(() => {
-    if (!currentBroadcast?.id || !authToken || (useWebSocketMode && isWebSocketConnected)) {
-      return; // Skip polling if WebSocket is working
-    }
 
-    console.log('📡 Using HTTP polling mode (WebSocket unavailable)');
-    
-    const pollData = async () => {
-      if (!currentBroadcast?.id || !authToken) return;
-      setIsPollingData(true);
-      try {
-        const messagesResult = await getChatMessages(currentBroadcast.id, authToken);
-        if (!('error' in messagesResult)) {
-          // Smart merge: keep recent local messages and optimistic messages
-          setChatMessages(prevMessages => {
-            const serverMessages = messagesResult;
-            const now = new Date().getTime();
-            
-            // Keep recent messages and optimistic messages that might not be on server
-            const localMessagesToKeep = prevMessages.filter(localMsg => {
-              const messageTime = new Date(localMsg.timestamp).getTime();
-              const isRecent = (now - messageTime) < 30000; // Last 30 seconds
-              const isOptimistic = userMessageIds.has(localMsg.id) && localMsg.id > 1000000000000;
-              
-              // Check if this message exists on server
-              const existsOnServer = serverMessages.some(serverMsg => 
-                serverMsg.id === localMsg.id || 
-                (serverMsg.content === localMsg.content && 
-                 serverMsg.sender?.name === localMsg.sender?.name &&
-                 Math.abs(new Date(serverMsg.timestamp).getTime() - messageTime) < 10000)
-              );
-              
-              // Keep if (recent OR optimistic) AND not on server
-              return (isRecent || isOptimistic) && !existsOnServer;
-            });
-            
-            // Merge server messages with local messages to keep
-            const mergedMessages = [...serverMessages, ...localMessagesToKeep];
-            
-            // Remove duplicates and sort by timestamp
-            const uniqueMessages = mergedMessages.filter((msg, index, array) => 
-              array.findIndex(m => 
-                m.id === msg.id || 
-                (m.content === msg.content && 
-                 m.sender?.name === msg.sender?.name &&
-                 Math.abs(new Date(m.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 5000)
-              ) === index
-            );
-            
-            return uniqueMessages.sort((a, b) => 
-              new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-            );
-          });
-        } else {
-          console.warn('Polling chat error:', messagesResult.error);
-        }
-
-        const pollsResult = await getActivePollsForBroadcast(currentBroadcast.id, authToken);
-        if (!('error' in pollsResult)) {
-          setActivePolls(pollsResult);
-        } else {
-          console.warn('Polling polls error:', pollsResult.error);
-        }
-      } catch (err) {
-        console.warn("Exception during polling data:", err);
-      }
-      setIsPollingData(false);
-    };
-
-    const intervalId = setInterval(pollData, 10000); // Faster polling when WS is down
-    return () => clearInterval(intervalId);
-  }, [currentBroadcast?.id, authToken, useWebSocketMode, isWebSocketConnected, userMessageIds]);
 
   useEffect(() => {
     if (chatMessages.length > 0) {
@@ -662,7 +549,7 @@ const BroadcastScreen: React.FC = () => {
     const handleAppStateChange = (nextAppState: string) => {
       console.log('📱 App state changed to:', nextAppState);
       
-      if (nextAppState === 'active' && !isWebSocketConnected && useWebSocketMode) {
+      if (nextAppState === 'active' && !isWebSocketConnected) {
         console.log('📱 App became active, checking WebSocket connection...');
         // App came to foreground and WebSocket is disconnected, try to reconnect
         setTimeout(() => {
@@ -681,7 +568,7 @@ const BroadcastScreen: React.FC = () => {
     return () => {
       subscription?.remove();
     };
-  }, [isWebSocketConnected, useWebSocketMode, currentBroadcast?.id]);
+  }, [isWebSocketConnected, currentBroadcast?.id]);
 
     const handleSendChatMessage = async () => {
     if (!authToken || !currentBroadcast || !chatInput.trim()) return;
@@ -689,8 +576,8 @@ const BroadcastScreen: React.FC = () => {
     const messageToSend = chatInput;
     setChatInput(''); // Clear input immediately
     
-    // Try WebSocket first, fallback to HTTP
-    if (useWebSocketMode && isWebSocketConnected && wsSendChatMessage) {
+    // WebSocket only - no HTTP fallback
+    if (isWebSocketConnected && wsSendChatMessage) {
       console.log('🚀 Sending via WebSocket (real-time)');
       // Add optimistic update for immediate feedback, WebSocket will confirm/replace
       const tempMessageId = Date.now();
@@ -704,53 +591,23 @@ const BroadcastScreen: React.FC = () => {
       setChatMessages(prev => [...prev, optimisticMessage]);
       setUserMessageIds(prev => new Set([...prev, tempMessageId]));
       
-      // Send via WebSocket with improved error handling
+      // Send via WebSocket
       const sendSuccess = wsSendChatMessage(messageToSend);
       if (sendSuccess) {
         console.log('✅ Message sent via WebSocket');
-        return;
       } else {
-        console.warn('WebSocket send failed, falling back to HTTP');
-        // Don't immediately disable WebSocket mode, just use HTTP for this message
-        // The connection will auto-recover if it's just a temporary issue
-      }
-    }
-    
-    // HTTP fallback with optimistic updates
-    console.log('📡 Sending via HTTP (polling mode)');
-    const tempMessageId = Date.now();
-    const optimisticMessage: ChatMessageDTO = {
-        id: tempMessageId,
-        content: messageToSend,
-        timestamp: new Date().toISOString(),
-        sender: { name: listenerName },
-        broadcastId: currentBroadcast.id
-    };
-    setChatMessages(prev => [...prev, optimisticMessage]);
-    setUserMessageIds(prev => new Set([...prev, tempMessageId]));
-
-    // Send in background without blocking UI
-    sendChatMessage(currentBroadcast.id, { content: messageToSend }, authToken).then(result => {
-      if ('error' in result) {
-        // Silently remove failed message and show subtle feedback
+        console.warn('❌ WebSocket send failed');
+        // Remove the optimistic message if send failed
         setChatMessages(prev => prev.filter(msg => msg.id !== tempMessageId));
         setUserMessageIds(prev => {
           const newSet = new Set(prev);
           newSet.delete(tempMessageId);
           return newSet;
         });
-        // Could add a toast notification here instead of alert
-      } else {
-        // Replace optimistic message with real one
-        setChatMessages(prev => prev.map(msg => msg.id === tempMessageId ? result : msg));
-        setUserMessageIds(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(tempMessageId);
-          newSet.add(result.id);
-          return newSet;
-        });
       }
-    });
+    } else {
+      console.warn('❌ Cannot send message - WebSocket not connected');
+    }
   };
 
   const handleCreateSongRequest = async () => {
@@ -784,13 +641,12 @@ const BroadcastScreen: React.FC = () => {
       Alert.alert("Error", result.error || "Failed to submit vote.");
     } else {
       Alert.alert("Success", "Vote submitted!");
-      setIsPollingData(true);
+      // Refresh polls after voting
       getActivePollsForBroadcast(currentBroadcast.id, authToken)
         .then(pollsResult => {
             if (!('error' in pollsResult)) setActivePolls(pollsResult);
         })
-        .catch(err => console.error("Error refreshing polls after vote:", err))
-        .finally(() => setIsPollingData(false));
+        .catch(err => console.error("Error refreshing polls after vote:", err));
     }
     setIsSubmitting(false);
   };
@@ -915,12 +771,12 @@ const BroadcastScreen: React.FC = () => {
                 <ActivityIndicator size="small" color="#3B82F6" className="mr-2" />
               )}
               <View className={`w-2 h-2 rounded-full mr-2 ${
-                isWebSocketConnected && useWebSocketMode ? 'bg-green-500' : 'bg-orange-500'
+                isWebSocketConnected ? 'bg-green-500' : 'bg-red-500'
               }`} />
               <Text className={`text-xs font-medium ${
-                isWebSocketConnected && useWebSocketMode ? 'text-green-600' : 'text-orange-600'
+                isWebSocketConnected ? 'text-green-600' : 'text-red-600'
               }`}>
-                {isRefreshingChat ? 'Syncing...' : (isWebSocketConnected && useWebSocketMode ? 'Live' : 'Sync')}
+                {isRefreshingChat ? 'Syncing...' : (isWebSocketConnected ? 'Live' : 'Offline')}
               </Text>
             </View>
         </View>
@@ -931,21 +787,13 @@ const BroadcastScreen: React.FC = () => {
         ref={chatScrollViewRef}
         className="flex-1 bg-gray-50"
         contentContainerStyle={{ 
+          flexGrow: 1,
+          justifyContent: chatMessages.length === 0 ? 'center' : 'flex-end',
           paddingTop: 20, 
           paddingBottom: 20, 
           paddingHorizontal: 16 
         }}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshingChat}
-            onRefresh={refreshChatData}
-            colors={['#91403E']}
-            tintColor="#91403E"
-            title="Pull to refresh chat"
-            titleColor="#91403E"
-          />
-        }
       >
         {(isLoading && chatMessages.length === 0) && (
           <View className="flex-1 items-center justify-center py-20">
@@ -957,34 +805,22 @@ const BroadcastScreen: React.FC = () => {
         )}
         
         {!isLoading && chatMessages.length === 0 && (
-          <View className="flex-1 items-center justify-center py-20">
-            <View 
-              className="bg-white rounded-3xl p-12 shadow-xl items-center relative overflow-hidden"
-              style={{
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 8 },
-                shadowOpacity: 0.12,
-                shadowRadius: 20,
-                elevation: 10,
-              }}
-            >
-              {/* Background Pattern */}
-              <View className="absolute inset-0 opacity-5">
-                <View className="absolute top-8 left-8 w-16 h-16 bg-cordovan rounded-full" />
-                <View className="absolute bottom-12 right-12 w-12 h-12 bg-mikado_yellow rounded-full" />
-                <View className="absolute top-20 right-20 w-8 h-8 bg-cordovan rounded-full" />
-          </View>
-              
-              <View className="bg-cordovan/10 p-6 rounded-full mb-6">
-                <Ionicons name="chatbubbles-outline" size={48} color="#91403E" />
+          <View className="flex-1 items-center justify-center py-20 px-8">
+            <Ionicons name="chatbubbles-outline" size={48} color="#91403E" className="mb-4" />
+            <Text className="text-2xl font-bold text-cordovan mb-3 text-center">
+              Start the Conversation!
+            </Text>
+            <Text className="text-gray-600 text-center text-base leading-relaxed mb-6">
+              Be the first to chat with the DJ and fellow listeners. Share your thoughts, make requests, or just say hello!
+            </Text>
+            
+            {!isWebSocketConnected && (
+              <View className="bg-red-50 p-4 rounded-xl border border-red-200">
+                <Text className="text-red-600 text-center text-sm font-medium">
+                  ⚠️ Chat is currently offline. Check your connection.
+                </Text>
               </View>
-              <Text className="text-2xl font-bold text-cordovan mb-3 text-center">
-                Start the Conversation! 💬
-              </Text>
-              <Text className="text-gray-600 text-center px-4 text-base leading-relaxed">
-                Be the first to chat with the DJ and fellow listeners. Share your thoughts, make requests, or just say hello!
-              </Text>
-            </View>
+            )}
           </View>
         )}
 
