@@ -238,8 +238,14 @@ class WebSocketManager implements WebSocketService {
       console.log('📝 Message content:', messageBody);
       
       try {
+        // Send chat message with authorization header
+        const headers: any = {};
+        if (this.currentAuthToken) {
+          headers['Authorization'] = `Bearer ${this.currentAuthToken}`;
+        }
+        
         // Send chat message to the appropriate topic
-        this.stompClient.send(destination, {}, messageBody);
+        this.stompClient.send(destination, headers, messageBody);
         console.log('✅ STOMP message sent successfully');
       } catch (error) {
         console.error('❌ Failed to send STOMP message:', error);

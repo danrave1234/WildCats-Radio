@@ -73,7 +73,7 @@ export interface ChatMessageSender { // Based on UserEntity simplified for DTO
 export interface ChatMessageDTO {
   id: number;
   content: string;
-  timestamp: string; // ISO 8601 date-time string
+  createdAt: string; // ISO 8601 date-time string
   sender: ChatMessageSender;
   broadcastId: number;
   error?: string;

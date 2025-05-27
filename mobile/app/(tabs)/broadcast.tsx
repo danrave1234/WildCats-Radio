@@ -17,6 +17,7 @@ import {
   Pressable,
   RefreshControl,
   AppState,
+  Keyboard,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useNavigation } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -126,7 +127,7 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
       )}
 
       {/* Message Bubble Container */}
-      <View className={`${isOwnMessage ? 'max-w-[75%]' : 'max-w-[75%]'}`}>
+      <View className={`${isOwnMessage ? 'max-w-[75%]' : 'max-w-[75%]'}`} style={{ alignSelf: isOwnMessage ? 'flex-end' : 'flex-start' }}>
         {/* Sender name for other users */}
         {!isOwnMessage && isFirstInGroup && (
           <Animated.Text 
@@ -148,6 +149,7 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
           }`}
           style={{
             transform: [{ scale: scaleAnim }],
+            alignSelf: isOwnMessage ? 'flex-end' : 'flex-start',
           }}
         >
           <Text 
@@ -159,30 +161,35 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
           </Text>
         </Animated.View>
         
-        {/* Timestamp */}
+        {/* Timestamp - positioned independently */}
         {isLastInGroup && (
           <Animated.Text 
             className={`text-xs text-gray-400 mt-1 ${
-              isOwnMessage ? 'text-right mr-1' : 'text-left ml-1'
+              isOwnMessage ? 'mr-1' : 'ml-1'
             }`}
             style={{
               opacity: opacityAnim,
+              alignSelf: isOwnMessage ? 'flex-end' : 'flex-start',
             }}
           >
             {(() => {
               try {
-                if (!message.timestamp || typeof message.timestamp !== 'string') {
-                  return 'Just now';
-                }
-                const messageDate = parseISO(message.timestamp);
-                const diffInMinutes = (currentTime.getTime() - messageDate.getTime()) / (1000 * 60);
+                // Use the same timestamp handling logic as DJDashboard
+                let messageDate;
                 
-                // Show "Just now" for messages less than 1 minute old
-                if (diffInMinutes < 1) {
+                if (!message.createdAt || typeof message.createdAt !== 'string') {
                   return 'Just now';
                 }
                 
-                // Use relative time for messages with current time reference
+                // Handle timezone like DJDashboard - add Z if not present
+                messageDate = message.createdAt.endsWith('Z') ? new Date(message.createdAt) : new Date(message.createdAt + 'Z');
+                
+                // Check if date is valid
+                if (!messageDate || isNaN(messageDate.getTime())) {
+                  return 'Just now';
+                }
+                
+                // Use formatDistanceToNow like DJDashboard
                 return formatDistanceToNow(messageDate, { addSuffix: true });
               } catch (error) {
                 console.warn('Error parsing message timestamp:', error);
@@ -292,60 +299,43 @@ const BroadcastScreen: React.FC = () => {
   const underlineWidth = useRef(new Animated.Value(0)).current;
   const [isInitialLayoutDone, setIsInitialLayoutDone] = useState(false);
 
-  // WebSocket integration - always active
-  const { sendChatMessage: wsSendChatMessage, isConnected: wsIsConnected } = useWebSocket({
+  // Keyboard animation states
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const tabContentTranslateY = useRef(new Animated.Value(0)).current;
+
+  // WebSocket integration - for receiving real-time updates only
+  const { isConnected: wsIsConnected } = useWebSocket({
     broadcastId: currentBroadcast?.id || null,
     authToken: authToken,
     onNewMessage: useCallback((message: ChatMessageDTO) => {
       console.log('📨 Received WebSocket message:', message);
       setChatMessages(prev => {
-        // Check if this is our own message coming back (replace optimistic)
-        const isOwnMessage = message.sender?.name === listenerName;
-        if (isOwnMessage) {
-          // Find and replace any optimistic message with same content and recent timestamp
-          const optimisticIndex = prev.findIndex(msg => 
-            userMessageIds.has(msg.id) && 
-            msg.content === message.content &&
-            Math.abs(new Date(msg.timestamp).getTime() - new Date(message.timestamp).getTime()) < 30000
-          );
-          
-          if (optimisticIndex >= 0) {
-            console.log('🔄 Replacing optimistic message with real one');
-            const newMessages = [...prev];
-            newMessages[optimisticIndex] = message;
-            // Update user message IDs
-            setUserMessageIds(prevIds => {
-              const newIds = new Set(prevIds);
-              newIds.delete(prev[optimisticIndex].id);
-              newIds.add(message.id);
-              return newIds;
-            });
-            return newMessages.sort((a, b) => 
-              new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-            );
-          }
+        // Prevent duplicates - check if message already exists by ID first (most reliable)
+        const exists = prev.some(msg => msg.id === message.id);
+        if (exists) {
+          console.log('⚠️ Duplicate message ignored (ID already exists)');
+          return prev;
         }
         
-        // Prevent duplicates - check if message already exists
-        const exists = prev.some(msg => 
-          msg.id === message.id || 
-          (msg.content === message.content && 
-           msg.sender?.name === message.sender?.name &&
-           Math.abs(new Date(msg.timestamp).getTime() - new Date(message.timestamp).getTime()) < 5000)
+        // Secondary duplicate check by content and timing for edge cases
+        const contentDuplicate = prev.some(msg => 
+          msg.content === message.content && 
+          msg.sender?.name === message.sender?.name &&
+          Math.abs(new Date(msg.createdAt).getTime() - new Date(message.createdAt).getTime()) < 5000
         );
-        if (exists) {
-          console.log('⚠️ Duplicate message ignored');
+        if (contentDuplicate) {
+          console.log('⚠️ Duplicate message ignored (content + timing match)');
           return prev;
         }
         
         // Add new message and sort by timestamp
-        console.log('✅ Adding new message to chat');
+        console.log('✅ Adding new WebSocket message to chat');
         const newMessages = [...prev, message];
         return newMessages.sort((a, b) => 
-          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
         );
       });
-    }, [listenerName, userMessageIds]),
+    }, []),
     onPollUpdate: useCallback((poll: PollDTO) => {
       setActivePolls(prev => {
         const exists = prev.findIndex(p => p.id === poll.id);
@@ -373,6 +363,48 @@ const BroadcastScreen: React.FC = () => {
   useEffect(() => {
     setIsWebSocketConnected(wsIsConnected);
   }, [wsIsConnected]);
+
+  // Keyboard animation handling
+  useEffect(() => {
+    const keyboardWillShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (event) => {
+        console.log('📱 Keyboard showing, animating tab content up');
+        setIsKeyboardVisible(true);
+        
+        // Calculate how much to move up to cover the Live card area
+        // This moves the tabs up to where the Live card was positioned
+        const moveUpDistance = 5; // More reasonable distance to cover the compact live card area
+        
+        Animated.timing(tabContentTranslateY, {
+          toValue: -moveUpDistance,
+          duration: Platform.OS === 'ios' ? (event.duration || 350) : 400,
+          easing: Easing.bezier(0.25, 0.46, 0.45, 0.94), // Smooth ease-out curve
+          useNativeDriver: true,
+        }).start();
+      }
+    );
+
+    const keyboardWillHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      (event) => {
+        console.log('📱 Keyboard hiding, animating tab content down');
+        setIsKeyboardVisible(false);
+        
+        Animated.timing(tabContentTranslateY, {
+          toValue: 0,
+          duration: Platform.OS === 'ios' ? (event.duration || 300) : 350,
+          easing: Easing.bezier(0.25, 0.46, 0.45, 0.94), // Smooth ease-out curve
+          useNativeDriver: true,
+        }).start();
+      }
+    );
+
+    return () => {
+      keyboardWillShowListener?.remove();
+      keyboardWillHideListener?.remove();
+    };
+  }, [tabContentTranslateY]);
 
   const tabDefinitions: TabDefinition[] = useMemo(() => [
     { name: 'Chat', icon: 'chatbubbles-outline', key: 'chat' },
@@ -468,19 +500,19 @@ const BroadcastScreen: React.FC = () => {
             const serverMessages = messagesResult;
             const mergedMessages = [...serverMessages, ...prevMessages];
             
-            // Remove duplicates and sort by timestamp
-            const uniqueMessages = mergedMessages.filter((msg, index, array) => 
-              array.findIndex(m => 
-                m.id === msg.id || 
-                (m.content === msg.content && 
-                 m.sender?.name === msg.sender?.name &&
-                 Math.abs(new Date(m.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 5000)
-              ) === index
-            );
-            
-            return uniqueMessages.sort((a, b) => 
-              new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-            );
+                      // Remove duplicates and sort by timestamp
+          const uniqueMessages = mergedMessages.filter((msg, index, array) => 
+            array.findIndex(m => 
+              m.id === msg.id || 
+              (m.content === msg.content && 
+               m.sender?.name === msg.sender?.name &&
+               Math.abs(new Date(m.createdAt).getTime() - new Date(msg.createdAt).getTime()) < 5000)
+            ) === index
+          );
+          
+          return uniqueMessages.sort((a, b) => 
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
           });
         } else {
           console.error('Failed to fetch initial chat:', messagesResult.error);
@@ -570,43 +602,52 @@ const BroadcastScreen: React.FC = () => {
     };
   }, [isWebSocketConnected, currentBroadcast?.id]);
 
-    const handleSendChatMessage = async () => {
+  const handleSendChatMessage = async () => {
     if (!authToken || !currentBroadcast || !chatInput.trim()) return;
     
     const messageToSend = chatInput;
     setChatInput(''); // Clear input immediately
+    setIsSubmitting(true);
     
-    // WebSocket only - no HTTP fallback
-    if (isWebSocketConnected && wsSendChatMessage) {
-      console.log('🚀 Sending via WebSocket (real-time)');
-      // Add optimistic update for immediate feedback, WebSocket will confirm/replace
-      const tempMessageId = Date.now();
-      const optimisticMessage: ChatMessageDTO = {
-        id: tempMessageId,
-        content: messageToSend,
-        timestamp: new Date().toISOString(),
-        sender: { name: listenerName },
-        broadcastId: currentBroadcast.id
-      };
-      setChatMessages(prev => [...prev, optimisticMessage]);
-      setUserMessageIds(prev => new Set([...prev, tempMessageId]));
+    try {
+      // Use HTTP POST for sending messages (like web frontend)
+      console.log('🚀 Sending via HTTP API');
+      const result = await sendChatMessage(currentBroadcast.id, { content: messageToSend }, authToken);
       
-      // Send via WebSocket
-      const sendSuccess = wsSendChatMessage(messageToSend);
-      if (sendSuccess) {
-        console.log('✅ Message sent via WebSocket');
+      if ('error' in result) {
+        console.error('❌ Failed to send message:', result.error);
+        // Show error message to user
+        setChatInput(messageToSend); // Restore the message
+        Alert.alert("Error", result.error || "Failed to send message. Please try again.");
       } else {
-        console.warn('❌ WebSocket send failed');
-        // Remove the optimistic message if send failed
-        setChatMessages(prev => prev.filter(msg => msg.id !== tempMessageId));
-        setUserMessageIds(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(tempMessageId);
-          return newSet;
+        console.log('✅ Message sent successfully via HTTP');
+        // Message will appear via WebSocket when server broadcasts it
+        // Don't add optimistic update since HTTP response gives us the real message
+        
+        // Add the sent message immediately since we got it back from server
+        setChatMessages(prev => {
+          // Check if message already exists (avoid duplicates)
+          const exists = prev.some(msg => msg.id === result.id);
+          if (exists) {
+            return prev;
+          }
+          
+          // Add new message and sort by timestamp
+          const newMessages = [...prev, result];
+          return newMessages.sort((a, b) => 
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
         });
+        
+        // Track this as our own message
+        setUserMessageIds(prev => new Set([...prev, result.id]));
       }
-    } else {
-      console.warn('❌ Cannot send message - WebSocket not connected');
+    } catch (error) {
+      console.error('❌ Error sending message:', error);
+      setChatInput(messageToSend); // Restore the message
+      Alert.alert("Error", "Failed to send message. Please check your connection and try again.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -666,7 +707,7 @@ const BroadcastScreen: React.FC = () => {
           // Keep recent local messages (sent in last 30 seconds) that might not be on server
           const recentLocalMessages = prevMessages.filter(localMsg => {
             // Check if it's a recent message (last 30 seconds)
-            const messageTime = new Date(localMsg.timestamp).getTime();
+            const messageTime = new Date(localMsg.createdAt).getTime();
             const isRecent = (now - messageTime) < 30000;
             
             // Check if this message is NOT in the server response
@@ -674,7 +715,7 @@ const BroadcastScreen: React.FC = () => {
               serverMsg.id === localMsg.id || 
               (serverMsg.content === localMsg.content && 
                serverMsg.sender?.name === localMsg.sender?.name &&
-               Math.abs(new Date(serverMsg.timestamp).getTime() - messageTime) < 10000)
+               Math.abs(new Date(serverMsg.createdAt).getTime() - messageTime) < 10000)
             );
             
             // Keep if it's recent AND not on server (likely pending WebSocket message)
@@ -692,12 +733,12 @@ const BroadcastScreen: React.FC = () => {
               m.id === msg.id || 
               (m.content === msg.content && 
                m.sender?.name === msg.sender?.name &&
-               Math.abs(new Date(m.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 5000)
+               Math.abs(new Date(m.createdAt).getTime() - new Date(msg.createdAt).getTime()) < 5000)
             ) === index
           );
           
           return uniqueMessages.sort((a, b) => 
-            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
           );
         });
       }
@@ -1117,27 +1158,103 @@ const BroadcastScreen: React.FC = () => {
       return null; // Don't render if not live or no song info
     }
     return (
-      <View className="bg-cordovan/90 p-4 mx-4 my-3 rounded-lg shadow-lg">
-        <View className="absolute top-3 right-3 bg-red-600 px-2.5 py-1 rounded-full flex-row items-center z-10">
-            <View className="w-1.5 h-1.5 bg-white rounded-full mr-1.5" />
-            <Text className="text-white text-xs font-bold">LIVE</Text>
-        </View>
-        <View className="flex-row items-center">
-          <View className="w-24 h-24 bg-black/20 rounded-md items-center justify-center mr-4 shadow">
-            <Ionicons name="musical-notes-outline" size={48} color="rgba(255,255,255,0.4)" />
+      <View 
+        className="mx-4 my-3 rounded-2xl overflow-hidden"
+        style={{
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 8,
+        }}
+      >
+        {/* Compact Background */}
+        <View 
+          className="relative"
+          style={{
+            backgroundColor: '#91403E',
+          }}
+        >
+          {/* Live Badge */}
+          <View className="absolute top-3 right-3 z-20">
+            <View className="bg-red-500 px-3 py-1.5 rounded-full flex-row items-center">
+              <View className="w-1.5 h-1.5 bg-white rounded-full mr-1.5" />
+              <Text className="text-white text-xs font-bold">LIVE</Text>
+            </View>
           </View>
-          <View className="flex-1">
-            <Text className="text-2xl font-bold text-white mb-0.5" numberOfLines={2}>{currentBroadcast.title}</Text>
-            <Text className="text-sm text-gray-200 mb-2.5">Hosted by {currentBroadcast.dj?.name || 'Wildcat Radio'}</Text>
-            
-            <Text className="text-xs font-semibold text-gray-300 uppercase tracking-wider mb-0.5">Now Playing</Text>
-            <Text className="text-lg font-semibold text-white" numberOfLines={1}>{nowPlayingInfo.songTitle}</Text>
-            <Text className="text-sm text-gray-200">{nowPlayingInfo.artist}</Text>
-            
-            {/* Listen Now Button - only show when not in listening mode */}
+
+          <View className="p-4 pt-6">
+            {/* Compact Header */}
+            <View className="flex-row items-center mb-3">
+              {/* Small Album Art */}
+              <View 
+                className="w-16 h-16 rounded-xl mr-4 overflow-hidden"
+                style={{
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.2,
+                  shadowRadius: 6,
+                  elevation: 6,
+                }}
+              >
+                <View 
+                  className="w-full h-full items-center justify-center"
+                  style={{
+                    backgroundColor: 'rgba(0,0,0,0.2)',
+                  }}
+                >
+                  <Ionicons name="musical-notes" size={24} color="rgba(255,255,255,0.9)" />
+                </View>
+              </View>
+
+              {/* Compact Content */}
+              <View className="flex-1">
+                <Text className="text-white text-lg font-bold mb-1 leading-tight" numberOfLines={1}>
+                  {currentBroadcast.title}
+                </Text>
+                <View className="flex-row items-center">
+                  <Ionicons name="radio-outline" size={12} color="rgba(255,255,255,0.8)" />
+                  <Text className="text-white/80 text-sm font-medium ml-1.5">
+                    {currentBroadcast.dj?.name || 'Wildcat Radio'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Compact Now Playing Section */}
+            <View className="bg-white/15 backdrop-blur rounded-xl p-3 mb-3">
+              <View className="flex-row items-center mb-2">
+                <View className="w-2 h-2 bg-mikado_yellow rounded-full mr-2" />
+                <Text className="text-white/90 text-xs font-bold uppercase tracking-wide">
+                  Now Playing
+                </Text>
+              </View>
+              
+              <Text className="text-white text-base font-bold mb-0.5" numberOfLines={1}>
+                {nowPlayingInfo.songTitle}
+              </Text>
+              <Text className="text-white/80 text-sm font-medium" numberOfLines={1}>
+                {nowPlayingInfo.artist}
+              </Text>
+              
+              {/* Compact Audio Visualizer */}
+              <View className="flex-row items-end justify-center mt-2 space-x-1">
+                {[...Array(8)].map((_, i) => (
+                  <View
+                    key={i}
+                    className={`bg-mikado_yellow rounded-full w-0.5 ${
+                      i % 3 === 0 ? 'h-2' : i % 2 === 0 ? 'h-3' : 'h-1.5'
+                    }`}
+                    style={{ marginHorizontal: 0.5, opacity: 0.7 + (i % 3) * 0.1 }}
+                  />
+                ))}
+              </View>
+            </View>
+
+            {/* Compact Listen Button */}
             {!isListening && (
               <TouchableOpacity
-                className="bg-mikado_yellow px-6 py-3 rounded-full mt-4 shadow-lg active:bg-mikado_yellow/90"
+                className="bg-mikado_yellow rounded-xl py-3 px-6 active:scale-95"
                 onPress={() => setIsListening(true)}
                 style={{
                   shadowColor: '#B5830F',
@@ -1145,14 +1262,27 @@ const BroadcastScreen: React.FC = () => {
                   shadowOpacity: 0.3,
                   shadowRadius: 6,
                   elevation: 6,
+                  backgroundColor: '#B5830F', // Fallback
                 }}
               >
                 <View className="flex-row items-center justify-center">
-                  <Ionicons name="play-circle" size={20} color="#27272a" />
-                  <Text className="text-zinc-900 font-bold text-base ml-2">Listen Now</Text>
+                  <Ionicons name="play" size={16} color="#27272a" style={{ marginRight: 6 }} />
+                  <Text className="text-zinc-900 font-bold text-sm">
+                    Start Listening
+                  </Text>
                 </View>
               </TouchableOpacity>
             )}
+
+            {/* Compact Connection Info */}
+            <View className="flex-row items-center justify-center mt-2 opacity-80">
+              <View className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
+                isWebSocketConnected ? 'bg-green-400' : 'bg-red-400'
+              }`} />
+              <Text className="text-white/70 text-xs font-medium">
+                {isWebSocketConnected ? 'Connected • High Quality' : 'Connecting...'}
+              </Text>
+            </View>
           </View>
         </View>
       </View>
@@ -1235,72 +1365,88 @@ const BroadcastScreen: React.FC = () => {
             </View>
           )}
 
-          {/* Refreshable Now Playing Section */}
-          <ScrollView
-            style={{ flexGrow: 0 }}
-            contentContainerStyle={{ flexGrow: 0 }}
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefreshingBroadcast}
-                onRefresh={refreshBroadcastData}
-                colors={['#91403E']}
-                tintColor="#91403E"
-                title="Pull to refresh broadcast"
-                titleColor="#91403E"
-              />
-            }
-            showsVerticalScrollIndicator={false}
-          >
-            {renderNowPlayingCard()}
-          </ScrollView>
-
-        <View style={styles.tabBar} className="flex-row bg-white border-b border-gray-200 relative">
-          {tabDefinitions.map(tab => (
-            <Pressable 
-              key={tab.key}
-              onLayout={(event) => {
-                const { x, width } = event.nativeEvent.layout;
-                setTabLayouts((prev) => ({ ...prev, [tab.key]: { x, width } }));
-              }}
-              style={({ pressed }) => [
-                { opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1 }, 
-              ]}
-              className="flex-1 items-center py-3 justify-center flex-row" 
-              onPress={() => setActiveTab(tab.key)}
-                disabled={isLoading} 
-              android_ripple={{ color: 'rgba(0,0,0,0.05)' }} 
+          {/* Refreshable Now Playing Section - Hidden when keyboard is visible */}
+          {!isKeyboardVisible && (
+            <ScrollView
+              style={{ flexGrow: 0 }}
+              contentContainerStyle={{ flexGrow: 0 }}
+              refreshControl={
+                <RefreshControl
+                  refreshing={isRefreshingBroadcast}
+                  onRefresh={refreshBroadcastData}
+                  colors={['#91403E']}
+                  tintColor="#91403E"
+                  title="Pull to refresh broadcast"
+                  titleColor="#91403E"
+                />
+              }
+              showsVerticalScrollIndicator={false}
             >
-              <Ionicons
-                name={tab.icon as any}
-                size={20}
-                  color={isLoading ? '#CBD5E0' : (activeTab === tab.key ? '#91403E' : (Platform.OS === 'ios' ? '#6b7280' : '#4B5563'))}
-              />
-              <Text
-                  className={`ml-1.5 text-sm ${isLoading ? 'text-gray-400' : (activeTab === tab.key ? 'font-semibold text-cordovan' : 'text-gray-600')}`}
-              >
-                {tab.name}
-              </Text>
-            </Pressable>
-          ))}
+              {renderNowPlayingCard()}
+            </ScrollView>
+          )}
+
+          {/* Animated Tab Section - moves up when keyboard appears */}
           <Animated.View
             style={{
-              position: 'absolute',
-              bottom: 0,
-              height: 3, 
-              backgroundColor: '#B5830F', 
-              transform: [{ translateX: underlinePosition }],
-              width: underlineWidth,
+              flex: 1,
+              transform: [{ translateY: tabContentTranslateY }],
+              backgroundColor: isKeyboardVisible ? '#F3F4F6' : 'transparent',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: isKeyboardVisible ? -4 : 0 },
+              shadowOpacity: isKeyboardVisible ? 0.1 : 0,
+              shadowRadius: isKeyboardVisible ? 8 : 0,
+              elevation: isKeyboardVisible ? 8 : 0,
             }}
-          />
-        </View>
+          >
+            <View style={styles.tabBar} className="flex-row bg-white border-b border-gray-200 relative">
+              {tabDefinitions.map(tab => (
+                <Pressable 
+                  key={tab.key}
+                  onLayout={(event) => {
+                    const { x, width } = event.nativeEvent.layout;
+                    setTabLayouts((prev) => ({ ...prev, [tab.key]: { x, width } }));
+                  }}
+                  style={({ pressed }) => [
+                    { opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1 }, 
+                  ]}
+                  className="flex-1 items-center py-3 justify-center flex-row" 
+                  onPress={() => setActiveTab(tab.key)}
+                    disabled={isLoading} 
+                  android_ripple={{ color: 'rgba(0,0,0,0.05)' }} 
+                >
+                  <Ionicons
+                    name={tab.icon as any}
+                    size={20}
+                      color={isLoading ? '#CBD5E0' : (activeTab === tab.key ? '#91403E' : (Platform.OS === 'ios' ? '#6b7280' : '#4B5563'))}
+                  />
+                  <Text
+                      className={`ml-1.5 text-sm ${isLoading ? 'text-gray-400' : (activeTab === tab.key ? 'font-semibold text-cordovan' : 'text-gray-600')}`}
+                  >
+                    {tab.name}
+                  </Text>
+                </Pressable>
+              ))}
+              <Animated.View
+                style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  height: 3, 
+                  backgroundColor: '#B5830F', 
+                  transform: [{ translateX: underlinePosition }],
+                  width: underlineWidth,
+                }}
+              />
+            </View>
 
             <KeyboardAvoidingView 
               className="flex-1"
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
             >
-          {renderTabContent()}
-      </KeyboardAvoidingView>
+              {renderTabContent()}
+            </KeyboardAvoidingView>
+          </Animated.View>
         </View>
       )}
     </SafeAreaView>
