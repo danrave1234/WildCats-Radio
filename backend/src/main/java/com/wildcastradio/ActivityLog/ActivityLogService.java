@@ -52,4 +52,10 @@ public class ActivityLogService {
                 .map(ActivityLogDTO::fromEntity)
                 .collect(Collectors.toList());
     }
+
+    public List<ActivityLogDTO> getAllActivityLogs() {
+        return activityLogRepository.findAll().stream()
+                .map(ActivityLogDTO::fromEntity)
+                .collect(Collectors.toList());
+    }
 } 

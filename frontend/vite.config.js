@@ -48,7 +48,7 @@ export default defineConfig(({ mode }) => {
         'wildcat-radio-f05d362144e6.autoidleapp.com'
       ),
       'import.meta.env.VITE_ICECAST_URL': JSON.stringify(
-        'wildcat-radio-f05d362144e6.autoidleapp.com:8000/live.ogg'
+        '34.142.131.206:8000/live.ogg'
       )
     }
   };
