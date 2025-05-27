@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { Stack, useLocalSearchParams, useNavigation } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import CustomHeader from '../../components/navigation/CustomHeader';
 import { useAuth } from '../../context/AuthContext';
 import {
   Broadcast,
@@ -229,10 +230,10 @@ const BroadcastScreen: React.FC = () => {
   // Early safety check for auth context
   if (!authContext) {
     return (
-      <SafeAreaView className="flex-1 justify-center items-center bg-anti-flash_white">
+      <View className="flex-1 justify-center items-center bg-anti-flash_white">
         <ActivityIndicator size="large" color="#91403E" />
         <Text className="mt-4 text-gray-600 text-lg">Loading authentication...</Text>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -899,6 +900,7 @@ const BroadcastScreen: React.FC = () => {
           shadowOpacity: 0.1,
           shadowRadius: 4,
           elevation: 8,
+          marginBottom: 10,
         }}
       >
         <View className="flex-row items-end">
@@ -1127,16 +1129,16 @@ const BroadcastScreen: React.FC = () => {
 
   if (isLoading && !currentBroadcast && !nowPlayingInfo) { // Adjusted loading condition slightly for initial card appearance
     return (
-      <SafeAreaView className="flex-1 justify-center items-center bg-anti-flash_white">
+      <View className="flex-1 justify-center items-center bg-anti-flash_white">
         <ActivityIndicator size="large" color="#91403E" />
         <Text className="mt-4 text-gray-600 text-lg">Loading Live Broadcast...</Text>
-      </SafeAreaView>
+      </View>
     );
   }
 
    if (error && !isLoading) { 
     return (
-      <SafeAreaView className="flex-1 justify-center items-center bg-anti-flash_white p-6 text-center">
+      <View className="flex-1 justify-center items-center bg-anti-flash_white p-6 text-center">
         <Ionicons name="cloud-offline-outline" size={64} color="#7F1D1D" />
         <Text className="text-2xl font-semibold text-gray-800 mt-6 mb-2">Broadcast Error</Text>
         <Text className="text-gray-600 mb-8 text-base leading-relaxed">{error || "An unexpected error occurred while loading broadcast data."}</Text>
@@ -1146,7 +1148,7 @@ const BroadcastScreen: React.FC = () => {
         >
           <Text className="text-white font-semibold text-base">Try Again</Text>
         </TouchableOpacity>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -1159,128 +1161,122 @@ const BroadcastScreen: React.FC = () => {
     }
     return (
       <View 
-        className="mx-4 my-3 rounded-2xl overflow-hidden"
+        className="mx-4 my-2 rounded-2xl overflow-hidden"
         style={{
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 6 },
-          shadowOpacity: 0.15,
-          shadowRadius: 8,
-          elevation: 8,
+          shadowColor: '#91403E',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.25,
+          shadowRadius: 12,
+          elevation: 10,
         }}
       >
-        {/* Compact Background */}
+        {/* Clean Compact Background */}
         <View 
           className="relative"
           style={{
             backgroundColor: '#91403E',
           }}
         >
-          {/* Live Badge */}
-          <View className="absolute top-3 right-3 z-20">
-            <View className="bg-red-500 px-3 py-1.5 rounded-full flex-row items-center">
-              <View className="w-1.5 h-1.5 bg-white rounded-full mr-1.5" />
-              <Text className="text-white text-xs font-bold">LIVE</Text>
+
+          {/* Enhanced Mini Live Badge */}
+          <View className="absolute top-2 right-2 z-20">
+            <View 
+              className="bg-red-500 px-3 py-1.5 rounded-full flex-row items-center"
+              style={{
+                shadowColor: '#EF4444',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.3,
+                shadowRadius: 4,
+                elevation: 4,
+              }}
+            >
+              <View className="w-1.5 h-1.5 bg-white rounded-full mr-1.5 animate-pulse" />
+              <Text className="text-white text-xs font-bold tracking-wide">LIVE</Text>
             </View>
           </View>
 
-          <View className="p-4 pt-6">
-            {/* Compact Header */}
-            <View className="flex-row items-center mb-3">
-              {/* Small Album Art */}
+          <View className="p-3">
+            {/* Ultra Compact Header - Single Line */}
+            <View className="flex-row items-center mb-2">
+              {/* Tiny Album Art */}
               <View 
-                className="w-16 h-16 rounded-xl mr-4 overflow-hidden"
+                className="w-10 h-10 rounded-lg mr-3 overflow-hidden"
                 style={{
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.2,
-                  shadowRadius: 6,
-                  elevation: 6,
+                  backgroundColor: 'rgba(0,0,0,0.2)',
                 }}
               >
-                <View 
-                  className="w-full h-full items-center justify-center"
-                  style={{
-                    backgroundColor: 'rgba(0,0,0,0.2)',
-                  }}
-                >
-                  <Ionicons name="musical-notes" size={24} color="rgba(255,255,255,0.9)" />
+                <View className="w-full h-full items-center justify-center">
+                  <Ionicons name="musical-notes" size={16} color="rgba(255,255,255,0.9)" />
                 </View>
               </View>
 
-              {/* Compact Content */}
+              {/* Compact Content - Single Line */}
               <View className="flex-1">
-                <Text className="text-white text-lg font-bold mb-1 leading-tight" numberOfLines={1}>
+                <Text className="text-white text-sm font-bold leading-tight" numberOfLines={1}>
                   {currentBroadcast.title}
                 </Text>
                 <View className="flex-row items-center">
-                  <Ionicons name="radio-outline" size={12} color="rgba(255,255,255,0.8)" />
-                  <Text className="text-white/80 text-sm font-medium ml-1.5">
+                  <Ionicons name="radio-outline" size={10} color="rgba(255,255,255,0.8)" />
+                  <Text className="text-white/80 text-xs font-medium ml-1">
                     {currentBroadcast.dj?.name || 'Wildcat Radio'}
                   </Text>
                 </View>
               </View>
             </View>
 
-            {/* Compact Now Playing Section */}
-            <View className="bg-white/15 backdrop-blur rounded-xl p-3 mb-3">
-              <View className="flex-row items-center mb-2">
-                <View className="w-2 h-2 bg-mikado_yellow rounded-full mr-2" />
-                <Text className="text-white/90 text-xs font-bold uppercase tracking-wide">
-                  Now Playing
-                </Text>
-              </View>
-              
-              <Text className="text-white text-base font-bold mb-0.5" numberOfLines={1}>
-                {nowPlayingInfo.songTitle}
-              </Text>
-              <Text className="text-white/80 text-sm font-medium" numberOfLines={1}>
-                {nowPlayingInfo.artist}
-              </Text>
-              
-              {/* Compact Audio Visualizer */}
-              <View className="flex-row items-end justify-center mt-2 space-x-1">
-                {[...Array(8)].map((_, i) => (
-                  <View
-                    key={i}
-                    className={`bg-mikado_yellow rounded-full w-0.5 ${
-                      i % 3 === 0 ? 'h-2' : i % 2 === 0 ? 'h-3' : 'h-1.5'
-                    }`}
-                    style={{ marginHorizontal: 0.5, opacity: 0.7 + (i % 3) * 0.1 }}
-                  />
-                ))}
+            {/* Enhanced Mini Now Playing Section */}
+            <View 
+              className="bg-white/20 backdrop-blur rounded-xl p-3"
+              style={{
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 4,
+                elevation: 3,
+              }}
+            >
+              <View className="flex-row items-center justify-between">
+                <View className="flex-1">
+                  <View className="flex-row items-center mb-1.5">
+                    <View className="w-2 h-2 bg-mikado_yellow rounded-full mr-2 animate-pulse" />
+                    <Text className="text-white text-xs font-bold uppercase tracking-widest">
+                      🎵 NOW PLAYING
+                    </Text>
+                  </View>
+                  
+                  <Text className="text-white text-sm font-black mb-0.5" numberOfLines={1}>
+                    {nowPlayingInfo.songTitle}
+                  </Text>
+                  <Text className="text-white/90 text-xs font-semibold" numberOfLines={1}>
+                    🎤 {nowPlayingInfo.artist}
+                  </Text>
+                </View>
+                
+                {/* Enhanced Mini Audio Visualizer */}
+                <View className="flex-row items-end space-x-1 ml-3">
+                  {[...Array(4)].map((_, i) => (
+                    <View
+                      key={i}
+                      className={`bg-mikado_yellow rounded-full w-1 ${
+                        i % 2 === 0 ? 'h-3' : 'h-2'
+                      } animate-pulse`}
+                      style={{ 
+                        opacity: 0.9,
+                        animationDelay: `${i * 0.3}s`,
+                      }}
+                    />
+                  ))}
+                </View>
               </View>
             </View>
 
-            {/* Compact Listen Button */}
-            {!isListening && (
-              <TouchableOpacity
-                className="bg-mikado_yellow rounded-xl py-3 px-6 active:scale-95"
-                onPress={() => setIsListening(true)}
-                style={{
-                  shadowColor: '#B5830F',
-                  shadowOffset: { width: 0, height: 3 },
-                  shadowOpacity: 0.3,
-                  shadowRadius: 6,
-                  elevation: 6,
-                  backgroundColor: '#B5830F', // Fallback
-                }}
-              >
-                <View className="flex-row items-center justify-center">
-                  <Ionicons name="play" size={16} color="#27272a" style={{ marginRight: 6 }} />
-                  <Text className="text-zinc-900 font-bold text-sm">
-                    Start Listening
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            )}
-
-            {/* Compact Connection Info */}
-            <View className="flex-row items-center justify-center mt-2 opacity-80">
-              <View className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
-                isWebSocketConnected ? 'bg-green-400' : 'bg-red-400'
+            {/* Enhanced Mini Connection Status */}
+            <View className="flex-row items-center justify-center mt-3">
+              <View className={`w-2 h-2 rounded-full mr-2 ${
+                isWebSocketConnected ? 'bg-green-400 animate-pulse' : 'bg-orange-400'
               }`} />
-              <Text className="text-white/70 text-xs font-medium">
-                {isWebSocketConnected ? 'Connected • High Quality' : 'Connecting...'}
+              <Text className="text-white/90 text-xs font-semibold">
+                {isWebSocketConnected ? '🚀 Live Connected' : '⚡ Connecting...'}
               </Text>
             </View>
           </View>
@@ -1290,18 +1286,21 @@ const BroadcastScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container} className="flex-1 bg-anti-flash_white">
+    <View style={styles.container} className="flex-1 bg-anti-flash_white">
       <Stack.Screen 
         options={{
-            headerTitle: () => (
-                <View style={{ marginLeft: Platform.OS === 'android' ? -10 : 0}}>
-                    <Text className="text-lg font-bold text-gray-800" numberOfLines={1}>{screenTitle}</Text>
-                    <Text className="text-xs text-gray-500" numberOfLines={1}>{screenSubtitle}</Text>
-                </View>
-            ),
-            headerShown: isListening ? false : true, // Hide header when in listening mode
+            headerShown: false, // Always hide the default header
         }}
        />
+      
+      {/* Custom Header */}
+      {!isListening && (
+        <CustomHeader 
+          title="Wildcat Radio"
+          showBackButton={false}
+          showNotification={true}
+        />
+      )}
       
       {!currentBroadcast && !isLoading ? (
         // Show off-air message without tabs
@@ -1319,10 +1318,11 @@ const BroadcastScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
       ) : currentBroadcast && currentBroadcast.status === 'LIVE' && !isListening ? (
-        // Show only Live card with Listen Now button when live and not listening
-        <View className="flex-1 justify-center items-center p-4 bg-anti-flash_white">
+        // Show clean live broadcast interface
+        <View className="flex-1" style={{ backgroundColor: '#f8fafc' }}>
+
           <ScrollView
-            contentContainerStyle={{ flex: 1, justifyContent: 'center' }}
+            contentContainerStyle={{ paddingBottom: 120, paddingTop: 12, flex: 1, justifyContent: 'center' }}
             refreshControl={
               <RefreshControl
                 refreshing={isRefreshingBroadcast}
@@ -1334,16 +1334,189 @@ const BroadcastScreen: React.FC = () => {
               />
             }
             showsVerticalScrollIndicator={false}
+            className="px-5 relative z-10"
           >
-            <View className="justify-center items-center flex-1">
-              <View className="w-full max-w-sm">
-                {renderNowPlayingCard()}
+            {/* Welcome Header */}
+            <View className="items-center mb-10">
+              {/* Main Title */}
+              <Text className="text-4xl font-black text-center" style={{ color: '#91403E' }}>
+                🎵 We're Live! 🎵
+              </Text>
+            </View>
+
+            {/* Enhanced Live Broadcast Card */}
+            <View 
+              className="p-6 rounded-3xl mx-auto w-full max-w-sm"
+              style={{
+                backgroundColor: 'white',
+                shadowColor: '#91403E',
+                shadowOffset: { width: 0, height: 12 },
+                shadowOpacity: 0.15,
+                shadowRadius: 20,
+                elevation: 15,
+              }}
+            >
+              {/* Header with Animated Live Badge */}
+              <View className="flex-row justify-between items-center mb-6">
+                <Text className="text-2xl font-black text-gray-800">🎙️ Live Broadcast</Text>
+                <View 
+                  className="bg-red-500 px-4 py-2 rounded-full flex-row items-center"
+                  style={{
+                    shadowColor: '#EF4444',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 8,
+                    elevation: 8,
+                  }}
+                >
+                  <View className="w-2.5 h-2.5 bg-white rounded-full mr-2 animate-pulse" />
+                  <Text className="text-white text-xs font-bold tracking-wider">LIVE</Text>
+                </View>
               </View>
-              
-              {/* Additional info about the stream */}
-              <View className="mt-8 px-6">
-                <Text className="text-center text-gray-600 text-base leading-relaxed">
-                  🎵 Tune in to live music, chat with the DJ, make song requests, and participate in polls!
+
+              {/* Enhanced Broadcast Info */}
+              <View className="flex-row items-center mb-6">
+                <View 
+                  className="w-20 h-20 rounded-2xl mr-4 items-center justify-center"
+                  style={{ 
+                    backgroundColor: '#91403E',
+                    shadowColor: '#91403E',
+                    shadowOffset: { width: 0, height: 6 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 12,
+                    elevation: 10,
+                  }}
+                >
+                  <Ionicons name="radio" size={36} color="white" />
+                  <View className="absolute -top-1 -right-1 w-4 h-4 bg-mikado_yellow rounded-full items-center justify-center">
+                    <Text className="text-xs">🔥</Text>
+                  </View>
+                </View>
+                <View className="flex-1">
+                  <Text className="text-xl font-black leading-tight mb-1" style={{ color: '#91403E' }} numberOfLines={1}>
+                    {currentBroadcast.title}
+                  </Text>
+                  <View className="flex-row items-center">
+                    <View className="bg-mikado_yellow/20 px-2 py-1 rounded-lg mr-2">
+                      <Text className="text-mikado_yellow text-xs font-bold">DJ</Text>
+                    </View>
+                    <Text className="text-gray-700 font-semibold">
+                      {currentBroadcast.dj?.name || 'Wildcat Radio'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Exciting Now Playing Section */}
+              {nowPlayingInfo && (
+                <View 
+                  className="rounded-2xl p-5 mb-6"
+                  style={{
+                    backgroundColor: '#91403E',
+                    shadowColor: '#91403E',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 16,
+                    elevation: 12,
+                  }}
+                >
+                  {/* Animated Header */}
+                  <View className="flex-row items-center justify-between mb-4">
+                    <View className="flex-row items-center">
+                      <View className="w-3 h-3 bg-mikado_yellow rounded-full mr-3 animate-pulse" />
+                      <Text className="text-white text-sm font-bold uppercase tracking-widest">
+                        🎵 NOW PLAYING
+                      </Text>
+                    </View>
+                    
+                    {/* Audio Visualizer */}
+                    <View className="flex-row items-end space-x-1">
+                      {[...Array(4)].map((_, i) => (
+                        <View
+                          key={i}
+                          className={`bg-mikado_yellow rounded-full w-1 ${
+                            i % 2 === 0 ? 'h-4' : 'h-3'
+                          } animate-pulse`}
+                          style={{ 
+                            opacity: 0.8,
+                            animationDelay: `${i * 0.2}s`,
+                          }}
+                        />
+                      ))}
+                    </View>
+                  </View>
+
+                  {/* Song Info */}
+                  <View className="bg-white/10 backdrop-blur rounded-xl p-4">
+                    <Text className="text-white text-lg font-black mb-2" numberOfLines={1}>
+                      🎶 {nowPlayingInfo.songTitle}
+                    </Text>
+                    <View className="flex-row items-center">
+                      <View className="bg-mikado_yellow/30 px-3 py-1 rounded-full mr-2">
+                        <Text className="text-white text-xs font-bold">ARTIST</Text>
+                      </View>
+                      <Text className="text-white/90 text-base font-semibold" numberOfLines={1}>
+                        {nowPlayingInfo.artist}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* Exciting Listen Button */}
+              <TouchableOpacity
+                className="py-4 px-8 rounded-2xl mb-4 active:scale-95"
+                onPress={() => setIsListening(true)}
+                style={{
+                  backgroundColor: '#B5830F',
+                  shadowColor: '#B5830F',
+                  shadowOffset: { width: 0, height: 8 },
+                  shadowOpacity: 0.4,
+                  shadowRadius: 16,
+                  elevation: 12,
+                }}
+              >
+                <View className="flex-row items-center justify-center">
+                  <View 
+                    className="bg-white/20 p-2 rounded-full mr-3"
+                    style={{
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 4,
+                      elevation: 4,
+                    }}
+                  >
+                    <Ionicons name="play" size={20} color="white" />
+                  </View>
+                  <Text className="text-white font-bold text-lg tracking-wide">
+                    🎧 LISTEN NOW
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Enhanced Connection Status */}
+              <View 
+                className={`p-3 rounded-xl flex-row items-center justify-center ${
+                  isWebSocketConnected ? 'bg-green-50' : 'bg-orange-50'
+                }`}
+                style={{
+                  borderWidth: 1,
+                  borderColor: isWebSocketConnected ? '#10B981' : '#F59E0B',
+                  shadowColor: isWebSocketConnected ? '#10B981' : '#F59E0B',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 4,
+                  elevation: 3,
+                }}
+              >
+                <View className={`w-3 h-3 rounded-full mr-3 ${
+                  isWebSocketConnected ? 'bg-green-500 animate-pulse' : 'bg-orange-500'
+                }`} />
+                <Text className={`font-semibold text-sm ${
+                  isWebSocketConnected ? 'text-green-700' : 'text-orange-700'
+                }`}>
+                  {isWebSocketConnected ? '🚀 Connected • Crystal Clear HD' : '⚡ Connecting...'}
                 </Text>
               </View>
             </View>
@@ -1352,17 +1525,14 @@ const BroadcastScreen: React.FC = () => {
       ) : (
         // Show full interface with tabs when listening or not live
         <View style={{ flex: 1 }}>
-          {/* Back button when in listening mode */}
+          {/* Custom Header when in listening mode */}
           {isListening && (
-            <View className="bg-white px-4 py-3 border-b border-gray-200">
-              <TouchableOpacity
-                className="flex-row items-center"
-                onPress={() => setIsListening(false)}
-              >
-                <Ionicons name="chevron-back" size={24} color="#91403E" />
-                <Text className="text-cordovan font-semibold text-base ml-2">Back to Live Card</Text>
-              </TouchableOpacity>
-            </View>
+            <CustomHeader 
+              title="Wildcat Radio"
+              showBackButton={true}
+              onBackPress={() => setIsListening(false)}
+              showNotification={true}
+            />
           )}
 
           {/* Refreshable Now Playing Section - Hidden when keyboard is visible */}
@@ -1449,7 +1619,7 @@ const BroadcastScreen: React.FC = () => {
           </Animated.View>
         </View>
       )}
-    </SafeAreaView>
+    </View>
   );
 };
 

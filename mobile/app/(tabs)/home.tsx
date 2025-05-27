@@ -156,7 +156,7 @@ const HomeScreen: React.FC = () => {
             <Text className="text-xl font-bold text-gray-800">Broadcast Status</Text>
             <TouchableOpacity
               className="bg-cordovan py-2.5 px-4 rounded-lg flex-row items-center shadow-md active:opacity-80"
-              onPress={() => router.push('../listen' as any)}
+              onPress={() => router.push('/broadcast' as any)}
             >
               {!!isLive && (
                 <View className="bg-mikado_yellow py-1 px-2.5 rounded mr-2 flex-row items-center self-stretch">
