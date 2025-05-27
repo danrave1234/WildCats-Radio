@@ -266,6 +266,7 @@ export const chatService = {
 export const songRequestService = {
   getRequests: (broadcastId) => api.get(`/api/broadcasts/${broadcastId}/song-requests`),
   createRequest: (broadcastId, request) => api.post(`/api/broadcasts/${broadcastId}/song-requests`, request),
+  getStats: () => api.get('/api/song-requests/stats'),
 
   // Subscribe to real-time song requests for a specific broadcast
   subscribeToSongRequests: (broadcastId, callback) => {
@@ -508,10 +509,21 @@ export const streamService = {
 
   // WebSocket URL for DJs to send audio to the server
   getStreamUrl: () => {
-    // Always use environment variable directly
-    const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
+    // Check if we should use localhost instead of the deployed backend
+    // Force useLocalBackend to true to ensure we're using the local backend
+    const useLocalBackend = true; // Override the environment variable
+    
+    let wsBaseUrl;
+    if (useLocalBackend) {
+      wsBaseUrl = 'localhost:8080';
+    } else {
+      wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
+    }
+    
     const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    // For deployed environments, always use secure WebSocket (wss)
+    // For localhost development, use ws
+    const protocol = window.location.hostname === 'localhost' ? 'ws' : 'wss';
 
     return Promise.resolve(`${protocol}://${cleanHost}/ws/live`);
   },

@@ -16,6 +16,7 @@ const AnalyticsDashboard = lazy(() => import('./pages/AnalyticsDashboard'));
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BroadcastHistoryProvider } from './context/BroadcastHistoryContext';
 import { AnalyticsProvider } from './context/AnalyticsContext';
+import { StreamingProvider } from './context/StreamingContext';
 import './App.css';
 import './styles/custom-scrollbar.css';
 import {NotificationProvider} from "./context/NotificationContext.jsx";
@@ -221,11 +222,13 @@ function App() {
     <Router>
       <AuthProvider>
         <NotificationProvider>
-          <BroadcastHistoryProvider>
-            <AnalyticsProvider>
-              <AppRoutes />
-            </AnalyticsProvider>
-          </BroadcastHistoryProvider>
+          <StreamingProvider>
+            <BroadcastHistoryProvider>
+              <AnalyticsProvider>
+                <AppRoutes />
+              </AnalyticsProvider>
+            </BroadcastHistoryProvider>
+          </StreamingProvider>
         </NotificationProvider>
       </AuthProvider>
     </Router>

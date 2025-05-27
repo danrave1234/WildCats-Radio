@@ -16,6 +16,7 @@ import AudioVisualizer from "../components/AudioVisualizer";
 import { broadcastService, chatService, songRequestService, pollService, streamService } from "../services/api";
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from "../context/AuthContext";
+import { useStreaming } from "../context/StreamingContext";
 
 export default function ListenerDashboard() {
   const { id: broadcastIdParam } = useParams();
@@ -23,15 +24,160 @@ export default function ListenerDashboard() {
   const { currentUser } = useAuth();
   const isSpecificBroadcast = location.pathname.startsWith('/broadcast/');
   
+  // Get streaming context
+  const { 
+    isLive,
+    isListening,
+    audioPlaying,
+    volume,
+    isMuted,
+    listenerCount,
+    startListening,
+    stopListening,
+    toggleAudio,
+    updateVolume,
+    toggleMute,
+    serverConfig
+  } = useStreaming();
+  
   // If we're accessing a specific broadcast by ID, set it as the current broadcast
   const targetBroadcastId = isSpecificBroadcast && broadcastIdParam ? parseInt(broadcastIdParam, 10) : null;
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [volume, setVolume] = useState(80);
-  const [isLive, setIsLive] = useState(false);
   const [streamError, setStreamError] = useState(null);
-  const [serverConfig, setServerConfig] = useState(null);
-  const [listenerCount, setListenerCount] = useState(0);
+
+  // Original states from ListenerDashboard.jsx
+  const [nextBroadcast, setNextBroadcast] = useState(null);
+  const [currentBroadcastId, setCurrentBroadcastId] = useState(null);
+  const [currentBroadcast, setCurrentBroadcast] = useState(null);
+
+  // Audio visualizer state
+  const [audioData, setAudioData] = useState(new Uint8Array(0));
+  const [visualizerEnabled, setVisualizerEnabled] = useState(true);
+
+  // Chat state
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatMessage, setChatMessage] = useState('');
+  const [showChat, setShowChat] = useState(false);
+
+  // Song request state
+  const [songRequests, setSongRequests] = useState([]);
+  const [songRequest, setSongRequest] = useState({ title: '', artist: '' });
+  const [showSongRequests, setShowSongRequests] = useState(false);
+
+  // Poll state
+  const [polls, setPolls] = useState([]);
+  const [activePoll, setActivePoll] = useState(null);
+  const [showPolls, setShowPolls] = useState(false);
+  const [userVotes, setUserVotes] = useState({});
+  
+  // UI state
+  const [activeTab, setActiveTab] = useState("song");
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [pollLoading, setPollLoading] = useState(false);
+  const [currentSong, setCurrentSong] = useState(null);
+
+  // Local audio state for the dashboard player (separate from streaming context)
+  const [localAudioPlaying, setLocalAudioPlaying] = useState(false);
+  
+  // Local listener count state (fallback if streaming context doesn't update)
+  const [localListenerCount, setLocalListenerCount] = useState(0);
+  
+  // Poll selection state
+  const [selectedPollOption, setSelectedPollOption] = useState(null);
+  
+  // Chat timestamp update state
+  const [chatTimestampTick, setChatTimestampTick] = useState(0);
+  
+  // WebSocket references for interactions
+  const chatWsRef = useRef(null);
+  const songRequestWsRef = useRef(null);
+  const pollWsRef = useRef(null);
+  const broadcastWsRef = useRef(null);
+  
+  // UI refs
+  const chatContainerRef = useRef(null);
+  const abortControllerRef = useRef(null);
+  
+  // Audio processing for visualizer
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const audioSourceRef = useRef(null);
+  const animationRef = useRef(null);
+  
+  // Load current broadcast on component mount
+  useEffect(() => {
+    const fetchCurrentBroadcast = async () => {
+      try {
+        // If we're looking at a specific broadcast by ID
+        if (targetBroadcastId) {
+          const response = await broadcastService.getById(targetBroadcastId);
+          setCurrentBroadcast(response.data);
+          setCurrentBroadcastId(targetBroadcastId);
+          return;
+        }
+        
+        // Otherwise, get the active broadcast
+        const activeBroadcast = await broadcastService.getActiveBroadcast();
+        if (activeBroadcast) {
+          setCurrentBroadcast(activeBroadcast);
+          setCurrentBroadcastId(activeBroadcast.id);
+          return;
+        }
+        
+        // If no active broadcast, get the next scheduled broadcast
+        const upcomingResponse = await broadcastService.getUpcoming();
+        if (upcomingResponse.data && upcomingResponse.data.length > 0) {
+          setNextBroadcast(upcomingResponse.data[0]); // Get the first upcoming broadcast
+        }
+      } catch (error) {
+        console.error('Error fetching broadcast information:', error);
+        setStreamError('Failed to load broadcast information');
+      }
+    };
+    
+    fetchCurrentBroadcast();
+  }, [targetBroadcastId]);
+
+  // Handle play/pause
+  const handlePlayPause = () => {
+    try {
+      toggleAudio();
+    } catch (error) {
+      console.error('Error toggling audio:', error);
+      setStreamError('Failed to control audio playback');
+    }
+  };
+
+  // Handle volume change
+  const handleVolumeChange = (e) => {
+    const newVolume = parseInt(e.target.value);
+    updateVolume(newVolume);
+  };
+
+  // Handle mute toggle
+  const handleMuteToggle = () => {
+    toggleMute();
+  };
+
+  // Refresh stream function
+  const refreshStream = () => {
+    if (audioRef.current && serverConfig?.streamUrl) {
+      const wasPlaying = audioPlaying;
+      audioRef.current.pause();
+      audioRef.current.src = '';
+      
+      setTimeout(() => {
+        audioRef.current.src = serverConfig.streamUrl;
+        audioRef.current.load();
+        
+        if (wasPlaying) {
+          audioRef.current.play().catch(error => {
+            console.error('Error restarting playback:', error);
+            setStreamError('Failed to restart playback. Please try again.');
+          });
+        }
+      }, 100);
+    }
+  };
 
   // Audio refs from ListenerDashboard2.jsx
   const audioRef = useRef(null);
@@ -40,411 +186,293 @@ export default function ListenerDashboard() {
   const wsConnectingRef = useRef(false);
   const heartbeatInterval = useRef(null);
 
-  // Original states from ListenerDashboard.jsx
-  const [nextBroadcast, setNextBroadcast] = useState(null);
-  const [currentBroadcastId, setCurrentBroadcastId] = useState(null);
-  const [currentBroadcast, setCurrentBroadcast] = useState(null);
-
-  // WebSocket references for real-time updates
-  const chatWsRef = useRef(null);
-  const songRequestWsRef = useRef(null);
-  const pollWsRef = useRef(null);
-  const broadcastWsRef = useRef(null);
-
-  // Add abort controller ref for managing HTTP requests
-  const abortControllerRef = useRef(null);
-
-  // Chat state
-  const [chatMessage, setChatMessage] = useState("");
-  const [chatMessages, setChatMessages] = useState([]);
-
-  // Song request state
-  const [songRequest, setSongRequest] = useState({ song: "", artist: "", dedication: "" });
-
-  // Poll state
-  const [currentPoll, setCurrentPoll] = useState({
-    id: 1,
-    question: "Which song should we play next?",
-    options: [
-      { id: 1, text: "Song Title 1", votes: 10 },
-      { id: 2, text: "Song Title 2", votes: 15 },
-      { id: 3, text: "Song Title 3", votes: 25 }
-    ],
-    totalVotes: 50,
-    userVoted: false
-  });
-  const [userVote, setUserVote] = useState(null);
-  const [pollLoading, setPollLoading] = useState(false);
-
-  // Tabs state for interaction section
-  const [activeTab, setActiveTab] = useState("song");
-
-  // Currently playing song
-  const [currentSong, setCurrentSong] = useState(null);
-
-  const [showScrollBottom, setShowScrollBottom] = useState(false);
-  const chatContainerRef = useRef(null);
-
-  // Send player status to server using useCallback from ListenerDashboard2.jsx
-  const sendPlayerStatus = useCallback((isPlaying) => {
-    try {
-      if (!wsRef.current) {
-        console.warn('WebSocket not initialized, cannot send player status')
-        return
-      }
-
-      if (wsRef.current.readyState !== WebSocket.OPEN) {
-        console.warn(`WebSocket not open (state: ${wsRef.current.readyState}), cannot send player status`)
-        return
-      }
-
-      const message = {
-        type: "PLAYER_STATUS",
-        isPlaying: isPlaying
-      }
-
-      wsRef.current.send(JSON.stringify(message))
-      console.log('Sent player status to server:', isPlaying ? 'playing' : 'paused')
-    } catch (error) {
-      console.error('Error sending player status:', error)
-    }
-  }, [])
-
-  // Initialize server configuration from ListenerDashboard2.jsx
+  // Initialize audio element when serverConfig is available
   useEffect(() => {
-    const fetchServerConfig = async () => {
-      try {
-        const config = await streamService.getConfig()
-        setServerConfig(config.data.data)
-        console.log("Server config loaded:", config.data.data)
-      } catch (error) {
-        console.error("Error fetching server config:", error)
-        setStreamError("Failed to get server configuration")
-      }
-    }
-
-    fetchServerConfig()
-
-    const handleBeforeUnload = (e) => {
-      if (isPlaying) {
-        const message = "Audio is currently playing. Are you sure you want to leave?"
-        e.returnValue = message
-        return message
-      }
-    }
-
-    window.addEventListener('beforeunload', handleBeforeUnload)
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-    }
-  }, [isPlaying])
-
-  // Audio element setup from ListenerDashboard2.jsx
-  useEffect(() => {
-    if (!serverConfig) return
-
-    if (!audioRef.current) {
-      console.log('Creating new audio element')
-      audioRef.current = new Audio()
-
-      audioRef.current.crossOrigin = "anonymous"
-      audioRef.current.preload = "none"
-      audioRef.current.volume = volume / 100
-
-      audioRef.current.addEventListener('loadstart', () => {
-        console.log('Stream loading started')
-      })
-
-      audioRef.current.addEventListener('canplay', () => {
-        console.log('Stream can start playing')
-        setStreamError(null)
-      })
-
-      audioRef.current.addEventListener('playing', () => {
-        setIsPlaying(true)
-        setStreamError(null)
-        console.log('Stream is playing')
-      })
-
-      audioRef.current.addEventListener('pause', () => {
-        setIsPlaying(false)
-        console.log('Stream is paused')
-      })
-
-      audioRef.current.addEventListener('ended', () => {
-        setIsPlaying(false)
-        console.log('Stream ended')
-        sendPlayerStatus(false)
-      })
-
-      audioRef.current.addEventListener('error', (e) => {
-        e.preventDefault();
-
-        console.error('Audio error:', e)
+    console.log('Audio initialization useEffect called:', {
+      serverConfigExists: !!serverConfig,
+      audioRefCurrentExists: !!audioRef.current,
+      streamUrl: serverConfig?.streamUrl
+    });
+    
+    if (serverConfig && !audioRef.current) {
+      console.log('Initializing audio element with stream URL:', serverConfig.streamUrl);
+      audioRef.current = new Audio();
+      audioRef.current.preload = 'none';
+      audioRef.current.volume = isMuted ? 0 : volume / 100;
+      
+      // Add event listeners for audio events
+      audioRef.current.onloadstart = () => console.log('Audio loading started');
+      audioRef.current.oncanplay = () => console.log('Audio can start playing');
+      audioRef.current.onplay = () => console.log('Audio play event fired');
+      audioRef.current.onpause = () => console.log('Audio pause event fired');
+      audioRef.current.onerror = (e) => {
+        console.error('Audio error:', e);
         console.error('Audio error details:', {
-          error: audioRef.current?.error,
-          networkState: audioRef.current?.networkState,
-          readyState: audioRef.current?.readyState,
-          src: audioRef.current?.src
-        })
-
-        let errorMessage = 'Error loading stream. '
-        if (audioRef.current?.error) {
-          switch (audioRef.current.error.code) {
-            case 1:
-              errorMessage += 'Stream loading was aborted.'
-              break
-            case 2:
-              errorMessage += 'Network error occurred.'
-              break
-            case 3:
-              errorMessage += 'Stream format not supported.'
-              break
-            case 4:
-              errorMessage += 'Stream source not supported.'
-              break
-            default:
-              errorMessage += 'Unknown error occurred.'
-          }
-        }
-        errorMessage += ' Please try refreshing or check if the stream is live.'
-
-        if (serverConfig && audioRef.current) {
-          const currentSrc = audioRef.current.src
-          if (!currentSrc.startsWith('http') || currentSrc.includes('localhost:5173') || currentSrc.startsWith('blob:')) {
-            console.warn('Audio src changed to invalid URL, resetting to stream URL')
-
-            try {
-              const streamUrl = serverConfig.streamUrl.startsWith('http') 
-                ? serverConfig.streamUrl 
-                : `http://${serverConfig.streamUrl}`
-
-              if (audioRef.current) {
-                console.log('Resetting audio src to:', streamUrl)
-                audioRef.current.src = streamUrl
-                audioRef.current.load()
-              }
-            } catch (urlError) {
-              console.error('Error resetting audio src:', urlError)
-            }
-          }
-        }
-
-        setStreamError(errorMessage)
-        setIsPlaying(false)
-
-        try {
-          sendPlayerStatus(false)
-        } catch (statusError) {
-          console.error('Error sending player status after audio error:', statusError)
-        }
-      })
-
-      audioRef.current.addEventListener('stalled', () => {
-        console.warn('Stream stalled')
-      })
-
-      audioRef.current.addEventListener('waiting', () => {
-        console.log('Stream buffering')
-      })
-
-      const streamUrl = serverConfig.streamUrl.startsWith('http') 
-        ? serverConfig.streamUrl 
-        : `http://${serverConfig.streamUrl}`
-      audioRef.current.src = streamUrl
-      console.log('Stream URL set:', streamUrl)
+          error: e.target?.error,
+          code: e.target?.error?.code,
+          message: e.target?.error?.message,
+          networkState: e.target?.networkState,
+          readyState: e.target?.readyState,
+          src: e.target?.src
+        });
+        setStreamError('Audio playback error. Please try refreshing or check your internet connection.');
+      };
     }
-  }, [serverConfig])
-
-  // Cleanup from ListenerDashboard2.jsx
-  useEffect(() => {
+    
     return () => {
-      console.log('Component unmounting, cleaning up resources')
-
-      try {
-        if (audioRef.current) {
-          console.log('Cleaning up audio element')
-
-          try {
-            audioRef.current.pause()
-            audioRef.current.src = 'about:blank'
-            audioRef.current.load()
-            console.log('Audio element paused and source cleared')
-          } catch (audioError) {
-            console.error('Error cleaning up audio element:', audioError)
-          }
-        }
-      } catch (error) {
-        console.error('Error in audio cleanup:', error)
+      // Cleanup audio element on unmount
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
       }
+    };
+  }, [serverConfig, volume, isMuted]);
 
-      try {
-        if (statusCheckInterval.current) {
-          clearInterval(statusCheckInterval.current)
-          statusCheckInterval.current = null
-          console.log('Status check interval cleared')
-        }
-
-        if (heartbeatInterval.current) {
-          clearInterval(heartbeatInterval.current)
-          heartbeatInterval.current = null
-          console.log('Heartbeat interval cleared')
-        }
-      } catch (timerError) {
-        console.error('Error clearing interval:', timerError)
-      }
-
-      console.log('Component cleanup completed')
-    }
-  }, [])
-
-  // WebSocket connection from ListenerDashboard2.jsx
+  // WebSocket connection for real-time updates
   useEffect(() => {
-    if (!serverConfig) return
+    if (!serverConfig) return;
 
-    let reconnectTimer = null
-    let isReconnecting = false
-    let wsInstance = wsRef.current
+    let reconnectTimer = null;
+    let isReconnecting = false;
+    let wsInstance = null;
+    let wsConnectionAttemptCount = 0;
+    const MAX_CONNECTION_ATTEMPTS = 5;
 
-    const connectWebSocket = async () => {
+    // Function to connect WebSocket with proper error handling
+    const connectWebSocket = () => {
       if (reconnectTimer) {
-        clearTimeout(reconnectTimer)
-        reconnectTimer = null
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
       }
 
-      if (isReconnecting || wsConnectingRef.current) return
-      isReconnecting = true
-      wsConnectingRef.current = true
+      // Prevent duplicate connections
+      if (isReconnecting || wsConnectingRef.current) return;
+      
+      // Increment connection attempt counter
+      wsConnectionAttemptCount++;
+      
+      // Use a delay to avoid React StrictMode double-mounting issues
+      // Increase delay for subsequent attempts
+      const connectionDelay = Math.min(300 * wsConnectionAttemptCount, 2000);
+      console.log(`Delaying WebSocket connection by ${connectionDelay}ms (attempt ${wsConnectionAttemptCount})`);
+      
+      reconnectTimer = setTimeout(() => {
+        isReconnecting = true;
+        wsConnectingRef.current = true;
 
-      // Simple WebSocket URL construction using environment variable
-      const wsProtocol = 'wss';
-
-      // Always use the environment variable directly
-      const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
-      // Simple clean - just remove any protocol if present
+        // Simple WebSocket URL construction
+        // For deployed environments, always use secure WebSocket (wss)
+        // For localhost development, use ws
+        const wsProtocol = window.location.hostname === 'localhost' ? 'ws' : 'wss';
+        
+        // Check if we should use localhost instead of the deployed backend
+        // Force useLocalBackend to true to ensure we're using the local backend
+        const useLocalBackend = true; // Override the environment variable
+        
+        let wsBaseUrl;
+        if (useLocalBackend) {
+          wsBaseUrl = 'localhost:8080';
+        } else {
+          wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
+        }
+        
       const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-      const listenerWsUrl = `${wsProtocol}://${cleanHost}/ws/listener`;
+      
+      // Get JWT token for authentication
+      const getCookie = (name) => {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
+        return null;
+      };
+      
+      const token = getCookie('token');
+      const listenerWsUrl = `${wsProtocol}://${cleanHost}/ws/listener${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 
-      console.log('Using WebSocket URL:', listenerWsUrl);
+      console.log('Using WebSocket URL:', listenerWsUrl.replace(/token=[^&]*/, 'token=***'));
 
       try {
-        console.log('Listener Dashboard connecting to WebSocket:', listenerWsUrl)
+          console.log('Listener Dashboard connecting to WebSocket with authentication');
 
-        if (wsInstance) {
-          try {
-            if (wsInstance.readyState !== WebSocket.CLOSING && 
-                wsInstance.readyState !== WebSocket.CLOSED) {
-              wsInstance.close()
+          // Close existing connection if any
+          if (wsRef.current) {
+            try {
+              // First remove handlers to prevent reconnection logic from firing
+              wsRef.current.onclose = null;
+              wsRef.current.onerror = null;
+              
+              if (wsRef.current.readyState !== WebSocket.CLOSING && 
+                  wsRef.current.readyState !== WebSocket.CLOSED) {
+                wsRef.current.close(1000, "Replacing connection");
             }
           } catch (e) {
-            console.warn('Error closing existing WebSocket:', e)
+              console.warn('Error closing existing WebSocket:', e);
           }
         }
 
-        wsInstance = new WebSocket(listenerWsUrl)
-        wsRef.current = wsInstance
+          // Create new connection with authentication
+          wsInstance = new WebSocket(listenerWsUrl);
+          wsRef.current = wsInstance;
 
+          // Set up event handlers
         wsInstance.onopen = () => {
-          console.log('WebSocket connected for listener updates')
-          isReconnecting = false
-          wsConnectingRef.current = false
+            console.log('WebSocket connected for listener updates');
+            isReconnecting = false;
+            wsConnectingRef.current = false;
+            wsConnectionAttemptCount = 0; // Reset counter on successful connection
 
+            // Send initial status
           setTimeout(() => {
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-              const currentlyPlaying = audioRef.current && !audioRef.current.paused
-              sendPlayerStatus(currentlyPlaying)
-              console.log('Sent initial player status on WebSocket connect:', currentlyPlaying)
-            }
-          }, 100)
+                const currentlyPlaying = audioRef.current && !audioRef.current.paused && localAudioPlaying;
+                if (currentlyPlaying) {
+                  const message = {
+                    type: 'LISTENER_STATUS',
+                    action: 'START_LISTENING',
+                    broadcastId: currentBroadcastId,
+                    userId: currentUser?.id,
+                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous',
+                    timestamp: Date.now()
+                  };
+                  wsRef.current.send(JSON.stringify(message));
+                  console.log('Sent initial listener status on WebSocket connect: listening', message);
+                } else {
+                  console.log('WebSocket connected but not currently listening');
+                }
+              }
+            }, 100);
 
+            // Set up heartbeat
           if (heartbeatInterval.current) {
-            clearInterval(heartbeatInterval.current)
+              clearInterval(heartbeatInterval.current);
           }
 
           heartbeatInterval.current = setInterval(() => {
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && audioRef.current) {
-              const currentlyPlaying = !audioRef.current.paused
+                const currentlyPlaying = !audioRef.current.paused && localAudioPlaying;
               if (currentlyPlaying) {
-                sendPlayerStatus(true)
-                console.log('Heartbeat: Sent player status (playing)')
+                  const message = {
+                    type: 'LISTENER_STATUS',
+                    action: 'HEARTBEAT',
+                    broadcastId: currentBroadcastId,
+                    userId: currentUser?.id,
+                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous',
+                    timestamp: Date.now()
+                  };
+                  wsRef.current.send(JSON.stringify(message));
+                  console.log('Heartbeat: Sent listener status (listening)', message);
+                }
               }
-            }
-          }, 15000)
-        }
+            }, 15000);
+          };
 
         wsInstance.onmessage = (event) => {
           try {
-            const data = JSON.parse(event.data)
-            console.log('WebSocket message received:', data)
+              const data = JSON.parse(event.data);
+              console.log('WebSocket message received:', data);
 
             if (data.type === 'STREAM_STATUS') {
-              setIsLive(data.isLive)
-              setListenerCount(data.listenerCount || 0)
-              console.log('Stream status updated via WebSocket:', data.isLive)
+                console.log('ListenerDashboard: Stream status updated via WebSocket:', data.isLive);
+                
+                // Update local listener count if provided
+                if (data.listenerCount !== undefined) {
+                  console.log('ListenerDashboard: Updating listener count to:', data.listenerCount);
+                  setLocalListenerCount(data.listenerCount);
+                }
             }
           } catch (error) {
-            console.error('Error parsing WebSocket message:', error)
+              console.error('Error parsing WebSocket message:', error);
           }
-        }
+          };
 
         wsInstance.onclose = (event) => {
-          console.log(`WebSocket disconnected with code ${event.code}, reason: ${event.reason}`)
-          isReconnecting = false
-          wsConnectingRef.current = false
+            console.log(`WebSocket disconnected with code ${event.code}, reason: ${event.reason}`);
+            isReconnecting = false;
+            wsConnectingRef.current = false;
 
           if (heartbeatInterval.current) {
-            clearInterval(heartbeatInterval.current)
-            heartbeatInterval.current = null
-          }
+              clearInterval(heartbeatInterval.current);
+              heartbeatInterval.current = null;
+            }
 
-          if (event.code !== 1000) {
-            console.log('Attempting to reconnect WebSocket in 3 seconds...')
-            reconnectTimer = setTimeout(connectWebSocket, 3000)
-          }
-        }
+            // Only reconnect on unexpected close and if we haven't exceeded max attempts
+            if (event.code !== 1000 && event.code !== 1001 && wsConnectionAttemptCount < MAX_CONNECTION_ATTEMPTS) {
+              console.log(`Attempting to reconnect WebSocket in ${3000 * wsConnectionAttemptCount}ms (attempt ${wsConnectionAttemptCount})`);
+              reconnectTimer = setTimeout(connectWebSocket, 3000 * wsConnectionAttemptCount);
+            } else if (wsConnectionAttemptCount >= MAX_CONNECTION_ATTEMPTS) {
+              console.log(`Maximum connection attempts (${MAX_CONNECTION_ATTEMPTS}) reached. Stopping reconnection attempts.`);
+            }
+          };
 
         wsInstance.onerror = (error) => {
-          console.error('WebSocket error:', error)
-        }
+            console.error('WebSocket error:', error);
+            // Don't set isReconnecting to false here, let onclose handle it
+          };
       } catch (error) {
-        console.error('Error creating WebSocket:', error)
-        isReconnecting = false
-        wsConnectingRef.current = false
+          console.error('Error creating WebSocket:', error);
+          isReconnecting = false;
+          wsConnectingRef.current = false;
+          
+          if (wsConnectionAttemptCount < MAX_CONNECTION_ATTEMPTS) {
+            reconnectTimer = setTimeout(connectWebSocket, 3000 * wsConnectionAttemptCount);
+          }
+        }
+      }, connectionDelay); // Delay to avoid React StrictMode issues
+    };
 
-        reconnectTimer = setTimeout(connectWebSocket, 3000)
-      }
-    }
+    // Initial connection
+    connectWebSocket();
 
-    connectWebSocket()
-
+    // Cleanup function
     return () => {
       if (reconnectTimer) {
-        clearTimeout(reconnectTimer)
+        clearTimeout(reconnectTimer);
       }
 
       if (heartbeatInterval.current) {
-        clearInterval(heartbeatInterval.current)
-        heartbeatInterval.current = null
+        clearInterval(heartbeatInterval.current);
+        heartbeatInterval.current = null;
       }
 
-      if (wsInstance) {
+      if (wsRef.current) {
         try {
-          console.log('Closing WebSocket due to component unmount')
-          wsInstance.close(1000, 'Component unmounting')
+          console.log('Closing WebSocket due to component unmount');
+          
+          // Send stop listening message if currently playing
+          if (wsRef.current.readyState === WebSocket.OPEN && localAudioPlaying) {
+            const message = {
+              type: 'LISTENER_STATUS',
+              action: 'STOP_LISTENING',
+              broadcastId: currentBroadcastId,
+              userId: currentUser?.id,
+              userName: currentUser?.firstName || currentUser?.name || 'Anonymous',
+              timestamp: Date.now()
+            };
+            wsRef.current.send(JSON.stringify(message));
+            console.log('Sent listener stop message due to component unmount:', message);
+          }
+          
+          // Remove event handlers first
+          wsRef.current.onclose = null;
+          wsRef.current.onerror = null;
+          wsRef.current.onmessage = null;
+          wsRef.current.onopen = null;
+          
+          wsRef.current.close(1000, 'Component unmounting');
         } catch (e) {
-          console.warn('Error closing WebSocket during cleanup:', e)
+          console.warn('Error closing WebSocket during cleanup:', e);
         }
       }
-    }
-  }, [serverConfig])
+    };
+  }, [serverConfig]);
 
   // Send player status when playing state changes
   useEffect(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      sendPlayerStatus(isPlaying)
+      console.log('Sent player status to server:', audioPlaying ? 'playing' : 'paused')
     }
-  }, [isPlaying, sendPlayerStatus])
+  }, [audioPlaying])
 
   // Stream status checking from ListenerDashboard2.jsx
   useEffect(() => {
@@ -463,18 +491,7 @@ export default function ListenerDashboard() {
 
           if (response.data && response.data.data) {
             const statusData = response.data.data
-            setIsLive(statusData.live || false)
-
-            // Only do health check if not live (no WebSocket available)
-            if (!statusData.live) {
-              streamService.getHealth()
-                .then(healthResponse => {
-                  console.log("Health status:", healthResponse.data)
-                })
-                .catch(error => {
-                  console.log("Health check failed:", error)
-                })
-            }
+            console.log('Stream status updated via HTTP:', statusData.live)
           }
         })
         .catch(error => {
@@ -691,32 +708,54 @@ export default function ListenerDashboard() {
         }
 
         const connection = await pollService.subscribeToPolls(currentBroadcastId, (data) => {
+          console.log('Listener Dashboard: Received poll WebSocket message:', data);
           switch (data.type) {
             case 'NEW_POLL':
               if (data.poll && data.poll.isActive) {
-                setCurrentPoll({
+                console.log('Listener Dashboard: New poll received:', data.poll);
+                setActivePoll({
                   ...data.poll,
-                  totalVotes: data.poll.options.reduce((sum, option) => sum + option.votes, 0),
+                  totalVotes: data.poll.options.reduce((sum, option) => sum + (option.votes || 0), 0),
                   userVoted: false
                 });
+                // Reset selection for new poll
+                setSelectedPollOption(null);
+              }
+              break;
+
+            case 'POLL_VOTE':
+              // Handle real-time vote updates
+              if (data.pollId === activePoll?.id && data.poll) {
+                console.log('Listener Dashboard: Poll vote update received:', data.poll);
+                setActivePoll(prev => prev ? {
+                  ...prev,
+                  options: data.poll.options || prev.options,
+                  totalVotes: data.poll.totalVotes || (data.poll.options ? data.poll.options.reduce((sum, option) => sum + (option.votes || 0), 0) : prev.totalVotes)
+                } : null);
               }
               break;
 
             case 'POLL_UPDATED':
-              if (data.poll && !data.poll.isActive && currentPoll?.id === data.poll.id) {
-                setCurrentPoll(null);
+              if (data.poll && !data.poll.isActive && activePoll?.id === data.poll.id) {
+                console.log('Listener Dashboard: Poll ended:', data.poll);
+                setActivePoll(null);
+                setSelectedPollOption(null);
               }
               break;
 
             case 'POLL_RESULTS':
-              if (data.pollId === currentPoll?.id && data.results) {
-                setCurrentPoll(prev => prev ? {
+              if (data.pollId === activePoll?.id && data.results) {
+                console.log('Listener Dashboard: Poll results update received:', data.results);
+                setActivePoll(prev => prev ? {
                   ...prev,
                   options: data.results.options,
                   totalVotes: data.results.totalVotes
                 } : null);
               }
               break;
+              
+            default:
+              console.log('Listener Dashboard: Unknown poll message type:', data.type);
           }
         });
         pollWsRef.current = connection;
@@ -741,42 +780,29 @@ export default function ListenerDashboard() {
           
           switch (message.type) {
             case 'BROADCAST_STARTED':
-              setIsLive(true);
-              if (message.broadcast) {
-                setCurrentBroadcast(message.broadcast);
-              }
+              console.log('Stream started via WebSocket');
               break;
               
             case 'BROADCAST_ENDED':
-              setIsLive(false);
-              if (message.broadcast) {
-                setCurrentBroadcast(message.broadcast);
-              }
+              console.log('Stream ended via WebSocket');
               break;
               
             case 'LISTENER_COUNT_UPDATE':
-              setListenerCount(message.data?.listenerCount || 0);
+              console.log('Listener count updated via WebSocket:', message.data?.listenerCount || 0);
               break;
               
             case 'BROADCAST_STATUS_UPDATE':
-              if (message.broadcast) {
-                setCurrentBroadcast(message.broadcast);
-                setIsLive(message.broadcast.status === 'LIVE');
-              }
+              console.log('Broadcast status updated via WebSocket:', message.broadcast.status === 'LIVE');
               break;
               
             case 'LISTENER_JOINED':
               // Update listener count if provided
-              if (message.data?.listenerCount !== undefined) {
-                setListenerCount(message.data.listenerCount);
-              }
+              console.log('Listener joined via WebSocket:', message.data?.listenerCount !== undefined ? message.data.listenerCount : 0);
               break;
               
             case 'LISTENER_LEFT':
               // Update listener count if provided
-              if (message.data?.listenerCount !== undefined) {
-                setListenerCount(message.data.listenerCount);
-              }
+              console.log('Listener left via WebSocket:', message.data?.listenerCount !== undefined ? message.data.listenerCount : 0);
               break;
               
             default:
@@ -816,7 +842,16 @@ export default function ListenerDashboard() {
         broadcastWsRef.current = null;
       }
     };
-  }, [currentBroadcastId, isLive]); // Removed chatMessages.length and currentPoll?.id dependencies to prevent unnecessary re-runs
+  }, [currentBroadcastId, isLive]); // Removed chatMessages.length and activePoll?.id dependencies to prevent unnecessary re-runs
+
+  // Update chat timestamps every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setChatTimestampTick(prev => prev + 1);
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Update the scroll event listener
   useEffect(() => {
@@ -894,17 +929,6 @@ export default function ListenerDashboard() {
             if (targetBroadcast) {
               setCurrentBroadcastId(targetBroadcast.id);
               setCurrentBroadcast(targetBroadcast);
-              setIsLive(targetBroadcast.status === 'LIVE');
-              
-              if (targetBroadcast.currentSong) {
-                setCurrentSong({
-                  title: targetBroadcast.currentSong.title,
-                  artist: targetBroadcast.currentSong.artist
-                });
-              } else {
-                setCurrentSong(null);
-              }
-              
               console.log("Target broadcast loaded:", targetBroadcast);
               return; // Exit early since we found our target broadcast
             }
@@ -920,53 +944,12 @@ export default function ListenerDashboard() {
 
         // If there are any live broadcasts, set isLive to true
         if (liveBroadcasts && liveBroadcasts.length > 0) {
-          setIsLive(true);
-          // Set the first live broadcast as the current one (unless we have a target)
-          const currentBroadcast = liveBroadcasts[0];
-          if (!targetBroadcastId) {
-            setCurrentBroadcastId(currentBroadcast.id);
-            setCurrentBroadcast(currentBroadcast);
-          }
-
-          // Set current song if available
-          if (currentBroadcast.currentSong) {
-            setCurrentSong({
-              title: currentBroadcast.currentSong.title,
-              artist: currentBroadcast.currentSong.artist
-            });
+          console.log("Live broadcast:", liveBroadcasts[0]);
           } else {
-            // Fallback to default if no song data
-            setCurrentSong(null);
-          }
-
-          console.log("Live broadcast:", currentBroadcast);
-        } else {
-          setIsLive(false);
-          setCurrentBroadcast(null);
-          setCurrentSong(null);
-          // If no live broadcasts, check for upcoming broadcasts
-          try {
-            const upcomingResponse = await broadcastService.getUpcoming();
-            const upcomingBroadcasts = upcomingResponse.data;
-
-            if (upcomingBroadcasts && upcomingBroadcasts.length > 0) {
-              // Set the next broadcast
-              const next = upcomingBroadcasts[0];
-              setNextBroadcast({
-                title: next.title,
-                date: new Date(next.scheduledStart).toLocaleDateString(),
-                time: new Date(next.scheduledStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              });
-            } else {
-              setNextBroadcast(null);
-            }
-          } catch (error) {
-            console.error("Error fetching upcoming broadcasts:", error);
-          }
+          console.log("No live broadcasts found");
         }
       } catch (error) {
         console.error("Error checking broadcast status:", error);
-        setIsLive(false);
       }
     }
 
@@ -985,7 +968,6 @@ export default function ListenerDashboard() {
     if (currentBroadcastId && isLive) {
       const fetchActivePolls = async () => {
         try {
-          setPollLoading(true);
           const response = await pollService.getActivePollsForBroadcast(currentBroadcastId);
 
           if (response.data && response.data.length > 0) {
@@ -999,13 +981,13 @@ export default function ListenerDashboard() {
               if (hasVotedResponse.data) {
                 // User has voted, get their vote
                 const userVoteResponse = await pollService.getUserVote(activePoll.id);
-                setUserVote(userVoteResponse.data);
+                setUserVotes(prev => ({ ...prev, [activePoll.id]: userVoteResponse.data }));
 
                 // Get poll results
                 const resultsResponse = await pollService.getPollResults(activePoll.id);
 
                 // Combine poll data with results
-                setCurrentPoll({
+                setActivePoll({
                   ...activePoll,
                   options: resultsResponse.data.options,
                   totalVotes: resultsResponse.data.totalVotes,
@@ -1014,7 +996,7 @@ export default function ListenerDashboard() {
                 });
               } else {
                 // User hasn't voted
-                setCurrentPoll({
+                setActivePoll({
                   ...activePoll,
                   totalVotes: activePoll.options.reduce((sum, option) => sum + option.votes, 0),
                   userVoted: false
@@ -1022,19 +1004,17 @@ export default function ListenerDashboard() {
               }
             } catch (error) {
               console.error("Error checking user vote:", error);
-              setCurrentPoll({
+              setActivePoll({
                 ...activePoll,
                 totalVotes: activePoll.options.reduce((sum, option) => sum + option.votes, 0),
                 userVoted: false
               });
             }
           } else {
-            setCurrentPoll(null);
+            setActivePoll(null);
           }
         } catch (error) {
           console.error("Error fetching active polls:", error);
-        } finally {
-          setPollLoading(false);
         }
       };
 
@@ -1047,25 +1027,50 @@ export default function ListenerDashboard() {
       return () => clearInterval(interval);
     } else {
       // Reset poll when no broadcast is live
-      setCurrentPoll(null);
+      setActivePoll(null);
     }
   }, [currentBroadcastId, isLive]);
 
   // Toggle play/pause with enhanced logic from ListenerDashboard2.jsx
   const togglePlay = () => {
-    console.log('Toggle play called, current state:', { isPlaying, wsReadyState: wsRef.current?.readyState })
+    console.log('Toggle play called, current state:', { 
+      localAudioPlaying, 
+      wsReadyState: wsRef.current?.readyState,
+      audioRefExists: !!audioRef.current,
+      serverConfigExists: !!serverConfig,
+      streamUrl: serverConfig?.streamUrl
+    })
 
     if (!audioRef.current || !serverConfig) {
+      console.error('Audio player not ready:', {
+        audioRefCurrent: !!audioRef.current,
+        serverConfig: !!serverConfig,
+        serverConfigStreamUrl: serverConfig?.streamUrl
+      });
       setStreamError("Audio player not ready. Please wait...")
       return
     }
 
     try {
-      if (isPlaying) {
+      if (localAudioPlaying) {
         console.log('Pausing playback')
         audioRef.current.pause()
-        setIsPlaying(false)
-        sendPlayerStatus(false)
+        setLocalAudioPlaying(false); // Update local state
+        console.log('Stream paused')
+        
+        // Notify server that listener stopped playing
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          const message = {
+            type: 'LISTENER_STATUS',
+            action: 'STOP_LISTENING',
+            broadcastId: currentBroadcastId,
+            userId: currentUser?.id,
+            userName: currentUser?.firstName || currentUser?.name || 'Anonymous',
+            timestamp: Date.now()
+          };
+          wsRef.current.send(JSON.stringify(message));
+          console.log('Sent listener stop message to server:', message);
+        }
       } else {
         console.log('Starting playback')
         const currentSrc = audioRef.current.src
@@ -1093,9 +1098,26 @@ export default function ListenerDashboard() {
           playPromise
             .then(() => {
               console.log('Playback started successfully')
-              setIsPlaying(true)
+              setLocalAudioPlaying(true); // Update local state
+              console.log('Stream playing')
               setStreamError(null)
-              sendPlayerStatus(true)
+              
+              // Notify server that listener started playing
+              if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                if (!currentUser) {
+                  console.warn('No current user available for listener status message');
+                }
+                const message = {
+                  type: 'LISTENER_STATUS',
+                  action: 'START_LISTENING',
+                  broadcastId: currentBroadcastId,
+                  userId: currentUser?.id,
+                  userName: currentUser?.firstName || currentUser?.name || 'Anonymous',
+                  timestamp: Date.now()
+                };
+                wsRef.current.send(JSON.stringify(message));
+                console.log('Sent listener start message to server:', message);
+              }
             })
             .catch(error => {
               console.error("Playback failed:", error)
@@ -1109,15 +1131,21 @@ export default function ListenerDashboard() {
               } else {
                 setStreamError(`Playback failed: ${error.message}. Please check if the stream is live.`)
               }
-              setIsPlaying(false)
-
-              if (audioRef.current) {
-                const srcAfterError = audioRef.current.src
-                if (!srcAfterError.startsWith('http') || srcAfterError.includes('localhost:5173') || srcAfterError.startsWith('blob:')) {
-                  console.warn('Audio src changed to invalid URL after error, resetting to stream URL')
-                  audioRef.current.src = expectedSrc
-                  audioRef.current.load()
-                }
+              setLocalAudioPlaying(false); // Update local state on error
+              console.log('Stream paused')
+              
+              // Notify server that listener stopped playing due to error
+              if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                const message = {
+                  type: 'LISTENER_STATUS',
+                  action: 'STOP_LISTENING',
+                  broadcastId: currentBroadcastId,
+                  userId: currentUser?.id,
+                  userName: currentUser?.firstName || currentUser?.name || 'Anonymous',
+                  timestamp: Date.now()
+                };
+                wsRef.current.send(JSON.stringify(message));
+                console.log('Sent listener stop message to server (due to error):', message);
               }
             })
         } else {
@@ -1130,77 +1158,15 @@ export default function ListenerDashboard() {
     }
   }
 
-  // Toggle mute
-  const toggleMute = () => {
-    setIsMuted(!isMuted);
-  }
-
-  // Handle volume change with enhanced logic
-  const handleVolumeChange = (e) => {
-    const newVolume = parseInt(e.target.value, 10);
-    setVolume(newVolume);
-
-    // Handle mute state based on volume
-    if (newVolume === 0) {
-      setIsMuted(true);
-    } else if (isMuted && newVolume > 0) {
-      setIsMuted(false);
-    }
-  }
-
-  // Refresh stream from ListenerDashboard2.jsx
-  const refreshStream = () => {
-    if (audioRef.current && serverConfig) {
-      console.log('Refreshing stream...')
-
-      if (isPlaying) {
-        sendPlayerStatus(false)
-      }
-
-      try {
-        audioRef.current.pause()
-
-        const streamUrl = serverConfig.streamUrl.startsWith('http') 
-          ? serverConfig.streamUrl 
-          : `http://${serverConfig.streamUrl}`
-
-        console.log('Setting new stream URL during refresh:', streamUrl)
-
-        audioRef.current.src = streamUrl
-        audioRef.current.load()
-
-        setStreamError(null)
-        setIsPlaying(false)
-
-        console.log('Stream refreshed successfully')
-      } catch (error) {
-        console.error('Error refreshing stream:', error)
-        setStreamError(`Error refreshing stream: ${error.message}. Please try again.`)
-
-        try {
-          audioRef.current.pause()
-          const streamUrl = serverConfig.streamUrl.startsWith('http') 
-            ? serverConfig.streamUrl 
-            : `http://${serverConfig.streamUrl}`
-          audioRef.current.src = streamUrl
-        } catch (cleanupError) {
-          console.error('Error cleaning up audio element:', cleanupError)
-        }
-      }
-    } else {
-      console.warn('Cannot refresh stream: audio element or server config not available')
-    }
-  }
-
   // Handle song request submission
   const handleSongRequestSubmit = async (e) => {
     e.preventDefault();
-    if (!songRequest.song.trim() || !songRequest.artist.trim() || !currentBroadcastId) return;
+    if (!songRequest.title.trim() || !songRequest.artist.trim() || !currentBroadcastId) return;
 
     try {
       // Create song request object to send to the server
       const requestData = {
-        songTitle: songRequest.song,
+        songTitle: songRequest.title,
         artist: songRequest.artist,
         dedication: songRequest.dedication
       };
@@ -1209,46 +1175,55 @@ export default function ListenerDashboard() {
       await songRequestService.createRequest(currentBroadcastId, requestData);
 
       // Show success message
-      alert(`Song request submitted: "${songRequest.song}" by ${songRequest.artist}`);
+      alert(`Song request submitted: "${songRequest.title}" by ${songRequest.artist}`);
 
       // Reset the form
-      setSongRequest({ song: "", artist: "", dedication: "" });
+      setSongRequest({ title: '', artist: '', dedication: '' });
     } catch (error) {
       console.error("Error submitting song request:", error);
       alert("Failed to submit song request. Please try again.");
     }
   };
 
-  // Handle poll vote
-  const handlePollVote = async (optionId) => {
-    if (!currentPoll || currentPoll.userVoted || !isLive) return;
+  // Handle poll option selection
+  const handlePollOptionSelect = (optionId) => {
+    if (!activePoll || activePoll.userVoted || !isLive) return;
+    setSelectedPollOption(optionId);
+  };
+
+  // Handle poll vote submission
+  const handlePollVote = async () => {
+    if (!activePoll || !selectedPollOption || activePoll.userVoted || !isLive) return;
 
     try {
       setPollLoading(true);
 
       // Send vote to backend
       const voteData = {
-        pollId: currentPoll.id,
-        optionId: optionId
+        pollId: activePoll.id,
+        optionId: selectedPollOption
       };
 
-      await pollService.vote(currentPoll.id, voteData);
+      await pollService.vote(activePoll.id, voteData);
 
       // Get updated poll results
-      const resultsResponse = await pollService.getPollResults(currentPoll.id);
+      const resultsResponse = await pollService.getPollResults(activePoll.id);
 
       // Update user vote
-      const userVoteResponse = await pollService.getUserVote(currentPoll.id);
-      setUserVote(userVoteResponse.data);
+      const userVoteResponse = await pollService.getUserVote(activePoll.id);
+      setUserVotes(prev => ({ ...prev, [activePoll.id]: userVoteResponse.data }));
 
       // Update current poll with results
-      setCurrentPoll(prev => ({
+      setActivePoll(prev => ({
         ...prev,
         options: resultsResponse.data.options,
         totalVotes: resultsResponse.data.totalVotes,
         userVoted: true,
-        userVotedFor: optionId
+        userVotedFor: selectedPollOption
       }));
+
+      // Reset selection
+      setSelectedPollOption(null);
 
     } catch (error) {
       console.error("Error submitting vote:", error);
@@ -1288,7 +1263,7 @@ export default function ListenerDashboard() {
               messageDate = new Date();
             }
 
-            // Format relative time
+            // Format relative time (updated every minute due to chatTimestampTick)
             const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
               ? formatDistanceToNow(messageDate, { addSuffix: false }) 
               : 'Just now';
@@ -1369,13 +1344,13 @@ export default function ListenerDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main content area - left 2/3 */}
         <div className="lg:col-span-2 flex flex-col">
-          <div className="bg-maroon-700 rounded-lg overflow-hidden mb-6 h-[200px] flex flex-col justify-center">
+          <div className="bg-maroon-700 rounded-lg overflow-hidden mb-6 h-[200px] flex flex-col justify-center relative">
             {/* Live indicator */}
-            <div className="absolute p-2 px-4">
+            <div className="absolute top-4 left-4 z-10">
               {isLive ? (
                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-600 text-white">
                   <span className="h-2 w-2 rounded-full bg-white mr-1 animate-pulse"></span>
-                  LIVE ({listenerCount} listeners)
+                  LIVE ({Math.max(listenerCount, localListenerCount)} listeners)
                 </span>
               ) : (
                 <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-600 text-white">
@@ -1431,13 +1406,13 @@ export default function ListenerDashboard() {
                       className={`p-3 rounded-full ${
                         !serverConfig
                           ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                          : isPlaying
+                          : localAudioPlaying
                           ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
                           : 'bg-green-100 text-green-800 hover:bg-green-200'
                       }`}
-                      aria-label={isPlaying ? 'Pause' : 'Play'}
+                      aria-label={localAudioPlaying ? 'Pause' : 'Play'}
                     >
-                      {isPlaying ? (
+                      {localAudioPlaying ? (
                         <PauseIcon className="h-6 w-6" />
                       ) : (
                         <PlayIcon className="h-6 w-6" />
@@ -1456,7 +1431,7 @@ export default function ListenerDashboard() {
 
                 {/* Volume control */}
                 <div className="flex items-center px-4 py-3">
-                  <button onClick={toggleMute} className="text-white mr-2">
+                  <button onClick={handleMuteToggle} className="text-white mr-2">
                     {isMuted ? (
                       <SpeakerXMarkIcon className="h-5 w-5" />
                     ) : (
@@ -1547,8 +1522,8 @@ export default function ListenerDashboard() {
                         </label>
                         <input
                           type="text"
-                          value={songRequest.song}
-                          onChange={(e) => setSongRequest({ ...songRequest, song: e.target.value })}
+                          value={songRequest.title}
+                          onChange={(e) => setSongRequest({ ...songRequest, title: e.target.value })}
                           placeholder="Enter song title"
                           className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                           required
@@ -1617,27 +1592,87 @@ export default function ListenerDashboard() {
                 <div className="p-6 flex-grow flex flex-col h-full">
                   {isLive ? (
                     <>
-                      {pollLoading && !currentPoll ? (
+                      {pollLoading && !activePoll ? (
                         <div className="text-center py-8 flex-grow flex items-center justify-center">
                           <p className="text-gray-500 dark:text-gray-400 animate-pulse">Loading polls...</p>
                         </div>
-                      ) : currentPoll ? (
+                      ) : activePoll ? (
                         <div className="flex-grow flex flex-col">
-                          <div className="space-y-6 mb-6 flex-grow">
-                            {currentPoll.options.map((option) => {
-                              const percentage = Math.round((option.votes / currentPoll.totalVotes) * 100) || 0;
+                          {/* Poll Question */}
+                          <div className="mb-4">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                              {activePoll.question || activePoll.title}
+                            </h3>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                              {activePoll.userVoted ? 'You have voted' : 'Choose your answer and click Vote'}
+                            </div>
+                          </div>
+
+                          {/* Poll Options */}
+                          <div className="space-y-3 mb-6 flex-grow">
+                            {activePoll.options.map((option) => {
+                              const percentage = activePoll.userVoted 
+                                ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 
+                                : 0;
+                              const isSelected = selectedPollOption === option.id;
+                              const isUserChoice = activePoll.userVotedFor === option.id;
+                              
                               return (
                                 <div key={option.id} className="space-y-1">
-                                  <div className="text-sm font-medium mb-2 text-gray-900 dark:text-white">{option.text}</div>
                                   <div 
-                                    className="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md overflow-hidden cursor-pointer"
-                                    onClick={() => !currentPoll.userVoted && handlePollVote(option.id)}
+                                    className={`w-full border-2 rounded-lg overflow-hidden cursor-pointer transition-all duration-200 ${
+                                      activePoll.userVoted 
+                                        ? isUserChoice
+                                          ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                                          : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
+                                        : isSelected
+                                          ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20'
+                                          : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 hover:border-maroon-300'
+                                    }`}
+                                    onClick={() => !activePoll.userVoted && handlePollOptionSelect(option.id)}
                                   >
-                                    <div 
-                                      className="h-8 bg-pink-200 dark:bg-maroon-900/30 flex items-center pl-3 text-xs text-gray-800 dark:text-gray-200"
+                                    <div className="p-3">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                          {option.optionText || option.text}
+                                        </span>
+                                        <div className="flex items-center">
+                                          {activePoll.userVoted && (
+                                            <span className="text-xs text-gray-600 dark:text-gray-400 mr-2">
+                                              {option.votes || 0} votes
+                                            </span>
+                                          )}
+                                          {isSelected && !activePoll.userVoted && (
+                                            <div className="w-4 h-4 bg-maroon-500 rounded-full flex items-center justify-center">
+                                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                                            </div>
+                                          )}
+                                          {isUserChoice && activePoll.userVoted && (
+                                            <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                                              <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                              </svg>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                      
+                                      {/* Progress bar for voted polls */}
+                                      {activePoll.userVoted && (
+                                        <div className="mt-2">
+                                          <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                                            <div 
+                                              className={`h-2 rounded-full transition-all duration-300 ${
+                                                isUserChoice ? 'bg-green-500' : 'bg-gray-400'
+                                              }`}
                                       style={{ width: `${percentage}%` }}
-                                    >
+                                            />
+                                          </div>
+                                          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                                       {percentage}%
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -1645,16 +1680,33 @@ export default function ListenerDashboard() {
                             })}
                           </div>
 
+                          {/* Vote Button */}
                           <div className="mt-auto flex justify-center">
+                            {activePoll.userVoted ? (
+                              <div className="text-center">
+                                <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                                  Total votes: {activePoll.totalVotes || 0}
+                                </div>
+                                <span className="inline-flex items-center px-4 py-2 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 rounded-lg">
+                                  <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                  You have voted
+                                </span>
+                              </div>
+                            ) : (
                             <button
-                              onClick={() => setCurrentPoll({ ...currentPoll, userVoted: true })}
-                              disabled={currentPoll.userVoted}
-                              className={`bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-2 px-12 rounded ${
-                                currentPoll.userVoted ? 'opacity-50 cursor-not-allowed' : ''
-                              }`}
-                            >
-                              Vote
+                                onClick={handlePollVote}
+                                disabled={!selectedPollOption || pollLoading}
+                                className={`px-8 py-2 rounded-lg font-medium transition-colors ${
+                                  selectedPollOption && !pollLoading
+                                    ? 'bg-yellow-500 hover:bg-yellow-600 text-black' 
+                                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                }`}
+                              >
+                                {pollLoading ? 'Voting...' : 'Vote'}
                             </button>
+                            )}
                           </div>
                         </div>
                       ) : (
@@ -1687,7 +1739,7 @@ export default function ListenerDashboard() {
         <div className="lg:col-span-1 flex flex-col">
           <div className="bg-maroon-700 text-white p-3 rounded-t-lg">
             <h3 className="font-medium">Live Chat</h3>
-            <p className="text-xs opacity-70">{listenerCount} listeners online</p>
+            <p className="text-xs opacity-70">{Math.max(listenerCount, localListenerCount)} listeners online</p>
           </div>
 
           <div className="bg-white dark:bg-gray-800 border border-t-0 border-gray-200 dark:border-gray-700 rounded-b-lg flex-grow flex flex-col h-[494px]">
@@ -1702,10 +1754,18 @@ export default function ListenerDashboard() {
                     const initials = msg.sender.name.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
 
                     // Parse the createdAt timestamp from the backend
-                    const messageDate = msg.createdAt ? new Date(msg.createdAt + 'Z') : null;
+                    let messageDate;
+                    try {
+                      messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
+                    } catch (error) {
+                      console.error('Error parsing message date:', error);
+                      messageDate = new Date();
+                    }
 
-                    // Format relative time
-                    const timeAgo = messageDate ? formatDistanceToNow(messageDate, { addSuffix: false }) : 'Invalid Date';
+                    // Format relative time (updated every minute due to chatTimestampTick)
+                    const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
+                      ? formatDistanceToNow(messageDate, { addSuffix: false }) 
+                      : 'Just now';
 
                     // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
                     const formattedTimeAgo = timeAgo
