@@ -6,11 +6,11 @@ import { Stomp } from '@stomp/stompjs';
 
 // Helper function to get the correct protocol for the current environment
 const getProtocol = (forWebSocket = false) => {
-  // Always use secure protocols for Vercel deployment compatibility
+  const isSecure = window.location.protocol === 'https:';
   if (forWebSocket) {
-    return 'wss:';
+    return isSecure ? 'wss:' : 'wss:';
   }
-  // Always use HTTPS for API requests and audio streams
+  // Always use HTTPS for API requests
   return 'https:';
 };
 
@@ -121,7 +121,7 @@ export const chatService = {
 
     // Use factory function for proper auto-reconnect support
     const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
-
+    
     // Enable auto-reconnect with 5 second delay
     stompClient.reconnect_delay = 5000;
 
@@ -178,7 +178,7 @@ export const songRequestService = {
 
     // Use factory function for proper auto-reconnect support
     const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
-
+    
     // Enable auto-reconnect with 5 second delay
     stompClient.reconnect_delay = 5000;
 
@@ -236,7 +236,7 @@ export const notificationService = {
 
     // Use factory function for proper auto-reconnect support
     const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
-
+    
     // Enable auto-reconnect with 5 second delay
     stompClient.reconnect_delay = 5000;
     let isConnected = false;
@@ -357,7 +357,7 @@ export const pollService = {
 
     // Use factory function for proper auto-reconnect support
     const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
-
+    
     // Enable auto-reconnect with 5 second delay
     stompClient.reconnect_delay = 5000;
 
@@ -417,13 +417,13 @@ export const streamService = {
 
   // Stream URL for listeners to tune in to the broadcast
   getListenerStreamUrl: () => {
-    // Use environment variable directly with HTTPS for Vercel compatibility
+    // Use environment variable directly
     return Promise.resolve(
       constructUrl(
         import.meta.env.VITE_ICECAST_URL,
         '',
         '',
-        false // HTTPS for audio stream (controlled by getProtocol function)
+        false // HTTP for audio stream
       )
     );
   },

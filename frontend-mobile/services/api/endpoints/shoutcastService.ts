@@ -27,17 +27,17 @@ export const shoutcastService = {
   getStreamInfo: async (): Promise<StreamInfo> => {
     // Temporarily return mock data instead of calling the API
     // const response = await apiClient.get<any>('/config/streaming/public');
-
+    
     // Mock data
     const mockData = {
       serverUrl: 'stream.example.com',
-      port: 443,
+      port: 8000,
       mountPoint: '/wildcats',
     };
-
+    
     // Compute the full stream URL from the parts
-    const streamUrl = `https://${mockData.serverUrl}:${mockData.port}${mockData.mountPoint}`;
-
+    const streamUrl = `http://${mockData.serverUrl}:${mockData.port}${mockData.mountPoint}`;
+    
     return {
       ...mockData,
       streamUrl
