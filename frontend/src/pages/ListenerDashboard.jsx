@@ -638,33 +638,77 @@ export default function ListenerDashboard() {
           chatWsRef.current.disconnect();
           chatWsRef.current = null;
         }
-
         const connection = await chatService.subscribeToChatMessages(currentBroadcastId, (newMessage) => {
+          // Set connection status to true on first message - this confirms WebSocket is working
+          if (!wsConnected) {
+            wsConnected = true;
+            console.log('Listener Dashboard: WebSocket confirmed working');
+          }
+
           // Double-check the message is for the current broadcast
           if (newMessage.broadcastId === currentBroadcastId) {
             setChatMessages(prev => {
+              // Check if message already exists to avoid duplicates
               const exists = prev.some(msg => msg.id === newMessage.id);
               if (exists) {
                 return prev;
               }
 
+              // Create a new array instead of modifying the existing one
               const wasAtBottom = isAtBottom(chatContainerRef.current);
-              const updated = [...prev, newMessage].sort((a, b) => 
-                new Date(a.createdAt) - new Date(b.createdAt)
+
+              // Use spread operator for a new array and sort properly
+              const updated = [...prev, newMessage].sort((a, b) =>
+                  new Date(a.createdAt) - new Date(b.createdAt)
               );
 
               if (wasAtBottom) {
                 setTimeout(scrollToBottom, 50);
               }
-
               return updated;
             });
           }
         });
+
+        // Add a connection status check
+        setTimeout(() => {
+          if (!wsConnected) {
+            console.warn('Listener Dashboard: WebSocket not confirmed working after 3 seconds, refreshing messages');
+            // Fallback - fetch messages again if WebSocket isn't working
+            chatService.getMessages(currentBroadcastId).then(response => {
+              setChatMessages(response.data);
+            }).catch(error => {
+              console.error('Listener Dashboard: Error fetching messages during fallback:', error);
+            });
+          }
+        }, 3000);
+
         chatWsRef.current = connection;
         console.log('Listener Dashboard: Chat WebSocket connected successfully');
       } catch (error) {
         console.error('Listener Dashboard: Failed to connect chat WebSocket:', error);
+
+        // Important: Fallback to polling on WebSocket failure
+        const pollInterval = setInterval(() => {
+          if (currentBroadcastId) {
+            console.log('Listener Dashboard: Polling for messages due to WebSocket failure');
+            chatService.getMessages(currentBroadcastId)
+                .then(response => {
+                  setChatMessages(response.data);
+                })
+                .catch(error => {
+                  console.error('Listener Dashboard: Error polling messages:', error);
+                });
+          } else {
+            clearInterval(pollInterval);
+          }
+        }, 5000);
+
+        // Store interval ref for cleanup
+        chatWsRef.current = {
+          disconnect: () => clearInterval(pollInterval),
+          isConnected: () => false
+        };
       }
     };
 
@@ -885,14 +929,13 @@ export default function ListenerDashboard() {
       };
 
       // Send message to the server
-      await chatService.sendMessage(currentBroadcastId, messageData);
+      const response = await chatService.sendMessage(currentBroadcastId, messageData);
 
-      // The WebSocket will handle adding the message to the UI
-      // If WebSocket is not connected, fetch messages as fallback
-      if (!chatWsRef.current || !chatWsRef.current.isConnected()) {
-        const response = await chatService.getMessages(currentBroadcastId);
-        setChatMessages(response.data);
-      }
+      // Important: Always fetch messages after sending to ensure consistency
+      const updatedMessages = await chatService.getMessages(currentBroadcastId);
+
+      // Update local state with fresh data from server
+      setChatMessages(updatedMessages.data);
 
       // Always scroll to bottom after sending your own message
       scrollToBottom();

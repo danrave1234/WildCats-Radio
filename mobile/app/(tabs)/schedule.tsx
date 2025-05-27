@@ -10,7 +10,11 @@ import {
   Alert,
   Platform,
   StyleSheet,
+  RefreshControl,
+  Animated,
+  Easing,
 } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
   format,
@@ -34,8 +38,8 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // Constants for calendar layout
 const HORIZONTAL_PADDING_SCREEN = 20; // Corresponds to px-5 on the ScrollView
-const PADDING_CALENDAR_CARD = 12;    // Corresponds to p-3 on the calendar card View
-const GAP_BETWEEN_CELLS = 4;         // Corresponds to gap-1 in Tailwind (0.25rem = 4px)
+const PADDING_CALENDAR_CARD = 16;    // Adjusted for p-4 on the calendar grid container
+const GAP_BETWEEN_CELLS = 8;         // Increased from 4 to 8 (corresponds to gap-2)
 const NUM_DAYS_IN_WEEK = 7;
 
 const calculateDayCellSize = () => {
@@ -48,31 +52,63 @@ const DAY_CELL_SIZE = calculateDayCellSize();
 
 const ScheduleScreen: React.FC = () => {
   const { authToken } = useAuth();
+  const params = useLocalSearchParams();
   const [upcomingBroadcasts, setUpcomingBroadcasts] = useState<Broadcast[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
+  const ITEMS_PER_PAGE = 5;
 
-  const fetchUpcomingBroadcasts = useCallback(async () => {
+  const fetchUpcomingBroadcasts = useCallback(async (showRefreshing = false) => {
     if (!authToken) {
       setError('Authentication required.');
       setIsLoading(false);
       return;
     }
-    setIsLoading(true);
+    
+    if (showRefreshing) setIsRefreshing(true);
+    else setIsLoading(true);
     setError(null);
-    const result = await getUpcomingBroadcasts(authToken);
-    if ('error' in result) {
-      setError(result.error);
-    } else {
-      setUpcomingBroadcasts(result);
+    
+    try {
+      const result = await getUpcomingBroadcasts(authToken);
+      if ('error' in result) {
+        setError(result.error);
+      } else {
+        setUpcomingBroadcasts(result);
+      }
+    } catch (err) {
+      setError('Failed to load schedule');
+      console.error('Fetch schedule error:', err);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
     }
-    setIsLoading(false);
   }, [authToken]);
 
   useEffect(() => {
     fetchUpcomingBroadcasts();
+  }, [fetchUpcomingBroadcasts]);
+
+  // Handle date parameter from navigation
+  useEffect(() => {
+    if (params.date && typeof params.date === 'string') {
+      try {
+        const targetDate = parseISO(params.date);
+        setCurrentMonthDate(startOfMonth(targetDate));
+        setSelectedDate(targetDate);
+        setCurrentPage(0);
+      } catch (error) {
+        console.warn('Error parsing date parameter:', error);
+      }
+    }
+  }, [params.date]);
+
+  const onRefresh = useCallback(() => {
+    fetchUpcomingBroadcasts(true);
   }, [fetchUpcomingBroadcasts]);
 
   const broadcastsByDate = useMemo(() => {
@@ -124,9 +160,11 @@ const ScheduleScreen: React.FC = () => {
     if (selectedDate && isSameDay(day, selectedDate)) {
       // If the same day is pressed again, deselect it
       setSelectedDate(null);
+      setCurrentPage(0);
     } else {
       // Otherwise, select the new day
       setSelectedDate(day);
+      setCurrentPage(0); // Reset to first page when selecting new date
       // If user clicks on a day from a different month (visible trailing/leading days)
       // then also navigate the calendar to that month.
       if (!isSameMonth(day, currentMonthDate)) {
@@ -141,38 +179,93 @@ const ScheduleScreen: React.FC = () => {
     const isCurrentDisplayMonth = isSameMonth(day, currentMonthDate);
     const isTodayDate = isToday(day);
     const isSelectedDate = selectedDate ? isSameDay(day, selectedDate) : false;
+    const hasBroadcasts = broadcastsOnDay.length > 0 && isCurrentDisplayMonth;
 
     return (
       <TouchableOpacity
         key={dateKey}
-        style={styles.dayCellTouchable}
+        style={[
+          styles.dayCellTouchable,
+          isSelectedDate && {
+            transform: [{ scale: 0.98 }],
+            shadowColor: '#B5830F',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 8,
+            elevation: 6,
+          }
+        ]}
         onPress={() => handleDayPress(day)}
-        activeOpacity={0.7}
+        activeOpacity={0.8}
       >
         <View 
           className={`
-            w-full h-full items-center justify-center rounded-lg
-            ${isCurrentDisplayMonth ? 'bg-white' : 'bg-gray-100'} 
-            ${isSelectedDate ? 'bg-mikado_yellow' : isTodayDate ? 'bg-cordovan/10' : ''}
+            w-full h-full items-center justify-center rounded-lg relative overflow-hidden
+            ${isCurrentDisplayMonth ? 'bg-white' : 'bg-gray-100/50'} 
+            ${isSelectedDate ? 'bg-mikado_yellow' : isTodayDate ? 'bg-cordovan/15' : ''}
             border border-transparent
-            ${isSelectedDate ? 'border-mikado_yellow-500' : isTodayDate ? 'border-cordovan/30' : ''}
+            ${isSelectedDate ? 'border-mikado_yellow' : isTodayDate ? 'border-cordovan/40' : hasBroadcasts ? 'border-cordovan/20' : ''}
           `}
+          style={[
+            {
+              width: DAY_CELL_SIZE,
+              height: DAY_CELL_SIZE,
+            },
+            isSelectedDate && {
+              shadowColor: '#B5830F',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.2,
+              shadowRadius: 4,
+              elevation: 4,
+            },
+            hasBroadcasts && !isSelectedDate && {
+              backgroundColor: '#91403E05',
+            }
+          ]}
         >
+          {/* Pulse effect for today */}
+          {isTodayDate && !isSelectedDate && (
+            <View 
+              className="absolute inset-0 bg-cordovan/10 rounded-lg"
+              style={{
+                opacity: 0.6,
+              }}
+            />
+          )}
+          
           <Text
             className={`
-              text-sm font-medium
+              text-base font-semibold
               ${isSelectedDate ? 'text-black' : isTodayDate ? 'text-cordovan font-bold' : isCurrentDisplayMonth ? 'text-gray-700' : 'text-gray-400'}
             `}
           >
             {getDate(day)}
           </Text>
-          {broadcastsOnDay.length > 0 && isCurrentDisplayMonth && (
-            <View 
-              className={`
-                w-1.5 h-1.5 rounded-full mt-0.5
-                ${isSelectedDate ? 'bg-black/60' : 'bg-cordovan'}
-              `}
-            />
+          
+          {hasBroadcasts && (
+            <View className="flex-row absolute bottom-1">
+              {broadcastsOnDay.slice(0, 3).map((_, index) => (
+                <View 
+                  key={index}
+                  className={`
+                    w-1.5 h-1.5 rounded-full mx-0.5
+                    ${isSelectedDate ? 'bg-black/70' : 'bg-cordovan'}
+                  `}
+                  style={{
+                    shadowColor: isSelectedDate ? '#000' : '#91403E',
+                    shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 2,
+                    elevation: 2,
+                  }}
+                />
+              ))}
+              {broadcastsOnDay.length > 3 && (
+                <Text className={`text-[8px] ml-1 font-bold ${isSelectedDate ? 'text-black/70' : 'text-cordovan'}`}>
+                  +{broadcastsOnDay.length - 3}
+                </Text>
+              )}
+            </View>
           )}
         </View>
       </TouchableOpacity>
@@ -184,6 +277,29 @@ const ScheduleScreen: React.FC = () => {
     const dateKey = format(selectedDate, 'yyyy-MM-dd');
     return broadcastsByDate[dateKey] || [];
   }, [selectedDate, broadcastsByDate]);
+
+  // Pagination for selected date broadcasts
+  const paginatedBroadcasts = useMemo(() => {
+    const startIndex = currentPage * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return selectedDateBroadcasts.slice(startIndex, endIndex);
+  }, [selectedDateBroadcasts, currentPage, ITEMS_PER_PAGE]);
+
+  const totalPages = Math.ceil(selectedDateBroadcasts.length / ITEMS_PER_PAGE);
+  const canGoNext = currentPage < totalPages - 1;
+  const canGoPrev = currentPage > 0;
+
+  const handleNextPage = () => {
+    if (canGoNext) {
+      setCurrentPage(prev => prev + 1);
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (canGoPrev) {
+      setCurrentPage(prev => prev - 1);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -202,7 +318,7 @@ const ScheduleScreen: React.FC = () => {
         <Text className="text-gray-600 mb-8 text-base leading-relaxed">{error}</Text>
         <TouchableOpacity
           className="bg-cordovan py-3 px-8 rounded-lg shadow-md active:opacity-80"
-          onPress={fetchUpcomingBroadcasts}
+          onPress={() => fetchUpcomingBroadcasts()}
         >
           <Text className="text-white font-semibold text-base">Try Again</Text>
         </TouchableOpacity>
@@ -213,89 +329,297 @@ const ScheduleScreen: React.FC = () => {
   const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   return (
-    <SafeAreaView className="flex-1 bg-anti-flash_white">
+    <SafeAreaView className="flex-1 bg-gray-100">
+      {/* Screen Title */}
+      <View className="pt-4 pb-4 mb-2 px-4 bg-gray-100">
+        <View>
+          <Text className="text-3xl font-bold text-gray-800 mb-1">Broadcast Schedule</Text>
+          <Text className="text-base text-gray-600">Discover upcoming shows and plan your listening</Text>
+        </View>
+      </View>
+      
       <ScrollView 
         contentContainerStyle={{ paddingBottom: 120, paddingTop: Platform.OS === 'android' ? 12 : 6 }} 
         showsVerticalScrollIndicator={false}
         className="px-5"
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            colors={['#91403E']}
+            tintColor="#91403E"
+            title="Pull to refresh schedule"
+            titleColor="#91403E"
+          />
+        }
       >
-        {/* Screen Title */}
-        <View className="pt-4 pb-3 mb-1 flex-row items-center">
-          <Text className="text-3xl font-bold text-gray-800">Broadcast Schedule</Text>
-        </View>
 
         {/* Month Navigation */}
-        <View className="flex-row justify-between items-center py-3 mb-2">
-          <TouchableOpacity onPress={handlePrevMonth} className="p-2 rounded-full active:bg-gray-200">
-            <Ionicons name="chevron-back-outline" size={26} color="#91403E" />
-          </TouchableOpacity>
-          <View className="items-center">
-            <Text className="text-lg font-bold text-cordovan">
-              {format(currentMonthDate, 'MMMM yyyy')}
-            </Text>
-            {!(isToday(currentMonthDate) && isSameMonth(currentMonthDate, new Date())) && 
-             !isSameMonth(currentMonthDate, new Date()) && (
-                 <TouchableOpacity onPress={handleGoToToday} className="mt-0.5">
-                    <Text className="text-xs text-mikado_yellow font-semibold active:opacity-70">GO TO TODAY</Text>
-                </TouchableOpacity>
-            )}
+        <View className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 mb-4 shadow-lg border border-white/20">
+          <View className="flex-row justify-between items-center">
+            <TouchableOpacity 
+              onPress={handlePrevMonth} 
+              className="bg-cordovan/10 p-3 rounded-full active:bg-cordovan/20 shadow-sm"
+              style={{
+                shadowColor: '#91403E',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 4,
+                elevation: 3,
+              }}
+            >
+              <Ionicons name="chevron-back" size={22} color="#91403E" />
+            </TouchableOpacity>
+            
+            <View className="items-center flex-1 mx-4">
+              <Text className="text-2xl font-bold text-cordovan mb-1">
+                {format(currentMonthDate, 'MMMM yyyy')}
+              </Text>
+              {!(isToday(currentMonthDate) && isSameMonth(currentMonthDate, new Date())) && 
+               !isSameMonth(currentMonthDate, new Date()) && (
+                   <TouchableOpacity 
+                     onPress={handleGoToToday} 
+                     className="bg-mikado_yellow/20 px-3 py-1 rounded-full active:bg-mikado_yellow/30"
+                   >
+                      <Text className="text-xs text-mikado_yellow font-bold tracking-wider">⏰ GO TO TODAY</Text>
+                  </TouchableOpacity>
+              )}
+            </View>
+            
+            <TouchableOpacity 
+              onPress={handleNextMonth} 
+              className="bg-cordovan/10 p-3 rounded-full active:bg-cordovan/20 shadow-sm"
+              style={{
+                shadowColor: '#91403E',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 4,
+                elevation: 3,
+              }}
+            >
+              <Ionicons name="chevron-forward" size={22} color="#91403E" />
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={handleNextMonth} className="p-2 rounded-full active:bg-gray-200">
-            <Ionicons name="chevron-forward-outline" size={26} color="#91403E" />
-          </TouchableOpacity>
         </View>
 
         {/* Calendar Grid Card*/}
-        <View className="bg-white p-3 rounded-xl shadow-lg mb-6">
-          {/* Weekday Headers */}
-          <View className="flex-row mb-1">
-            {weekdays.map(day => (
-              <View key={day} style={[styles.weekdayCell, {width: DAY_CELL_SIZE}]}>
-                <Text className="text-xs font-medium text-cordovan/90">
-                  {day}
-                </Text>
-              </View>
-            ))}
+        <View 
+          className="bg-white rounded-3xl shadow-2xl mb-6 overflow-hidden border border-gray-100"
+          style={{
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.15,
+            shadowRadius: 20,
+            elevation: 12,
+          }}
+        >
+          {/* Calendar Header with Gradient */}
+          <View 
+            className="px-4 py-3"
+            style={{
+              backgroundColor: '#91403E',
+            }}
+          >
+            <View className="flex-row justify-center gap-2 mb-2">
+              {weekdays.map(day => (
+                <View 
+                  key={day} 
+                  style={[
+                    styles.weekdayCell, 
+                    {
+                      width: DAY_CELL_SIZE,
+                    }
+                  ]}
+                >
+                  <Text className="text-xs font-bold text-white/95 tracking-wider">
+                    {day.toUpperCase()}
+                  </Text>
+                </View>
+              ))}
+            </View>
           </View>
+          
           {/* Day Cells Grid */}
-          <View className="flex-row flex-wrap gap-1 justify-start">
-            {daysForCalendarGrid.map(day => renderDayCell(day))}
+          <View className="p-4 bg-gray-50/30">
+            <View className="flex-row flex-wrap gap-2 justify-center">
+              {daysForCalendarGrid.map(day => renderDayCell(day))}
+            </View>
           </View>
         </View>
 
         {/* Upcoming Broadcasts for Selected Date */}
         {selectedDate && (
           <View className="mb-6">
-            <View className="flex-row items-center mb-3">
-              <Ionicons name="easel-outline" size={22} color="#91403E" className="mr-2"/>
-              <Text className="text-lg font-bold text-cordovan">
-                Shows on {format(selectedDate, 'MMMM d')}
-              </Text>
-            </View>
-            {selectedDateBroadcasts.length > 0 ? (
-              selectedDateBroadcasts.map(broadcast => (
-                <TouchableOpacity
-                  key={broadcast.id}
-                  className="bg-white p-4 rounded-lg shadow-md mb-3 flex-row items-center active:bg-gray-50"
-                  onPress={() => Alert.alert(broadcast.title, `${broadcast.description || 'No description.'}\n\nTime: ${format(parseISO(broadcast.scheduledStart), 'p')} - ${format(parseISO(broadcast.scheduledEnd), 'p')}\nDJ: ${broadcast.dj?.name || 'TBA'}`)}
-                >
-                  <View className={`w-11 h-11 rounded-lg items-center justify-center mr-3 ${isToday(parseISO(broadcast.scheduledStart)) && isSameDay(parseISO(broadcast.scheduledStart), selectedDate) ? 'bg-mikado_yellow' : 'bg-cordovan' }`}>
-                    <Ionicons name="calendar-outline" size={20} color="white" />
+            <View 
+              className="bg-gradient-to-r from-cordovan/10 to-mikado_yellow/10 p-4 rounded-2xl mb-4"
+              style={{
+                backgroundColor: '#91403E08',
+                borderWidth: 1,
+                borderColor: '#91403E20',
+              }}
+            >
+              <View className="flex-row items-center justify-between">
+                <View className="flex-row items-center">
+                  <View className="bg-cordovan p-2 rounded-full mr-3">
+                    <Ionicons name="calendar" size={20} color="white" />
                   </View>
-                  <View className="flex-1">
-                    <Text className="text-base font-semibold text-gray-800 leading-snug">{broadcast.title}</Text>
-                    <Text className="text-sm text-gray-600 mt-0.5">
-                      {format(parseISO(broadcast.scheduledStart), 'p')} - {format(parseISO(broadcast.scheduledEnd), 'p')}
+                  <View>
+                    <Text className="text-xl font-bold text-cordovan">
+                      {format(selectedDate, 'EEEE, MMMM d')}
                     </Text>
-                    {broadcast.dj?.name && <Text className="text-xs text-mikado_yellow/90 font-medium mt-0.5">DJ: {broadcast.dj.name}</Text>}
+                    <Text className="text-sm text-gray-600">
+                      {selectedDateBroadcasts.length} show{selectedDateBroadcasts.length !== 1 ? 's' : ''} scheduled
+                    </Text>
                   </View>
-                  <Ionicons name="chevron-forward-outline" size={22} color="#A0A0A0" />
-                </TouchableOpacity>
-              ))
+                </View>
+                {isToday(selectedDate) && (
+                  <View className="bg-mikado_yellow/20 px-3 py-1 rounded-full">
+                    <Text className="text-xs font-bold text-mikado_yellow">TODAY</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+            
+            {selectedDateBroadcasts.length > 0 ? (
+              <>
+                {paginatedBroadcasts.map((broadcast, index) => (
+                  <TouchableOpacity
+                    key={broadcast.id}
+                    className="bg-white rounded-2xl shadow-lg mb-4 overflow-hidden active:scale-[0.98]"
+                    style={{
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 12,
+                      elevation: 6,
+                    }}
+                    onPress={() => Alert.alert(broadcast.title, `${broadcast.description || 'No description.'}\n\nTime: ${format(parseISO(broadcast.scheduledStart), 'p')} - ${format(parseISO(broadcast.scheduledEnd), 'p')}\nDJ: ${broadcast.dj?.name || 'TBA'}`)}
+                  >
+                    {/* Card Header */}
+                    <View 
+                      className="px-4 py-3"
+                      style={{
+                        backgroundColor: isToday(parseISO(broadcast.scheduledStart)) && isSameDay(parseISO(broadcast.scheduledStart), selectedDate) 
+                          ? '#B5830F' 
+                          : '#91403E',
+                      }}
+                    >
+                      <View className="flex-row items-center justify-between">
+                        <View className="flex-row items-center">
+                          <Ionicons name="radio" size={18} color="white" />
+                          <Text className="text-white font-bold ml-2 text-sm">
+                            {format(parseISO(broadcast.scheduledStart), 'p')} - {format(parseISO(broadcast.scheduledEnd), 'p')}
+                          </Text>
+                        </View>
+                        {isToday(parseISO(broadcast.scheduledStart)) && isSameDay(parseISO(broadcast.scheduledStart), selectedDate) && (
+                          <View className="bg-white/20 px-2 py-1 rounded-full">
+                            <Text className="text-white text-xs font-bold">TODAY</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                    
+                    {/* Card Content */}
+                    <View className="p-4">
+                      <View className="flex-row items-start">
+                        <View className="w-12 h-12 rounded-full bg-gray-100 items-center justify-center mr-4">
+                          <Ionicons name="musical-notes" size={20} color="#91403E" />
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-lg font-bold text-gray-800 leading-tight mb-1">
+                            {broadcast.title}
+                          </Text>
+                          <View className="flex-row items-center">
+                            <Ionicons name="person-outline" size={14} color="#B5830F" />
+                            <Text className="text-sm text-mikado_yellow font-semibold ml-1">
+                              {broadcast.dj?.name || 'TBA'}
+                            </Text>
+                          </View>
+                          {broadcast.description && (
+                            <Text className="text-sm text-gray-600 mt-2 leading-relaxed" numberOfLines={2}>
+                              {broadcast.description}
+                            </Text>
+                          )}
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color="#D1D5DB" />
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+                
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                  <View className="flex-row items-center justify-between mt-4 px-2">
+                    <TouchableOpacity
+                      onPress={handlePrevPage}
+                      disabled={!canGoPrev}
+                      className={`flex-row items-center px-4 py-3 rounded-xl ${canGoPrev ? 'bg-cordovan active:bg-cordovan/90' : 'bg-gray-200'}`}
+                      style={{
+                        shadowColor: canGoPrev ? '#91403E' : '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: canGoPrev ? 0.2 : 0.05,
+                        shadowRadius: 4,
+                        elevation: canGoPrev ? 4 : 1,
+                      }}
+                    >
+                      <Ionicons 
+                        name="chevron-back" 
+                        size={18} 
+                        color={canGoPrev ? "white" : "#9CA3AF"} 
+                      />
+                      <Text className={`ml-1 font-semibold ${canGoPrev ? 'text-white' : 'text-gray-400'}`}>
+                        Previous
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <View className="flex-row items-center px-4">
+                      <Text className="text-gray-600 font-medium">
+                        Page {currentPage + 1} of {totalPages}
+                      </Text>
+                    </View>
+                    
+                    <TouchableOpacity
+                      onPress={handleNextPage}
+                      disabled={!canGoNext}
+                      className={`flex-row items-center px-4 py-3 rounded-xl ${canGoNext ? 'bg-cordovan active:bg-cordovan/90' : 'bg-gray-200'}`}
+                      style={{
+                        shadowColor: canGoNext ? '#91403E' : '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: canGoNext ? 0.2 : 0.05,
+                        shadowRadius: 4,
+                        elevation: canGoNext ? 4 : 1,
+                      }}
+                    >
+                      <Text className={`mr-1 font-semibold ${canGoNext ? 'text-white' : 'text-gray-400'}`}>
+                        Next
+                      </Text>
+                      <Ionicons 
+                        name="chevron-forward" 
+                        size={18} 
+                        color={canGoNext ? "white" : "#9CA3AF"} 
+                      />
+                    </TouchableOpacity>
+                  </View>
+                                 )}
+               </>
             ) : (
-              <View className="bg-white p-6 rounded-lg shadow-md items-center">
-                <Ionicons name="information-circle-outline" size={32} color="#6B7280" className="mb-2" />
-                <Text className="text-gray-600 text-center text-base">No upcoming shows scheduled for this day.</Text>
+              <View 
+                className="bg-white rounded-2xl shadow-lg p-8 items-center"
+                style={{
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.08,
+                  shadowRadius: 12,
+                  elevation: 4,
+                }}
+              >
+                <View className="bg-gray-100 p-4 rounded-full mb-4">
+                  <Ionicons name="calendar-outline" size={32} color="#6B7280" />
+                </View>
+                <Text className="text-lg font-semibold text-gray-700 mb-2">No Shows Scheduled</Text>
+                <Text className="text-gray-500 text-center text-base leading-relaxed">
+                  There are no shows scheduled for this day. Check out other dates!
+                </Text>
               </View>
             )}
           </View>
@@ -303,16 +627,49 @@ const ScheduleScreen: React.FC = () => {
         
          {!selectedDate && upcomingBroadcasts.length === 0 && !isLoading && (
           <>
-            <View className="flex-row items-center mb-3 mt-2">
-              <Ionicons name="easel-outline" size={22} color="#91403E" className="mr-2"/>
-              <Text className="text-lg font-bold text-cordovan">
-                Upcoming Broadcasts
-              </Text>
+            <View className="bg-gradient-to-r from-cordovan/5 to-mikado_yellow/5 p-4 rounded-2xl mb-4 border border-cordovan/10">
+              <View className="flex-row items-center">
+                <View className="bg-cordovan p-2 rounded-full mr-3">
+                  <Ionicons name="radio" size={20} color="white" />
+                </View>
+                <View>
+                  <Text className="text-xl font-bold text-cordovan">
+                    Upcoming Broadcasts
+                  </Text>
+                  <Text className="text-sm text-gray-600">
+                    Stay tuned for exciting shows
+                  </Text>
+                </View>
+              </View>
             </View>
-            <View className="items-center justify-center py-10 bg-white rounded-lg shadow-md">
-              <Ionicons name="calendar-outline" size={48} color="#91403E" />
-              <Text className="text-xl font-semibold text-cordovan mt-4">No Upcoming Broadcasts</Text>
-              <Text className="text-gray-600 mt-2 text-center px-4">There are no shows scheduled at the moment. Please check back later!</Text>
+            
+            <View 
+              className="items-center justify-center py-16 bg-white rounded-3xl shadow-xl overflow-hidden relative"
+              style={{
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: 0.12,
+                shadowRadius: 20,
+                elevation: 10,
+              }}
+            >
+              {/* Background Pattern */}
+              <View className="absolute inset-0 opacity-5">
+                <View className="absolute top-8 left-8 w-16 h-16 bg-cordovan rounded-full" />
+                <View className="absolute bottom-12 right-12 w-12 h-12 bg-mikado_yellow rounded-full" />
+                <View className="absolute top-20 right-20 w-8 h-8 bg-cordovan rounded-full" />
+              </View>
+              
+              <View className="bg-cordovan/10 p-6 rounded-full mb-6">
+                <Ionicons name="calendar-outline" size={48} color="#91403E" />
+              </View>
+              <Text className="text-2xl font-bold text-cordovan mb-3">No Shows Scheduled</Text>
+              <Text className="text-gray-600 text-center px-8 text-base leading-relaxed mb-6">
+                There are no upcoming broadcasts at the moment. 
+              </Text>
+              <Text className="text-sm text-gray-500 text-center px-4">
+                🎵 Check back soon for exciting new shows! 🎵
+              </Text>
             </View>
           </>
         )}
@@ -326,6 +683,8 @@ const styles = StyleSheet.create({
   dayCellTouchable: {
     width: DAY_CELL_SIZE,
     height: DAY_CELL_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
     // No margin here, gap on parent will handle it
   },
   weekdayCell: {
