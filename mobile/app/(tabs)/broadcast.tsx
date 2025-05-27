@@ -88,6 +88,84 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
     return () => clearInterval(timer);
   }, []);
 
+  // Get the appropriate border radius for message grouping
+  const getBorderRadius = () => {
+    const baseRadius = 18;
+    const smallRadius = 4;
+    
+    if (isOwnMessage) {
+      // Own messages on the right
+      if (isFirstInGroup && isLastInGroup) {
+        // Single message
+        return {
+          borderTopLeftRadius: baseRadius,
+          borderTopRightRadius: baseRadius,
+          borderBottomLeftRadius: baseRadius,
+          borderBottomRightRadius: baseRadius,
+        };
+      } else if (isFirstInGroup) {
+        // First in group
+        return {
+          borderTopLeftRadius: baseRadius,
+          borderTopRightRadius: baseRadius,
+          borderBottomLeftRadius: baseRadius,
+          borderBottomRightRadius: smallRadius,
+        };
+      } else if (isLastInGroup) {
+        // Last in group
+        return {
+          borderTopLeftRadius: baseRadius,
+          borderTopRightRadius: smallRadius,
+          borderBottomLeftRadius: baseRadius,
+          borderBottomRightRadius: baseRadius,
+        };
+      } else {
+        // Middle of group
+        return {
+          borderTopLeftRadius: baseRadius,
+          borderTopRightRadius: smallRadius,
+          borderBottomLeftRadius: baseRadius,
+          borderBottomRightRadius: smallRadius,
+        };
+      }
+    } else {
+      // Other users' messages on the left
+      if (isFirstInGroup && isLastInGroup) {
+        // Single message
+        return {
+          borderTopLeftRadius: baseRadius,
+          borderTopRightRadius: baseRadius,
+          borderBottomLeftRadius: baseRadius,
+          borderBottomRightRadius: baseRadius,
+        };
+      } else if (isFirstInGroup) {
+        // First in group
+        return {
+          borderTopLeftRadius: baseRadius,
+          borderTopRightRadius: baseRadius,
+          borderBottomLeftRadius: smallRadius,
+          borderBottomRightRadius: baseRadius,
+        };
+      } else if (isLastInGroup) {
+        // Last in group
+        return {
+          borderTopLeftRadius: smallRadius,
+          borderTopRightRadius: baseRadius,
+          borderBottomLeftRadius: baseRadius,
+          borderBottomRightRadius: baseRadius,
+        };
+      } else {
+        // Middle of group
+        return {
+          borderTopLeftRadius: smallRadius,
+          borderTopRightRadius: baseRadius,
+          borderBottomLeftRadius: smallRadius,
+          borderBottomRightRadius: baseRadius,
+        };
+      }
+    }
+  };
+
   return (
     <Animated.View 
       style={{
@@ -97,12 +175,12 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
         ],
         opacity: opacityAnim,
       }}
-      className={`${isFirstInGroup ? 'mb-2' : 'mb-1'} ${isOwnMessage ? 'items-end pr-4' : 'flex-row items-end pl-4'}`}
+      className={`${isFirstInGroup ? 'mt-3' : 'mt-1'} ${isOwnMessage ? 'items-end pr-4' : 'flex-row items-end pl-4'}`}
     >
       {/* Avatar for other users only */}
       {!isOwnMessage && (
         <Animated.View 
-          className="mr-2 mb-0"
+          className="mr-3 mb-1"
           style={{
             opacity: showAvatar ? 1 : 0,
             transform: [{ scale: showAvatar ? 1 : 0.5 }],
@@ -130,11 +208,11 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
       )}
 
       {/* Message Bubble Container */}
-      <View className={`${isOwnMessage ? 'max-w-[75%]' : 'max-w-[75%]'}`} style={{ alignSelf: isOwnMessage ? 'flex-end' : 'flex-start' }}>
-        {/* Sender name for other users */}
+      <View className={`${isOwnMessage ? 'max-w-[75%]' : 'max-w-[70%]'}`} style={{ alignSelf: isOwnMessage ? 'flex-end' : 'flex-start' }}>
+        {/* Sender name for other users - only show on first message in group */}
         {!isOwnMessage && isFirstInGroup && (
           <Animated.Text 
-            className="text-xs font-medium text-gray-500 mb-1 ml-1"
+            className="text-xs font-semibold text-gray-600 mb-1 ml-3"
             style={{
               opacity: opacityAnim,
               transform: [{ translateY: slideAnim }],
@@ -145,30 +223,39 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
         )}
         
         <Animated.View 
-          className={`px-3 py-2 ${
-            isOwnMessage 
-              ? 'bg-cordovan rounded-2xl' 
-              : 'bg-gray-200 rounded-2xl'
-          }`}
-          style={{
-            transform: [{ scale: scaleAnim }],
-            alignSelf: isOwnMessage ? 'flex-end' : 'flex-start',
-          }}
+          style={[
+            {
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              backgroundColor: isOwnMessage ? '#91403E' : '#F5F5F5',
+              ...getBorderRadius(),
+              transform: [{ scale: scaleAnim }],
+              alignSelf: isOwnMessage ? 'flex-end' : 'flex-start',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: isOwnMessage ? 0.2 : 0.1,
+              shadowRadius: 2,
+              elevation: 2,
+            }
+          ]}
         >
           <Text 
-            className={`text-base leading-relaxed ${
-              isOwnMessage ? 'text-white' : 'text-gray-900'
-            }`}
+            style={{
+              fontSize: 16,
+              lineHeight: 20,
+              color: isOwnMessage ? '#FFFFFF' : '#000000',
+              fontWeight: '400',
+            }}
           >
             {message.content || ''}
           </Text>
         </Animated.View>
         
-        {/* Timestamp - positioned independently */}
+        {/* Timestamp - only show on last message in group */}
         {isLastInGroup && (
           <Animated.Text 
             className={`text-xs text-gray-400 mt-1 ${
-              isOwnMessage ? 'mr-1' : 'ml-1'
+              isOwnMessage ? 'mr-2 text-right' : 'ml-2'
             }`}
             style={{
               opacity: opacityAnim,
@@ -177,25 +264,58 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
           >
             {(() => {
               try {
-                // Use the same timestamp handling logic as DJDashboard
-                let messageDate;
-                
                 if (!message.createdAt || typeof message.createdAt !== 'string') {
                   return 'Just now';
                 }
                 
-                // Handle timezone like DJDashboard - add Z if not present
-                messageDate = message.createdAt.endsWith('Z') ? new Date(message.createdAt) : new Date(message.createdAt + 'Z');
+                // Parse the message date more reliably
+                let messageDate;
+                try {
+                  // Try parsing as-is first
+                  messageDate = new Date(message.createdAt);
+                  
+                  // If invalid, try adding Z for UTC
+                  if (isNaN(messageDate.getTime())) {
+                    messageDate = message.createdAt.endsWith('Z') 
+                      ? new Date(message.createdAt) 
+                      : new Date(message.createdAt + 'Z');
+                  }
+                } catch {
+                  return 'Just now';
+                }
                 
                 // Check if date is valid
                 if (!messageDate || isNaN(messageDate.getTime())) {
                   return 'Just now';
                 }
                 
-                // Use formatDistanceToNow like DJDashboard
-                return formatDistanceToNow(messageDate, { addSuffix: true });
+                // Use currentTime for live updates
+                const now = currentTime;
+                const diffInSeconds = Math.floor((now.getTime() - messageDate.getTime()) / 1000);
+                const diffInMinutes = Math.floor(diffInSeconds / 60);
+                const diffInHours = Math.floor(diffInMinutes / 60);
+                const diffInDays = Math.floor(diffInHours / 24);
+                
+                // Messenger-style timestamp logic
+                if (diffInSeconds < 60) {
+                  return 'Just now';
+                } else if (diffInMinutes < 60) {
+                  return `${diffInMinutes}m ago`;
+                } else if (diffInHours < 24) {
+                  return `${diffInHours}h ago`;
+                } else if (diffInDays === 1) {
+                  return 'Yesterday';
+                } else if (diffInDays < 7) {
+                  return `${diffInDays}d ago`;
+                } else {
+                  // For older messages, show the date
+                  return messageDate.toLocaleDateString('en-US', { 
+                    month: 'short', 
+                    day: 'numeric' 
+                  });
+                }
               } catch (error) {
-                console.warn('Error parsing message timestamp:', error);
+                console.warn('Error parsing message timestamp:', error, message.createdAt);
                 return 'Just now';
               }
             })()}
@@ -712,9 +832,13 @@ const BroadcastScreen: React.FC = () => {
       } else {
         console.log('✅ Message sent successfully via HTTP');
         // Message will appear via WebSocket when server broadcasts it
-        // Don't add optimistic update since HTTP response gives us the real message
+        // Track this as our own message FIRST to prevent left-side flicker
+        setUserMessageIds(prev => {
+          const newSet = new Set([...prev, result.id]);
+          return newSet;
+        });
         
-        // Add the sent message immediately since we got it back from server
+        // Then add the sent message to chat messages
         setChatMessages(prev => {
           // Check if message already exists (avoid duplicates)
           const exists = prev.some(msg => msg.id === result.id);
@@ -728,9 +852,6 @@ const BroadcastScreen: React.FC = () => {
             new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
           );
         });
-        
-        // Track this as our own message
-        setUserMessageIds(prev => new Set([...prev, result.id]));
       }
     } catch (error) {
       console.error('❌ Error sending message:', error);
@@ -987,7 +1108,7 @@ const BroadcastScreen: React.FC = () => {
           shadowOpacity: 0.1,
           shadowRadius: 4,
           elevation: 8,
-          marginBottom: 10,
+          marginBottom: 14,
         }}
       >
         <View className="flex-row items-end">
