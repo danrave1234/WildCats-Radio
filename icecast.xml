@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<icecast>
+    <location>Earth</location>
+    <admin>admin@localhost</admin>
+    <hostname>192.168.254.116</hostname>   
+
+    <limits>
+        <clients>100</clients>
+        <sources>2</sources>
+        <queue-size>1048576</queue-size>
+        <client-timeout>30</client-timeout>
+        <header-timeout>15</header-timeout>
+        <source-timeout>10</source-timeout>
+        <burst-on-connect>1</burst-on-connect>
+        <burst-size>65535</burst-size>
+    </limits>
+
+    <paths>
+        <basedir>./</basedir>          
+        <logdir>./logs</logdir>         
+        <webroot>./web</webroot>       
+        <adminroot>./admin</adminroot> 
+        <pidfile>icecast.pid</pidfile>
+
+        <alias source="/" destination="/status.xsl"/>
+
+        <fileserve>1</fileserve>    
+    </paths>
+
+    <authentication>
+        <source-password>hackme</source-password>
+        <relay-password>hackme</relay-password>
+        <admin-user>admin</admin-user>
+        <admin-password>hackme</admin-password>
+    </authentication>
+
+    <listen-socket>
+        <port>8000</port>
+        <bind-address>0.0.0.0</bind-address>
+    </listen-socket>
+
+    <http-headers>
+        <header name="Access-Control-Allow-Origin" value="*"/>
+        <header name="Access-Control-Allow-Methods" value="GET, POST, OPTIONS"/>
+        <header name="Access-Control-Allow-Headers" value="Origin, X-Requested-With, Content-Type, Accept"/>
+    </http-headers>
+
+    <mount>
+        <mount-name>/live.ogg</mount-name>
+        <username>source</username>
+        <password>hackme</password>
+        <max-listeners>100</max-listeners>
+
+        <respawn-timeout>5</respawn-timeout>
+        <fallback-mount>/silence.ogg</fallback-mount>
+        <fallback-override>1</fallback-override>
+
+        <stream-name>WildCats Radio Live</stream-name>
+        <stream-description>Live audio broadcast from WildCats Radio</stream-description>
+        <stream-url>https://wildcastradio.com</stream-url>
+        <genre>Various</genre>
+        <public>1</public>
+        
+        <!-- Enhanced CORS headers for the mount point -->
+        <http-headers>
+            <header name="Access-Control-Allow-Origin" value="*"/>
+            <header name="Access-Control-Allow-Credentials" value="false"/>
+        </http-headers>
+    </mount>
+
+    <logging>
+        <accesslog>access.log</accesslog>
+        <errorlog>error.log</errorlog>
+        <loglevel>3</loglevel> 
+    </logging>
+
+    <security>
+        <chroot>0</chroot>
+    </security>
+</icecast> 

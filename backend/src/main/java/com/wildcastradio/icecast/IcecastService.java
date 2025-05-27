@@ -118,7 +118,7 @@ public class IcecastService {
      * @return URL for the Google Cloud Icecast server
      */
     public String getIcecastUrl() {
-        return "http://" + icecastHost + ":" + icecastPort;
+        return "https://" + icecastHost + ":" + icecastPort;
     }
 
     /**
