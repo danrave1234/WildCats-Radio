@@ -59,23 +59,23 @@ export function AnalyticsProvider({ children }) {
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [wsConnected, setWsConnected] = useState(false);
-  
+
   // WebSocket reference
   const stompClientRef = useRef(null);
   const wsReconnectTimerRef = useRef(null);
-  
+
   // Connect to WebSocket for real-time analytics updates
   const connectWebSocket = () => {
     if (stompClientRef.current && stompClientRef.current.connected) {
       return;
     }
-    
+
     try {
       // Clear any reconnection timer
       if (wsReconnectTimerRef.current) {
         clearTimeout(wsReconnectTimerRef.current);
       }
-      
+
       // Get authentication token from cookies
       const getCookie = (name) => {
         const value = `; ${document.cookie}`;
@@ -83,24 +83,24 @@ export function AnalyticsProvider({ children }) {
         if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
         return null;
       };
-      
+
       const token = getCookie('token');
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-      
+
       // Create WebSocket connection with factory function for proper auto-reconnect support
       const stompClient = Stomp.over(() => new SockJS(`${API_BASE_URL}/ws-radio`));
-      
+
       // Enable auto-reconnect with 5 second delay
       stompClient.reconnect_delay = 5000;
-      
+
       // Disable debug logging
       stompClient.debug = () => {};
-      
-      stompClient.connect(headers, frame => {
+
+      stompClient.connect(headers, () => {
         console.log('Connected to analytics WebSocket');
         stompClientRef.current = stompClient;
         setWsConnected(true);
-        
+
         // Subscribe to analytics updates
         stompClient.subscribe('/topic/analytics/broadcasts', message => {
           try {
@@ -114,7 +114,7 @@ export function AnalyticsProvider({ children }) {
             console.warn('Error processing broadcast stats update:', error);
           }
         });
-        
+
         // Subscribe to user stats updates
         stompClient.subscribe('/topic/analytics/users', message => {
           try {
@@ -128,7 +128,7 @@ export function AnalyticsProvider({ children }) {
             console.warn('Error processing user stats update:', error);
           }
         });
-        
+
         // Subscribe to engagement stats updates
         stompClient.subscribe('/topic/analytics/engagement', message => {
           try {
@@ -142,12 +142,12 @@ export function AnalyticsProvider({ children }) {
             console.warn('Error processing engagement stats update:', error);
           }
         });
-        
+
         // Subscribe to activity updates
         stompClient.subscribe('/topic/analytics/activity', message => {
           try {
             const data = JSON.parse(message.body);
-            
+
             // Update recent activities with new activity at top
             if (data.newActivity) {
               setActivityStats(prev => ({
@@ -166,13 +166,13 @@ export function AnalyticsProvider({ children }) {
                 monthActivities: data.monthActivities || prev.monthActivities
               }));
             }
-            
+
             setLastUpdated(new Date());
           } catch (error) {
             console.warn('Error processing activity update:', error);
           }
         });
-        
+
         // Subscribe to popular broadcasts updates
         stompClient.subscribe('/topic/analytics/popular-broadcasts', message => {
           try {
@@ -183,22 +183,22 @@ export function AnalyticsProvider({ children }) {
             console.warn('Error processing popular broadcasts update:', error);
           }
         });
-        
+
       }, error => {
         console.error('WebSocket connection error:', error);
         setWsConnected(false);
-        
+
         // Schedule reconnection attempt
         wsReconnectTimerRef.current = setTimeout(() => {
           console.log('Attempting to reconnect analytics WebSocket...');
           connectWebSocket();
         }, 5000); // Try to reconnect after 5 seconds
       });
-      
+
     } catch (error) {
       console.error('WebSocket setup error:', error);
       setWsConnected(false);
-      
+
       // Schedule reconnection attempt
       wsReconnectTimerRef.current = setTimeout(() => {
         console.log('Attempting to reconnect analytics WebSocket...');
@@ -206,7 +206,7 @@ export function AnalyticsProvider({ children }) {
       }, 5000); // Try to reconnect after 5 seconds
     }
   };
-  
+
   // Disconnect WebSocket
   const disconnectWebSocket = () => {
     if (stompClientRef.current && stompClientRef.current.connected) {
@@ -214,7 +214,7 @@ export function AnalyticsProvider({ children }) {
       stompClientRef.current = null;
       setWsConnected(false);
     }
-    
+
     if (wsReconnectTimerRef.current) {
       clearTimeout(wsReconnectTimerRef.current);
       wsReconnectTimerRef.current = null;
@@ -225,11 +225,11 @@ export function AnalyticsProvider({ children }) {
   const fetchInitialData = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const currentUserResponse = await authService.getCurrentUser();
       const currentUser = currentUserResponse.data;
-      
+
       if (currentUser) {
         // Fetch all real data in parallel from correct database tables
         const fetchPromises = [
@@ -243,28 +243,28 @@ export function AnalyticsProvider({ children }) {
         } else {
           fetchPromises.push(activityLogService.getUserLogs(currentUser.id)); // Non-admin gets only their logs
         }
-        
+
         const responses = await Promise.allSettled(fetchPromises);
-        
+
         // Map responses based on user role
         let allUsersResponse, broadcastsResponse, activityLogsResponse;
-        
+
         if (currentUser.role === 'ADMIN') {
           [allUsersResponse, broadcastsResponse, activityLogsResponse] = responses;
         } else {
           [broadcastsResponse, activityLogsResponse] = responses;
           allUsersResponse = { status: 'rejected' }; // Don't have user data for non-admins
         }
-        
+
         // Process real user statistics
         if (allUsersResponse.status === 'fulfilled' && allUsersResponse.value.data) {
           const users = allUsersResponse.value.data;
-          
+
           // Calculate real user statistics
           const listeners = users.filter(user => user.role === 'LISTENER').length;
           const djs = users.filter(user => user.role === 'DJ').length;
           const admins = users.filter(user => user.role === 'ADMIN').length;
-          
+
           // Calculate new users this month
           const now = new Date();
           const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -273,7 +273,7 @@ export function AnalyticsProvider({ children }) {
             const userCreatedDate = new Date(user.createdAt);
             return userCreatedDate >= monthStart;
           }).length;
-          
+
           setUserStats({
             totalUsers: users.length,
             listeners,
@@ -291,19 +291,19 @@ export function AnalyticsProvider({ children }) {
             newUsersThisMonth: 0 // Can't calculate without full user data
           });
         }
-        
+
         // Process real broadcast statistics
         if (broadcastsResponse.status === 'fulfilled' && broadcastsResponse.value.data) {
           const broadcasts = broadcastsResponse.value.data;
-          
+
           const liveBroadcasts = broadcasts.filter(b => b.status === 'LIVE');
           const upcomingBroadcasts = broadcasts.filter(b => b.status === 'SCHEDULED');
           const completedBroadcasts = broadcasts.filter(b => b.status === 'COMPLETED');
-          
+
           // Calculate total duration and average from completed broadcasts
           let totalDuration = 0;
           let validDurationCount = 0;
-          
+
           completedBroadcasts.forEach(broadcast => {
             if (broadcast.actualStart && broadcast.actualEnd) {
               const start = new Date(broadcast.actualStart);
@@ -315,9 +315,9 @@ export function AnalyticsProvider({ children }) {
               }
             }
           });
-          
+
           const averageDuration = validDurationCount > 0 ? Math.round(totalDuration / validDurationCount) : 0;
-          
+
           setBroadcastStats({
             totalBroadcasts: broadcasts.length,
             liveBroadcasts: liveBroadcasts.length,
@@ -326,7 +326,7 @@ export function AnalyticsProvider({ children }) {
             totalDuration,
             averageDuration
           });
-          
+
           // Set popular broadcasts based on real data
           const sortedBroadcasts = [...broadcasts]
             .map(broadcast => ({
@@ -336,21 +336,21 @@ export function AnalyticsProvider({ children }) {
             }))
             .sort((a, b) => b.listenerCount - a.listenerCount)
             .slice(0, 5);
-          
+
           setMostPopularBroadcasts(sortedBroadcasts);
-          
+
           // Calculate real engagement statistics from actual database data
           let totalChatMessages = 0;
           let totalSongRequests = 0;
           let broadcastsWithChats = 0;
           let broadcastsWithRequests = 0;
-          
+
           try {
             // Fetch all song requests from the new analytics endpoint
             const songRequestResponse = await songRequestService.getStats();
             if (songRequestResponse.data) {
               totalSongRequests = songRequestResponse.data.totalSongRequests || 0;
-              
+
               // Calculate broadcasts with song requests
               const allSongRequests = songRequestResponse.data.allRequests || [];
               const broadcastsWithRequestsSet = new Set(allSongRequests.map(req => req.broadcastId));
@@ -358,8 +358,15 @@ export function AnalyticsProvider({ children }) {
             }
           } catch (error) {
             console.warn('Failed to fetch song request stats:', error);
+            // Set default values for song request stats when access is forbidden (403)
+            // This endpoint requires DJ or ADMIN role
+            if (error.response && error.response.status === 403) {
+              console.info('Access to song request stats is restricted to DJ and ADMIN users');
+              totalSongRequests = 0;
+              broadcastsWithRequests = 0;
+            }
           }
-          
+
           // Fetch chat messages for all broadcasts to get accurate counts
           const chatPromises = broadcasts.map(async (broadcast) => {
             try {
@@ -376,9 +383,9 @@ export function AnalyticsProvider({ children }) {
               };
             }
           });
-          
+
           const chatResults = await Promise.allSettled(chatPromises);
-          
+
           chatResults.forEach((result) => {
             if (result.status === 'fulfilled') {
               const data = result.value;
@@ -388,12 +395,12 @@ export function AnalyticsProvider({ children }) {
               }
             }
           });
-          
+
           const averageMessagesPerBroadcast = broadcastsWithChats > 0 ? 
             Math.round(totalChatMessages / broadcastsWithChats) : 0;
           const averageRequestsPerBroadcast = broadcastsWithRequests > 0 ? 
             Math.round(totalSongRequests / broadcastsWithRequests) : 0;
-          
+
           setEngagementStats({
             totalChatMessages,
             totalSongRequests,
@@ -410,54 +417,54 @@ export function AnalyticsProvider({ children }) {
             totalDuration: 0,
             averageDuration: 0
           });
-          
+
           setEngagementStats({
             totalChatMessages: 0,
             totalSongRequests: 0,
             averageMessagesPerBroadcast: 0,
             averageRequestsPerBroadcast: 0
           });
-          
+
           setMostPopularBroadcasts([]);
         }
-        
+
         // Process real activity data from Activity Logs database
         if (activityLogsResponse.status === 'fulfilled' && activityLogsResponse.value.data) {
           const activityLogs = activityLogsResponse.value.data;
-          
+
           const activities = activityLogs.map(log => ({
             type: log.activityType || 'GENERAL',
             message: log.description || 'System activity',
             username: log.user?.name || log.user?.username || 'System',
             timestamp: log.timestamp
           })).slice(0, 20); // Get recent activities for display
-          
+
           // Calculate activity counts by timeframe from real data
           const now = new Date();
           const todayStart = new Date(now);
           todayStart.setHours(0, 0, 0, 0);
-          
+
           const weekStart = new Date(now);
           weekStart.setDate(weekStart.getDate() - 7);
-          
+
           const monthStart = new Date(now);
           monthStart.setDate(1);
-          
+
           const todayActivities = activityLogs.filter(log => {
             if (!log.timestamp) return false;
             return new Date(log.timestamp) >= todayStart;
           }).length;
-          
+
           const weekActivities = activityLogs.filter(log => {
             if (!log.timestamp) return false;
             return new Date(log.timestamp) >= weekStart;
           }).length;
-          
+
           const monthActivities = activityLogs.filter(log => {
             if (!log.timestamp) return false;
             return new Date(log.timestamp) >= monthStart;
           }).length;
-          
+
           setActivityStats({
             recentActivities: activities,
             todayActivities,
@@ -474,12 +481,12 @@ export function AnalyticsProvider({ children }) {
           });
         }
       }
-      
+
       setLastUpdated(new Date());
     } catch (err) {
       console.error('Error fetching real analytics data:', err);
       setError('Failed to load analytics data. Please check your connection and try again.');
-      
+
       // Set empty fallback data on error
       setUserStats({
         totalUsers: 0,
@@ -488,7 +495,7 @@ export function AnalyticsProvider({ children }) {
         admins: 0,
         newUsersThisMonth: 0
       });
-      
+
       setBroadcastStats({
         totalBroadcasts: 0,
         liveBroadcasts: 0,
@@ -497,21 +504,21 @@ export function AnalyticsProvider({ children }) {
         totalDuration: 0,
         averageDuration: 0
       });
-      
+
       setEngagementStats({
         totalChatMessages: 0,
         totalSongRequests: 0,
         averageMessagesPerBroadcast: 0,
         averageRequestsPerBroadcast: 0
       });
-      
+
       setActivityStats({
         recentActivities: [],
         todayActivities: 0,
         weekActivities: 0,
         monthActivities: 0
       });
-      
+
       setMostPopularBroadcasts([]);
     } finally {
       setLoading(false);
@@ -522,7 +529,7 @@ export function AnalyticsProvider({ children }) {
   useEffect(() => {
     fetchInitialData();
     connectWebSocket();
-    
+
     return () => {
       disconnectWebSocket();
     };
@@ -531,10 +538,10 @@ export function AnalyticsProvider({ children }) {
   // Function to manually refresh data
   const refreshData = async () => {
     setLoading(true);
-    
+
     try {
       await fetchInitialData();
-      
+
       // Reconnect WebSocket if not connected
       if (!wsConnected) {
         disconnectWebSocket(); // Clean up any existing connection attempts

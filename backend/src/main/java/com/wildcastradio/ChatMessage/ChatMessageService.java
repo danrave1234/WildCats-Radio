@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.Broadcast.BroadcastRepository;
+import com.wildcastradio.ChatMessage.DTO.ChatMessageDTO;
 import com.wildcastradio.User.UserEntity;
 
 @Service
@@ -59,10 +60,13 @@ public class ChatMessageService {
         ChatMessageEntity message = new ChatMessageEntity(broadcast, sender, content);
         ChatMessageEntity savedMessage = chatMessageRepository.save(message);
         
+        // Create DTO for the message
+        ChatMessageDTO messageDTO = ChatMessageDTO.fromEntity(savedMessage);
+        
         // Notify all clients about the new chat message
         messagingTemplate.convertAndSend(
                 "/topic/broadcast/" + broadcastId + "/chat",
-                ChatMessageDTO.fromEntity(savedMessage)
+                messageDTO
         );
         
         return savedMessage;

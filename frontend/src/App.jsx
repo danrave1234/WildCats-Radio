@@ -14,11 +14,12 @@ const Notifications = lazy(() => import('./pages/Notifications'));
 const BroadcastHistory = lazy(() => import('./pages/BroadcastHistory'));
 const AnalyticsDashboard = lazy(() => import('./pages/AnalyticsDashboard'));
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { NotificationProvider } from './context/NotificationContext';
 import { BroadcastHistoryProvider } from './context/BroadcastHistoryContext';
 import { AnalyticsProvider } from './context/AnalyticsContext';
+import { StreamingProvider } from './context/StreamingContext';
 import './App.css';
 import './styles/custom-scrollbar.css';
+import {NotificationProvider} from "./context/NotificationContext.jsx";
 
 // Loading component
 const LoadingFallback = () => (
@@ -78,11 +79,6 @@ const ProtectedRoute = ({ element, allowedRoles }) => {
 const AppRoutes = () => {
   const { isAuthenticated, currentUser } = useAuth();
   
-  // Create key from route path to force unmounting/remounting when routes change
-  const getRoutePath = () => {
-    return window.location.pathname;
-  };
-  
   return (
     <Routes>
       <Route path="/login" element={
@@ -114,8 +110,7 @@ const AppRoutes = () => {
       <Route path="/dashboard" element={
         <Layout>
           <ProtectedRoute 
-            key={getRoutePath()}
-            element={<ListenerDashboard key="dashboard" />}
+            element={<ListenerDashboard />}
             allowedRoles={['LISTENER']} 
           />
         </Layout>
@@ -124,8 +119,7 @@ const AppRoutes = () => {
       <Route path="/dj-dashboard" element={
         <Layout>
           <ProtectedRoute 
-            key={getRoutePath()}
-            element={<DJDashboard key="dj-dashboard" />} 
+            element={<DJDashboard />} 
             allowedRoles={['DJ', 'ADMIN']} 
           />
         </Layout>
@@ -134,8 +128,7 @@ const AppRoutes = () => {
       <Route path="/admin" element={
         <Layout>
           <ProtectedRoute 
-            key={getRoutePath()}
-            element={<AdminDashboard key="admin" />} 
+            element={<AdminDashboard />} 
             allowedRoles={['ADMIN']} 
           />
         </Layout>
@@ -144,8 +137,7 @@ const AppRoutes = () => {
       <Route path="/schedule" element={
         <Layout>
           <ProtectedRoute 
-            key={getRoutePath()}
-            element={<Schedule key="schedule" />} 
+            element={<Schedule />} 
             allowedRoles={['LISTENER', 'DJ', 'ADMIN']} 
           />
         </Layout>
@@ -154,8 +146,7 @@ const AppRoutes = () => {
       <Route path="/profile" element={
         <Layout>
           <ProtectedRoute 
-            key={getRoutePath()}
-            element={<Profile key="profile" />} 
+            element={<Profile />} 
             allowedRoles={['LISTENER', 'DJ', 'ADMIN']} 
           />
         </Layout>
@@ -164,8 +155,7 @@ const AppRoutes = () => {
       <Route path="/settings" element={
         <Layout>
           <ProtectedRoute 
-            key={getRoutePath()}
-            element={<Settings key="settings" />} 
+            element={<Settings />} 
             allowedRoles={['LISTENER', 'DJ', 'ADMIN']} 
           />
         </Layout>
@@ -174,8 +164,7 @@ const AppRoutes = () => {
       <Route path="/notifications" element={
         <Layout>
           <ProtectedRoute 
-            key={getRoutePath()}
-            element={<Notifications key="notifications" />} 
+            element={<Notifications />} 
             allowedRoles={['LISTENER', 'DJ', 'ADMIN']} 
           />
         </Layout>
@@ -184,8 +173,7 @@ const AppRoutes = () => {
       <Route path="/broadcast-history" element={
         <Layout>
           <ProtectedRoute 
-            key={getRoutePath()}
-            element={<BroadcastHistory key="broadcast-history" />} 
+            element={<BroadcastHistory />} 
             allowedRoles={['DJ', 'ADMIN']} 
           />
         </Layout>
@@ -194,10 +182,17 @@ const AppRoutes = () => {
       <Route path="/analytics" element={
         <Layout>
           <ProtectedRoute 
-            key={getRoutePath()}
-            element={<AnalyticsDashboard key="analytics" />} 
+            element={<AnalyticsDashboard />} 
             allowedRoles={['DJ', 'ADMIN']} 
           />
+        </Layout>
+      } />
+      
+      <Route path="/broadcast/:id" element={
+        <Layout>
+          <Suspense fallback={<LoadingFallback />}>
+            <ListenerDashboard />
+          </Suspense>
         </Layout>
       } />
       
@@ -213,11 +208,13 @@ function App() {
     <Router>
       <AuthProvider>
         <NotificationProvider>
-          <BroadcastHistoryProvider>
-            <AnalyticsProvider>
-              <AppRoutes />
-            </AnalyticsProvider>
-          </BroadcastHistoryProvider>
+          <StreamingProvider>
+            <BroadcastHistoryProvider>
+              <AnalyticsProvider>
+                <AppRoutes />
+              </AnalyticsProvider>
+            </BroadcastHistoryProvider>
+          </StreamingProvider>
         </NotificationProvider>
       </AuthProvider>
     </Router>

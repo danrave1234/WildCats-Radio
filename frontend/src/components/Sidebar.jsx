@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   UserCircleIcon,
@@ -11,9 +11,12 @@ import {
   CalendarIcon,
   BellIcon,
   ShieldCheckIcon,
-  ChartBarIcon
+  ChartBarIcon,
+  Bars3Icon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationContext';
 import wildcatRadioLogo from '../assets/wildcatradio_logo.png';
 
 // Cookie helper functions
@@ -29,16 +32,19 @@ const getCookie = (name) => {
   return null;
 };
 
-const removeCookie = (name) => {
-  document.cookie = name + '=; Max-Age=-99999999; path=/';
-};
-
 const Sidebar = ({ userRole }) => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
-  const [userPreference, setUserPreference] = useState(null);
+  const [_userPreference, setUserPreference] = useState(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
   const { currentUser } = useAuth();
+  const { unreadCount } = useNotifications();
+  
+  // Refs for click outside detection
+  const sidebarRef = useRef(null);
+  const menuButtonRef = useRef(null);
+  const profileDropdownRef = useRef(null);
 
   // Check if system prefers dark mode
   const systemPrefersDark = () => {
@@ -105,10 +111,10 @@ const Sidebar = ({ userRole }) => {
     }
   }, [])
 
-  // Close dropdown when clicking outside
+  // Close profile dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (isProfileOpen && !event.target.closest(".profile-dropdown")) {
+      if (isProfileOpen && profileDropdownRef.current && !profileDropdownRef.current.contains(event.target)) {
         setIsProfileOpen(false)
       }
     }
@@ -119,10 +125,49 @@ const Sidebar = ({ userRole }) => {
     }
   }, [isProfileOpen])
 
-  // Close dropdown when navigating
+  // Close dropdown and mobile menu when navigating
   useEffect(() => {
     setIsProfileOpen(false)
+    setIsMobileMenuOpen(false)
   }, [location])
+
+  // Improved click outside detection for mobile menu
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (isMobileMenuOpen) {
+        // Check if click is outside both the sidebar and the menu button
+        const isClickOnSidebar = sidebarRef.current && sidebarRef.current.contains(event.target);
+        const isClickOnMenuButton = menuButtonRef.current && menuButtonRef.current.contains(event.target);
+        
+        if (!isClickOnSidebar && !isClickOnMenuButton) {
+          setIsMobileMenuOpen(false);
+        }
+      }
+    }
+
+    // Use capture phase to ensure we catch the event before other handlers
+    document.addEventListener("mousedown", handleClickOutside, true)
+    document.addEventListener("touchstart", handleClickOutside, true)
+    
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside, true)
+      document.removeEventListener("touchstart", handleClickOutside, true)
+    }
+  }, [isMobileMenuOpen])
+
+  // Prevent body scroll when mobile menu is open
+  useEffect(() => {
+    if (isMobileMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isMobileMenuOpen]);
 
   const getInitials = (name) => {
     if (!name) return "JD";
@@ -134,11 +179,52 @@ const Sidebar = ({ userRole }) => {
       .slice(0, 2);
   };
 
+  const toggleMobileMenu = () => {
+    setIsMobileMenuOpen(!isMobileMenuOpen);
+  };
+
+  const closeMobileMenu = () => {
+    setIsMobileMenuOpen(false);
+  };
+
   return (
-    <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+    <>
+      {/* Mobile menu button - Always visible and accessible */}
+      <button
+        ref={menuButtonRef}
+        onClick={toggleMobileMenu}
+        className="mobile-menu-button fixed top-4 left-4 z-[60] p-2 rounded-md bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 md:hidden hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        aria-label="Toggle menu"
+        aria-expanded={isMobileMenuOpen}
+      >
+        {isMobileMenuOpen ? (
+          <XMarkIcon className="h-6 w-6 text-gray-900 dark:text-white" />
+        ) : (
+          <Bars3Icon className="h-6 w-6 text-gray-900 dark:text-white" />
+        )}
+      </button>
+
+      {/* Mobile overlay - Click to close */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-black bg-opacity-50 md:hidden transition-opacity duration-300"
+          onClick={closeMobileMenu}
+          onTouchStart={closeMobileMenu}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside 
+        ref={sidebarRef}
+        className={`mobile-sidebar fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transform transition-transform duration-300 ease-in-out ${
+          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+        } md:translate-x-0 md:relative md:z-auto`}
+        aria-hidden={!isMobileMenuOpen}
+      >
       {/* Logo Section */}
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-        <Link to="/" className="flex justify-center items-center py-4">
+        <Link to="/" className="flex justify-center items-center py-4" onClick={closeMobileMenu}>
           <img src={wildcatRadioLogo} alt="WildCats Radio" className="h-40 w-auto" />
         </Link>
       </div>
@@ -150,6 +236,7 @@ const Sidebar = ({ userRole }) => {
             <li>
               <Link
                 to="/dashboard"
+                onClick={closeMobileMenu}
                 className={`flex items-center p-3 text-base font-medium rounded-lg ${
                   location.pathname === '/dashboard'
                     ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
@@ -166,6 +253,7 @@ const Sidebar = ({ userRole }) => {
             <li>
               <Link
                 to="/dj-dashboard"
+                onClick={closeMobileMenu}
                 className={`flex items-center p-3 text-base font-medium rounded-lg ${
                   location.pathname === '/dj-dashboard'
                     ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
@@ -182,6 +270,7 @@ const Sidebar = ({ userRole }) => {
             <li>
               <Link
                 to="/admin"
+                onClick={closeMobileMenu}
                 className={`flex items-center p-3 text-base font-medium rounded-lg ${
                   location.pathname === '/admin'
                     ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
@@ -197,7 +286,8 @@ const Sidebar = ({ userRole }) => {
           <li>
             <Link
               to="/notifications"
-              className={`flex items-center p-3 text-base font-medium rounded-lg ${
+              onClick={closeMobileMenu}
+              className={`flex items-center p-3 text-base font-medium rounded-lg relative ${
                 location.pathname === '/notifications'
                   ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
                   : 'text-gray-900 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -205,6 +295,11 @@ const Sidebar = ({ userRole }) => {
             >
               <BellIcon className="w-6 h-6 mr-3" />
               <span>Notifications</span>
+              {unreadCount > 0 && (
+                <span className="ml-auto bg-maroon-600 text-white text-xs font-medium px-2 py-1 rounded-full min-w-[20px] h-5 flex items-center justify-center">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </Link>
           </li>
 
@@ -212,6 +307,7 @@ const Sidebar = ({ userRole }) => {
             <li>
               <Link
                 to="/broadcast-history"
+                onClick={closeMobileMenu}
                 className={`flex items-center p-3 text-base font-medium rounded-lg ${
                   location.pathname === '/broadcast-history'
                     ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
@@ -228,6 +324,7 @@ const Sidebar = ({ userRole }) => {
             <li>
               <Link
                 to="/analytics"
+                onClick={closeMobileMenu}
                 className={`flex items-center p-3 text-base font-medium rounded-lg ${
                   location.pathname === '/analytics'
                     ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
@@ -243,6 +340,7 @@ const Sidebar = ({ userRole }) => {
           <li>
             <Link
               to="/schedule"
+              onClick={closeMobileMenu}
               className={`flex items-center p-3 text-base font-medium rounded-lg ${
                 location.pathname === '/schedule'
                   ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
@@ -275,6 +373,7 @@ const Sidebar = ({ userRole }) => {
 
           <Link
             to="/settings"
+            onClick={closeMobileMenu}
             className={`flex items-center p-3 text-base font-medium rounded-lg ${
               location.pathname === '/settings'
                 ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
@@ -289,7 +388,7 @@ const Sidebar = ({ userRole }) => {
 
       {/* User Profile Section */}
       <div className="border-t border-gray-200 dark:border-gray-700 p-4">
-        <div className="profile-dropdown relative">
+        <div className="profile-dropdown relative" ref={profileDropdownRef}>
           <div
             onClick={() => setIsProfileOpen(!isProfileOpen)}
             className="flex items-center space-x-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -314,6 +413,7 @@ const Sidebar = ({ userRole }) => {
             >
               <Link
                 to="/profile"
+                onClick={closeMobileMenu}
                 className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                 role="menuitem"
               >
@@ -326,6 +426,7 @@ const Sidebar = ({ userRole }) => {
               <div className="border-t border-gray-200 dark:border-gray-700">
                 <Link
                   to="/logout"
+                  onClick={closeMobileMenu}
                   className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                   role="menuitem"
                 >
@@ -340,6 +441,7 @@ const Sidebar = ({ userRole }) => {
         </div>
       </div>
     </aside>
+    </>
   );
 };
 
