@@ -5,25 +5,45 @@ import SockJS from 'sockjs-client';
 import { Stomp } from '@stomp/stompjs';
 
 // Helper function to get the correct protocol for the current environment
-const getProtocol = (forWebSocket = false) => {
+const getProtocol = (forWebSocket = false, host = '') => {
   const isSecure = window.location.protocol === 'https:';
   if (forWebSocket) {
     return isSecure ? 'wss:' : 'wss:';
   }
-  // Always use HTTPS for API requests
-  return 'https:';
+  // Use HTTP for localhost, HTTPS for other hosts
+  if (host.includes('localhost')) {
+    return 'http:';
+  }
+  return isSecure ? 'https:' : 'http:';
 };
 
 // Simple function to construct URLs from environment variables
 // Environment variables should NOT include protocols as specified in .env comments
 const constructUrl = (envVar, fallbackHost, fallbackPath = '', forWebSocket = false) => {
-  const protocol = getProtocol(forWebSocket);
+  // Check if we should use localhost instead of the deployed backend
+  // Force useLocalBackend to true to ensure we're using the local backend
+  const useLocalBackend = true; // Override the environment variable
+  console.log('Environment variable VITE_USE_LOCAL_BACKEND:', import.meta.env.VITE_USE_LOCAL_BACKEND);
+  console.log('Using forced local backend setting');
 
-  // Always use the environment variable directly, regardless of development or production mode
-  const host = envVar;
+  // If using local backend, override the host for API and WebSocket (but not Icecast)
+  let host;
+  if (useLocalBackend && !envVar.includes('ICECAST_URL')) {
+    host = 'localhost:8080';
+    // For API endpoints, add the path
+    if (envVar.includes('API_BASE_URL')) {
+      host += '/api';
+    }
+  } else {
+    // Use the environment variable as normal
+    host = envVar;
+  }
 
   // Simple clean - just remove any protocol if present
   const cleanHost = host.replace(/^(https?:\/\/|wss?:\/\/)/, '');
+
+  // Get the appropriate protocol based on the host
+  const protocol = getProtocol(forWebSocket, cleanHost);
 
   return `${protocol}//${cleanHost}${fallbackPath}`;
 };
@@ -36,6 +56,7 @@ const API_BASE_URL = constructUrl(
 );
 
 console.log('API_BASE_URL constructed:', API_BASE_URL);
+console.log(`Using ${import.meta.env.VITE_USE_LOCAL_BACKEND === 'true' ? 'LOCAL' : 'DEPLOYED'} backend`);
 
 // Cookie helper function
 const getCookie = (name) => {
@@ -72,42 +93,122 @@ api.interceptors.response.use(
 
 // Services for user authentication
 export const authService = {
-  login: (credentials) => api.post('/auth/login', credentials),
-  register: (userData) => api.post('/auth/register', userData),
-  verify: (email, code) => api.post(`/auth/verify?email=${email}&code=${code}`),
-  sendCode: (email) => api.post(`/auth/send-code?email=${email}`),
-  getProfile: (id) => api.get(`/auth/${id}`),
-  getCurrentUser: () => api.get('/auth/me'),
-  updateProfile: (id, data) => api.put(`/auth/${id}`, data),
-  changePassword: (id, data) => api.post(`/auth/${id}/change-password`, data),
+  login: (credentials) => api.post('/api/auth/login', credentials),
+  register: (userData) => api.post('/api/auth/register', userData),
+  verify: (email, code) => api.post(`/api/auth/verify?email=${email}&code=${code}`),
+  sendCode: (email) => api.post(`/api/auth/send-code?email=${email}`),
+  getProfile: (id) => api.get(`/api/auth/${id}`),
+  getCurrentUser: () => api.get('/api/auth/me'),
+  updateProfile: (id, data) => api.put(`/api/auth/${id}`, data),
+  changePassword: (id, data) => api.post(`/api/auth/${id}/change-password`, data),
   // Admin-specific methods
-  getAllUsers: () => api.get('/auth/getAll'),
-  getUsersByRole: (role) => api.get(`/auth/by-role/${role}`),
-  updateUserRole: (id, newRole) => api.put(`/auth/${id}/role?newRole=${newRole}`),
+  getAllUsers: () => api.get('/api/auth/getAll'),
+  getUsersByRole: (role) => api.get(`/api/auth/by-role/${role}`),
+  updateUserRole: (id, newRole) => api.put(`/api/auth/${id}/role?newRole=${newRole}`),
 };
 
 // Services for broadcasts
 export const broadcastService = {
-  getAll: () => api.get('/broadcasts'),
-  getById: (id) => api.get(`/broadcasts/${id}`),
-  create: (broadcastData) => api.post('/broadcasts', broadcastData),
-  schedule: (broadcastData) => api.post('/broadcasts/schedule', broadcastData),
-  update: (id, broadcastData) => api.put(`/broadcasts/${id}`, broadcastData),
-  delete: (id) => api.delete(`/broadcasts/${id}`),
-  start: (id) => api.post(`/broadcasts/${id}/start`),
-  startTest: (id) => api.post(`/broadcasts/${id}/start-test`),
-  end: (id) => api.post(`/broadcasts/${id}/end`),
-  test: (id) => api.post(`/broadcasts/${id}/test`),
-  getAnalytics: (id) => api.get(`/broadcasts/${id}/analytics`),
-  getUpcoming: () => api.get('/broadcasts/upcoming'),
-  getLive: () => api.get('/broadcasts/live'),
-  getActiveBroadcast: () => api.get('/broadcasts/live').then(response => response.data[0] || null),
+  getAll: () => api.get('/api/broadcasts'),
+  getById: (id) => api.get(`/api/broadcasts/${id}`),
+  create: (broadcastData) => api.post('/api/broadcasts', broadcastData),
+  schedule: (broadcastData) => api.post('/api/broadcasts/schedule', broadcastData),
+  update: (id, broadcastData) => api.put(`/api/broadcasts/${id}`, broadcastData),
+  delete: (id) => api.delete(`/api/broadcasts/${id}`),
+  start: (id) => api.post(`/api/broadcasts/${id}/start`),
+  startTest: (id) => api.post(`/api/broadcasts/${id}/start-test`),
+  end: (id) => api.post(`/api/broadcasts/${id}/end`),
+  test: (id) => api.post(`/api/broadcasts/${id}/test`),
+  getAnalytics: (id) => api.get(`/api/broadcasts/${id}/analytics`),
+  getUpcoming: () => api.get('/api/broadcasts/upcoming'),
+  getLive: () => api.get('/api/broadcasts/live'),
+  getActiveBroadcast: () => api.get('/api/broadcasts/live').then(response => response.data[0] || null),
+
+  // Subscribe to real-time broadcast updates (for broadcast status, listener count, etc.)
+  subscribeToBroadcastUpdates: (broadcastId, callback) => {
+    // Use the environment variable directly - no fallbacks needed
+    const wsBaseUrl = constructUrl(
+      import.meta.env.VITE_WS_BASE_URL,
+      '',
+      '',
+      false // HTTP for SockJS
+    );
+
+    // Use factory function for proper auto-reconnect support
+    const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
+
+    // Enable auto-reconnect with 5 second delay
+    stompClient.reconnect_delay = 5000;
+
+    const token = getCookie('token');
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+    return new Promise((resolve, reject) => {
+      stompClient.connect(headers, () => {
+        console.log('Connected to Broadcast WebSocket for broadcast:', broadcastId);
+
+        // Subscribe to broadcast-specific updates
+        const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}`, (message) => {
+          try {
+            const broadcastMessage = JSON.parse(message.body);
+            callback(broadcastMessage);
+          } catch (error) {
+            console.error('Error parsing broadcast message:', error);
+          }
+        });
+
+        // Send join broadcast message to notify server that listener joined
+        stompClient.publish({
+          destination: `/app/broadcast/${broadcastId}/join`,
+          body: JSON.stringify({})
+        });
+
+        const disconnectFunction = () => {
+          // Send leave broadcast message before disconnecting
+          if (stompClient && stompClient.connected) {
+            try {
+              stompClient.publish({
+                destination: `/app/broadcast/${broadcastId}/leave`,
+                body: JSON.stringify({})
+              });
+            } catch (error) {
+              console.error('Error sending leave message:', error);
+            }
+          }
+
+          if (subscription) {
+            subscription.unsubscribe();
+          }
+          if (stompClient && stompClient.connected) {
+            stompClient.disconnect();
+          }
+        };
+
+        resolve({
+          disconnect: disconnectFunction,
+          isConnected: () => stompClient.connected,
+          // Method to send messages to the broadcast channel
+          sendMessage: (type, data) => {
+            if (stompClient && stompClient.connected) {
+              stompClient.publish({
+                destination: `/app/broadcast/${broadcastId}/message`,
+                body: JSON.stringify({ type, data })
+              });
+            }
+          }
+        });
+      }, (error) => {
+        console.error('Broadcast WebSocket connection error:', error);
+        reject(error);
+      });
+    });
+  },
 };
 
 // Services for chat messages
 export const chatService = {
-  getMessages: (broadcastId) => api.get(`/chats/${broadcastId}`),
-  sendMessage: (broadcastId, message) => api.post(`/chats/${broadcastId}`, message),
+  getMessages: (broadcastId) => api.get(`/api/chats/${broadcastId}`),
+  sendMessage: (broadcastId, message) => api.post(`/api/chats/${broadcastId}`, message),
 
   // Subscribe to real-time chat messages for a specific broadcast
   subscribeToChatMessages: (broadcastId, callback) => {
@@ -121,7 +222,7 @@ export const chatService = {
 
     // Use factory function for proper auto-reconnect support
     const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
-    
+
     // Enable auto-reconnect with 5 second delay
     stompClient.reconnect_delay = 5000;
 
@@ -163,8 +264,8 @@ export const chatService = {
 
 // Services for song requests
 export const songRequestService = {
-  getRequests: (broadcastId) => api.get(`/broadcasts/${broadcastId}/song-requests`),
-  createRequest: (broadcastId, request) => api.post(`/broadcasts/${broadcastId}/song-requests`, request),
+  getRequests: (broadcastId) => api.get(`/api/broadcasts/${broadcastId}/song-requests`),
+  createRequest: (broadcastId, request) => api.post(`/api/broadcasts/${broadcastId}/song-requests`, request),
 
   // Subscribe to real-time song requests for a specific broadcast
   subscribeToSongRequests: (broadcastId, callback) => {
@@ -178,7 +279,7 @@ export const songRequestService = {
 
     // Use factory function for proper auto-reconnect support
     const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
-    
+
     // Enable auto-reconnect with 5 second delay
     stompClient.reconnect_delay = 5000;
 
@@ -220,11 +321,11 @@ export const songRequestService = {
 
 // Services for notifications
 export const notificationService = {
-  getAll: () => api.get('/notifications'),
-  getUnread: () => api.get('/notifications/unread'),
-  markAsRead: (id) => api.put(`/notifications/${id}/read`),
-  getByType: (type) => api.get(`/notifications/by-type/${type}`),
-  getRecent: (since) => api.get(`/notifications/recent?since=${since}`),
+  getAll: () => api.get('/api/notifications'),
+  getUnread: () => api.get('/api/notifications/unread'),
+  markAsRead: (id) => api.put(`/api/notifications/${id}/read`),
+  getByType: (type) => api.get(`/api/notifications/by-type/${type}`),
+  getRecent: (since) => api.get(`/api/notifications/recent?since=${since}`),
     subscribeToNotifications: (callback) => {
     // Use the environment variable directly - no fallbacks needed
     const wsBaseUrl = constructUrl(
@@ -236,7 +337,7 @@ export const notificationService = {
 
     // Use factory function for proper auto-reconnect support
     const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
-    
+
     // Enable auto-reconnect with 5 second delay
     stompClient.reconnect_delay = 5000;
     let isConnected = false;
@@ -318,32 +419,32 @@ export const notificationService = {
 
 // Services for server scheduling (not using actual server commands in local mode)
 export const serverService = {
-  getSchedules: () => api.get('/server-schedules'),
-  createSchedule: (scheduleData) => api.post('/server-schedules', scheduleData),
-  updateSchedule: (id, scheduleData) => api.put(`/server-schedules/${id}`, scheduleData),
-  deleteSchedule: (id) => api.post(`/server-schedules/${id}/delete`),
-  startNow: () => api.post('/server-schedules/manual-start'),
-  stopNow: () => api.post('/server-schedules/manual-stop'),
-  getStatus: () => api.get('/server-schedules/status'),
+  getSchedules: () => api.get('/api/server-schedules'),
+  createSchedule: (scheduleData) => api.post('/api/server-schedules', scheduleData),
+  updateSchedule: (id, scheduleData) => api.put(`/api/server-schedules/${id}`, scheduleData),
+  deleteSchedule: (id) => api.post(`/api/server-schedules/${id}/delete`),
+  startNow: () => api.post('/api/server-schedules/manual-start'),
+  stopNow: () => api.post('/api/server-schedules/manual-stop'),
+  getStatus: () => api.get('/api/server-schedules/status'),
 };
 
 // Services for activity logs
 export const activityLogService = {
-  getLogs: () => api.get('/activity-logs'),
-  getUserLogs: (userId) => api.get(`/activity-logs/user/${userId}`),
+  getLogs: () => api.get('/api/activity-logs'),
+  getUserLogs: (userId) => api.get(`/api/activity-logs/user/${userId}`),
 };
 
 // Services for polls
 export const pollService = {
-  createPoll: (pollData) => api.post('/polls', pollData),
-  getPollsForBroadcast: (broadcastId) => api.get(`/polls/broadcast/${broadcastId}`),
-  getActivePollsForBroadcast: (broadcastId) => api.get(`/polls/broadcast/${broadcastId}/active`),
-  getPoll: (pollId) => api.get(`/polls/${pollId}`),
-  vote: (pollId, voteData) => api.post(`/polls/${pollId}/vote`, voteData),
-  getPollResults: (pollId) => api.get(`/polls/${pollId}/results`),
-  endPoll: (pollId) => api.post(`/polls/${pollId}/end`),
-  hasUserVoted: (pollId) => api.get(`/polls/${pollId}/has-voted`),
-  getUserVote: (pollId) => api.get(`/polls/${pollId}/user-vote`),
+  createPoll: (pollData) => api.post('/api/polls', pollData),
+  getPollsForBroadcast: (broadcastId) => api.get(`/api/polls/broadcast/${broadcastId}`),
+  getActivePollsForBroadcast: (broadcastId) => api.get(`/api/polls/broadcast/${broadcastId}/active`),
+  getPoll: (pollId) => api.get(`/api/polls/${pollId}`),
+  vote: (pollId, voteData) => api.post(`/api/polls/${pollId}/vote`, voteData),
+  getPollResults: (pollId) => api.get(`/api/polls/${pollId}/results`),
+  endPoll: (pollId) => api.post(`/api/polls/${pollId}/end`),
+  hasUserVoted: (pollId) => api.get(`/api/polls/${pollId}/has-voted`),
+  getUserVote: (pollId) => api.get(`/api/polls/${pollId}/user-vote`),
 
   // Subscribe to real-time poll updates for a specific broadcast
   subscribeToPolls: (broadcastId, callback) => {
@@ -357,7 +458,7 @@ export const pollService = {
 
     // Use factory function for proper auto-reconnect support
     const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
-    
+
     // Enable auto-reconnect with 5 second delay
     stompClient.reconnect_delay = 5000;
 
@@ -399,11 +500,11 @@ export const pollService = {
 
 // Services for Icecast streaming
 export const streamService = {
-  start: () => api.post('/stream/start'),
-  stop: () => api.post('/stream/stop'),
-  getStatus: () => api.get('/stream/status'),
-  getConfig: () => api.get('/stream/config'),
-  getHealth: () => api.get('/stream/health'),
+  start: () => api.post('/api/stream/start'),
+  stop: () => api.post('/api/stream/stop'),
+  getStatus: () => api.get('/api/stream/status'),
+  getConfig: () => api.get('/api/stream/config'),
+  getHealth: () => api.get('/api/stream/health'),
 
   // WebSocket URL for DJs to send audio to the server
   getStreamUrl: () => {

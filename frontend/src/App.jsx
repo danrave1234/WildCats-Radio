@@ -14,11 +14,11 @@ const Notifications = lazy(() => import('./pages/Notifications'));
 const BroadcastHistory = lazy(() => import('./pages/BroadcastHistory'));
 const AnalyticsDashboard = lazy(() => import('./pages/AnalyticsDashboard'));
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { NotificationProvider } from './context/NotificationContext';
 import { BroadcastHistoryProvider } from './context/BroadcastHistoryContext';
 import { AnalyticsProvider } from './context/AnalyticsContext';
 import './App.css';
 import './styles/custom-scrollbar.css';
+import {NotificationProvider} from "./context/NotificationContext.jsx";
 
 // Loading component
 const LoadingFallback = () => (
@@ -198,6 +198,14 @@ const AppRoutes = () => {
             element={<AnalyticsDashboard key="analytics" />} 
             allowedRoles={['DJ', 'ADMIN']} 
           />
+        </Layout>
+      } />
+      
+      <Route path="/broadcast/:id" element={
+        <Layout>
+          <Suspense fallback={<LoadingFallback />}>
+            <ListenerDashboard key={getRoutePath()} />
+          </Suspense>
         </Layout>
       } />
       

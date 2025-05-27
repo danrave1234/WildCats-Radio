@@ -34,10 +34,13 @@ public class SongRequestService {
         SongRequestEntity songRequest = new SongRequestEntity(songTitle, artist, requestedBy, broadcast);
         SongRequestEntity savedRequest = songRequestRepository.save(songRequest);
         
+        // Create DTO for the song request
+        SongRequestDTO requestDTO = SongRequestDTO.fromEntity(savedRequest);
+        
         // Notify all clients about the new song request
         messagingTemplate.convertAndSend(
                 "/topic/broadcast/" + broadcastId + "/song-requests",
-                SongRequestDTO.fromEntity(savedRequest)
+                requestDTO
         );
         
         return savedRequest;

@@ -48,12 +48,14 @@ public class BroadcastService {
     @Autowired
     private UserRepository userRepository;
 
+
+
     public BroadcastDTO createBroadcast(CreateBroadcastRequest request) {
         logger.info("Creating broadcast: {}", request.getTitle());
 
         // Get current user from security context (this will be handled by the controller)
         // For now, we'll assume the user is passed separately or we'll update this later
-        
+
         // First create the schedule
         ScheduleEntity schedule = scheduleService.createSchedule(
             request.getScheduledStart(), 
@@ -243,6 +245,8 @@ public class BroadcastService {
             // Send notification to all users that the broadcast has started
             String notificationMessage = "Broadcast started: " + savedBroadcast.getTitle();
             sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_STARTED);
+
+            // WebSocket status updates are handled by the broadcast WebSocket controller
         }
 
         return savedBroadcast;
@@ -277,6 +281,8 @@ public class BroadcastService {
         String notificationMessage = "Broadcast ended: " + savedBroadcast.getTitle();
         sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_ENDED);
 
+        // WebSocket status updates are handled by the broadcast WebSocket controller
+
         return savedBroadcast;
     }
 
@@ -298,7 +304,7 @@ public class BroadcastService {
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
 
         BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
-        
+
         logger.info("Broadcast ended without user info: {}", savedBroadcast.getTitle());
 
         return savedBroadcast;
@@ -413,5 +419,65 @@ public class BroadcastService {
         // This is a placeholder - in a real implementation, you'd get this from SecurityContext
         // For now, we'll throw an exception to indicate this needs to be handled by the controller
         throw new RuntimeException("User must be passed explicitly to this method");
+    }
+
+    /**
+     * Record a listener joining a broadcast
+     * 
+     * @param broadcastId The ID of the broadcast
+     * @param user The user who joined (can be null for anonymous listeners)
+     */
+    public void recordListenerJoin(Long broadcastId, UserEntity user) {
+        logger.info("Listener joined broadcast {}: {}", 
+                    broadcastId, 
+                    user != null ? user.getEmail() : "Anonymous");
+
+        // Get the broadcast
+        Optional<BroadcastEntity> broadcastOpt = getBroadcastById(broadcastId);
+        if (broadcastOpt.isPresent()) {
+            BroadcastEntity broadcast = broadcastOpt.get();
+
+            // Log the activity if the user is authenticated
+            if (user != null) {
+                activityLogService.logActivity(
+                    user,
+                    ActivityLogEntity.ActivityType.BROADCAST_START,
+                    "Joined broadcast: " + broadcast.getTitle()
+                );
+            }
+
+            // Here you could update listener count analytics
+            // This could be stored in a separate table or in-memory
+        }
+    }
+
+    /**
+     * Record a listener leaving a broadcast
+     * 
+     * @param broadcastId The ID of the broadcast
+     * @param user The user who left (can be null for anonymous listeners)
+     */
+    public void recordListenerLeave(Long broadcastId, UserEntity user) {
+        logger.info("Listener left broadcast {}: {}", 
+                    broadcastId, 
+                    user != null ? user.getEmail() : "Anonymous");
+
+        // Get the broadcast
+        Optional<BroadcastEntity> broadcastOpt = getBroadcastById(broadcastId);
+        if (broadcastOpt.isPresent()) {
+            BroadcastEntity broadcast = broadcastOpt.get();
+
+            // Log the activity if the user is authenticated
+            if (user != null) {
+                activityLogService.logActivity(
+                    user,
+                    ActivityLogEntity.ActivityType.BROADCAST_END,
+                    "Left broadcast: " + broadcast.getTitle()
+                );
+            }
+
+            // Here you could update listener count analytics
+            // This could be stored in a separate table or in-memory
+        }
     }
 } 

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useParams, useLocation } from "react-router-dom";
 import {
   PlayIcon,
   PauseIcon,
@@ -14,8 +15,16 @@ import {
 import AudioVisualizer from "../components/AudioVisualizer";
 import { broadcastService, chatService, songRequestService, pollService, streamService } from "../services/api";
 import { formatDistanceToNow } from 'date-fns';
+import { useAuth } from "../context/AuthContext";
 
 export default function ListenerDashboard() {
+  const { id: broadcastIdParam } = useParams();
+  const location = useLocation();
+  const { currentUser } = useAuth();
+  const isSpecificBroadcast = location.pathname.startsWith('/broadcast/');
+  
+  // If we're accessing a specific broadcast by ID, set it as the current broadcast
+  const targetBroadcastId = isSpecificBroadcast && broadcastIdParam ? parseInt(broadcastIdParam, 10) : null;
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(80);
@@ -40,6 +49,7 @@ export default function ListenerDashboard() {
   const chatWsRef = useRef(null);
   const songRequestWsRef = useRef(null);
   const pollWsRef = useRef(null);
+  const broadcastWsRef = useRef(null);
 
   // Add abort controller ref for managing HTTP requests
   const abortControllerRef = useRef(null);
@@ -441,6 +451,12 @@ export default function ListenerDashboard() {
     if (!serverConfig) return
 
     const checkStatus = () => {
+      // Skip polling if WebSocket is connected and working
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        console.log('Skipping status poll - WebSocket is active')
+        return
+      }
+
       streamService.getStatus()
         .then(response => {
           console.log("Backend stream status:", response.data)
@@ -449,13 +465,16 @@ export default function ListenerDashboard() {
             const statusData = response.data.data
             setIsLive(statusData.live || false)
 
-            streamService.getHealth()
-              .then(healthResponse => {
-                console.log("Health status:", healthResponse.data)
-              })
-              .catch(error => {
-                console.log("Health check failed:", error)
-              })
+            // Only do health check if not live (no WebSocket available)
+            if (!statusData.live) {
+              streamService.getHealth()
+                .then(healthResponse => {
+                  console.log("Health status:", healthResponse.data)
+                })
+                .catch(error => {
+                  console.log("Health check failed:", error)
+                })
+            }
           }
         })
         .catch(error => {
@@ -463,8 +482,12 @@ export default function ListenerDashboard() {
         })
     }
 
+    // Initial check
     checkStatus()
-    statusCheckInterval.current = setInterval(checkStatus, 5000)
+    
+    // Minimal polling since WebSocket handles real-time updates
+    // Only check occasionally for server health when WebSocket isn't available
+    statusCheckInterval.current = setInterval(checkStatus, 120000) // Check every 2 minutes instead of 30s
 
     return () => {
       if (statusCheckInterval.current) {
@@ -515,8 +538,6 @@ export default function ListenerDashboard() {
         // Create new abort controller for this request
         abortControllerRef.current = new AbortController();
 
-        console.log('Listener Dashboard: Fetching initial chat messages for broadcast:', currentBroadcastId);
-
         // Clear old messages immediately when switching broadcasts
         setChatMessages([]);
 
@@ -524,8 +545,6 @@ export default function ListenerDashboard() {
 
         // Double-check that the response is for the current broadcast
         const newMessages = response.data.filter(msg => msg.broadcastId === currentBroadcastId);
-
-        console.log('Listener Dashboard: Loaded initial chat messages:', newMessages.length);
 
         // Check if we're at the bottom before updating messages
         const container = chatContainerRef.current;
@@ -547,7 +566,6 @@ export default function ListenerDashboard() {
       } catch (error) {
         // Ignore aborted requests
         if (error.name === 'AbortError') {
-          console.log('Chat fetch aborted for broadcast:', currentBroadcastId);
           return;
         }
         console.error("Listener Dashboard: Error fetching chat messages:", error);
@@ -556,23 +574,9 @@ export default function ListenerDashboard() {
 
     fetchChatMessages();
 
-    // Only use polling as fallback if not live
-    if (!isLive) {
-      const interval = setInterval(() => {
-        // Check if broadcast ID is still valid before polling
-        if (currentBroadcastId && currentBroadcastId > 0) {
-          fetchChatMessages();
-        }
-      }, 5000);
-
-      return () => {
-        clearInterval(interval);
-        if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-        }
-        setChatMessages([]);
-      };
-    }
+    // Only use polling as fallback if WebSocket is not available AND not live
+    // Remove polling since WebSocket should handle real-time updates
+    // Keep only for development/debugging if needed
 
     return () => {
       if (abortControllerRef.current) {
@@ -583,9 +587,32 @@ export default function ListenerDashboard() {
   }, [currentBroadcastId, isLive]);
 
   // Setup WebSocket connections for real-time updates after initial data is loaded
+  // This replaces most HTTP polling with real-time WebSocket communication:
+  // - Chat messages: Real-time via WebSocket
+  // - Song requests: Real-time via WebSocket  
+  // - Poll updates: Real-time via WebSocket
+  // - Broadcast status: Real-time via WebSocket
+  // - Listener count: Real-time via WebSocket
   useEffect(() => {
     // Guard: Only setup WebSockets if we have a valid broadcast ID and are live
     if (!currentBroadcastId || currentBroadcastId <= 0 || !isLive) {
+      // Cleanup any existing connections when not live
+      if (chatWsRef.current) {
+        chatWsRef.current.disconnect();
+        chatWsRef.current = null;
+      }
+      if (songRequestWsRef.current) {
+        songRequestWsRef.current.disconnect();
+        songRequestWsRef.current = null;
+      }
+      if (pollWsRef.current) {
+        pollWsRef.current.disconnect();
+        pollWsRef.current = null;
+      }
+      if (broadcastWsRef.current) {
+        broadcastWsRef.current.disconnect();
+        broadcastWsRef.current = null;
+      }
       return;
     }
 
@@ -601,15 +628,12 @@ export default function ListenerDashboard() {
           chatWsRef.current = null;
         }
 
-        console.log('Listener Dashboard: Setting up chat WebSocket for broadcast:', currentBroadcastId);
         const connection = await chatService.subscribeToChatMessages(currentBroadcastId, (newMessage) => {
           // Double-check the message is for the current broadcast
           if (newMessage.broadcastId === currentBroadcastId) {
-            console.log('Listener Dashboard: Received new chat message:', newMessage);
             setChatMessages(prev => {
               const exists = prev.some(msg => msg.id === newMessage.id);
               if (exists) {
-                console.log('Listener Dashboard: Message already exists, skipping');
                 return prev;
               }
 
@@ -622,11 +646,8 @@ export default function ListenerDashboard() {
                 setTimeout(scrollToBottom, 50);
               }
 
-              console.log('Listener Dashboard: Updated chat messages count:', updated.length);
               return updated;
             });
-          } else {
-            console.log('Listener Dashboard: Ignoring message for different broadcast:', newMessage.broadcastId);
           }
         });
         chatWsRef.current = connection;
@@ -646,14 +667,10 @@ export default function ListenerDashboard() {
           songRequestWsRef.current = null;
         }
 
-        console.log('Listener Dashboard: Setting up song request WebSocket for broadcast:', currentBroadcastId);
         const connection = await songRequestService.subscribeToSongRequests(currentBroadcastId, (newRequest) => {
           // Double-check the request is for the current broadcast
           if (newRequest.broadcastId === currentBroadcastId) {
-            console.log('Listener Dashboard: New song request received:', newRequest);
             // You can add notification logic here if needed
-          } else {
-            console.log('Listener Dashboard: Ignoring song request for different broadcast:', newRequest.broadcastId);
           }
         });
         songRequestWsRef.current = connection;
@@ -673,9 +690,7 @@ export default function ListenerDashboard() {
           pollWsRef.current = null;
         }
 
-        console.log('Listener Dashboard: Setting up poll WebSocket for broadcast:', currentBroadcastId);
         const connection = await pollService.subscribeToPolls(currentBroadcastId, (data) => {
-          console.log('Listener Dashboard: Received poll update:', data);
           switch (data.type) {
             case 'NEW_POLL':
               if (data.poll && data.poll.isActive) {
@@ -711,10 +726,76 @@ export default function ListenerDashboard() {
       }
     };
 
+    // Setup Broadcast WebSocket for broadcast-level updates
+    const setupBroadcastWebSocket = async () => {
+      try {
+        // Clean up any existing connection first
+        if (broadcastWsRef.current) {
+          console.log('Listener Dashboard: Cleaning up existing broadcast WebSocket');
+          broadcastWsRef.current.disconnect();
+          broadcastWsRef.current = null;
+        }
+
+        // Use the broadcast service from api.js
+        const connection = await broadcastService.subscribeToBroadcastUpdates(currentBroadcastId, (message) => {
+          
+          switch (message.type) {
+            case 'BROADCAST_STARTED':
+              setIsLive(true);
+              if (message.broadcast) {
+                setCurrentBroadcast(message.broadcast);
+              }
+              break;
+              
+            case 'BROADCAST_ENDED':
+              setIsLive(false);
+              if (message.broadcast) {
+                setCurrentBroadcast(message.broadcast);
+              }
+              break;
+              
+            case 'LISTENER_COUNT_UPDATE':
+              setListenerCount(message.data?.listenerCount || 0);
+              break;
+              
+            case 'BROADCAST_STATUS_UPDATE':
+              if (message.broadcast) {
+                setCurrentBroadcast(message.broadcast);
+                setIsLive(message.broadcast.status === 'LIVE');
+              }
+              break;
+              
+            case 'LISTENER_JOINED':
+              // Update listener count if provided
+              if (message.data?.listenerCount !== undefined) {
+                setListenerCount(message.data.listenerCount);
+              }
+              break;
+              
+            case 'LISTENER_LEFT':
+              // Update listener count if provided
+              if (message.data?.listenerCount !== undefined) {
+                setListenerCount(message.data.listenerCount);
+              }
+              break;
+              
+            default:
+              // Unknown message type - can be safely ignored
+          }
+        });
+        
+        broadcastWsRef.current = connection;
+        console.log('Listener Dashboard: Broadcast WebSocket connected successfully');
+      } catch (error) {
+        console.error('Listener Dashboard: Failed to connect broadcast WebSocket:', error);
+      }
+    };
+
     // Setup WebSockets immediately - no delay needed with proper guards
     setupChatWebSocket();
     setupSongRequestWebSocket();
     setupPollWebSocket();
+    setupBroadcastWebSocket();
 
     return () => {
       console.log('Listener Dashboard: Cleaning up WebSocket connections for broadcast:', currentBroadcastId);
@@ -729,6 +810,10 @@ export default function ListenerDashboard() {
       if (pollWsRef.current) {
         pollWsRef.current.disconnect();
         pollWsRef.current = null;
+      }
+      if (broadcastWsRef.current) {
+        broadcastWsRef.current.disconnect();
+        broadcastWsRef.current = null;
       }
     };
   }, [currentBroadcastId, isLive]); // Removed chatMessages.length and currentPoll?.id dependencies to prevent unnecessary re-runs
@@ -792,7 +877,43 @@ export default function ListenerDashboard() {
   // Check if a broadcast is live
   useEffect(() => {
     const checkBroadcastStatus = async () => {
+      // Skip polling if WebSocket is connected and handling broadcast updates
+      if (broadcastWsRef.current?.isConnected && broadcastWsRef.current.isConnected()) {
+        console.log('Skipping broadcast status poll - WebSocket is handling updates')
+        return
+      }
+
       try {
+        // If we have a target broadcast ID (from URL), use that
+        if (targetBroadcastId && !isNaN(targetBroadcastId)) {
+          try {
+            // Fetch the specific broadcast
+            const broadcastResponse = await broadcastService.getBroadcast(targetBroadcastId);
+            const targetBroadcast = broadcastResponse.data;
+            
+            if (targetBroadcast) {
+              setCurrentBroadcastId(targetBroadcast.id);
+              setCurrentBroadcast(targetBroadcast);
+              setIsLive(targetBroadcast.status === 'LIVE');
+              
+              if (targetBroadcast.currentSong) {
+                setCurrentSong({
+                  title: targetBroadcast.currentSong.title,
+                  artist: targetBroadcast.currentSong.artist
+                });
+              } else {
+                setCurrentSong(null);
+              }
+              
+              console.log("Target broadcast loaded:", targetBroadcast);
+              return; // Exit early since we found our target broadcast
+            }
+          } catch (error) {
+            console.error("Error fetching target broadcast:", error);
+            // Continue to fetch live broadcasts as fallback
+          }
+        }
+        
         // Fetch live broadcasts from API
         const response = await broadcastService.getLive();
         const liveBroadcasts = response.data;
@@ -800,10 +921,12 @@ export default function ListenerDashboard() {
         // If there are any live broadcasts, set isLive to true
         if (liveBroadcasts && liveBroadcasts.length > 0) {
           setIsLive(true);
-          // Set the first live broadcast as the current one
+          // Set the first live broadcast as the current one (unless we have a target)
           const currentBroadcast = liveBroadcasts[0];
-          setCurrentBroadcastId(currentBroadcast.id);
-          setCurrentBroadcast(currentBroadcast);
+          if (!targetBroadcastId) {
+            setCurrentBroadcastId(currentBroadcast.id);
+            setCurrentBroadcast(currentBroadcast);
+          }
 
           // Set current song if available
           if (currentBroadcast.currentSong) {
@@ -847,11 +970,15 @@ export default function ListenerDashboard() {
       }
     }
 
+    // Initial check
     checkBroadcastStatus();
-    const interval = setInterval(checkBroadcastStatus, 60000); // Check every minute
+    
+    // Very minimal polling since WebSocket handles all real-time broadcast updates
+    // Only check occasionally for fallback scenarios or initial setup
+    const interval = setInterval(checkBroadcastStatus, 600000); // Check every 10 minutes instead of 5 minutes
 
     return () => clearInterval(interval);
-  }, []);
+  }, [targetBroadcastId]); // Add targetBroadcastId as dependency
 
   // Fetch active polls for the current broadcast
   useEffect(() => {
@@ -913,8 +1040,9 @@ export default function ListenerDashboard() {
 
       fetchActivePolls();
 
-      // Set up interval to periodically check for new polls
-      const interval = setInterval(fetchActivePolls, 10000); // Check every 10 seconds
+      // Minimal polling since WebSocket handles all poll updates in real-time
+      // Only check very occasionally as fallback
+      const interval = setInterval(fetchActivePolls, 300000); // Check every 5 minutes instead of 1 minute
 
       return () => clearInterval(interval);
     } else {

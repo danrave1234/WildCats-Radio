@@ -40,7 +40,6 @@
     </listen-socket>
 
     <http-headers>
-        <header name="Access-Control-Allow-Origin" value="*"/>
     </http-headers>
 
     <mount>
@@ -58,7 +57,7 @@
         <stream-url>https://wildcastradio.com</stream-url>
         <genre>Various</genre>
         <public>1</public>
-        
+ 
         <no-yp>1</no-yp>
         <charset>UTF-8</charset>
     </mount>
