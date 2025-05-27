@@ -299,60 +299,25 @@ const ScheduleScreen: React.FC = () => {
 
   if (isLoading) {
     return (
-      <SafeAreaView className="flex-1 justify-center items-center bg-gray-100 p-6">
-        <View className="bg-white rounded-3xl p-12 shadow-2xl items-center">
-          <View className="bg-cordovan/10 p-6 rounded-full mb-6">
-            <Ionicons name="calendar" size={40} color="#91403E" />
-          </View>
-          <ActivityIndicator size="large" color="#91403E" className="mb-4" />
-          <Text className="text-xl font-bold text-cordovan mb-2">Loading Schedule</Text>
-          <Text className="text-gray-600 text-center text-base">
-            Fetching your broadcast schedule...
-          </Text>
-        </View>
+      <SafeAreaView className="flex-1 justify-center items-center bg-anti-flash_white">
+        <ActivityIndicator size="large" color="#91403E" />
+        <Text className="mt-4 text-gray-600 text-lg">Loading Schedule...</Text>
       </SafeAreaView>
     );
   }
 
   if (error) {
     return (
-      <SafeAreaView className="flex-1 justify-center items-center bg-gray-100 p-6">
-        <View 
-          className="bg-white rounded-3xl p-12 shadow-2xl items-center relative overflow-hidden"
-          style={{
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: 0.15,
-            shadowRadius: 20,
-            elevation: 12,
-          }}
+      <SafeAreaView className="flex-1 justify-center items-center bg-anti-flash_white p-6 text-center">
+        <Ionicons name="cloud-offline-outline" size={64} color="#7F1D1D" />
+        <Text className="text-2xl font-semibold text-gray-800 mt-6 mb-2">Unable to Load Schedule</Text>
+        <Text className="text-gray-600 mb-8 text-base leading-relaxed">{error}</Text>
+        <TouchableOpacity
+          className="bg-cordovan py-3 px-8 rounded-lg shadow-md active:opacity-80"
+          onPress={() => fetchUpcomingBroadcasts()}
         >
-          {/* Background Pattern */}
-          <View className="absolute inset-0 opacity-5">
-            <View className="absolute top-4 right-4 w-12 h-12 bg-red-500 rounded-full" />
-            <View className="absolute bottom-8 left-8 w-8 h-8 bg-red-400 rounded-full" />
-          </View>
-          
-          <View className="bg-red-50 p-6 rounded-full mb-6">
-            <Ionicons name="cloud-offline-outline" size={48} color="#DC2626" />
-          </View>
-          <Text className="text-2xl font-bold text-gray-800 mb-3 text-center">Unable to Load Schedule</Text>
-          <Text className="text-gray-600 mb-8 text-base leading-relaxed text-center">{error}</Text>
-          <TouchableOpacity
-            className="bg-cordovan py-4 px-10 rounded-2xl shadow-lg active:scale-95 flex-row items-center"
-            style={{
-              shadowColor: '#91403E',
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.3,
-              shadowRadius: 8,
-              elevation: 6,
-            }}
-            onPress={() => fetchUpcomingBroadcasts()}
-          >
-            <Ionicons name="refresh" size={18} color="white" className="mr-2" />
-            <Text className="text-white font-bold text-base">Try Again</Text>
-          </TouchableOpacity>
-        </View>
+          <Text className="text-white font-semibold text-base">Try Again</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }

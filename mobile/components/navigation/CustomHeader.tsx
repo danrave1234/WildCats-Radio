@@ -51,11 +51,9 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
         </TouchableOpacity>
       )}
       
-      {/* Center - Title */}
+      {/* Center - Title (removed for cleaner look) */}
       <View className="flex-1 items-center justify-center">
-        <Text className="text-white text-xl font-bold">
-          {title}
-        </Text>
+        {/* Title removed for minimal design */}
       </View>
       
       {/* Right side spacer to balance layout when no notification */}

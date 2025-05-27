@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, TouchableOpacity, Text, StyleSheet, Dimensions, Platform } from 'react-native';
+import { View, TouchableOpacity, Text, StyleSheet, Dimensions, Platform, Animated } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -42,8 +42,13 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, navigat
     return null;
   }
 
+  // Extract animation style if present
+  const animatedStyle = tabBarStyle && typeof tabBarStyle === 'object' && 'transform' in tabBarStyle 
+    ? { transform: tabBarStyle.transform } 
+    : {};
+
   return (
-    <View style={styles.container}>
+    <Animated.View style={[styles.container, animatedStyle]}>
       <View style={styles.tabBar}>
         {state.routes.map((route, index) => {
           if (!route || !route.key) return null;
@@ -126,7 +131,7 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, navigat
           );
         })}
       </View>
-    </View>
+    </Animated.View>
   );
 };
 
