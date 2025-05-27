@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, SafeAreaView, ScrollView, ActivityIndicator, TouchableOpacity, Platform, Image } from 'react-native';
+import { View, Text, SafeAreaView, ScrollView, ActivityIndicator, TouchableOpacity, Platform, Image, RefreshControl } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
@@ -13,18 +13,21 @@ const HomeScreen: React.FC = () => {
   const [liveBroadcasts, setLiveBroadcasts] = useState<Broadcast[]>([]);
   const [recentBroadcasts, setRecentBroadcasts] = useState<Broadcast[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isLive = liveBroadcasts.length > 0;
   const currentLiveBroadcast = isLive ? liveBroadcasts[0] : null;
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (showRefreshing = false) => {
     if (!authToken) {
       setError('Authentication token not found. Please log in.');
       setIsLoading(false);
       return;
     }
-    setIsLoading(true);
+    
+    if (showRefreshing) setIsRefreshing(true);
+    else setIsLoading(true);
     setError(null);
     try {
       const [liveRes, recentRes] = await Promise.all([
@@ -54,8 +57,13 @@ const HomeScreen: React.FC = () => {
       setError(apiError.message || 'An unexpected error occurred while fetching data.');
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   }, [authToken]);
+
+  const onRefresh = useCallback(() => {
+    fetchData(true);
+  }, [fetchData]);
 
   useEffect(() => {
     fetchData();
@@ -101,7 +109,7 @@ const HomeScreen: React.FC = () => {
         <Text className="text-gray-600 mb-8 text-base leading-relaxed">{error}</Text>
         <TouchableOpacity
             className="bg-cordovan py-3 px-8 rounded-lg shadow-md active:opacity-80"
-            onPress={fetchData}
+            onPress={() => fetchData()}
         >
              <Text className="text-white font-semibold text-base">Try Again</Text>
         </TouchableOpacity>
@@ -116,6 +124,16 @@ const HomeScreen: React.FC = () => {
         contentContainerStyle={{ paddingBottom: 120, paddingTop: 12 }}
         showsVerticalScrollIndicator={false}
         className="px-5 md:px-7"
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            colors={['#91403E']}
+            tintColor="#91403E"
+            title="Pull to refresh dashboard"
+            titleColor="#91403E"
+          />
+        }
       >
         {/* Welcome Message */}
         <View className="mb-6">
@@ -172,8 +190,15 @@ const HomeScreen: React.FC = () => {
           {/* Header for Recent Broadcasts */}
           <View className="flex-row justify-between items-center mb-3.5 px-1">
             <Text className="text-xl font-bold text-cordovan">Recent Broadcasts</Text>
-            <TouchableOpacity onPress={() => router.push('../schedule' as any)}>
-              <Text className="text-sm font-semibold text-cordovan active:opacity-70 hover:underline">See All</Text>
+            <TouchableOpacity 
+              onPress={() => router.push('/list?tab=recent')}
+              className="py-2 px-3 rounded-lg bg-cordovan/5 border border-cordovan/20"
+              activeOpacity={0.6}
+            >
+              <View className="flex-row items-center">
+                <Text className="text-sm font-semibold text-cordovan mr-1">See All</Text>
+                <Ionicons name="chevron-forward" size={16} color="#91403E" />
+              </View>
             </TouchableOpacity>
           </View>
 

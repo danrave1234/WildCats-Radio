@@ -23,12 +23,36 @@ const TabBarIcon: React.FC<TabBarIconProps> = ({ name, size = ICON_SIZE, color }
 };
 
 const CustomTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, navigation }) => {
+  // Safety check for required props
+  if (!state || !state.routes || !descriptors || !navigation) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.tabBar} />
+      </View>
+    );
+  }
+
+  // Check if tab bar should be hidden
+  const currentRoute = state.routes[state.index];
+  const currentDescriptor = descriptors[currentRoute?.key];
+  const tabBarStyle = currentDescriptor?.options?.tabBarStyle;
+  
+  // Hide tab bar if tabBarStyle has display: 'none'
+  if (tabBarStyle && typeof tabBarStyle === 'object' && 'display' in tabBarStyle && tabBarStyle.display === 'none') {
+    return null;
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.tabBar}>
         {state.routes.map((route, index) => {
-          const { options } = descriptors[route.key];
-          const label = typeof options.title === 'string' ? options.title : route.name;
+          if (!route || !route.key) return null;
+          
+          const descriptor = descriptors[route.key];
+          if (!descriptor) return null;
+          
+          const { options } = descriptor;
+          const label = (typeof options?.title === 'string' ? options.title : route.name) || 'Tab';
 
           const isFocused = state.index === index;
 
@@ -52,6 +76,8 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, navigat
           };
 
           const getIconName = (routeName: string, focused: boolean): keyof typeof Ionicons.glyphMap => {
+            if (!routeName || typeof routeName !== 'string') return 'alert-circle-outline';
+            
             switch (routeName) {
               case 'home': return focused ? 'home' : 'home-outline';
               case 'list': return focused ? 'list' : 'list-outline';
@@ -94,7 +120,7 @@ const CustomTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, navigat
             >
               <TabBarIcon name={iconName} color={isFocused ? CORDOVAN_COLOR : TEXT_COLOR} />
               <Text style={[styles.tabLabel, { color: isFocused ? FOCUSED_TEXT_COLOR : TEXT_COLOR }]}>
-                {label.charAt(0).toUpperCase() + label.slice(1)}
+                {label && typeof label === 'string' ? label.charAt(0).toUpperCase() + label.slice(1) : 'Tab'}
               </Text>
             </TouchableOpacity>
           );
@@ -118,12 +144,12 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: 'row',
     height: Platform.OS === 'ios' ? 70 : 60, 
-    width: '92%', // Slightly wider
+    width: '100%', // Full width
     backgroundColor: ANTI_FLASH_WHITE,
-    borderRadius: 35,
+    borderRadius: 0, // Remove rounded corners
     alignItems: 'center',
     justifyContent: 'space-around',
-    marginBottom: Platform.OS === 'ios' ? 10 : 10, // Spacing from bottom edge
+    marginBottom: 0, // Remove bottom margin
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.1,

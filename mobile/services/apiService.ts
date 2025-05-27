@@ -144,11 +144,21 @@ export const loginUser = async (email: string, password: string): Promise<AuthRe
       body: JSON.stringify({ email, password }),
     });
 
-    const data: AuthResponse = await response.json();
-
     if (!response.ok) {
-      return { error: data.message || 'Login failed' };
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Login failed. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Login failed. Status: ${response.status}, Response: ${text}` };
+        }
+      } else {
+        return { error: `Login failed. Status: ${response.status}, No response body.` };
+      }
     }
+
+    const data: AuthResponse = await response.json();
     return data;
   } catch (error) {
     console.error('Login API error:', error);
@@ -204,16 +214,24 @@ export const getMe = async (token: string): Promise<UserData> => {
       },
     });
 
-    const data: UserData = await response.json();
-
     if (!response.ok) {
-      // If the server provides an error message in the JSON, use it
-      return { error: data.error || data.message || `Failed to fetch user data. Status: ${response.status}` };
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.error || data.message || `Failed to fetch user data. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to fetch user data. Status: ${response.status}, Response: ${text}` };
+        }
+      } else {
+        return { error: `Failed to fetch user data. Status: ${response.status}, No response body.` };
+      }
     }
+
+    const data: UserData = await response.json();
     return data;
   } catch (error) {
     console.error('GetMe API error:', error);
-    // Check if error is an instance of Error to access message property
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred. Please try again.';
     return { error: errorMessage };
   }
@@ -280,10 +298,22 @@ export const getLiveBroadcasts = async (token: string): Promise<Broadcast[] | { 
         'Authorization': `Bearer ${token}`,
       },
     });
-    const data = await response.json();
+
     if (!response.ok) {
-      return { error: data.message || data.error || `Failed to fetch live broadcasts. Status: ${response.status}` };
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to fetch live broadcasts. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to fetch live broadcasts. Status: ${response.status}, Response: ${text}` };
+        }
+      } else {
+        return { error: `Failed to fetch live broadcasts. Status: ${response.status}, No response body.` };
+      }
     }
+
+    const data = await response.json();
     return data as Broadcast[];
   } catch (error) {
     console.error('GetLiveBroadcasts API error:', error);
@@ -301,10 +331,22 @@ export const getAllBroadcasts = async (token: string): Promise<Broadcast[] | { e
         'Authorization': `Bearer ${token}`,
       },
     });
-    const data = await response.json();
+
     if (!response.ok) {
-      return { error: data.message || data.error || `Failed to fetch all broadcasts. Status: ${response.status}` };
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to fetch all broadcasts. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to fetch all broadcasts. Status: ${response.status}, Response: ${text}` };
+        }
+      } else {
+        return { error: `Failed to fetch all broadcasts. Status: ${response.status}, No response body.` };
+      }
     }
+
+    const data = await response.json();
     return data as Broadcast[];
   } catch (error) {
     console.error('GetAllBroadcasts API error:', error);
@@ -322,10 +364,22 @@ export const getUpcomingBroadcasts = async (token: string): Promise<Broadcast[] 
         'Authorization': `Bearer ${token}`,
       },
     });
-    const data = await response.json();
+
     if (!response.ok) {
-      return { error: data.message || data.error || `Failed to fetch upcoming broadcasts. Status: ${response.status}` };
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to fetch upcoming broadcasts. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to fetch upcoming broadcasts. Status: ${response.status}, Response: ${text}` };
+        }
+      } else {
+        return { error: `Failed to fetch upcoming broadcasts. Status: ${response.status}, No response body.` };
+      }
     }
+
+    const data = await response.json();
     return data as Broadcast[];
   } catch (error) {
     console.error('GetUpcomingBroadcasts API error:', error);
