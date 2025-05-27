@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://192.168.5.60:8080/api'; // Adjusted base URL
+const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.autoidleapp.com/api'; // Adjusted base URL
 
 interface AuthResponse {
   token?: string; // Assuming your API returns a token

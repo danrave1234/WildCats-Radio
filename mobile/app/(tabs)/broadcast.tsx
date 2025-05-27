@@ -327,7 +327,7 @@ const BroadcastScreen: React.FC = () => {
   const [isInitialLayoutDone, setIsInitialLayoutDone] = useState(false);
 
   // WebSocket integration
-  const { sendChatMessage: wsSendChatMessage } = useWebSocket({
+  const { sendChatMessage: wsSendChatMessage, isConnected: wsIsConnected } = useWebSocket({
     broadcastId: useWebSocketMode ? currentBroadcast?.id || null : null,
     authToken: useWebSocketMode ? authToken : null,
     onNewMessage: useCallback((message: ChatMessageDTO) => {
@@ -404,6 +404,16 @@ const BroadcastScreen: React.FC = () => {
       setIsWebSocketConnected(false);
     }, []),
   });
+
+  // Sync WebSocket connection state
+  useEffect(() => {
+    setIsWebSocketConnected(wsIsConnected);
+    // Re-enable WebSocket mode when connection is restored
+    if (wsIsConnected && !useWebSocketMode) {
+      console.log('🔄 WebSocket reconnected, re-enabling WebSocket mode');
+      setUseWebSocketMode(true);
+    }
+  }, [wsIsConnected, useWebSocketMode]);
 
   const tabDefinitions: TabDefinition[] = useMemo(() => [
     { name: 'Chat', icon: 'chatbubbles-outline', key: 'chat' },
@@ -487,8 +497,35 @@ const BroadcastScreen: React.FC = () => {
           getSongRequestsForBroadcast(broadcastToUse.id, authToken),
         ]);
 
-        if (!('error' in messagesResult)) setChatMessages(messagesResult);
-        else console.error('Failed to fetch initial chat:', messagesResult.error);
+        if (!('error' in messagesResult)) {
+          // Use smart merge for initial load too, in case WebSocket messages arrived first
+          setChatMessages(prevMessages => {
+            if (prevMessages.length === 0) {
+              // No previous messages, just use server messages
+              return messagesResult;
+            }
+            
+            // Merge with any existing messages (e.g., from WebSocket)
+            const serverMessages = messagesResult;
+            const mergedMessages = [...serverMessages, ...prevMessages];
+            
+            // Remove duplicates and sort by timestamp
+            const uniqueMessages = mergedMessages.filter((msg, index, array) => 
+              array.findIndex(m => 
+                m.id === msg.id || 
+                (m.content === msg.content && 
+                 m.sender?.name === msg.sender?.name &&
+                 Math.abs(new Date(m.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 5000)
+              ) === index
+            );
+            
+            return uniqueMessages.sort((a, b) => 
+              new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            );
+          });
+        } else {
+          console.error('Failed to fetch initial chat:', messagesResult.error);
+        }
 
         if (!('error' in pollsResult)) setActivePolls(pollsResult);
         else console.error('Failed to fetch initial polls:', pollsResult.error);
@@ -523,28 +560,43 @@ const BroadcastScreen: React.FC = () => {
       try {
         const messagesResult = await getChatMessages(currentBroadcast.id, authToken);
         if (!('error' in messagesResult)) {
-          // Smart merge: keep optimistic messages, merge with server messages
+          // Smart merge: keep recent local messages and optimistic messages
           setChatMessages(prevMessages => {
             const serverMessages = messagesResult;
-            const optimisticMessages = prevMessages.filter(msg => 
-              userMessageIds.has(msg.id) && msg.id > 1000000000000 // Temp IDs are timestamps
-            );
+            const now = new Date().getTime();
             
-            // Merge without duplicates, preserving optimistic messages
-            const mergedMessages = [...serverMessages];
-            optimisticMessages.forEach(optimisticMsg => {
+            // Keep recent messages and optimistic messages that might not be on server
+            const localMessagesToKeep = prevMessages.filter(localMsg => {
+              const messageTime = new Date(localMsg.timestamp).getTime();
+              const isRecent = (now - messageTime) < 30000; // Last 30 seconds
+              const isOptimistic = userMessageIds.has(localMsg.id) && localMsg.id > 1000000000000;
+              
+              // Check if this message exists on server
               const existsOnServer = serverMessages.some(serverMsg => 
-                serverMsg.content === optimisticMsg.content && 
-                serverMsg.sender?.name === optimisticMsg.sender?.name &&
-                Math.abs(new Date(serverMsg.timestamp).getTime() - new Date(optimisticMsg.timestamp).getTime()) < 30000 // Within 30 seconds
+                serverMsg.id === localMsg.id || 
+                (serverMsg.content === localMsg.content && 
+                 serverMsg.sender?.name === localMsg.sender?.name &&
+                 Math.abs(new Date(serverMsg.timestamp).getTime() - messageTime) < 10000)
               );
-              if (!existsOnServer) {
-                mergedMessages.push(optimisticMsg);
-              }
+              
+              // Keep if (recent OR optimistic) AND not on server
+              return (isRecent || isOptimistic) && !existsOnServer;
             });
             
-            // Sort by timestamp
-            return mergedMessages.sort((a, b) => 
+            // Merge server messages with local messages to keep
+            const mergedMessages = [...serverMessages, ...localMessagesToKeep];
+            
+            // Remove duplicates and sort by timestamp
+            const uniqueMessages = mergedMessages.filter((msg, index, array) => 
+              array.findIndex(m => 
+                m.id === msg.id || 
+                (m.content === msg.content && 
+                 m.sender?.name === msg.sender?.name &&
+                 Math.abs(new Date(m.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 5000)
+              ) === index
+            );
+            
+            return uniqueMessages.sort((a, b) => 
               new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
             );
           });
@@ -640,27 +692,27 @@ const BroadcastScreen: React.FC = () => {
     // Try WebSocket first, fallback to HTTP
     if (useWebSocketMode && isWebSocketConnected && wsSendChatMessage) {
       console.log('🚀 Sending via WebSocket (real-time)');
-      try {
-        // Add optimistic update for immediate feedback, WebSocket will confirm/replace
-        const tempMessageId = Date.now();
-        const optimisticMessage: ChatMessageDTO = {
-          id: tempMessageId,
-          content: messageToSend,
-          timestamp: new Date().toISOString(),
-          sender: { name: listenerName },
-          broadcastId: currentBroadcast.id
-        };
-        setChatMessages(prev => [...prev, optimisticMessage]);
-        setUserMessageIds(prev => new Set([...prev, tempMessageId]));
-        
-        // Send via WebSocket
-        wsSendChatMessage(messageToSend);
+      // Add optimistic update for immediate feedback, WebSocket will confirm/replace
+      const tempMessageId = Date.now();
+      const optimisticMessage: ChatMessageDTO = {
+        id: tempMessageId,
+        content: messageToSend,
+        timestamp: new Date().toISOString(),
+        sender: { name: listenerName },
+        broadcastId: currentBroadcast.id
+      };
+      setChatMessages(prev => [...prev, optimisticMessage]);
+      setUserMessageIds(prev => new Set([...prev, tempMessageId]));
+      
+      // Send via WebSocket with improved error handling
+      const sendSuccess = wsSendChatMessage(messageToSend);
+      if (sendSuccess) {
         console.log('✅ Message sent via WebSocket');
         return;
-      } catch (error) {
-        console.warn('WebSocket send failed, falling back to HTTP:', error);
-        setUseWebSocketMode(false);
-        // Continue to HTTP fallback below
+      } else {
+        console.warn('WebSocket send failed, falling back to HTTP');
+        // Don't immediately disable WebSocket mode, just use HTTP for this message
+        // The connection will auto-recover if it's just a temporary issue
       }
     }
     
@@ -750,7 +802,48 @@ const BroadcastScreen: React.FC = () => {
     try {
       const messagesResult = await getChatMessages(currentBroadcast.id, authToken);
       if (!('error' in messagesResult)) {
-        setChatMessages(messagesResult);
+        // Smart merge: preserve recent local messages that might not be on server yet
+        setChatMessages(prevMessages => {
+          const serverMessages = messagesResult;
+          const now = new Date().getTime();
+          
+          // Keep recent local messages (sent in last 30 seconds) that might not be on server
+          const recentLocalMessages = prevMessages.filter(localMsg => {
+            // Check if it's a recent message (last 30 seconds)
+            const messageTime = new Date(localMsg.timestamp).getTime();
+            const isRecent = (now - messageTime) < 30000;
+            
+            // Check if this message is NOT in the server response
+            const existsOnServer = serverMessages.some(serverMsg => 
+              serverMsg.id === localMsg.id || 
+              (serverMsg.content === localMsg.content && 
+               serverMsg.sender?.name === localMsg.sender?.name &&
+               Math.abs(new Date(serverMsg.timestamp).getTime() - messageTime) < 10000)
+            );
+            
+            // Keep if it's recent AND not on server (likely pending WebSocket message)
+            return isRecent && !existsOnServer;
+          });
+          
+          console.log(`🔄 Refresh: keeping ${recentLocalMessages.length} recent local messages, merging with ${serverMessages.length} server messages`);
+          
+          // Merge server messages with recent local messages
+          const mergedMessages = [...serverMessages, ...recentLocalMessages];
+          
+          // Remove duplicates and sort by timestamp
+          const uniqueMessages = mergedMessages.filter((msg, index, array) => 
+            array.findIndex(m => 
+              m.id === msg.id || 
+              (m.content === msg.content && 
+               m.sender?.name === msg.sender?.name &&
+               Math.abs(new Date(m.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 5000)
+            ) === index
+          );
+          
+          return uniqueMessages.sort((a, b) => 
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          );
+        });
       }
     } catch (err) {
       console.warn('Error refreshing chat:', err);
@@ -816,17 +909,20 @@ const BroadcastScreen: React.FC = () => {
             </View>
           </View>
           
-          {/* Connection Status */}
-          <View className="flex-row items-center">
-            <View className={`w-2 h-2 rounded-full mr-2 ${
-              isWebSocketConnected ? 'bg-green-500' : 'bg-orange-500'
-            }`} />
-            <Text className={`text-xs font-medium ${
-              isWebSocketConnected ? 'text-green-600' : 'text-orange-600'
-            }`}>
-              {isWebSocketConnected ? 'Live' : 'Sync'}
-            </Text>
-          </View>
+                      {/* Connection Status */}
+            <View className="flex-row items-center">
+              {isRefreshingChat && (
+                <ActivityIndicator size="small" color="#3B82F6" className="mr-2" />
+              )}
+              <View className={`w-2 h-2 rounded-full mr-2 ${
+                isWebSocketConnected && useWebSocketMode ? 'bg-green-500' : 'bg-orange-500'
+              }`} />
+              <Text className={`text-xs font-medium ${
+                isWebSocketConnected && useWebSocketMode ? 'text-green-600' : 'text-orange-600'
+              }`}>
+                {isRefreshingChat ? 'Syncing...' : (isWebSocketConnected && useWebSocketMode ? 'Live' : 'Sync')}
+              </Text>
+            </View>
         </View>
       </View>
 

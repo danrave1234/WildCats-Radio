@@ -34,11 +34,26 @@ class WebSocketManager implements WebSocketService {
   private connectionMonitorInterval: any = null;
 
   connect(broadcastId: number, authToken: string): void {
+    // Don't reconnect if already connected to the same broadcast
+    if (this.stompClient && this.stompClient.connected && 
+        this.currentBroadcastId === broadcastId && 
+        this.currentAuthToken === authToken) {
+      console.log('✅ Already connected to broadcast:', broadcastId);
+      this.connectHandlers.forEach(handler => handler());
+      return;
+    }
+    
+    // Disconnect any existing connection
+    if (this.stompClient && this.stompClient.connected) {
+      console.log('🔄 Disconnecting existing connection before connecting to new broadcast');
+      this.disconnect();
+    }
+    
     this.currentBroadcastId = broadcastId;
     this.currentAuthToken = authToken;
     
     console.log('🔄 Attempting STOMP connection to broadcast:', broadcastId);
-    console.log('🔗 WebSocket URL: http://192.168.5.60:8080/ws-radio');
+    console.log('🔗 WebSocket URL: https://wildcat-radio-f05d362144e6.autoidleapp.com/ws-radio');
     console.log('🔑 Auth token present:', !!authToken);
     
     try {
@@ -48,9 +63,9 @@ class WebSocketManager implements WebSocketService {
         // For development, try different URLs based on platform
         if (__DEV__) {
           // Try the same IP as your API service first
-          return 'http://192.168.5.60:8080/ws-radio';
+          return 'https://wildcat-radio-f05d362144e6.autoidleapp.com/ws-radio';
         }
-        return 'http://192.168.5.60:8080/ws-radio';
+        return 'https://wildcat-radio-f05d362144e6.autoidleapp.com/ws-radio';
       };
       
       const wsUrl = getWebSocketUrl();
@@ -242,19 +257,31 @@ class WebSocketManager implements WebSocketService {
   }
 
   onMessage(callback: (message: WebSocketMessage) => void): void {
-    this.messageHandlers.push(callback);
+    // Prevent duplicate handlers
+    if (!this.messageHandlers.includes(callback)) {
+      this.messageHandlers.push(callback);
+    }
   }
 
   onConnect(callback: () => void): void {
-    this.connectHandlers.push(callback);
+    // Prevent duplicate handlers
+    if (!this.connectHandlers.includes(callback)) {
+      this.connectHandlers.push(callback);
+    }
   }
 
   onDisconnect(callback: () => void): void {
-    this.disconnectHandlers.push(callback);
+    // Prevent duplicate handlers
+    if (!this.disconnectHandlers.includes(callback)) {
+      this.disconnectHandlers.push(callback);
+    }
   }
 
   onError(callback: (error: Event) => void): void {
-    this.errorHandlers.push(callback);
+    // Prevent duplicate handlers
+    if (!this.errorHandlers.includes(callback)) {
+      this.errorHandlers.push(callback);
+    }
   }
 
   // Clean up handlers
