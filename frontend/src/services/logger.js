@@ -6,6 +6,8 @@
  * for different environments (development, production, etc.).
  */
 
+import { useLocalBackend } from '../config';
+
 // Log levels with priority values
 const LOG_LEVELS = {
   ERROR: { name: 'ERROR', priority: 0, color: '#ff4444' },
@@ -18,18 +20,18 @@ const LOG_LEVELS = {
 class Logger {
   constructor() {
     // Set default log level based on environment
-    this.currentLogLevel = process.env.NODE_ENV === 'production' 
+    this.currentLogLevel = !useLocalBackend 
       ? LOG_LEVELS.ERROR.priority 
       : LOG_LEVELS.DEBUG.priority;
-    
+
     // Configuration options
     this.config = {
       enableTimestamp: true,
       enablePrefix: true,
-      enableColors: process.env.NODE_ENV !== 'production',
-      enableStackTrace: process.env.NODE_ENV !== 'production'
+      enableColors: useLocalBackend,
+      enableStackTrace: useLocalBackend
     };
-    
+
     // Context for tracking component/module information
     this.context = null;
   }
@@ -69,21 +71,21 @@ class Logger {
    */
   formatMessage(level, message, data) {
     const parts = [];
-    
+
     if (this.config.enableTimestamp) {
       parts.push(`[${new Date().toISOString()}]`);
     }
-    
+
     if (this.config.enablePrefix) {
       parts.push(`[${level}]`);
     }
-    
+
     if (this.context) {
       parts.push(`[${this.context}]`);
     }
-    
+
     parts.push(message);
-    
+
     return {
       formatted: parts.join(' '),
       data: data
@@ -99,7 +101,7 @@ class Logger {
     if (!this.config.enableColors || typeof window === 'undefined') {
       return [message];
     }
-    
+
     return [
       `%c${message}`,
       `color: ${color}; font-weight: bold;`
@@ -114,13 +116,13 @@ class Logger {
    */
   log(level, message, ...data) {
     const logLevel = LOG_LEVELS[level];
-    
+
     if (!logLevel || logLevel.priority > this.currentLogLevel) {
       return; // Skip if log level is below threshold
     }
-    
-    const { formatted, data: additionalData } = this.formatMessage(level, message, data);
-    
+
+    const { formatted } = this.formatMessage(level, message, data);
+
     // Choose appropriate console method
     let consoleMethod;
     switch (level) {
@@ -137,9 +139,9 @@ class Logger {
       default:
         consoleMethod = console.log;
     }
-    
+
     // Apply styling and log
-    if (this.config.enableColors && process.env.NODE_ENV !== 'production') {
+    if (this.config.enableColors && useLocalBackend) {
       const [styledMessage, style] = this.applyStyles(formatted, logLevel.color);
       if (data.length > 0) {
         consoleMethod(styledMessage, style, ...data);
@@ -153,20 +155,18 @@ class Logger {
         consoleMethod(formatted);
       }
     }
-    
+
     // In production, you might want to send logs to a remote service
-    if (process.env.NODE_ENV === 'production' && level === 'ERROR') {
-      this.sendToRemoteLoggingService(level, message, data);
+    if (!useLocalBackend && level === 'ERROR') {
+      this.sendToRemoteLoggingService();
     }
   }
 
   /**
    * Send error logs to remote logging service (placeholder for production)
-   * @param {string} level - Log level
-   * @param {string} message - Error message
-   * @param {any} data - Error data
+   * This is a placeholder method for future implementation
    */
-  sendToRemoteLoggingService(level, message, data) {
+  sendToRemoteLoggingService() {
     // Placeholder for remote logging service integration
     // This could integrate with services like Sentry, LogRocket, DataDog, etc.
     try {
@@ -175,9 +175,9 @@ class Logger {
       //   method: 'POST',
       //   headers: { 'Content-Type': 'application/json' },
       //   body: JSON.stringify({
-      //     level,
-      //     message,
-      //     data,
+      //     level: 'ERROR', // Since this is only called for ERROR level
+      //     message: 'Error message', // Would need to capture this from the log method
+      //     data: [], // Would need to capture this from the log method
       //     timestamp: new Date().toISOString(),
       //     context: this.context,
       //     userAgent: navigator.userAgent,
@@ -191,7 +191,7 @@ class Logger {
   }
 
   // Public logging methods
-  
+
   /**
    * Log error messages - always shown in production
    * @param {string} message - Error message
