@@ -88,7 +88,9 @@ public class GoogleCloudConfig {
      * Get the complete Icecast server URL
      */
     public String getIcecastServerUrl() {
-        return "http://" + icecastHost + ":" + icecastPort;
+        // Use HTTPS for port 443, HTTP for other ports
+        String protocol = (icecastPort == 443) ? "https" : "http";
+        return protocol + "://" + icecastHost + ":" + icecastPort;
     }
 
     /**

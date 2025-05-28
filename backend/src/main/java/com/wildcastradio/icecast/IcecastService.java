@@ -118,7 +118,9 @@ public class IcecastService {
      * @return URL for the Google Cloud Icecast server
      */
     public String getIcecastUrl() {
-        return "http://" + icecastHost + ":" + icecastPort;
+        // Use HTTPS for port 443, HTTP for other ports
+        String protocol = (icecastPort == 443) ? "https" : "http";
+        return protocol + "://" + icecastHost + ":" + icecastPort;
     }
 
     /**

@@ -67,8 +67,7 @@ const ProfileScreen: React.FC = () => {
 
   // States for Personal Information Edit Form
   const [isEditingPersonalInfo, setIsEditingPersonalInfo] = useState(false);
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
@@ -135,8 +134,8 @@ const ProfileScreen: React.FC = () => {
         setUserData(null);
       } else {
         setUserData(data);
-        setFirstName(data.firstName || (data.fullName || data.name || '').split(' ')[0] || '');
-        setLastName(data.lastName || (data.fullName || data.name || '').split(' ').slice(1).join(' ') || '');
+        // Use the name field from the backend
+        setFullName(data.name || '');
         setEmail(data.email || '');
       }
     } catch (apiError: any) {
@@ -163,7 +162,12 @@ const ProfileScreen: React.FC = () => {
     if (!userData?.id || !authToken) return;
     setIsUpdatingProfile(true);
     setError(null);
-    const payload: UpdateUserProfilePayload = { firstName, lastName };
+    
+    // Send the name directly to match backend's UserDTO structure
+    const payload: UpdateUserProfilePayload = { 
+      fullName: fullName.trim() 
+    };
+    
     const response = await updateUserProfile(userData.id, authToken, payload);
     setIsUpdatingProfile(false);
     if (response.error) {
@@ -216,16 +220,9 @@ const ProfileScreen: React.FC = () => {
             <Text className="text-2xl font-semibold text-cordovan mb-8">Edit Personal Information</Text>
           <View className={formVerticalSpacing}>
             <AnimatedTextInput
-              label="First Name"
-              value={firstName}
-              onChangeText={setFirstName}
-              editable={!isUpdatingProfile}
-              autoCapitalize="words"
-            />
-            <AnimatedTextInput
-              label="Last Name"
-              value={lastName}
-              onChangeText={setLastName}
+              label="Full Name"
+              value={fullName}
+              onChangeText={setFullName}
               editable={!isUpdatingProfile}
               autoCapitalize="words"
             />
@@ -308,16 +305,8 @@ const ProfileScreen: React.FC = () => {
             <View className="flex-row items-center py-4 border-b border-gray-200">
               <Ionicons name="person-outline" size={22} color="#8C1D18" className="mr-4" />
               <View>
-                <Text className="text-sm text-cordovan font-medium">FIRST NAME</Text>
-                <Text className="text-lg text-gray-800 mt-0.5">{userData?.firstName || firstName || 'N/A'}</Text>
-              </View>
-            </View>
-
-            <View className="flex-row items-center py-4 border-b border-gray-200">
-              <Ionicons name="person-outline" size={22} color="#8C1D18" className="mr-4" />
-              <View>
-                <Text className="text-sm text-cordovan font-medium">LAST NAME</Text>
-                <Text className="text-lg text-gray-800 mt-0.5">{userData?.lastName || lastName || 'N/A'}</Text>
+                <Text className="text-sm text-cordovan font-medium">FULL NAME</Text>
+                <Text className="text-lg text-gray-800 mt-0.5">{fullName || 'N/A'}</Text>
               </View>
             </View>
 
@@ -422,17 +411,27 @@ const ProfileScreen: React.FC = () => {
         <Ionicons name="cloud-offline-outline" size={64} color="#7F1D1D" /> 
         <Text className="text-2xl font-semibold text-gray-800 mt-6 mb-2">Unable to Load Profile</Text>
         <Text className="text-gray-600 mb-8 text-base leading-relaxed">{error}</Text>
-        <TouchableOpacity 
-            className="bg-cordovan py-3 px-8 rounded-lg shadow-md hover:bg-opacity-90"
-            onPress={() => fetchUserData()}
-        >
-             <Text className="text-white font-semibold text-base">Try Again</Text>
-        </TouchableOpacity>
+        
+        <View className="w-full max-w-sm space-y-4">
+          <TouchableOpacity 
+              className="bg-cordovan py-3 px-8 rounded-lg shadow-md hover:bg-opacity-90"
+              onPress={() => fetchUserData()}
+          >
+               <Text className="text-white font-semibold text-base text-center">Try Again</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+              className="bg-mikado_yellow py-3 px-8 rounded-lg shadow-md hover:bg-opacity-90"
+              onPress={handleLogout}
+          >
+               <Text className="text-black font-semibold text-base text-center">Go Back to Welcome</Text>
+          </TouchableOpacity>
+        </View>
       </SafeAreaView>
     );
   }
   
-  const currentDisplayName = userData?.fullName || userData?.name || 'User Name';
+  const currentDisplayName = userData?.name || 'User Name';
   const memberSinceText = userData?.memberSince || `Listener since ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
 
   return (
@@ -456,46 +455,74 @@ const ProfileScreen: React.FC = () => {
       </View>
 
       {/* Tab Navigation - below fixed header, above scrollable content */}
-      <View className="flex-row bg-white border-b border-gray-200 shadow-sm relative">
-        {tabDefinitions.map((tabDef, index) => (
-          <Pressable
-            key={tabDef.key}
-            onLayout={(event) => {
-              const { x, width } = event.nativeEvent.layout;
-              setTabLayouts((prev) => ({
-                ...prev,
-                [tabDef.key]: { x, width },
-              }));
-            }}
-            style={({ pressed }) => [
-                { opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1 },
-            ]}
-            className={`flex-1 items-center justify-center py-3 flex-row`}
-            onPress={() => handleTabPress(tabDef.key)} // Use new handler
-            android_ripple={{ color: 'rgba(0,0,0,0.05)' }} 
-          >
-            <Ionicons 
-                name={tabDef.icon}
-                size={20}
-                color={activeTab === tabDef.key ? '#8C1D18' : (Platform.OS === 'ios' ? '#6b7280' : '#4B5563')}
-            />
-            <Text
-              className={`ml-1.5 text-sm ${ 
-                activeTab === tabDef.key ? 'font-semibold text-cordovan' : 'text-gray-600'
-              }`}
+      <View 
+        className="bg-white border-b border-gray-200 relative shadow-sm"
+        style={{
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.05,
+          shadowRadius: 4,
+          elevation: 3,
+        }}
+      >
+        <View 
+          className="flex-row py-4 px-2"
+        >
+          {tabDefinitions.map((tabDef, index) => (
+            <View 
+              key={tabDef.key}
+              className="flex-1 px-1"
+              onLayout={(event) => {
+                const { x, width } = event.nativeEvent.layout;
+                // Use actual measured position from the parent container
+                setTabLayouts((prev) => ({
+                  ...prev,
+                  [tabDef.key]: { x: x + 4, width: width - 8 }, // Account for px-1 padding
+                }));
+              }}
             >
-              {tabDef.name}
-            </Text>
-          </Pressable>
-        ))}
-        {/* Animated Underline */} 
+              <Pressable
+                style={({ pressed }) => [
+                  { 
+                    opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1,
+                  },
+                ]}
+                className={`items-center justify-center py-3 px-2 flex-row rounded-2xl min-h-[44px] ${
+                  activeTab === tabDef.key ? 'bg-cordovan/10' : 'bg-transparent'
+                }`}
+                onPress={() => handleTabPress(tabDef.key)}
+                android_ripple={{ color: 'rgba(0,0,0,0.05)' }}
+              >
+                <Ionicons
+                  name={tabDef.icon}
+                  size={18}
+                  color={activeTab === tabDef.key ? '#91403E' : '#6B7280'}
+                />
+                <Text
+                  className={`ml-1.5 text-xs font-semibold ${
+                    activeTab === tabDef.key ? 'text-cordovan' : 'text-gray-600'
+                  }`}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                >
+                  {tabDef.name}
+                </Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+        
+        {/* Animated Underline */}
         <Animated.View
           style={{
             position: 'absolute',
             bottom: 0,
-            height: 3, 
-            backgroundColor: '#B5830F', // Changed to Mikado Yellow
-            transform: [{ translateX: underlinePosition }],
+            height: 4,
+            backgroundColor: '#B5830F',
+            borderTopLeftRadius: 2,
+            borderTopRightRadius: 2,
+            left: underlinePosition,
             width: underlineWidth,
           }}
         />
