@@ -21,11 +21,10 @@ const getProtocol = (forWebSocket = false, host = '') => {
 // Environment variables should NOT include protocols as specified in .env comments
 const constructUrl = (envVar, fallbackHost, fallbackPath = '', forWebSocket = false) => {
   // Check if we should use localhost instead of the deployed backend
-  // Force useLocalBackend to true to ensure we're using the local backend
-  const useLocalBackend = true; // Override the environment variable
+  // Get value from environment variable (string 'true' or 'false')
+  const useLocalBackend = import.meta.env.VITE_USE_LOCAL_BACKEND === 'true';
   console.log('Environment variable VITE_USE_LOCAL_BACKEND:', import.meta.env.VITE_USE_LOCAL_BACKEND);
-  console.log('Using forced local backend setting');
-
+  
   // If using local backend, override the host for API and WebSocket (but not Icecast)
   let host;
   if (useLocalBackend && !envVar.includes('ICECAST_URL')) {

@@ -10,7 +10,19 @@ import SockJS from 'sockjs-client';
 import { Stomp } from '@stomp/stompjs';
 
 const AnalyticsContext = createContext();
-const API_BASE_URL = 'http://localhost:8080';
+
+// Get the proper WebSocket URL from environment variables
+const getWsUrl = () => {
+  const useLocalBackend = import.meta.env.VITE_USE_LOCAL_BACKEND === 'true';
+  if (useLocalBackend) {
+    return 'http://localhost:8080/ws-radio';
+  } else {
+    // Determine if current site is using HTTPS
+    const isSecure = window.location.protocol === 'https:';
+    const protocol = isSecure ? 'https:' : 'http:';
+    return `${protocol}//wildcat-radio-f05d362144e6.autoidleapp.com/ws-radio`;
+  }
+};
 
 export function useAnalytics() {
   const context = useContext(AnalyticsContext);
@@ -88,7 +100,7 @@ export function AnalyticsProvider({ children }) {
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
       // Create WebSocket connection with factory function for proper auto-reconnect support
-      const stompClient = Stomp.over(() => new SockJS(`${API_BASE_URL}/ws-radio`));
+      const stompClient = Stomp.over(() => new SockJS(getWsUrl()));
 
       // Enable auto-reconnect with 5 second delay
       stompClient.reconnect_delay = 5000;
