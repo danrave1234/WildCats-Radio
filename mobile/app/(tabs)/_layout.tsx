@@ -45,19 +45,19 @@ export default function TabLayout() {
   return (
     <NotificationContext.Provider value={{ isNotificationOpen, setIsNotificationOpen }}>
       <BroadcastContext.Provider value={{ isBroadcastListening, setIsBroadcastListening }}>
-        <Tabs
+    <Tabs
           tabBar={(props) => <CustomTabBar {...props} isNotificationOpen={isNotificationOpen} isBroadcastListening={isBroadcastListening} />}
-          screenOptions={{
-            headerShown: true,
+      screenOptions={{
+        headerShown: true,
             header: () => <CustomHeader onNotificationStateChange={handleNotificationStateChange} />,
-          }}
-        >
-          <Tabs.Screen name="home" />
-          <Tabs.Screen name="list" />
-          <Tabs.Screen name="broadcast" />
-          <Tabs.Screen name="schedule" />
-          <Tabs.Screen name="profile" />
-        </Tabs>
+      }}
+    >
+      <Tabs.Screen name="home" />
+      <Tabs.Screen name="list" />
+      <Tabs.Screen name="broadcast" />
+      <Tabs.Screen name="schedule" />
+      <Tabs.Screen name="profile" />
+    </Tabs>
       </BroadcastContext.Provider>
     </NotificationContext.Provider>
   );
