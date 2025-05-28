@@ -12,6 +12,7 @@ import {
   CheckIcon,
   ClockIcon,
   ExclamationTriangleIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/solid"
 import { 
   ChatBubbleLeftRightIcon,
@@ -20,7 +21,6 @@ import {
   PaperAirplaneIcon,
   UserIcon,
   HeartIcon,
-  XMarkIcon,
 } from "@heroicons/react/24/outline"
 import { streamService, broadcastService, authService, chatService, songRequestService, pollService } from "../services/api"
 import { useAuth } from "../context/AuthContext"
@@ -684,6 +684,30 @@ export default function DJDashboard() {
     } catch (error) {
       logger.error("Error stopping broadcast:", error)
       setStreamError(`Error stopping broadcast: ${error.message}`)
+    }
+  }
+
+  const cancelBroadcast = async () => {
+    if (!currentBroadcast) {
+      setStreamError("No broadcast instance found")
+      return
+    }
+
+    try {
+      setStreamError(null)
+      logger.debug("Canceling broadcast:", currentBroadcast.id)
+      
+      // Delete the broadcast from the backend
+      await broadcastService.delete(currentBroadcast.id)
+      
+      // Reset state back to create new broadcast
+      setCurrentBroadcast(null)
+      setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
+      
+      logger.debug("Broadcast canceled successfully")
+    } catch (error) {
+      logger.error("Error canceling broadcast:", error)
+      setStreamError(error.response?.data?.message || "Failed to cancel broadcast")
     }
   }
 
@@ -1559,8 +1583,16 @@ export default function DJDashboard() {
                 <AudioSourceSelector />
               </div>
 
-              {/* Go Live Button */}
-              <div className="flex justify-center">
+              {/* Action Buttons */}
+              <div className="flex justify-center space-x-4">
+                <button
+                  onClick={cancelBroadcast}
+                  className="flex items-center px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors font-medium"
+                >
+                  <XMarkIcon className="h-5 w-5 mr-2" />
+                  Cancel Broadcast
+                </button>
+                
                 <button
                   onClick={startBroadcast}
                   disabled={!serverConfig}
