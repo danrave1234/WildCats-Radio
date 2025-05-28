@@ -1,11 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, TouchableOpacity, Platform, Animated, Easing, Image, Dimensions, Text, ScrollView } from 'react-native';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { View, TouchableOpacity, Platform, Animated, Easing, Image, Dimensions, Text, ScrollView, StatusBar, InteractionManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useNotifications } from '../../context/NotificationContext';
 import { NotificationDTO } from '../../services/apiService';
 import { formatDistanceToNow } from 'date-fns';
+import OptimizedNotificationScreen from './OptimizedNotificationScreen';
 
 interface CustomHeaderProps {
   showBackButton?: boolean;
@@ -23,7 +24,7 @@ const notificationTabs = [
 ] as const;
 type NotificationTabKey = typeof notificationTabs[number]['key'];
 
-const CustomHeader = ({ 
+const CustomHeader = React.memo(({ 
   showBackButton = false, 
   onBackPress, 
   showNotification = true,
@@ -32,15 +33,25 @@ const CustomHeader = ({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [showNotificationScreen, setShowNotificationScreen] = useState(false);
+  const [isNotificationAnimating, setIsNotificationAnimating] = useState(false);
   
-  // Use real notifications from context
+  // Destructure context with all debug functions
   const { 
     notifications, 
     unreadCount, 
     isConnected, 
+    isLoading,
+    isLoadingMore,
+    hasMore,
+    totalCount,
+    fetchNotifications, 
+    loadMoreNotifications,
     markAsRead, 
-    markAllAsRead: markAllAsReadContext, 
-    fetchNotifications 
+    markAllAsRead: markAllAsReadContext,
+    fetchNotificationsWithUnreadPriority,
+    forceRefresh,
+    debugNotifications,
+    manualTestFetch,
   } = useNotifications();
   
   const anim = {
@@ -52,86 +63,156 @@ const CustomHeader = ({
   const logoTranslateX = useRef(new Animated.Value(0)).current;
   const logoScale = useRef(new Animated.Value(1)).current;
   
-  // Notification screen animation references
-  const notificationTranslateY = useRef(new Animated.Value(-SCREEN_HEIGHT)).current;
-  const notificationOpacity = useRef(new Animated.Value(0)).current;
-  const overlayOpacity = useRef(new Animated.Value(0)).current;
-
-  // Shaking animation for notification icon
+  // Optimized notification icon animation - reduced complexity
   const shakeAnimation = useRef(new Animated.Value(0)).current;
-  // Wave effect for notification icon
   const waveScale = useRef(new Animated.Value(0)).current;
   const waveOpacity = useRef(new Animated.Value(0)).current;
   
   // Track if we're in the middle of a back animation
   const isAnimatingBack = useRef(false);
+  const animationTimer = useRef<NodeJS.Timeout | null>(null);
 
   const [selectedTab, setSelectedTab] = useState<NotificationTabKey>('all');
 
-  useEffect(() => {
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+  // Memoized helper functions to prevent recreations
+  const getNotificationIcon = useCallback((type: string) => {
+    switch (type) {
+      case 'BROADCAST_SCHEDULED':
+      case 'BROADCAST_STARTING_SOON':
+      case 'BROADCAST_STARTED':
+      case 'BROADCAST_ENDED':
+      case 'NEW_BROADCAST_POSTED':
+        return 'radio-outline';
+      case 'SONG_REQUEST':
+        return 'musical-notes-outline';
+      case 'POLL_CREATED':
+      case 'POLL_RESULTS':
+        return 'stats-chart-outline';
+      case 'USER_REGISTERED':
+        return 'person-outline';
+      case 'GENERAL':
+      case 'WELCOME':
+        return 'heart-outline';
+      default:
+        return 'notifications-outline';
+    }
+  }, []);
 
-    if (unreadCount > 0) {
-      const animateShakeAndWave = () => {
+  const getNotificationTitle = useCallback((type: string) => {
+    switch (type) {
+      case 'BROADCAST_SCHEDULED':
+        return 'Broadcast Scheduled';
+      case 'BROADCAST_STARTING_SOON':
+        return 'Show Starting Soon!';
+      case 'BROADCAST_STARTED':
+        return 'Live Now!';
+      case 'BROADCAST_ENDED':
+        return 'Show Ended';
+      case 'NEW_BROADCAST_POSTED':
+        return 'New Show Posted';
+      case 'SONG_REQUEST':
+        return 'Song Request';
+      case 'POLL_CREATED':
+        return 'New Poll';
+      case 'POLL_RESULTS':
+        return 'Poll Results';
+      case 'USER_REGISTERED':
+        return 'Welcome!';
+      case 'GENERAL':
+        return 'Notification';
+      default:
+        return 'Update';
+    }
+  }, []);
+
+  // Optimized animation with throttling and reduced complexity
+  const animateNotificationIcon = useCallback(() => {
+    if (unreadCount <= 0) return;
+
+    // Clear any existing animation timer
+    if (animationTimer.current) {
+      clearTimeout(animationTimer.current);
+    }
+
+    // Use InteractionManager to ensure animations don't block user interactions
+    InteractionManager.runAfterInteractions(() => {
         // Reset animations
         shakeAnimation.setValue(0);
         waveScale.setValue(0);
-        waveOpacity.setValue(0.5); // Start with some opacity for the wave
+      waveOpacity.setValue(0.3); // Reduced opacity for performance
 
+      // Simplified animation sequence
         Animated.parallel([
-          // Shaking animation
+        // Reduced shake animation complexity
           Animated.sequence([
-            Animated.timing(shakeAnimation, { toValue: 1, duration: 70, useNativeDriver: true, easing: Easing.linear }),
-            Animated.timing(shakeAnimation, { toValue: -1, duration: 70, useNativeDriver: true, easing: Easing.linear }),
-            Animated.timing(shakeAnimation, { toValue: 1, duration: 70, useNativeDriver: true, easing: Easing.linear }),
-            Animated.timing(shakeAnimation, { toValue: 0, duration: 70, useNativeDriver: true, easing: Easing.linear }),
-          ]),
-          // Wave animation
-          Animated.sequence([
-            Animated.timing(waveScale, {
+          Animated.timing(shakeAnimation, { 
               toValue: 1,
-              duration: 400, // Wave expands over a longer period
+            duration: 50, // Reduced duration
+            useNativeDriver: true, 
+            easing: Easing.linear 
+          }),
+          Animated.timing(shakeAnimation, { 
+            toValue: -1, 
+            duration: 50, 
+            useNativeDriver: true, 
+            easing: Easing.linear 
+          }),
+          Animated.timing(shakeAnimation, { 
+            toValue: 0, 
+            duration: 50, 
               useNativeDriver: true,
-              easing: Easing.out(Easing.quad), // Ease out for a natural expansion
+            easing: Easing.linear 
             }),
           ]),
-          Animated.sequence([
-            Animated.timing(waveOpacity, { // Fade out the wave
-              toValue: 0,
-              duration: 450, // Slightly longer to ensure it fades after full scale
+        // Simplified wave animation
+        Animated.timing(waveScale, {
+          toValue: 1,
+          duration: 300, // Reduced duration
               useNativeDriver: true,
               easing: Easing.out(Easing.quad),
             }),
-          ])
+        Animated.timing(waveOpacity, {
+          toValue: 0,
+          duration: 350,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.quad),
+        })
         ]).start();
-      };
-      
-      animateShakeAndWave(); // Initial animation
-      intervalId = setInterval(animateShakeAndWave, 2000);
-    }
+    });
 
-    return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
+    // Set a longer interval to reduce frequency (every 5 seconds instead of 2)
+    animationTimer.current = setTimeout(animateNotificationIcon, 5000) as unknown as NodeJS.Timeout;
+  }, [unreadCount, shakeAnimation, waveScale, waveOpacity]);
+
+  // Throttled effect for notification icon animation
+  useEffect(() => {
+    if (unreadCount > 0) {
+      animateNotificationIcon();
+    } else {
+      // Clear animation timer when no unread notifications
+      if (animationTimer.current) {
+        clearTimeout(animationTimer.current);
+        animationTimer.current = null;
       }
+      // Reset animation values
       shakeAnimation.setValue(0); 
       waveScale.setValue(0);
       waveOpacity.setValue(0);
+    }
+
+    return () => {
+      if (animationTimer.current) {
+        clearTimeout(animationTimer.current);
+        animationTimer.current = null;
+      }
     };
-  }, [unreadCount, shakeAnimation, waveScale, waveOpacity]);
+  }, [unreadCount, animateNotificationIcon]);
 
   // Handle notification screen animation when state changes
   useEffect(() => {
     if (showNotificationScreen) {
-      // Reset animation values to starting position
-      notificationTranslateY.setValue(-SCREEN_HEIGHT);
-      notificationOpacity.setValue(0);
-      overlayOpacity.setValue(0);
-      
-      // Start animation after a small delay to ensure component is mounted
-      setTimeout(() => {
-        animateNotificationIn();
-      }, 16); // One frame delay (16ms)
+      // The OptimizedNotificationScreen handles its own animations now
+      console.log('📱 Notification screen is now visible');
     }
   }, [showNotificationScreen]);
 
@@ -188,7 +269,8 @@ const CustomHeader = ({
     }
   }, [showBackButton, anim, logoTranslateX, logoScale]);
 
-  const handleBack = () => {
+  // Handle back press animation
+  const handleBack = useCallback(() => {
     // When back is pressed, set animating flag to prevent conflicts
     isAnimatingBack.current = true;
     
@@ -220,90 +302,71 @@ const CustomHeader = ({
       // Call onBackPress immediately
       onBackPress();
     } else {
-      // Only animate if we're using the default back behavior
-    Animated.parallel([
-      Animated.timing(anim.opacity, {
-        toValue: 0, duration: 300, easing: Easing.in(Easing.cubic), useNativeDriver: true
-      }),
-      Animated.timing(anim.y, {
-        toValue: -20, duration: 300, easing: Easing.in(Easing.cubic), useNativeDriver: true
-      })
-      ]).start(() => {
-        router.back();
-        // Reset animating flag when complete
+      // Reset animating flag
         isAnimatingBack.current = false;
-      });
     }
-  };
+  }, [onBackPress, anim, logoTranslateX, logoScale]);
 
-  const handleNotificationPress = () => {
-    if (showNotificationScreen) {
-      // Close notification screen
-      animateNotificationOut();
-      onNotificationStateChange?.(false);
-    } else {
-      // Open notification screen - animation will be handled by useEffect
-      setShowNotificationScreen(true);
-      onNotificationStateChange?.(true);
+  // Optimized notification handlers
+  const handleNotificationPress = useCallback(() => {
+    // Prevent rapid taps while screen is transitioning
+    if (isNotificationAnimating) {
+      console.log('🚫 Notification press ignored - animation in progress');
+      return;
     }
-  };
-
-  const animateNotificationIn = () => {
-    Animated.parallel([
-      Animated.timing(notificationTranslateY, {
-        toValue: 0,
-        duration: 250, // Match tab bar hide duration exactly
-        easing: Easing.out(Easing.cubic), // Same easing as tab bar
-        useNativeDriver: true,
-      }),
-      Animated.timing(notificationOpacity, {
-        toValue: 1,
-        duration: 250, // Match the translateY duration
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(overlayOpacity, {
-        toValue: 0.5,
-        duration: 250, // Match main animation for perfect sync
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-
-  const animateNotificationOut = () => {
-    Animated.parallel([
-      Animated.timing(notificationTranslateY, {
-        toValue: -SCREEN_HEIGHT,
-        duration: 350, // Match tab bar show duration exactly
-        easing: Easing.out(Easing.cubic), // Same easing as tab bar for consistency
-        useNativeDriver: true,
-      }),
-      Animated.timing(notificationOpacity, {
-        toValue: 0,
-        duration: 350, // Match the translateY duration
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(overlayOpacity, {
-        toValue: 0,
-        duration: 350, // Match main animation for perfect sync
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setShowNotificationScreen(false);
+    
+    console.log('🔔 CustomHeader: Notification icon pressed');
+    setIsNotificationAnimating(true);
+    
+    setShowNotificationScreen(prev => {
+      const newState = !prev;
+      console.log(`📱 Notification screen state changing: ${prev} → ${newState}`);
+      
+      if (onNotificationStateChange) {
+        onNotificationStateChange(newState);
+      }
+      return newState;
     });
-  };
+  }, [isNotificationAnimating, onNotificationStateChange]);
 
-  const handleMarkAsRead = (notificationId: number) => {
+  const handleNotificationClose = useCallback(() => {
+    console.log('🔔 CustomHeader: Notification screen closing');
+    setShowNotificationScreen(false);
+    if (onNotificationStateChange) {
+      onNotificationStateChange(false);
+    }
+  }, [onNotificationStateChange]);
+
+  const handleAnimationStart = useCallback(() => {
+    console.log('🎬 CustomHeader: Animation started');
+    setIsNotificationAnimating(true);
+  }, []);
+
+  const handleAnimationComplete = useCallback(() => {
+    console.log('✅ CustomHeader: Animation completed');
+    setIsNotificationAnimating(false);
+  }, []);
+
+  const handleMarkAsRead = useCallback((notificationId: number) => {
     markAsRead(notificationId);
-  };
+  }, [markAsRead]);
 
-  const handleMarkAllAsRead = () => {
+  const handleMarkAllAsRead = useCallback(() => {
     markAllAsReadContext();
-  };
+  }, [markAllAsReadContext]);
 
+  // Manual refresh function for debugging real-time issues
+  const handleManualRefresh = useCallback(async () => {
+    console.log('🔄 Manual refresh triggered');
+    try {
+      await fetchNotifications();
+      console.log('✅ Manual refresh completed');
+    } catch (error) {
+      console.error('❌ Manual refresh failed:', error);
+    }
+  }, [fetchNotifications]);
+
+  // Format notification time function
   const formatNotificationTime = (timestamp: string): string => {
     try {
       const date = new Date(timestamp);
@@ -313,64 +376,17 @@ const CustomHeader = ({
     }
   };
 
-  // Filter notifications based on selected tab
-  const filteredNotifications = notifications.filter((notification) => {
-    if (selectedTab === 'all') return true;
-    if (selectedTab === 'unread') return !notification.read;
-    if (selectedTab === 'read') return notification.read;
-    return true;
-  });
-
-  // Updated getNotificationIcon to use icons similar to @list.tsx
-  const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case 'BROADCAST_SCHEDULED':
-      case 'BROADCAST_STARTING_SOON':
-      case 'BROADCAST_STARTED':
-      case 'BROADCAST_ENDED':
-      case 'NEW_BROADCAST_POSTED':
-        return 'radio-outline';
-      case 'SONG_REQUEST':
-        return 'musical-notes-outline';
-      case 'POLL_CREATED':
-      case 'POLL_RESULTS':
-        return 'stats-chart-outline';
-      case 'USER_REGISTERED':
-        return 'person-outline';
-      case 'GENERAL':
-      case 'WELCOME':
-        return 'heart-outline';
+  // Memoized filtered notifications to prevent unnecessary re-computations
+  const filteredNotifications = useMemo(() => {
+    switch (selectedTab) {
+      case 'unread':
+        return notifications.filter(n => !n.read);
+      case 'read':
+        return notifications.filter(n => n.read);
       default:
-        return 'notifications-outline';
+        return notifications;
     }
-  };
-
-  const getNotificationTitle = (type: string) => {
-    switch (type) {
-      case 'BROADCAST_SCHEDULED':
-        return 'Broadcast Scheduled';
-      case 'BROADCAST_STARTING_SOON':
-        return 'Show Starting Soon!';
-      case 'BROADCAST_STARTED':
-        return 'Live Now!';
-      case 'BROADCAST_ENDED':
-        return 'Show Ended';
-      case 'NEW_BROADCAST_POSTED':
-        return 'New Show Posted';
-      case 'SONG_REQUEST':
-        return 'Song Request';
-      case 'POLL_CREATED':
-        return 'New Poll';
-      case 'POLL_RESULTS':
-        return 'Poll Results';
-      case 'USER_REGISTERED':
-        return 'Welcome!';
-      case 'GENERAL':
-        return 'Notification';
-      default:
-        return 'Update';
-    }
-  };
+  }, [notifications, selectedTab]);
 
   const conditionalShakeStyle = unreadCount > 0 ? {
     transform: [{
@@ -454,24 +470,53 @@ const CustomHeader = ({
         
         {/* Notification icon on right */}
         {showNotification ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>            
+            {/* Smart Refresh Button (combines priority + refresh) */}
+            <TouchableOpacity 
+              style={{ 
+                padding: 4, 
+                marginRight: 8,
+                backgroundColor: '#8B5CF6',
+                borderRadius: 4
+              }} 
+              activeOpacity={0.7}
+              onPress={fetchNotificationsWithUnreadPriority}
+            >
+              <Text style={{ fontSize: 8, fontWeight: 'bold', color: 'white' }}>SYNC</Text>
+            </TouchableOpacity>
+            
             <TouchableOpacity 
               style={{ padding: 8, marginTop: 6, position: 'relative' }} 
               activeOpacity={0.7}
               onPress={handleNotificationPress}
             >
               <View style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+                {/* Connection Status Indicator */}
+                <View style={{
+                  position: 'absolute',
+                  top: -4,
+                  left: -4,
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: isConnected ? '#10B981' : '#EF4444',
+                  borderWidth: 1,
+                  borderColor: 'white',
+                  zIndex: 3,
+                }} />
+                
                 {/* Wave Effect View */}
                 {unreadCount > 0 && (
                   <Animated.View
                     style={{
                       position: 'absolute',
-                      width: 40, // Initial size, same as icon container
-                      height: 40, // Initial size, same as icon container
-                      borderRadius: 20, // Make it a circle
-                      backgroundColor: '#FFD600', // Mikado Yellow
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: '#FFD600',
                       transform: [{ scale: waveScale }],
                       opacity: waveOpacity,
-                      zIndex: 0, // Behind the icon
+                      zIndex: 0,
                     }}
                   />
                 )}
@@ -495,8 +540,8 @@ const CustomHeader = ({
                 >
                   <Ionicons
                     name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
-                    size={24} // Icon size
-                    color={'#91403E'} // Cordovan color
+                    size={24}
+                    color={'#91403E'}
                   />
                   {unreadCount > 0 && (() => {
                     const badgeSize = 16;
@@ -507,8 +552,8 @@ const CustomHeader = ({
                       <View
                         style={{
                           position: 'absolute',
-                          top: -4, // Move badge above the bell
-                          right: -4, // Move badge to the right of the bell
+                          top: -4,
+                          right: -4,
                           width: badgeSize,
                           height: badgeSize,
                           backgroundColor: '#EF4444', 
@@ -525,7 +570,7 @@ const CustomHeader = ({
                             fontWeight: 'bold',
                             textAlign: 'center',
                             includeFontPadding: false, 
-                            paddingHorizontal: 1, // Small horizontal padding to help fit
+                            paddingHorizontal: 1,
                           }}
                           numberOfLines={1} 
                           adjustsFontSizeToFit
@@ -539,320 +584,38 @@ const CustomHeader = ({
                 </Animated.View>
               </View>
             </TouchableOpacity>
+          </View>
         ) : (
           <View style={{ width: 48 }} />
         )}
       </View>
     </View>
 
-      {/* Notification Screen Overlay */}
-      {showNotificationScreen && (
-        <>
-          {/* Background Overlay */}
-          <Animated.View
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'black',
-              opacity: overlayOpacity,
-              zIndex: 15,
-            }}
-            pointerEvents="auto"
-          >
-            <TouchableOpacity
-              style={{ flex: 1 }}
-              activeOpacity={1}
-              onPress={handleNotificationPress}
-            />
-          </Animated.View>
-
-          {/* Notification Screen */}
-          <Animated.View
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: SCREEN_HEIGHT,
-              backgroundColor: '#F5F5F7',
-              transform: [{ translateY: notificationTranslateY }],
-              opacity: notificationOpacity,
-              zIndex: 20,
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.3,
-              shadowRadius: 12,
-              elevation: 20,
-            }}
-          >
-            {/* Notification Header */}
-            <View style={{
-              paddingTop: Platform.OS === 'ios' ? insets.top + 20 : insets.top + 30,
-              paddingBottom: 16,
-              paddingHorizontal: 20,
-              backgroundColor: '#91403E',
-              borderBottomWidth: 1,
-              borderBottomColor: '#fff',
-            }}>
-              <View style={{
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={{
-                    color: 'white',
-                    fontSize: 24,
-                    fontWeight: 'bold',
-                    marginRight: 12,
-                  }}>
-                    Notifications
-                  </Text>
-                  {/* Mark all as read button at top beside title */}
-                  {unreadCount > 0 && (
-                    <TouchableOpacity
-                      onPress={handleMarkAllAsRead}
-                      style={{
-                        backgroundColor: 'rgba(255,255,255,0.2)',
-                        paddingHorizontal: 12,
-                        paddingVertical: 6,
-                        borderRadius: 16,
-                        marginLeft: 2,
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>
-                        Mark all as read
-                  </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-                <TouchableOpacity
-                  onPress={handleNotificationPress}
-                  style={{
-                    padding: 8,
-                    backgroundColor: 'rgba(255,255,255,0.2)',
-                    borderRadius: 20,
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="close" size={24} color="white" />
-                </TouchableOpacity>
-              </View>
-
-              {/* Tab-specific notification count below title */}
-              <View style={{ marginTop: 2 }}>
-                <Text style={{
-                  color: 'rgba(255,255,255,0.8)',
-                  fontSize: 14,
-                }}>
-                  {selectedTab === 'all' && `${notifications.length} notifications, ${notifications.filter(n => !n.read).length} unread, ${notifications.filter(n => n.read).length} read`}
-                  {selectedTab === 'unread' && `${notifications.filter(n => !n.read).length} unread notification${notifications.filter(n => !n.read).length !== 1 ? 's' : ''}`}
-                  {selectedTab === 'read' && `${notifications.filter(n => n.read).length} read notification${notifications.filter(n => n.read).length !== 1 ? 's' : ''}`}
-                </Text>
-              </View>
-
-              {/* Notification Tabs */}
-              <View style={{ flexDirection: 'row', marginTop: 16, marginBottom: 4, gap: 8 }}>
-                {notificationTabs.map(tab => (
-                  <TouchableOpacity
-                    key={tab.key}
-                    onPress={() => setSelectedTab(tab.key)}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      backgroundColor: selectedTab === tab.key ? '#fff' : 'rgba(255,255,255,0.12)',
-                      paddingHorizontal: 14,
-                      paddingVertical: 7,
-                      borderRadius: 16,
-                      marginRight: 8,
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons
-                      name={tab.icon as any}
-                      size={16}
-                      color={selectedTab === tab.key ? '#91403E' : '#fff'}
-                      style={{ marginRight: 6 }}
-                    />
-                    <Text style={{
-                      color: selectedTab === tab.key ? '#91403E' : '#fff',
-                      fontWeight: selectedTab === tab.key ? 'bold' : '600',
-                      fontSize: 13,
-                    }}>{tab.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Action Buttons */}
-              {notifications.length > 0 && (
-                <View style={{
-                  flexDirection: 'row',
-                  marginTop: 12,
-                  gap: 12,
-                }}>
-                  {unreadCount > 0 && (
-                    <TouchableOpacity
-                      onPress={handleMarkAllAsRead}
-                      style={{
-                        backgroundColor: 'rgba(255,255,255,0.2)',
-                        paddingHorizontal: 12,
-                        paddingVertical: 6,
-                        borderRadius: 16,
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>
-                        Mark all as read
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                  {isConnected && (
-                    <View style={{
-                      backgroundColor: 'rgba(0,255,0,0.2)',
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
-                      borderRadius: 16,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                    }}>
-                      <View style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: 3,
-                        backgroundColor: '#22C55E',
-                        marginRight: 6,
-                      }} />
-                      <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>
-                        Live
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              )}
-            </View>
-
-            {/* Notification List */}
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={{ paddingBottom: 20 }}
-              showsVerticalScrollIndicator={false}
-            >
-              {filteredNotifications.length === 0 ? (
-                <View style={{
-                  flex: 1,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  paddingVertical: 60,
-                }}>
-                  <Ionicons name="notifications-off-outline" size={64} color="#9CA3AF" />
-                  <Text style={{
-                    fontSize: 18,
-                    fontWeight: '600',
-                    color: '#6B7280',
-                    marginTop: 16,
-                  }}>
-                    No notifications
-                  </Text>
-                  <Text style={{
-                    fontSize: 14,
-                    color: '#9CA3AF',
-                    textAlign: 'center',
-                    marginTop: 8,
-                    paddingHorizontal: 40,
-                  }}>
-                    You're all caught up! New notifications will appear here.
-                  </Text>
-                </View>
-              ) : (
-                filteredNotifications.map((notification, index) => (
-                  <TouchableOpacity
-                    key={notification.id}
-                    style={{
-                      backgroundColor: notification.read ? 'white' : '#FEF3C7',
-                      marginHorizontal: 16,
-                      marginTop: index === 0 ? 16 : 8,
-                      padding: 16,
-                      borderRadius: 12,
-                      shadowColor: '#000',
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.1,
-                      shadowRadius: 4,
-                      elevation: 3,
-                      borderLeftWidth: 4,
-                      borderLeftColor: notification.read ? '#E5E7EB' : '#F59E0B',
-                    }}
-                    activeOpacity={0.7}
-                    onPress={() => handleMarkAsRead(notification.id)}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                      <View style={{
-                        backgroundColor: notification.read ? '#F3F4F6' : '#FBD38D',
-                        padding: 8,
-                        borderRadius: 20,
-                        marginRight: 12,
-                      }}>
-                        <Ionicons 
-                          name={getNotificationIcon(notification.type) as any} 
-                          size={20} 
-                          color={notification.read ? '#6B7280' : '#92400E'} 
-                        />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <View style={{
-                          flexDirection: 'row',
-                          justifyContent: 'space-between',
-                          alignItems: 'flex-start',
-                          marginBottom: 4,
-                        }}>
-                          <Text style={{
-                            fontSize: 16,
-                            fontWeight: '600',
-                            color: '#1F2937',
-                            flex: 1,
-                          }}>
-                            {getNotificationTitle(notification.type)}
-                          </Text>
-                          {!notification.read && (
-                            <View style={{
-                              width: 8,
-                              height: 8,
-                              borderRadius: 4,
-                              backgroundColor: '#F59E0B',
-                              marginLeft: 8,
-                              marginTop: 4,
-                            }} />
-                          )}
-                        </View>
-                        <Text style={{
-                          fontSize: 14,
-                          color: '#6B7280',
-                          lineHeight: 20,
-                          marginBottom: 8,
-                        }}>
-                          {notification.message}
-                        </Text>
-                        <Text style={{
-                          fontSize: 12,
-                          color: '#9CA3AF',
-                          fontWeight: '500',
-                        }}>
-                          {formatNotificationTime(notification.timestamp)}
-                        </Text>
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                ))
-              )}
-            </ScrollView>
-          </Animated.View>
-        </>
-      )}
+      {/* Optimized Notification Screen */}
+      <OptimizedNotificationScreen
+        visible={showNotificationScreen}
+        notifications={notifications}
+        unreadCount={unreadCount}
+        isConnected={isConnected}
+        selectedTab={selectedTab}
+        isLoading={isLoading}
+        isLoadingMore={isLoadingMore}
+        hasMore={hasMore}
+        totalCount={totalCount}
+        onClose={handleNotificationClose}
+        onMarkAsRead={handleMarkAsRead}
+        onMarkAllAsRead={handleMarkAllAsRead}
+        onTabChange={(tab: string) => setSelectedTab(tab as NotificationTabKey)}
+        onLoadMore={loadMoreNotifications}
+        onAnimationStart={handleAnimationStart}
+        onAnimationComplete={handleAnimationComplete}
+        getNotificationIcon={getNotificationIcon}
+        getNotificationTitle={getNotificationTitle}
+      />
     </>
   );
-};
+});
+
+CustomHeader.displayName = 'CustomHeader';
 
 export default CustomHeader;
