@@ -1,5 +1,5 @@
-const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.autoidleapp.com/api'; // Adjusted base URL
-
+//const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.autoidleapp.com/api'; // Adjusted base URL
+const API_BASE_URL = 'http://192.168.5.60:8080/api';
 interface AuthResponse {
   token?: string; // Assuming your API returns a token
   userId?: string;
@@ -476,6 +476,27 @@ export const createSongRequest = async (broadcastId: number, payload: CreateSong
 };
 
 // +++ Poll API Functions +++
+export const getAllPollsForBroadcast = async (broadcastId: number, token: string): Promise<PollDTO[] | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/polls/broadcast/${broadcastId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to fetch polls. Status: ${response.status}` };
+    }
+    return data as PollDTO[];
+  } catch (error) {
+    console.error('GetAllPolls API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
 export const getActivePollsForBroadcast = async (broadcastId: number, token: string): Promise<PollDTO[] | { error: string }> => {
   try {
     const response = await fetch(`${API_BASE_URL}/polls/broadcast/${broadcastId}/active`, {
@@ -608,6 +629,102 @@ export const getBroadcastDetails = async (broadcastId: number, token: string): P
     return data as Broadcast;
   } catch (error) {
     console.error('GetBroadcastDetails API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// +++ Notification Types +++
+export interface NotificationDTO {
+  id: number;
+  message: string;
+  type: string;
+  timestamp: string;
+  read: boolean;
+  userId?: number;
+  error?: string;
+}
+
+// +++ Notification API Functions +++
+export const getAllNotifications = async (token: string): Promise<NotificationDTO[] | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/notifications`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to fetch notifications. Status: ${response.status}` };
+    }
+    return data as NotificationDTO[];
+  } catch (error) {
+    console.error('GetAllNotifications API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const getUnreadNotifications = async (token: string): Promise<NotificationDTO[] | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/notifications/unread`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to fetch unread notifications. Status: ${response.status}` };
+    }
+    return data as NotificationDTO[];
+  } catch (error) {
+    console.error('GetUnreadNotifications API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const getUnreadNotificationCount = async (token: string): Promise<number | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/notifications/count-unread`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to fetch unread count. Status: ${response.status}` };
+    }
+    return data as number;
+  } catch (error) {
+    console.error('GetUnreadNotificationCount API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const markNotificationAsRead = async (notificationId: number, token: string): Promise<ApiResponse> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/notifications/${notificationId}/read`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to mark notification as read. Status: ${response.status}` };
+    }
+    return data as ApiResponse;
+  } catch (error) {
+    console.error('MarkNotificationAsRead API error:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
     return { error: errorMessage };
   }
