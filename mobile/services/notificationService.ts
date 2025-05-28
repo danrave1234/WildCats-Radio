@@ -12,228 +12,436 @@ interface NotificationConnection {
   isConnected: () => boolean;
 }
 
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+  expiry: number;
+}
+
+interface PaginatedNotificationResponse {
+  data: NotificationDTO[];
+  hasMore: boolean;
+  total: number;
+  currentPage: number;
+  totalPages: number;
+}
+
 class NotificationService {
   private subscriptions: Map<string, NotificationConnection> = new Map();
+  private cache: Map<string, CacheEntry<any>> = new Map();
+  private requestsInFlight: Map<string, Promise<any>> = new Map();
+  private readonly CACHE_DURATION = 30000; // 30 seconds cache
+  private readonly DEBOUNCE_DELAY = 1000; // 1 second debounce
+  private readonly PAGE_SIZE = 25; // Optimal batch size
+
+  /**
+   * Get cached data or fetch if expired
+   */
+  private async getCachedOrFetch<T>(
+    cacheKey: string,
+    fetchFn: () => Promise<T>,
+    cacheDuration: number = this.CACHE_DURATION
+  ): Promise<T> {
+    // Check cache first
+    const cached = this.cache.get(cacheKey);
+    if (cached && Date.now() < cached.expiry) {
+      console.log(`📦 Cache hit for ${cacheKey}`);
+      return cached.data as T;
+    }
+
+    // Check if request is already in flight
+    if (this.requestsInFlight.has(cacheKey)) {
+      console.log(`⏳ Request in flight for ${cacheKey}, waiting...`);
+      return this.requestsInFlight.get(cacheKey) as Promise<T>;
+    }
+
+    // Make new request
+    console.log(`🌐 Cache miss for ${cacheKey}, fetching...`);
+    const requestPromise = fetchFn().then(result => {
+      // Cache the result
+      this.cache.set(cacheKey, {
+        data: result,
+        timestamp: Date.now(),
+        expiry: Date.now() + cacheDuration
+      });
+      
+      // Remove from in-flight requests
+      this.requestsInFlight.delete(cacheKey);
+      
+      return result;
+    }).catch(error => {
+      // Remove from in-flight requests on error
+      this.requestsInFlight.delete(cacheKey);
+      throw error;
+    });
+
+    // Store in-flight request
+    this.requestsInFlight.set(cacheKey, requestPromise);
+    
+    return requestPromise;
+  }
+
+  /**
+   * Clear cache for specific key or all
+   */
+  private clearCache(key?: string): void {
+    if (key) {
+      this.cache.delete(key);
+      this.requestsInFlight.delete(key);
+    } else {
+      this.cache.clear();
+      this.requestsInFlight.clear();
+    }
+    console.log(`🧹 Cache cleared${key ? ` for ${key}` : ' completely'}`);
+  }
 
   /**
    * Test method to debug notification connectivity
    */
   async testNotificationConnection(authToken: string): Promise<void> {
-    console.log('🧪 NotificationService: Testing notification connection...');
-    console.log('🔑 Auth token available:', !!authToken);
-    console.log('🔌 WebSocket connected:', websocketService.isConnected());
-    
-    // Test basic API connectivity
     try {
-      const unreadCountResult = await this.getUnreadCount(authToken);
-      console.log('✅ API Test - Unread count result:', unreadCountResult);
+      console.log('🔔 Testing notification connection...');
+      const response = await this.getUnreadCount(authToken);
+      if ('error' in response) {
+        throw new Error(response.error);
+      }
+      console.log('✅ Notification connection successful');
     } catch (error) {
-      console.error('❌ API Test failed:', error);
-    }
-    
-    // Test WebSocket subscription
-    try {
-      const testConnection = await this.subscribeToNotifications(authToken, (notification) => {
-        console.log('🧪 Test notification received:', notification);
-      });
-      console.log('✅ WebSocket Test - Subscription created:', !!testConnection);
-      console.log('✅ WebSocket Test - Connection status:', testConnection.isConnected());
-    } catch (error) {
-      console.error('❌ WebSocket Test failed:', error);
+      console.error('❌ Notification connection failed:', error);
+      throw error;
     }
   }
 
   /**
-   * Get all notifications for the user
+   * Paginated notification fetching
+   */
+  async getAllPaginated(
+    authToken: string, 
+    page: number = 0, 
+    pageSize: number = this.PAGE_SIZE
+  ): Promise<PaginatedNotificationResponse | { error: string }> {
+    const cacheKey = `notifications_all_${page}_${pageSize}`;
+    
+    try {
+      console.log(`🔍 NotificationService.getAllPaginated called with:`, {
+        authTokenLength: authToken?.length || 0,
+        page,
+        pageSize,
+        cacheKey
+      });
+
+      return await this.getCachedOrFetch(cacheKey, async () => {
+        console.log(`📥 Fetching paginated notifications - Page ${page + 1}, Size ${pageSize}`);
+        console.log(`🔑 Auth token for API call: ${authToken?.substring(0, 10)}...`);
+        
+        // For now, we'll fetch all and paginate client-side since the backend doesn't support pagination yet
+        console.log('📡 Calling getAllNotifications API...');
+        const allNotificationsResult = await getAllNotifications(authToken);
+        console.log('📡 API call completed, result type:', typeof allNotificationsResult);
+        
+        if ('error' in allNotificationsResult) {
+          console.error('❌ API returned error:', allNotificationsResult.error);
+          return { error: allNotificationsResult.error };
+        }
+
+        console.log(`📊 Received ${allNotificationsResult?.length || 0} total notifications from API`);
+        const allNotifications = allNotificationsResult;
+        const startIndex = page * pageSize;
+        const endIndex = startIndex + pageSize;
+        const paginatedData = allNotifications.slice(startIndex, endIndex);
+        const totalItems = allNotifications.length;
+        const totalPages = Math.ceil(totalItems / pageSize);
+        const hasMore = endIndex < totalItems;
+
+        const response: PaginatedNotificationResponse = {
+          data: paginatedData,
+          hasMore,
+          total: totalItems,
+          currentPage: page,
+          totalPages
+        };
+
+        console.log(`✅ Pagination complete:`, {
+          paginatedDataLength: paginatedData.length,
+          startIndex,
+          endIndex,
+          totalItems,
+          totalPages,
+          hasMore,
+          currentPage: page
+        });
+        
+        return response;
+      });
+    } catch (error) {
+      console.error('❌ Error in getAllPaginated:', error);
+      console.error('❌ Error stack:', (error as Error)?.stack);
+      return { error: `Failed to fetch notifications: ${(error as Error)?.message || 'Unknown error'}` };
+    }
+  }
+
+  async getUnreadPaginated(
+    authToken: string, 
+    page: number = 0, 
+    pageSize: number = this.PAGE_SIZE
+  ): Promise<PaginatedNotificationResponse | { error: string }> {
+    const cacheKey = `notifications_unread_${page}_${pageSize}`;
+    
+    try {
+      return await this.getCachedOrFetch(cacheKey, async () => {
+        console.log(`📥 Fetching paginated unread notifications - Page ${page + 1}, Size ${pageSize}`);
+        
+        const unreadNotificationsResult = await getUnreadNotifications(authToken);
+        
+        if ('error' in unreadNotificationsResult) {
+          return { error: unreadNotificationsResult.error };
+        }
+
+        const unreadNotifications = unreadNotificationsResult;
+        const startIndex = page * pageSize;
+        const endIndex = startIndex + pageSize;
+        const paginatedData = unreadNotifications.slice(startIndex, endIndex);
+        const totalItems = unreadNotifications.length;
+        const totalPages = Math.ceil(totalItems / pageSize);
+        const hasMore = endIndex < totalItems;
+
+        const response: PaginatedNotificationResponse = {
+          data: paginatedData,
+          hasMore,
+          total: totalItems,
+          currentPage: page,
+          totalPages
+        };
+
+        console.log(`✅ Fetched ${paginatedData.length} unread notifications (${startIndex + 1}-${Math.min(endIndex, totalItems)} of ${totalItems})`);
+        return response;
+      });
+    } catch (error) {
+      console.error('❌ Error fetching paginated unread notifications:', error);
+      return { error: 'Failed to fetch unread notifications' };
+    }
+  }
+
+  /**
+   * Legacy methods for backward compatibility
    */
   async getAll(authToken: string): Promise<{ data: NotificationDTO[] } | { error: string }> {
     try {
-      console.log('📢 NotificationService: Fetching all notifications');
-      const result = await getAllNotifications(authToken);
-
+      const result = await this.getAllPaginated(authToken, 0, 1000); // Large page size for legacy support
       if ('error' in result) {
-        console.error('❌ NotificationService: Error fetching notifications:', result.error);
-        return { error: result.error || 'Failed to fetch notifications' };
+        return { error: result.error };
       }
-      
-      console.log('✅ NotificationService: Fetched', result.length, 'notifications');
-      return { data: result };
+      return { data: result.data };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      console.error('❌ NotificationService: Exception fetching notifications:', errorMessage);
-      return { error: errorMessage };
+      console.error('❌ Error in legacy getAll:', error);
+      return { error: 'Failed to fetch notifications' };
     }
   }
 
-  /**
-   * Get unread notifications for the user
-   */
   async getUnread(authToken: string): Promise<{ data: NotificationDTO[] } | { error: string }> {
     try {
-      console.log('📢 NotificationService: Fetching unread notifications');
-      const result = await getUnreadNotifications(authToken);
-
+      const result = await this.getUnreadPaginated(authToken, 0, 1000); // Large page size for legacy support
       if ('error' in result) {
-        console.error('❌ NotificationService: Error fetching unread notifications:', result.error);
-        return { error: result.error || 'Failed to fetch unread notifications' };
+        return { error: result.error };
       }
-      
-      console.log('✅ NotificationService: Fetched', result.length, 'unread notifications');
-      return { data: result };
+      return { data: result.data };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      console.error('❌ NotificationService: Exception fetching unread notifications:', errorMessage);
-      return { error: errorMessage };
+      console.error('❌ Error in legacy getUnread:', error);
+      return { error: 'Failed to fetch unread notifications' };
     }
   }
 
   /**
-   * Get unread notification count
+   * Get unread notification count with aggressive caching
    */
   async getUnreadCount(authToken: string): Promise<{ data: number } | { error: string }> {
+    const cacheKey = 'notifications_unread_count';
+    
     try {
-      console.log('📢 NotificationService: Fetching unread count');
-      const result = await getUnreadNotificationCount(authToken);
+      return await this.getCachedOrFetch(cacheKey, async () => {
+        console.log('📊 Fetching unread notification count');
+        const result = await getUnreadNotificationCount(authToken);
+        
+        if (typeof result === 'object' && 'error' in result) {
+          return { error: result.error };
+        }
 
-      if (typeof result === 'object' && 'error' in result) {
-        console.error('❌ NotificationService: Error fetching unread count:', result.error);
-        return { error: result.error || 'Failed to fetch unread count' };
-      }
-      
-      console.log('✅ NotificationService: Unread count:', result);
-      return { data: result };
+        console.log(`✅ Unread count: ${result}`);
+        return { data: result as number };
+      }, 10000); // Shorter cache for count (10 seconds)
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      console.error('❌ NotificationService: Exception fetching unread count:', errorMessage);
-      return { error: errorMessage };
+      console.error('❌ Error fetching unread count:', error);
+      return { error: 'Failed to fetch unread count' };
     }
   }
 
   /**
-   * Mark notification as read
+   * Mark notification as read with cache invalidation
    */
   async markAsRead(notificationId: number, authToken: string): Promise<{ success: boolean } | { error: string }> {
     try {
-      console.log('📢 NotificationService: Marking notification as read:', notificationId);
+      console.log(`📖 Marking notification ${notificationId} as read`);
       const result = await markNotificationAsRead(notificationId, authToken);
-
-      if ('error' in result) {
-        console.error('❌ NotificationService: Error marking notification as read:', result.error);
-        return { error: result.error || 'Failed to mark notification as read' };
-      }
       
-      console.log('✅ NotificationService: Notification marked as read:', notificationId);
+      if (result.error) {
+        return { error: result.error };
+      }
+
+      // Clear related caches
+      this.clearCache('notifications_unread_count');
+      // Clear pagination caches
+      const cacheKeys = Array.from(this.cache.keys()).filter(key => 
+        key.startsWith('notifications_all_') || key.startsWith('notifications_unread_')
+      );
+      cacheKeys.forEach(key => this.clearCache(key));
+
+      console.log(`✅ Notification ${notificationId} marked as read`);
       return { success: true };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      console.error('❌ NotificationService: Exception marking notification as read:', errorMessage);
-      return { error: errorMessage };
+      console.error('❌ Error marking notification as read:', error);
+      return { error: 'Failed to mark notification as read' };
     }
   }
 
   /**
-   * Subscribe to real-time notifications via WebSocket
+   * Subscribe to real-time notifications via WebSocket with improved connection management
    */
   async subscribeToNotifications(
     authToken: string,
     onNewNotification: (notification: NotificationDTO) => void
   ): Promise<NotificationConnection> {
-    const subscriptionKey = `notifications_${authToken.slice(-10)}`; // Use last 10 chars as key
-    
-    // Clean up existing subscription
-    if (this.subscriptions.has(subscriptionKey)) {
-      console.log('🧹 NotificationService: Cleaning up existing notification subscription');
-      this.subscriptions.get(subscriptionKey)?.disconnect();
-      this.subscriptions.delete(subscriptionKey);
-    }
-
     return new Promise((resolve, reject) => {
       try {
-        console.log('🔄 NotificationService: Setting up notification WebSocket');
+        console.log('🔔 Setting up notification WebSocket subscription');
+        console.log('🔑 Auth token length:', authToken?.length || 0);
         
-        // Set up message handler for notifications
+        // Clean up any existing subscriptions first
+        if (this.subscriptions.has('notifications')) {
+          console.log('🧹 Cleaning up existing subscription');
+          const existingConnection = this.subscriptions.get('notifications');
+          existingConnection?.disconnect();
+          this.subscriptions.delete('notifications');
+        }
+        
+        const connection = websocketService.connect(0, authToken); // Use 0 for global notifications
+        console.log('🔗 WebSocket connection initiated');
+        
         const handleMessage = (message: any) => {
-          console.log('📢 NotificationService: Received WebSocket message:', message);
+          console.log('📨 Received notification WebSocket message:', JSON.stringify(message, null, 2));
           
-          // Filter for notification messages (user-specific notifications)
-          if (message.type === 'notification' && message.data) {
-            console.log('📢 NotificationService: Processing notification:', message.data);
-            if (typeof onNewNotification === 'function') {
-              // Pass the notification data
+          // Handle different message types
+          if (message && typeof message === 'object') {
+            // Check for notification-specific messages
+            if (message.type === 'notification' && message.data) {
+              console.log('✅ Processing notification message:', message.data);
+              
+              // Clear caches when new notification arrives
+              this.clearCache('notifications_unread_count');
+              const cacheKeys = Array.from(this.cache.keys()).filter(key => 
+                key.startsWith('notifications_all_') || key.startsWith('notifications_unread_')
+              );
+              cacheKeys.forEach(key => this.clearCache(key));
+              
               onNewNotification(message.data);
+              
+            } else if (message.type === 'NEW_NOTIFICATION' && message.notification) {
+              // Handle alternative message format
+              console.log('✅ Processing NEW_NOTIFICATION message:', message.notification);
+              this.clearCache('notifications_unread_count');
+              onNewNotification(message.notification);
+              
+            } else if (message.message && message.message.includes('notification')) {
+              // Handle string-based notification messages
+              console.log('✅ Processing string notification message');
+              // Try to parse if it's a JSON string
+              try {
+                const parsed = JSON.parse(message.message);
+                if (parsed && parsed.id) {
+                  onNewNotification(parsed);
+                }
+              } catch (e) {
+                console.log('ℹ️ Could not parse notification message as JSON');
+              }
+            } else {
+              console.log('ℹ️ Received non-notification message:', message.type || 'unknown type');
             }
+          } else {
+            console.log('⚠️ Received invalid message format:', typeof message);
           }
         };
 
-        // Set up connection handlers
         const handleConnect = () => {
-          console.log('✅ NotificationService: Notification WebSocket connected');
+          console.log('✅ Notification WebSocket connected successfully');
         };
 
         const handleDisconnect = () => {
-          console.log('🔌 NotificationService: Notification WebSocket disconnected');
+          console.log('❌ Notification WebSocket disconnected');
         };
 
         const handleError = (error: Event) => {
-          console.error('❌ NotificationService: Notification WebSocket error:', error);
+          console.error('❌ Notification WebSocket error:', error);
         };
 
-        // For notifications, we connect to global WebSocket without a specific broadcast ID
-        // The WebSocket service will handle the notification subscription
-        websocketService.connect(-1, authToken); // Use -1 to indicate global/notification-only connection
-        
         // Set up event handlers
         websocketService.onMessage(handleMessage);
         websocketService.onConnect(handleConnect);
         websocketService.onDisconnect(handleDisconnect);
         websocketService.onError(handleError);
 
-        // Create connection object with disconnect method
-        const connection: NotificationConnection = {
+        const notificationConnection: NotificationConnection = {
           disconnect: () => {
-            console.log('🧹 NotificationService: Manually disconnecting notification WebSocket');
-            
-            // Remove from subscriptions map
-            this.subscriptions.delete(subscriptionKey);
-            
-            // Note: websocketService.disconnect() is managed globally, not per-service
-            console.log('✅ NotificationService: Notification subscription cleaned up');
+            console.log('🔌 Disconnecting notification WebSocket');
+            try {
+              websocketService.disconnect();
+            } catch (error) {
+              console.error('❌ Error during WebSocket disconnect:', error);
+            }
+            this.subscriptions.delete('notifications');
           },
           isConnected: () => {
-            // Check if websocketService is actually connected
             try {
-              return websocketService && typeof websocketService.isConnected === 'function' 
-                ? websocketService.isConnected() 
-                : false;
+              const connected = websocketService.isConnected();
+              console.log('🔍 WebSocket connection status check:', connected);
+              return connected;
             } catch (error) {
-              console.error('❌ Error checking WebSocket connection status:', error);
+              console.error('❌ Error checking WebSocket connection:', error);
               return false;
             }
           }
         };
 
-        // Store subscription
-        this.subscriptions.set(subscriptionKey, connection);
+        this.subscriptions.set('notifications', notificationConnection);
         
-        resolve(connection);
+        // Resolve immediately, connection will be established asynchronously
+        resolve(notificationConnection);
         
+        // Test connection after a short delay
+        setTimeout(() => {
+          const testStatus = notificationConnection.isConnected();
+          console.log('🧪 Post-setup connection test:', testStatus);
+        }, 1000);
+
       } catch (error) {
-        console.error('❌ NotificationService: Failed to setup notification WebSocket:', error);
+        console.error('❌ Error setting up notification subscription:', error);
         reject(error);
       }
     });
   }
 
   /**
-   * Disconnect all notification subscriptions
+   * Disconnect all notification subscriptions and clear caches
    */
   disconnectAll(): void {
-    console.log('🧹 NotificationService: Disconnecting all notification subscriptions');
-    this.subscriptions.forEach((connection) => {
-      connection.disconnect();
+    console.log('🔌 Disconnecting all notification subscriptions');
+    this.subscriptions.forEach((connection, key) => {
+      try {
+        connection.disconnect();
+      } catch (error) {
+        console.warn(`⚠️ Error disconnecting ${key}:`, error);
+      }
     });
     this.subscriptions.clear();
-    console.log('✅ NotificationService: All notification subscriptions disconnected');
+    this.clearCache();
   }
 
   /**
@@ -248,6 +456,16 @@ class NotificationService {
    */
   getActiveSubscriptionCount(): number {
     return this.subscriptions.size;
+  }
+
+  /**
+   * Clear cache manually (useful for testing or forced refresh)
+   */
+  clearNotificationCache(): void {
+    const notificationCacheKeys = Array.from(this.cache.keys()).filter(key => 
+      key.startsWith('notifications_')
+    );
+    notificationCacheKeys.forEach(key => this.clearCache(key));
   }
 }
 

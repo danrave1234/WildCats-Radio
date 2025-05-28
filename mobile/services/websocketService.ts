@@ -58,7 +58,9 @@ class WebSocketManager implements WebSocketService {
     
     try {
       // Use the same base as your API service for consistency
-      const API_BASE_URL = 'http://192.168.5.60:8080'; // Match your apiService.ts
+      //const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.autoidleapp.com'; // Match your apiService.ts Deployed URL
+      const API_BASE_URL = 'http://192.168.5.60:8080'; // Match your apiService.ts Expo
+      //const API_BASE_URL = 'http://10.0.2.2:8080'; // For Android emulator (localhost)
       const wsUrl = `${API_BASE_URL}/ws-radio`;
       
       console.log('🔗 WebSocket URL:', wsUrl);
