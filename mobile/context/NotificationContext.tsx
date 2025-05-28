@@ -1,5 +1,5 @@
-// @refresh reset
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { notificationService } from '../services/notificationService';
 import { NotificationDTO } from '../services/apiService';
 import { useAuth } from './AuthContext';
@@ -46,8 +46,95 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   const { authToken } = useAuth();
   const isLoggedIn = !!authToken;
   const wsConnection = useRef<any>(null);
-  const loadingTimeout = useRef<NodeJS.Timeout | null>(null);
+  const loadingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMounted = useRef(true);
+
+  // Keys for AsyncStorage
+  const STORAGE_KEYS = {
+    notifications: 'cached_notifications',
+    unreadCount: 'cached_unread_count',
+    totalCount: 'cached_total_count',
+    lastSync: 'last_sync_timestamp'
+  };
+
+  // Save notification state to AsyncStorage
+  const saveNotificationState = useCallback(async (
+    notificationsData: NotificationDTO[], 
+    unreadCountData: number, 
+    totalCountData: number
+  ) => {
+    try {
+      const stateToSave = {
+        notifications: notificationsData,
+        unreadCount: unreadCountData,
+        totalCount: totalCountData,
+        lastSync: new Date().toISOString(),
+        authToken: authToken // Save with auth token to ensure it's for the right user
+      };
+      
+      await AsyncStorage.setItem(STORAGE_KEYS.notifications, JSON.stringify(stateToSave));
+      console.log('💾 Notification state saved to storage:', {
+        notificationsCount: notificationsData.length,
+        unreadCount: unreadCountData,
+        totalCount: totalCountData
+      });
+    } catch (error) {
+      console.warn('⚠️ Failed to save notification state:', error);
+    }
+  }, [authToken]);
+
+  // Load notification state from AsyncStorage
+  const loadNotificationState = useCallback(async () => {
+    if (!authToken) return null;
+    
+    try {
+      const savedState = await AsyncStorage.getItem(STORAGE_KEYS.notifications);
+      if (!savedState) return null;
+      
+      const parsedState = JSON.parse(savedState);
+      
+      // Check if saved state is for the current user
+      if (parsedState.authToken !== authToken) {
+        console.log('🔄 Saved state is for different user, ignoring');
+        return null;
+      }
+      
+      // Check if saved state is not too old (max 24 hours)
+      const lastSync = new Date(parsedState.lastSync);
+      const hoursSinceSync = (new Date().getTime() - lastSync.getTime()) / (1000 * 60 * 60);
+      
+      if (hoursSinceSync > 24) {
+        console.log('🕐 Saved state is too old, ignoring');
+        return null;
+      }
+      
+      console.log('📱 Loaded notification state from storage:', {
+        notificationsCount: parsedState.notifications?.length || 0,
+        unreadCount: parsedState.unreadCount || 0,
+        totalCount: parsedState.totalCount || 0,
+        hoursSinceSync: hoursSinceSync.toFixed(1)
+      });
+      
+      return {
+        notifications: parsedState.notifications || [],
+        unreadCount: parsedState.unreadCount || 0,
+        totalCount: parsedState.totalCount || 0
+      };
+    } catch (error) {
+      console.warn('⚠️ Failed to load notification state:', error);
+      return null;
+    }
+  }, [authToken]);
+
+  // Clear saved notification state
+  const clearNotificationState = useCallback(async () => {
+    try {
+      await AsyncStorage.removeItem(STORAGE_KEYS.notifications);
+      console.log('🧹 Notification state cleared from storage');
+    } catch (error) {
+      console.warn('⚠️ Failed to clear notification state:', error);
+    }
+  }, []);
 
   // Simple performance tracking without hooks
   const trackOperation = useCallback((operation: string) => {
@@ -62,6 +149,43 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       }
     };
   }, []);
+
+  // Auto-save state when notifications, unreadCount, or totalCount changes
+  useEffect(() => {
+    if (notifications.length > 0 || unreadCount > 0) {
+      saveNotificationState(notifications, unreadCount, totalCount);
+    }
+  }, [notifications, unreadCount, totalCount, saveNotificationState]);
+
+  // Load saved state on initialization
+  useEffect(() => {
+    const initializeNotificationState = async () => {
+      if (!authToken) {
+        // Clear state when not logged in
+        setNotifications([]);
+        setUnreadCount(0);
+        setTotalCount(0);
+        setCurrentPage(0);
+        setHasMore(true);
+        await clearNotificationState();
+        return;
+      }
+
+      console.log('🚀 Initializing notification state...');
+      const savedState = await loadNotificationState();
+      
+      if (savedState) {
+        console.log('📱 Restoring notification state from storage');
+        setNotifications(savedState.notifications);
+        setUnreadCount(savedState.unreadCount);
+        setTotalCount(savedState.totalCount);
+        setCurrentPage(Math.floor(savedState.notifications.length / 25)); // Estimate current page
+        setHasMore(savedState.notifications.length < savedState.totalCount);
+      }
+    };
+
+    initializeNotificationState();
+  }, [authToken, loadNotificationState, clearNotificationState]);
 
   // Optimized notification sorting with memoization - PRIORITIZE UNREAD FIRST
   const sortedNotifications = useMemo(() => {
@@ -156,7 +280,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
         if (!('error' in countResult)) {
           console.log('📊 fetchNotifications: Server unread count:', countResult.data);
           setUnreadCount(countResult.data);
-        } else {
+      } else {
           console.error('📊 fetchNotifications: Server unread count error:', countResult.error);
           // Fallback to local calculation only if server fails
           const localUnreadCount = result.data.filter(n => !n.read).length;
@@ -299,7 +423,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
           console.log('📊 Refresh: Server unread count:', countResult.data);
           setUnreadCount(countResult.data);
         } else {
-          console.error('📊 Refresh: Server unread count error:', countResult.error);
+          console.error('📊 Refresh: Server unread count error:', 'error' in countResult ? countResult.error : 'Unknown error');
           // Fallback to local calculation only if server fails
           const localUnreadCount = result.data.filter(n => !n.read).length;
           setUnreadCount(localUnreadCount);
@@ -335,8 +459,8 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       // Optimistic update
       setNotifications(prev => {
         const updated = prev.map(notification =>
-          notification.id === notificationId
-            ? { ...notification, read: true }
+          notification.id === notificationId 
+            ? { ...notification, read: true } 
             : notification
         );
         updateUnreadCount(updated);
@@ -368,7 +492,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       if (!('error' in countResult) && isMounted.current) {
         setUnreadCount(countResult.data);
       }
-
+      
     } catch (error) {
       console.error('❌ Error in markAsRead:', error);
     } finally {
@@ -456,7 +580,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
         console.log('⚠️ Duplicate notification ignored:', notification.id);
         return prev;
       }
-
+      
       console.log('✅ Adding new notification to state:', notification.id);
       console.log('📊 Previous notification count:', prev.length);
       const updated = [notification, ...prev];
@@ -740,33 +864,34 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     }
   }, [authToken, notifications.length, isLoading, unreadCount, isLoggedIn]);
 
-  // Fetch notifications with priority for unread items - PRESERVE EXISTING DATA
+  // Fetch notifications with priority for unread items - PRESERVE EXISTING DATA + PERSISTENCE
   const fetchNotificationsWithUnreadPriority = useCallback(async () => {
     if (!authToken) {
       console.log('⚠️ No auth token for fetchNotificationsWithUnreadPriority');
       return;
     }
 
-    console.log('📥 fetchNotificationsWithUnreadPriority called - starting priority refresh...');
-    console.log('📊 Current state before priority refresh:', {
+    console.log('📥 SYNC: Priority refresh started - preserving existing data...');
+    console.log('📊 SYNC: Current state before priority refresh:', {
       existingNotifications: notifications.length,
-      currentUnreadCount: unreadCount
+      currentUnreadCount: unreadCount,
+      totalCount: totalCount
     });
     
     setIsLoading(true);
 
     try {
-      console.log('🔥 Step 1: Fetching unread notifications first...');
+      console.log('🔥 SYNC: Step 1 - Fetching fresh unread notifications...');
       // First, get unread notifications
-      const unreadResult = await notificationService.getUnreadPaginated(authToken, 0, 25);
+      const unreadResult = await notificationService.getUnreadPaginated(authToken, 0, 50); // Get more unread items
       
       if ('error' in unreadResult) {
-        console.error('❌ Error fetching unread notifications:', unreadResult.error);
+        console.error('❌ SYNC: Error fetching unread notifications:', unreadResult.error);
         setIsLoading(false);
         return;
       }
 
-      console.log(`✅ Got ${unreadResult.data.length} unread notifications from server`);
+      console.log(`✅ SYNC: Got ${unreadResult.data.length} unread notifications from server`);
       
       // Get existing notification IDs to avoid duplicates
       const existingIds = new Set(notifications.map(n => n.id));
@@ -774,60 +899,65 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       // Filter out notifications we already have
       const newUnreadNotifications = unreadResult.data.filter(n => !existingIds.has(n.id));
       
-      console.log(`📊 New unread notifications to add: ${newUnreadNotifications.length}`);
+      console.log(`📊 SYNC: New unread notifications to add: ${newUnreadNotifications.length}`);
       
       if (newUnreadNotifications.length > 0) {
         // Merge new notifications with existing ones - put new unread at the top
         setNotifications(prev => {
           const updated = [...newUnreadNotifications, ...prev];
-          console.log(`📊 Notifications updated: ${prev.length} + ${newUnreadNotifications.length} = ${updated.length}`);
+          console.log(`📊 SYNC: Notifications updated: ${prev.length} + ${newUnreadNotifications.length} = ${updated.length}`);
           return updated;
         });
         
-        setTotalCount(prev => prev + newUnreadNotifications.length);
-        console.log('✅ Added new notifications to existing data');
+        setTotalCount(prev => {
+          const newTotal = prev + newUnreadNotifications.length;
+          console.log(`📊 SYNC: Total count updated: ${prev} → ${newTotal}`);
+          return newTotal;
+        });
+        
+        console.log('✅ SYNC: Added new notifications to existing data (preserved!)');
       } else {
-        console.log('ℹ️ No new notifications to add - all up to date!');
+        console.log('ℹ️ SYNC: No new notifications to add - all up to date!');
       }
       
-      // Update unread count from server (most accurate)
+      // Always update unread count from server (most accurate)
       try {
-        console.log('📊 Priority refresh: Getting server unread count...');
+        console.log('📊 SYNC: Getting accurate unread count from server...');
         const countResult = await notificationService.getUnreadCount(authToken);
         if (!('error' in countResult)) {
-          console.log('📊 Priority refresh: Server unread count:', countResult.data);
+          console.log('📊 SYNC: Server unread count:', countResult.data);
           setUnreadCount(countResult.data);
+          console.log('✅ SYNC: Unread count updated from server');
         } else {
-          console.error('📊 Priority refresh: Server unread count error:', countResult.error);
-          // Keep existing unread count or calculate locally
-          const localUnreadCount = notifications.filter(n => !n.read).length + newUnreadNotifications.length;
-          setUnreadCount(localUnreadCount);
-          console.log('📊 Priority refresh: Using calculated unread count:', localUnreadCount);
+          console.error('📊 SYNC: Server unread count error:', countResult.error);
+          // Keep existing unread count if server fails
+          console.log('📊 SYNC: Keeping existing unread count due to server error');
         }
       } catch (countError) {
-        console.warn('⚠️ Failed to get server unread count in priority refresh:', countError);
-        const localUnreadCount = notifications.filter(n => !n.read).length + newUnreadNotifications.length;
-        setUnreadCount(localUnreadCount);
-        console.log('📊 Priority refresh: Using calculated unread count:', localUnreadCount);
+        console.warn('⚠️ SYNC: Failed to get server unread count:', countError);
+        console.log('📊 SYNC: Keeping existing unread count due to error');
       }
 
+      console.log('🎉 SYNC: Priority refresh completed successfully!');
+
     } catch (error) {
-      console.error('❌ Error in fetchNotificationsWithUnreadPriority:', error);
-      console.log('⚠️ Keeping existing data due to priority refresh error');
+      console.error('❌ SYNC: Error in fetchNotificationsWithUnreadPriority:', error);
+      console.log('⚠️ SYNC: Keeping existing data due to priority refresh error - DATA PRESERVED!');
       // Keep existing data - don't clear it
     } finally {
-      console.log('🔄 Priority refresh: Setting isLoading to false');
+      console.log('🔄 SYNC: Setting isLoading to false');
       setIsLoading(false);
     }
-  }, [authToken, notifications, unreadCount]);
+  }, [authToken, notifications, unreadCount, totalCount]);
 
-  // Initial fetch when logged in - SIMPLIFIED AND DEBUGGED
+  // Initial fetch when logged in - RESPECT SAVED DATA
   useEffect(() => {
     console.log('🔧 DEBUG: Initial fetch useEffect triggered with:', {
       isLoggedIn,
       authTokenExists: !!authToken,
       authTokenLength: authToken?.length || 0,
       currentIsLoading: isLoading,
+      notificationsLength: notifications.length,
       timestamp: new Date().toISOString()
     });
 
@@ -843,57 +973,73 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       return;
     }
 
-    console.log('🚀 Starting initial notification fetch...');
+    // Don't fetch if we already have saved data (it will be loaded by the initialization effect)
+    if (notifications.length > 0) {
+      console.log('ℹ️ Already have notification data, skipping initial fetch');
+      return;
+    }
+
+    console.log('🚀 Starting initial notification fetch (no cached data)...');
     setIsLoading(true);
 
-    // Direct API call without function dependencies
-    const performDirectFetch = async () => {
+    const fetchInitialData = async () => {
       try {
-        console.log('📡 Direct API call to getAllPaginated...');
+        console.log('🔍 Initial fetch: Getting first page of notifications...');
         const result = await notificationService.getAllPaginated(authToken, 0, 25);
         
         if ('error' in result) {
-          console.error('❌ Direct fetch error:', result.error);
+          console.error('❌ Initial fetch error:', result.error);
           setIsLoading(false);
           return;
         }
 
-        console.log(`✅ Direct fetch success: ${result.data.length} notifications`);
+        console.log(`✅ Initial fetch: Got ${result.data.length} notifications`);
         
-        // Update state with fetched data
-        setNotifications(result.data);
-        setHasMore(result.hasMore);
-        setCurrentPage(0);
-        setTotalCount(result.total);
-        
-        // Get unread count
+        if (isMounted.current) {
+          setNotifications(result.data);
+          setHasMore(result.hasMore);
+          setCurrentPage(result.currentPage);
+          setTotalCount(result.total);
+        }
+
+        // Get accurate unread count from server
         try {
+          console.log('📊 Initial fetch: Getting server unread count...');
           const countResult = await notificationService.getUnreadCount(authToken);
-          if (!('error' in countResult)) {
-            console.log('📊 Server unread count:', countResult.data);
+          if (!('error' in countResult) && isMounted.current) {
+            console.log('📊 Initial fetch: Server unread count:', countResult.data);
             setUnreadCount(countResult.data);
           } else {
-            const localCount = result.data.filter(n => !n.read).length;
-            setUnreadCount(localCount);
-            console.log('📊 Using local unread count:', localCount);
+            console.error('📊 Initial fetch: Server unread count error:', 'error' in countResult ? countResult.error : 'Unknown error');
+            // Fallback to local calculation only if server fails
+            const localUnreadCount = result.data.filter(n => !n.read).length;
+            setUnreadCount(localUnreadCount);
+            console.log('📊 Initial fetch: Using local unread count fallback:', localUnreadCount);
           }
         } catch (countError) {
-          console.error('❌ Error getting unread count:', countError);
-          const localCount = result.data.filter(n => !n.read).length;
-          setUnreadCount(localCount);
+          console.warn('⚠️ Initial fetch: Failed to get server unread count:', countError);
+          // Fallback to local calculation
+          const localUnreadCount = result.data.filter(n => !n.read).length;
+          setUnreadCount(localUnreadCount);
+          console.log('📊 Initial fetch: Using local unread count fallback:', localUnreadCount);
         }
-        
+
         console.log('✅ Initial fetch completed successfully');
         
       } catch (error) {
-        console.error('❌ Direct fetch error:', error);
+        console.error('❌ Error in initial fetch:', error);
+        // On error, keep existing data - don't clear it
+        console.log('⚠️ Keeping existing data due to initial fetch error');
       } finally {
-        setIsLoading(false);
+        console.log('🔄 Initial fetch: Setting isLoading to false');
+        if (isMounted.current) {
+          setIsLoading(false);
+        }
       }
     };
 
-    performDirectFetch();
-  }, [isLoggedIn, authToken]); // ONLY essential dependencies
+    fetchInitialData();
+  }, [isLoggedIn, authToken, notifications.length]); // Added notifications.length to prevent fetch when we have data
 
   // Manual test fetch for debugging - SIMPLE VERSION
   const manualTestFetch = useCallback(async () => {

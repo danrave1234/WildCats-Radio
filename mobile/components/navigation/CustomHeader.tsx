@@ -47,7 +47,7 @@ const CustomHeader = React.memo(({
     fetchNotifications, 
     loadMoreNotifications,
     markAsRead, 
-    markAllAsRead: markAllAsReadContext,
+    markAllAsRead: markAllAsReadContext, 
     fetchNotificationsWithUnreadPriority,
     forceRefresh,
     debugNotifications,
