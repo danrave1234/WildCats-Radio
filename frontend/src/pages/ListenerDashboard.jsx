@@ -202,6 +202,12 @@ export default function ListenerDashboard() {
       audioRef.current.preload = 'none';
       audioRef.current.volume = isMuted ? 0 : volume / 100;
 
+      // Set the src attribute immediately if streamUrl is available
+      if (serverConfig.streamUrl) {
+        audioRef.current.src = serverConfig.streamUrl;
+        logger.debug('Set initial audio source to:', serverConfig.streamUrl);
+      }
+
       // Add event listeners for audio events
       audioRef.current.onloadstart = () => logger.debug('Audio loading started');
       audioRef.current.oncanplay = () => logger.debug('Audio can start playing');
@@ -211,7 +217,7 @@ export default function ListenerDashboard() {
         // Check if this is an empty src error (which is expected before play is clicked)
         const isEmptySrcError = 
           e.target?.error?.code === 4 && 
-          (!e.target?.src || e.target?.src === '') && 
+          (!e.target?.src || e.target?.src === '' || e.target?.src === 'undefined') && 
           e.target?.error?.message?.includes('Empty src attribute');
 
         // Only log and show error if it's not the expected empty src error
@@ -230,6 +236,12 @@ export default function ListenerDashboard() {
           logger.debug('Ignoring expected empty src error before playback starts');
         }
       };
+    }
+
+    // Update src if serverConfig changes and audioRef already exists
+    if (serverConfig?.streamUrl && audioRef.current && (!audioRef.current.src || audioRef.current.src === '')) {
+      audioRef.current.src = serverConfig.streamUrl;
+      logger.debug('Updated audio source to:', serverConfig.streamUrl);
     }
 
     return () => {
