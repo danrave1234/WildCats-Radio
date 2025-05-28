@@ -3,6 +3,9 @@ import { View, TouchableOpacity, Platform, Animated, Easing, Image, Dimensions, 
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useNotifications } from '../../context/NotificationContext';
+import { NotificationDTO } from '../../services/apiService';
+import { formatDistanceToNow } from 'date-fns';
 
 interface CustomHeaderProps {
   showBackButton?: boolean;
@@ -13,41 +16,12 @@ interface CustomHeaderProps {
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Mock notification data - replace with actual data from your API
-const mockNotifications = [
-  {
-    id: 1,
-    title: 'New Show Starting Soon!',
-    message: 'Wildcat Morning Show starts in 10 minutes. Don\'t miss it!',
-    time: '2 min ago',
-    type: 'broadcast',
-    read: false,
-  },
-  {
-    id: 2,
-    title: 'Song Request Approved',
-    message: 'Your request for "Bohemian Rhapsody" has been added to the playlist.',
-    time: '1 hour ago',
-    type: 'request',
-    read: false,
-  },
-  {
-    id: 3,
-    title: 'Poll Results',
-    message: 'The "Best Genre" poll results are now available!',
-    time: '3 hours ago',
-    type: 'poll',
-    read: true,
-  },
-  {
-    id: 4,
-    title: 'Welcome to Wildcat Radio!',
-    message: 'Thank you for joining our community. Enjoy the music!',
-    time: '1 day ago',
-    type: 'welcome',
-    read: true,
-  },
-];
+const notificationTabs = [
+  { key: 'all', label: 'All', icon: 'list-outline' },
+  { key: 'unread', label: 'Unread', icon: 'notifications-outline' },
+  { key: 'read', label: 'Read', icon: 'checkmark-done-outline' },
+] as const;
+type NotificationTabKey = typeof notificationTabs[number]['key'];
 
 const CustomHeader = ({ 
   showBackButton = false, 
@@ -58,7 +32,16 @@ const CustomHeader = ({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [showNotificationScreen, setShowNotificationScreen] = useState(false);
-  const [notifications, setNotifications] = useState(mockNotifications);
+  
+  // Use real notifications from context
+  const { 
+    notifications, 
+    unreadCount, 
+    isConnected, 
+    markAsRead, 
+    markAllAsRead: markAllAsReadContext, 
+    fetchNotifications 
+  } = useNotifications();
   
   const anim = {
     opacity: useRef(new Animated.Value(0)).current,
@@ -73,9 +56,84 @@ const CustomHeader = ({
   const notificationTranslateY = useRef(new Animated.Value(-SCREEN_HEIGHT)).current;
   const notificationOpacity = useRef(new Animated.Value(0)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
+
+  // Shaking animation for notification icon
+  const shakeAnimation = useRef(new Animated.Value(0)).current;
+  // Wave effect for notification icon
+  const waveScale = useRef(new Animated.Value(0)).current;
+  const waveOpacity = useRef(new Animated.Value(0)).current;
   
   // Track if we're in the middle of a back animation
   const isAnimatingBack = useRef(false);
+
+  const [selectedTab, setSelectedTab] = useState<NotificationTabKey>('all');
+
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    if (unreadCount > 0) {
+      const animateShakeAndWave = () => {
+        // Reset animations
+        shakeAnimation.setValue(0);
+        waveScale.setValue(0);
+        waveOpacity.setValue(0.5); // Start with some opacity for the wave
+
+        Animated.parallel([
+          // Shaking animation
+          Animated.sequence([
+            Animated.timing(shakeAnimation, { toValue: 1, duration: 70, useNativeDriver: true, easing: Easing.linear }),
+            Animated.timing(shakeAnimation, { toValue: -1, duration: 70, useNativeDriver: true, easing: Easing.linear }),
+            Animated.timing(shakeAnimation, { toValue: 1, duration: 70, useNativeDriver: true, easing: Easing.linear }),
+            Animated.timing(shakeAnimation, { toValue: 0, duration: 70, useNativeDriver: true, easing: Easing.linear }),
+          ]),
+          // Wave animation
+          Animated.sequence([
+            Animated.timing(waveScale, {
+              toValue: 1,
+              duration: 400, // Wave expands over a longer period
+              useNativeDriver: true,
+              easing: Easing.out(Easing.quad), // Ease out for a natural expansion
+            }),
+          ]),
+          Animated.sequence([
+            Animated.timing(waveOpacity, { // Fade out the wave
+              toValue: 0,
+              duration: 450, // Slightly longer to ensure it fades after full scale
+              useNativeDriver: true,
+              easing: Easing.out(Easing.quad),
+            }),
+          ])
+        ]).start();
+      };
+      
+      animateShakeAndWave(); // Initial animation
+      intervalId = setInterval(animateShakeAndWave, 2000);
+    }
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+      shakeAnimation.setValue(0); 
+      waveScale.setValue(0);
+      waveOpacity.setValue(0);
+    };
+  }, [unreadCount, shakeAnimation, waveScale, waveOpacity]);
+
+  // Handle notification screen animation when state changes
+  useEffect(() => {
+    if (showNotificationScreen) {
+      // Reset animation values to starting position
+      notificationTranslateY.setValue(-SCREEN_HEIGHT);
+      notificationOpacity.setValue(0);
+      overlayOpacity.setValue(0);
+      
+      // Start animation after a small delay to ensure component is mounted
+      setTimeout(() => {
+        animateNotificationIn();
+      }, 16); // One frame delay (16ms)
+    }
+  }, [showNotificationScreen]);
 
   useEffect(() => {
     if (showBackButton && !isAnimatingBack.current) {
@@ -98,7 +156,7 @@ const CustomHeader = ({
         }),
         // Logo animation - scale slightly using spring
         Animated.spring(logoScale, {
-          toValue: 1.1,
+          toValue: 1.1, 
           damping: 25, // Match damping from main screen animation
           stiffness: 300, // Match stiffness from main screen animation
           mass: 1,
@@ -143,13 +201,13 @@ const CustomHeader = ({
       // Match EXACT parameters with main screen animation for perfect sync
       Animated.parallel([
         Animated.spring(logoTranslateX, {
-          toValue: 0,
+          toValue: 0, 
           tension: 65, // Match exactly with broadcast screen animation
           friction: 10, // Match exactly with broadcast screen animation
           useNativeDriver: true
         }),
         Animated.spring(logoScale, {
-          toValue: 1,
+          toValue: 1, 
           tension: 65, // Match exactly with broadcast screen animation
           friction: 10, // Match exactly with broadcast screen animation
           useNativeDriver: true
@@ -163,13 +221,13 @@ const CustomHeader = ({
       onBackPress();
     } else {
       // Only animate if we're using the default back behavior
-      Animated.parallel([
-        Animated.timing(anim.opacity, {
-          toValue: 0, duration: 300, easing: Easing.in(Easing.cubic), useNativeDriver: true
-        }),
-        Animated.timing(anim.y, {
-          toValue: -20, duration: 300, easing: Easing.in(Easing.cubic), useNativeDriver: true
-        })
+    Animated.parallel([
+      Animated.timing(anim.opacity, {
+        toValue: 0, duration: 300, easing: Easing.in(Easing.cubic), useNativeDriver: true
+      }),
+      Animated.timing(anim.y, {
+        toValue: -20, duration: 300, easing: Easing.in(Easing.cubic), useNativeDriver: true
+      })
       ]).start(() => {
         router.back();
         // Reset animating flag when complete
@@ -184,10 +242,9 @@ const CustomHeader = ({
       animateNotificationOut();
       onNotificationStateChange?.(false);
     } else {
-      // Open notification screen
+      // Open notification screen - animation will be handled by useEffect
       setShowNotificationScreen(true);
       onNotificationStateChange?.(true);
-      animateNotificationIn();
     }
   };
 
@@ -195,19 +252,19 @@ const CustomHeader = ({
     Animated.parallel([
       Animated.timing(notificationTranslateY, {
         toValue: 0,
-        duration: 350, // Slightly faster for better sync with tab bar
-        easing: Easing.out(Easing.cubic),
+        duration: 250, // Match tab bar hide duration exactly
+        easing: Easing.out(Easing.cubic), // Same easing as tab bar
         useNativeDriver: true,
       }),
       Animated.timing(notificationOpacity, {
         toValue: 1,
-        duration: 350, // Match the translateY duration
+        duration: 250, // Match the translateY duration
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(overlayOpacity, {
         toValue: 0.5,
-        duration: 300, // Slightly faster for overlay
+        duration: 250, // Match main animation for perfect sync
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
@@ -218,20 +275,20 @@ const CustomHeader = ({
     Animated.parallel([
       Animated.timing(notificationTranslateY, {
         toValue: -SCREEN_HEIGHT,
-        duration: 300, // Faster exit animation
-        easing: Easing.in(Easing.cubic),
+        duration: 350, // Match tab bar show duration exactly
+        easing: Easing.out(Easing.cubic), // Same easing as tab bar for consistency
         useNativeDriver: true,
       }),
       Animated.timing(notificationOpacity, {
         toValue: 0,
-        duration: 300, // Match the translateY duration
-        easing: Easing.in(Easing.cubic),
+        duration: 350, // Match the translateY duration
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(overlayOpacity, {
         toValue: 0,
-        duration: 250, // Faster overlay fade out
-        easing: Easing.in(Easing.cubic),
+        duration: 350, // Match main animation for perfect sync
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -239,149 +296,254 @@ const CustomHeader = ({
     });
   };
 
-  const markAsRead = (notificationId: number) => {
-    setNotifications(prev => 
-      prev.map(notif => 
-        notif.id === notificationId ? { ...notif, read: true } : notif
-      )
-    );
+  const handleMarkAsRead = (notificationId: number) => {
+    markAsRead(notificationId);
   };
 
-  const markAllAsRead = () => {
-    setNotifications(prev => 
-      prev.map(notif => ({ ...notif, read: true }))
-    );
+  const handleMarkAllAsRead = () => {
+    markAllAsReadContext();
   };
 
-  const clearAllNotifications = () => {
-    setNotifications([]);
-  };
-
-  const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case 'broadcast':
-        return 'radio';
-      case 'request':
-        return 'musical-notes';
-      case 'poll':
-        return 'stats-chart';
-      case 'welcome':
-        return 'heart';
-      default:
-        return 'notifications';
+  const formatNotificationTime = (timestamp: string): string => {
+    try {
+      const date = new Date(timestamp);
+      return formatDistanceToNow(date, { addSuffix: true });
+    } catch (error) {
+      return 'Unknown time';
     }
   };
 
-  const unreadCount = notifications.filter(notif => !notif.read).length;
+  // Filter notifications based on selected tab
+  const filteredNotifications = notifications.filter((notification) => {
+    if (selectedTab === 'all') return true;
+    if (selectedTab === 'unread') return !notification.read;
+    if (selectedTab === 'read') return notification.read;
+    return true;
+  });
+
+  // Updated getNotificationIcon to use icons similar to @list.tsx
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'BROADCAST_SCHEDULED':
+      case 'BROADCAST_STARTING_SOON':
+      case 'BROADCAST_STARTED':
+      case 'BROADCAST_ENDED':
+      case 'NEW_BROADCAST_POSTED':
+        return 'radio-outline';
+      case 'SONG_REQUEST':
+        return 'musical-notes-outline';
+      case 'POLL_CREATED':
+      case 'POLL_RESULTS':
+        return 'stats-chart-outline';
+      case 'USER_REGISTERED':
+        return 'person-outline';
+      case 'GENERAL':
+      case 'WELCOME':
+        return 'heart-outline';
+      default:
+        return 'notifications-outline';
+    }
+  };
+
+  const getNotificationTitle = (type: string) => {
+    switch (type) {
+      case 'BROADCAST_SCHEDULED':
+        return 'Broadcast Scheduled';
+      case 'BROADCAST_STARTING_SOON':
+        return 'Show Starting Soon!';
+      case 'BROADCAST_STARTED':
+        return 'Live Now!';
+      case 'BROADCAST_ENDED':
+        return 'Show Ended';
+      case 'NEW_BROADCAST_POSTED':
+        return 'New Show Posted';
+      case 'SONG_REQUEST':
+        return 'Song Request';
+      case 'POLL_CREATED':
+        return 'New Poll';
+      case 'POLL_RESULTS':
+        return 'Poll Results';
+      case 'USER_REGISTERED':
+        return 'Welcome!';
+      case 'GENERAL':
+        return 'Notification';
+      default:
+        return 'Update';
+    }
+  };
+
+  const conditionalShakeStyle = unreadCount > 0 ? {
+    transform: [{
+      rotate: shakeAnimation.interpolate({
+        inputRange: [-1, 0, 1],
+        outputRange: ['-7deg', '0deg', '7deg']
+      })
+    }]
+  } : {};
 
   return (
     <>
-      <View style={{
-        paddingTop: Platform.OS === 'ios' ? insets.top : insets.top + 10,
-        paddingBottom: 8,
-        paddingHorizontal: 16,
-        backgroundColor: '#F5F5F7', // Light grayish white color
-        borderBottomWidth: 3, // Increased border width for more emphasis
-        borderBottomColor: '#91403E', // Cordovan color border
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 3,
+    <View style={{
+      paddingTop: Platform.OS === 'ios' ? insets.top : insets.top + 10,
+      paddingBottom: 8,
+      paddingHorizontal: 16,
+      backgroundColor: '#F5F5F7', // Light grayish white color
+      borderBottomWidth: 3, // Increased border width for more emphasis
+      borderBottomColor: '#91403E', // Cordovan color border
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.1,
+      shadowRadius: 2,
+      elevation: 3,
         zIndex: 10,
+    }}>
+      <View style={{
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        height: 50,
+        position: 'relative',
       }}>
-        <View style={{
-          flexDirection: 'row',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          height: 50,
-          position: 'relative',
-        }}>
-          {/* Back button absolute positioned */}
-          {showBackButton && (
-            <Animated.View 
-              style={{ 
-                opacity: anim.opacity, 
-                transform: [{ translateY: anim.y }],
-                position: 'absolute',
-                left: 0,
-                top: 0,
-                bottom: 0,
-                justifyContent: 'center',
-                zIndex: 10,
-              }}
-            >
-              <TouchableOpacity 
-                onPress={handleBack} 
-                style={{ padding: 8, paddingBottom: 4 }} 
-                activeOpacity={0.7}
-              >
-                <Ionicons name="chevron-back" size={26} color="#91403E" />
-              </TouchableOpacity>
-            </Animated.View>
-          )}
-          
-          {/* Logo container takes entire left side */}
-          <Animated.View
-            style={{
-              transform: [
-                { translateX: logoTranslateX },
-                { scale: logoScale }
-              ],
-              zIndex: 5,
+        {/* Back button absolute positioned */}
+        {showBackButton && (
+          <Animated.View 
+            style={{ 
+              opacity: anim.opacity, 
+              transform: [{ translateY: anim.y }],
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              bottom: 0,
+              justifyContent: 'center',
+              zIndex: 10,
             }}
           >
-            <Image 
-              source={require('../../assets/images/header_transparent_mobile_logo.png')}
-              style={{
-                width: 75,
-                height: 50,
-                resizeMode: 'contain',
-                marginTop: -2,
-              }}
-            />
+            <TouchableOpacity 
+              onPress={handleBack} 
+              style={{ padding: 8, paddingBottom: 4 }} 
+              activeOpacity={0.7}
+            >
+              <Ionicons name="chevron-back" size={26} color="#91403E" />
+            </TouchableOpacity>
           </Animated.View>
-          
-          {/* Empty space to balance layout */}
-          <View style={{ flex: 1 }} />
-          
-          {/* Notification icon on right */}
-          {showNotification ? (
+        )}
+        
+        {/* Logo container takes entire left side */}
+        <Animated.View
+          style={{
+            transform: [
+              { translateX: logoTranslateX },
+              { scale: logoScale }
+            ],
+            zIndex: 5,
+          }}
+        >
+          <Image 
+            source={require('../../assets/images/header_transparent_mobile_logo.png')}
+            style={{
+              width: 75,
+              height: 50,
+              resizeMode: 'contain',
+              marginTop: -2,
+            }}
+          />
+        </Animated.View>
+        
+        {/* Empty space to balance layout */}
+        <View style={{ flex: 1 }} />
+        
+        {/* Notification icon on right */}
+        {showNotification ? (
             <TouchableOpacity 
               style={{ padding: 8, marginTop: 6, position: 'relative' }} 
               activeOpacity={0.7}
               onPress={handleNotificationPress}
             >
-              <Ionicons name="notifications-outline" size={26} color="#91403E" />
-              {unreadCount > 0 && (
-                <View style={{
-                  position: 'absolute',
-                  top: 4,
-                  right: 4,
-                  backgroundColor: '#EF4444',
-                  borderRadius: 10,
-                  minWidth: 20,
-                  height: 20,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  borderWidth: 2,
-                  borderColor: '#F5F5F7',
-                }}>
-                  <Text style={{
-                    color: 'white',
-                    fontSize: 12,
-                    fontWeight: 'bold',
-                  }}>
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </Text>
-                </View>
-              )}
+              <View style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+                {/* Wave Effect View */}
+                {unreadCount > 0 && (
+                  <Animated.View
+                    style={{
+                      position: 'absolute',
+                      width: 40, // Initial size, same as icon container
+                      height: 40, // Initial size, same as icon container
+                      borderRadius: 20, // Make it a circle
+                      backgroundColor: '#FFD600', // Mikado Yellow
+                      transform: [{ scale: waveScale }],
+                      opacity: waveOpacity,
+                      zIndex: 0, // Behind the icon
+                    }}
+                  />
+                )}
+                {/* Icon Container View */}
+                <Animated.View
+                  style={[
+                    { position: 'relative', alignItems: 'center', justifyContent: 'center' },
+                    unreadCount > 0
+                      ? {
+                          transform: [
+                            {
+                      rotate: shakeAnimation.interpolate({
+                        inputRange: [-1, 0, 1],
+                                outputRange: ['-7deg', '0deg', '7deg'],
+                              }),
+                            },
+                          ],
+                        }
+                      : {},
+                  ]}
+                >
+                  <Ionicons
+                    name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
+                    size={24} // Icon size
+                    color={'#91403E'} // Cordovan color
+                  />
+                  {unreadCount > 0 && (() => {
+                    const badgeSize = 16;
+                    const badgeBorderRadius = badgeSize / 2;
+                    let badgeText = unreadCount > 99 ? '99+' : unreadCount.toString();
+                    let textFontSize = unreadCount > 99 ? 7.5 : 8;
+                    return (
+                      <View
+                        style={{
+                          position: 'absolute',
+                          top: -4, // Move badge above the bell
+                          right: -4, // Move badge to the right of the bell
+                          width: badgeSize,
+                          height: badgeSize,
+                          backgroundColor: '#EF4444', 
+                          borderRadius: badgeBorderRadius, 
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          zIndex: 2,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: 'white',
+                            fontSize: textFontSize,
+                            fontWeight: 'bold',
+                            textAlign: 'center',
+                            includeFontPadding: false, 
+                            paddingHorizontal: 1, // Small horizontal padding to help fit
+                          }}
+                          numberOfLines={1} 
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.7}
+                        >
+                          {badgeText}
+                        </Text>
+                      </View>
+                    );
+                  })()}
+                </Animated.View>
+              </View>
             </TouchableOpacity>
-          ) : (
-            <View style={{ width: 48 }} />
-          )}
-        </View>
+        ) : (
+          <View style={{ width: 48 }} />
+        )}
       </View>
+    </View>
 
       {/* Notification Screen Overlay */}
       {showNotificationScreen && (
@@ -440,20 +602,33 @@ const CustomHeader = ({
                 justifyContent: 'space-between',
                 alignItems: 'center',
               }}>
-                <View>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Text style={{
                     color: 'white',
                     fontSize: 24,
                     fontWeight: 'bold',
+                    marginRight: 12,
                   }}>
                     Notifications
                   </Text>
-                  <Text style={{
-                    color: 'rgba(255,255,255,0.8)',
-                    fontSize: 14,
-                  }}>
-                    {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
+                  {/* Mark all as read button at top beside title */}
+                  {unreadCount > 0 && (
+                    <TouchableOpacity
+                      onPress={handleMarkAllAsRead}
+                      style={{
+                        backgroundColor: 'rgba(255,255,255,0.2)',
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 16,
+                        marginLeft: 2,
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>
+                        Mark all as read
                   </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
                 <TouchableOpacity
                   onPress={handleNotificationPress}
@@ -468,6 +643,50 @@ const CustomHeader = ({
                 </TouchableOpacity>
               </View>
 
+              {/* Tab-specific notification count below title */}
+              <View style={{ marginTop: 2 }}>
+                <Text style={{
+                  color: 'rgba(255,255,255,0.8)',
+                  fontSize: 14,
+                }}>
+                  {selectedTab === 'all' && `${notifications.length} notifications, ${notifications.filter(n => !n.read).length} unread, ${notifications.filter(n => n.read).length} read`}
+                  {selectedTab === 'unread' && `${notifications.filter(n => !n.read).length} unread notification${notifications.filter(n => !n.read).length !== 1 ? 's' : ''}`}
+                  {selectedTab === 'read' && `${notifications.filter(n => n.read).length} read notification${notifications.filter(n => n.read).length !== 1 ? 's' : ''}`}
+                </Text>
+              </View>
+
+              {/* Notification Tabs */}
+              <View style={{ flexDirection: 'row', marginTop: 16, marginBottom: 4, gap: 8 }}>
+                {notificationTabs.map(tab => (
+                  <TouchableOpacity
+                    key={tab.key}
+                    onPress={() => setSelectedTab(tab.key)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      backgroundColor: selectedTab === tab.key ? '#fff' : 'rgba(255,255,255,0.12)',
+                      paddingHorizontal: 14,
+                      paddingVertical: 7,
+                      borderRadius: 16,
+                      marginRight: 8,
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={tab.icon as any}
+                      size={16}
+                      color={selectedTab === tab.key ? '#91403E' : '#fff'}
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={{
+                      color: selectedTab === tab.key ? '#91403E' : '#fff',
+                      fontWeight: selectedTab === tab.key ? 'bold' : '600',
+                      fontSize: 13,
+                    }}>{tab.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
               {/* Action Buttons */}
               {notifications.length > 0 && (
                 <View style={{
@@ -477,7 +696,7 @@ const CustomHeader = ({
                 }}>
                   {unreadCount > 0 && (
                     <TouchableOpacity
-                      onPress={markAllAsRead}
+                      onPress={handleMarkAllAsRead}
                       style={{
                         backgroundColor: 'rgba(255,255,255,0.2)',
                         paddingHorizontal: 12,
@@ -491,20 +710,27 @@ const CustomHeader = ({
                       </Text>
                     </TouchableOpacity>
                   )}
-                  <TouchableOpacity
-                    onPress={clearAllNotifications}
-                    style={{
-                      backgroundColor: 'rgba(255,255,255,0.2)',
+                  {isConnected && (
+                    <View style={{
+                      backgroundColor: 'rgba(0,255,0,0.2)',
                       paddingHorizontal: 12,
                       paddingVertical: 6,
                       borderRadius: 16,
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>
-                      Clear all
-                    </Text>
-                  </TouchableOpacity>
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}>
+                      <View style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: 3,
+                        backgroundColor: '#22C55E',
+                        marginRight: 6,
+                      }} />
+                      <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>
+                        Live
+                      </Text>
+                    </View>
+                  )}
                 </View>
               )}
             </View>
@@ -515,7 +741,7 @@ const CustomHeader = ({
               contentContainerStyle={{ paddingBottom: 20 }}
               showsVerticalScrollIndicator={false}
             >
-              {notifications.length === 0 ? (
+              {filteredNotifications.length === 0 ? (
                 <View style={{
                   flex: 1,
                   justifyContent: 'center',
@@ -542,7 +768,7 @@ const CustomHeader = ({
                   </Text>
                 </View>
               ) : (
-                notifications.map((notification, index) => (
+                filteredNotifications.map((notification, index) => (
                   <TouchableOpacity
                     key={notification.id}
                     style={{
@@ -560,7 +786,7 @@ const CustomHeader = ({
                       borderLeftColor: notification.read ? '#E5E7EB' : '#F59E0B',
                     }}
                     activeOpacity={0.7}
-                    onPress={() => markAsRead(notification.id)}
+                    onPress={() => handleMarkAsRead(notification.id)}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                       <View style={{
@@ -570,7 +796,7 @@ const CustomHeader = ({
                         marginRight: 12,
                       }}>
                         <Ionicons 
-                          name={getNotificationIcon(notification.type)} 
+                          name={getNotificationIcon(notification.type) as any} 
                           size={20} 
                           color={notification.read ? '#6B7280' : '#92400E'} 
                         />
@@ -588,7 +814,7 @@ const CustomHeader = ({
                             color: '#1F2937',
                             flex: 1,
                           }}>
-                            {notification.title}
+                            {getNotificationTitle(notification.type)}
                           </Text>
                           {!notification.read && (
                             <View style={{
@@ -614,7 +840,7 @@ const CustomHeader = ({
                           color: '#9CA3AF',
                           fontWeight: '500',
                         }}>
-                          {notification.time}
+                          {formatNotificationTime(notification.timestamp)}
                         </Text>
                       </View>
                     </View>
@@ -629,4 +855,4 @@ const CustomHeader = ({
   );
 };
 
-export default CustomHeader; 
+export default CustomHeader;
