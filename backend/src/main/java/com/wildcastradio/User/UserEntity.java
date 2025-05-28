@@ -7,7 +7,6 @@ import com.wildcastradio.ActivityLog.ActivityLogEntity;
 import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.ChatMessage.ChatMessageEntity;
 import com.wildcastradio.Notification.NotificationEntity;
-import com.wildcastradio.ServerSchedule.ServerScheduleEntity;
 import com.wildcastradio.SongRequest.SongRequestEntity;
 
 import jakarta.persistence.CascadeType;
@@ -62,9 +61,6 @@ public class UserEntity {
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL)
     private List<ActivityLogEntity> activityLogs = new ArrayList<>();
 
-    @OneToMany(mappedBy = "createdBy", cascade = CascadeType.ALL)
-    private List<ServerScheduleEntity> serverSchedules = new ArrayList<>();
-
     // User roles enum
     public enum UserRole {
         ADMIN, DJ, LISTENER
@@ -78,8 +74,7 @@ public class UserEntity {
     public UserEntity(Long id, String name, String email, String password, UserRole role, 
                     boolean verified, String verificationCode, List<BroadcastEntity> broadcasts,
                     List<ChatMessageEntity> chatMessages, List<SongRequestEntity> songRequests,
-                    List<NotificationEntity> notifications, List<ActivityLogEntity> activityLogs,
-                    List<ServerScheduleEntity> serverSchedules) {
+                    List<NotificationEntity> notifications, List<ActivityLogEntity> activityLogs) {
         this.id = id;
         this.name = name;
         this.email = email;
@@ -92,7 +87,6 @@ public class UserEntity {
         this.songRequests = songRequests;
         this.notifications = notifications;
         this.activityLogs = activityLogs;
-        this.serverSchedules = serverSchedules;
     }
     
     // Getters and Setters
@@ -190,13 +184,5 @@ public class UserEntity {
 
     public void setActivityLogs(List<ActivityLogEntity> activityLogs) {
         this.activityLogs = activityLogs;
-    }
-
-    public List<ServerScheduleEntity> getServerSchedules() {
-        return serverSchedules;
-    }
-
-    public void setServerSchedules(List<ServerScheduleEntity> serverSchedules) {
-        this.serverSchedules = serverSchedules;
     }
 } 

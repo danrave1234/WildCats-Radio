@@ -15,6 +15,9 @@ import {
 import { broadcastService } from "../services/api" // Import the broadcast service
 import Toast from "../components/Toast" // Import Toast component
 import { DateSelector, TimeSelector } from "../components/DateTimeSelector" // Import our custom date/time selectors
+import { createLogger } from '../services/logger';
+
+const logger = createLogger('Schedule');
 
 // Cookie helper function
 const getCookie = (name) => {
@@ -219,7 +222,7 @@ export default function Schedule() {
 
         setUpcomingBroadcasts(broadcasts)
       } catch (error) {
-        console.error("Error fetching upcoming broadcasts:", error)
+        logger.error("Error fetching upcoming broadcasts:", error)
         showToast("Failed to load broadcasts", "error")
       } finally {
         setIsLoading(false)
@@ -319,7 +322,7 @@ export default function Schedule() {
         details: broadcastDetails.details
       }
 
-      console.log("Schedule: Creating broadcast with Philippines local time:", {
+      logger.info("Schedule: Creating broadcast with Philippines local time:", {
         userSelectedDate: broadcastDetails.date,
         userSelectedStart: broadcastDetails.startTime,
         userSelectedEnd: broadcastDetails.endTime,
@@ -372,7 +375,7 @@ export default function Schedule() {
       // Show success toast
       showToast(successMessage)
     } catch (error) {
-      console.error(`Error ${isEditMode ? "updating" : "scheduling"} broadcast:`, error)
+      logger.error(`Error ${isEditMode ? "updating" : "scheduling"} broadcast:`, error)
       // Show error toast
       showToast(`Failed to ${isEditMode ? "update" : "schedule"} broadcast. Please try again.`, "error")
     } finally {
@@ -503,7 +506,7 @@ export default function Schedule() {
       // Show success message
       showToast("Broadcast deleted successfully!")
     } catch (error) {
-      console.error("Error deleting broadcast:", error)
+      logger.error("Error deleting broadcast:", error)
       showToast("Failed to delete broadcast. Please try again.", "error")
     } finally {
       setIsLoading(false)

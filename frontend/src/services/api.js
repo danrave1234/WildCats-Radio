@@ -3,6 +3,10 @@ import { handleSecuritySoftwareErrors } from './errorHandler';
 // WebSocket support libraries
 import SockJS from 'sockjs-client';
 import { Stomp } from '@stomp/stompjs';
+import { useLocalBackend } from '../config';
+import { createLogger } from './logger';
+
+const logger = createLogger('APIService');
 
 // Helper function to get the correct protocol for the current environment
 const getProtocol = (forWebSocket = false, host = '') => {
@@ -21,10 +25,9 @@ const getProtocol = (forWebSocket = false, host = '') => {
 // Environment variables should NOT include protocols as specified in .env comments
 const constructUrl = (envVar, fallbackHost, fallbackPath = '', forWebSocket = false) => {
   // Check if we should use localhost instead of the deployed backend
-  // Get value from environment variable (string 'true' or 'false')
-  const useLocalBackend = import.meta.env.VITE_USE_LOCAL_BACKEND === 'true';
-  console.log('Environment variable VITE_USE_LOCAL_BACKEND:', import.meta.env.VITE_USE_LOCAL_BACKEND);
-  
+  // Using centralized configuration from config.js
+  logger.debug('Using useLocalBackend setting from config.js:', useLocalBackend);
+
   // If using local backend, override the host for API and WebSocket (but not Icecast)
   let host;
   if (useLocalBackend && !envVar.includes('ICECAST_URL')) {
@@ -54,8 +57,8 @@ const API_BASE_URL = constructUrl(
   false
 );
 
-console.log('API_BASE_URL constructed:', API_BASE_URL);
-console.log(`Using ${import.meta.env.VITE_USE_LOCAL_BACKEND === 'true' ? 'LOCAL' : 'DEPLOYED'} backend`);
+logger.info('API_BASE_URL constructed:', API_BASE_URL);
+logger.info(`Using ${useLocalBackend ? 'LOCAL' : 'DEPLOYED'} backend`);
 
 // Cookie helper function
 const getCookie = (name) => {
@@ -144,7 +147,7 @@ export const broadcastService = {
 
     return new Promise((resolve, reject) => {
       stompClient.connect(headers, () => {
-        console.log('Connected to Broadcast WebSocket for broadcast:', broadcastId);
+        logger.debug('Connected to Broadcast WebSocket for broadcast:', broadcastId);
 
         // Subscribe to broadcast-specific updates
         const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}`, (message) => {
@@ -152,7 +155,7 @@ export const broadcastService = {
             const broadcastMessage = JSON.parse(message.body);
             callback(broadcastMessage);
           } catch (error) {
-            console.error('Error parsing broadcast message:', error);
+            logger.error('Error parsing broadcast message:', error);
           }
         });
 
@@ -171,7 +174,7 @@ export const broadcastService = {
                 body: JSON.stringify({})
               });
             } catch (error) {
-              console.error('Error sending leave message:', error);
+              logger.error('Error sending leave message:', error);
             }
           }
 
@@ -197,7 +200,7 @@ export const broadcastService = {
           }
         });
       }, (error) => {
-        console.error('Broadcast WebSocket connection error:', error);
+        logger.error('Broadcast WebSocket connection error:', error);
         reject(error);
       });
     });
@@ -230,7 +233,7 @@ export const chatService = {
 
     return new Promise((resolve, reject) => {
       stompClient.connect(headers, () => {
-        console.log('Connected to Chat WebSocket for broadcast:', broadcastId);
+        logger.debug('Connected to Chat WebSocket for broadcast:', broadcastId);
 
         // Subscribe to broadcast-specific chat messages
         const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/chat`, (message) => {
@@ -238,7 +241,7 @@ export const chatService = {
             const chatMessage = JSON.parse(message.body);
             callback(chatMessage);
           } catch (error) {
-            console.error('Error parsing chat message:', error);
+            logger.error('Error parsing chat message:', error);
           }
         });
 
@@ -254,7 +257,7 @@ export const chatService = {
           isConnected: () => stompClient.connected
         });
       }, (error) => {
-        console.error('Chat WebSocket connection error:', error);
+        logger.error('Chat WebSocket connection error:', error);
         reject(error);
       });
     });
@@ -288,7 +291,7 @@ export const songRequestService = {
 
     return new Promise((resolve, reject) => {
       stompClient.connect(headers, () => {
-        console.log('Connected to Song Requests WebSocket for broadcast:', broadcastId);
+        logger.debug('Connected to Song Requests WebSocket for broadcast:', broadcastId);
 
         // Subscribe to broadcast-specific song requests
         const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/song-requests`, (message) => {
@@ -296,7 +299,7 @@ export const songRequestService = {
             const songRequest = JSON.parse(message.body);
             callback(songRequest);
           } catch (error) {
-            console.error('Error parsing song request:', error);
+            logger.error('Error parsing song request:', error);
           }
         });
 
@@ -312,7 +315,7 @@ export const songRequestService = {
           isConnected: () => stompClient.connected
         });
       }, (error) => {
-        console.error('Song Requests WebSocket connection error:', error);
+        logger.error('Song Requests WebSocket connection error:', error);
         reject(error);
       });
     });
@@ -349,7 +352,7 @@ export const notificationService = {
 
     return new Promise((resolve) => {
       stompClient.connect(headers, (frame) => {
-        console.log('Connected to WebSocket:', frame);
+        logger.debug('Connected to WebSocket:', frame);
         isConnected = true;
 
         stompClient.subscribe('/user/queue/notifications', (message) => {
@@ -357,7 +360,7 @@ export const notificationService = {
             const notification = JSON.parse(message.body);
             callback(notification);
           } catch (error) {
-            console.error('Error parsing notification:', error);
+            logger.error('Error parsing notification:', error);
           }
         });
 
@@ -375,11 +378,11 @@ export const notificationService = {
           isConnected: () => isConnected
         });
       }, (error) => {
-        console.error('WebSocket connection error:', error);
+        logger.error('WebSocket connection error:', error);
         isConnected = false;
 
         // Fallback to polling if WebSocket connection fails
-        console.log('WebSocket connection failed. Falling back to polling.');
+        logger.info('WebSocket connection failed. Falling back to polling.');
         pollingInterval = setInterval(async () => {
           try {
             const response = await notificationService.getUnread();
@@ -387,7 +390,7 @@ export const notificationService = {
               response.data.forEach(notification => callback(notification));
             }
           } catch (pollError) {
-            console.error('Polling error:', pollError);
+            logger.error('Polling error:', pollError);
           }
         }, 30000); // Poll every 30 seconds as fallback
 
@@ -416,17 +419,6 @@ export const notificationService = {
       );
     });
   }
-};
-
-// Services for server scheduling (not using actual server commands in local mode)
-export const serverService = {
-  getSchedules: () => api.get('/api/server-schedules'),
-  createSchedule: (scheduleData) => api.post('/api/server-schedules', scheduleData),
-  updateSchedule: (id, scheduleData) => api.put(`/api/server-schedules/${id}`, scheduleData),
-  deleteSchedule: (id) => api.post(`/api/server-schedules/${id}/delete`),
-  startNow: () => api.post('/api/server-schedules/manual-start'),
-  stopNow: () => api.post('/api/server-schedules/manual-stop'),
-  getStatus: () => api.get('/api/server-schedules/status'),
 };
 
 // Services for activity logs
@@ -468,7 +460,7 @@ export const pollService = {
 
     return new Promise((resolve, reject) => {
       stompClient.connect(headers, () => {
-        console.log('Connected to Polls WebSocket for broadcast:', broadcastId);
+        logger.debug('Connected to Polls WebSocket for broadcast:', broadcastId);
 
         // Subscribe to broadcast-specific poll updates
         const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/polls`, (message) => {
@@ -476,7 +468,7 @@ export const pollService = {
             const pollData = JSON.parse(message.body);
             callback(pollData);
           } catch (error) {
-            console.error('Error parsing poll data:', error);
+            logger.error('Error parsing poll data:', error);
           }
         });
 
@@ -492,7 +484,7 @@ export const pollService = {
           isConnected: () => stompClient.connected
         });
       }, (error) => {
-        console.error('Polls WebSocket connection error:', error);
+        logger.error('Polls WebSocket connection error:', error);
         reject(error);
       });
     });
@@ -509,17 +501,13 @@ export const streamService = {
 
   // WebSocket URL for DJs to send audio to the server
   getStreamUrl: () => {
-    // Check if we should use localhost instead of the deployed backend
-    // Force useLocalBackend to true to ensure we're using the local backend
-    const useLocalBackend = false; // Override the environment variable
-    
     let wsBaseUrl;
     if (useLocalBackend) {
       wsBaseUrl = 'localhost:8080';
     } else {
       wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
     }
-    
+
     const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
     // For deployed environments, always use secure WebSocket (wss)
     // For localhost development, use ws
@@ -551,7 +539,7 @@ export const streamService = {
         return { isUp: false, status: response.data };
       })
       .catch(error => {
-        console.error('Error checking Icecast server:', error);
+        logger.error('Error checking Icecast server:', error);
         return { isUp: false, error: error.message };
       });
   }

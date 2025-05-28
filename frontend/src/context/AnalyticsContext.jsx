@@ -8,12 +8,13 @@ import {
 } from '../services/api';
 import SockJS from 'sockjs-client';
 import { Stomp } from '@stomp/stompjs';
+import { useLocalBackend } from '../config';
+import { useAuth } from './AuthContext';
 
 const AnalyticsContext = createContext();
 
 // Get the proper WebSocket URL from environment variables
 const getWsUrl = () => {
-  const useLocalBackend = import.meta.env.VITE_USE_LOCAL_BACKEND === 'true';
   if (useLocalBackend) {
     return 'http://localhost:8080/ws-radio';
   } else {
@@ -33,7 +34,7 @@ export function useAnalytics() {
 }
 
 export function AnalyticsProvider({ children }) {
-  // Dashboard data states
+  const { isAuthenticated } = useAuth();
   const [userStats, setUserStats] = useState({
     totalUsers: 0,
     listeners: 0,
@@ -539,13 +540,15 @@ export function AnalyticsProvider({ children }) {
 
   // Connect to WebSocket and fetch initial data on mount
   useEffect(() => {
-    fetchInitialData();
-    connectWebSocket();
+    if (isAuthenticated) {
+      fetchInitialData();
+      connectWebSocket();
+    }
 
     return () => {
       disconnectWebSocket();
     };
-  }, []);
+  }, [isAuthenticated]);
 
   // Function to manually refresh data
   const refreshData = async () => {

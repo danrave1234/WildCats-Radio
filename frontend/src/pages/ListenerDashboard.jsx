@@ -18,6 +18,10 @@ import { broadcastService, chatService, songRequestService, pollService, streamS
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from "../context/AuthContext";
 import { useStreaming } from "../context/StreamingContext";
+import { useLocalBackend } from "../config";
+import { createLogger } from "../services/logger";
+
+const logger = createLogger('ListenerDashboard');
 
 export default function ListenerDashboard() {
   const { id: broadcastIdParam } = useParams();
@@ -25,7 +29,7 @@ export default function ListenerDashboard() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const isSpecificBroadcast = location.pathname.startsWith('/broadcast/');
-  
+
   // Get streaming context
   const { 
     isLive,
@@ -38,7 +42,7 @@ export default function ListenerDashboard() {
     toggleMute,
     serverConfig
   } = useStreaming();
-  
+
   // If we're accessing a specific broadcast by ID, set it as the current broadcast
   const targetBroadcastId = isSpecificBroadcast && broadcastIdParam ? parseInt(broadcastIdParam, 10) : null;
   const [streamError, setStreamError] = useState(null);
@@ -54,11 +58,13 @@ export default function ListenerDashboard() {
 
   // Song request state
   const [songRequest, setSongRequest] = useState({ title: '', artist: '' });
+  const [songRequestLoading, setSongRequestLoading] = useState(false);
+  const [requestError, setRequestError] = useState(null);
 
   // Poll state
   const [activePoll, setActivePoll] = useState(null);
   const [userVotes, setUserVotes] = useState({});
-  
+
   // UI state
   const [activeTab, setActiveTab] = useState("song");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
@@ -67,26 +73,29 @@ export default function ListenerDashboard() {
 
   // Local audio state for the dashboard player (separate from streaming context)
   const [localAudioPlaying, setLocalAudioPlaying] = useState(false);
-  
+
   // Local listener count state (fallback if streaming context doesn't update)
   const [localListenerCount, setLocalListenerCount] = useState(0);
-  
+
   // Poll selection state
   const [selectedPollOption, setSelectedPollOption] = useState(null);
-  
+
   // Chat timestamp update state
   const [_chatTimestampTick, _setChatTimestampTick] = useState(0);
-  
+
+  // WebSocket connection status
+  const [wsConnected, setWsConnected] = useState(false);
+
   // WebSocket references for interactions
   const chatWsRef = useRef(null);
   const songRequestWsRef = useRef(null);
   const pollWsRef = useRef(null);
   const broadcastWsRef = useRef(null);
-  
+
   // UI refs
   const chatContainerRef = useRef(null);
   const abortControllerRef = useRef(null);
-  
+
   // Audio refs from ListenerDashboard2.jsx
   const audioRef = useRef(null);
   const statusCheckInterval = useRef(null);
@@ -114,7 +123,7 @@ export default function ListenerDashboard() {
           setCurrentBroadcastId(targetBroadcastId);
           return;
         }
-        
+
         // Otherwise, get the active broadcast
         const activeBroadcast = await broadcastService.getActiveBroadcast();
         if (activeBroadcast) {
@@ -122,18 +131,18 @@ export default function ListenerDashboard() {
           setCurrentBroadcastId(activeBroadcast.id);
           return;
         }
-        
+
         // If no active broadcast, get the next scheduled broadcast
         const upcomingResponse = await broadcastService.getUpcoming();
         if (upcomingResponse.data && upcomingResponse.data.length > 0) {
           setNextBroadcast(upcomingResponse.data[0]); // Get the first upcoming broadcast
         }
       } catch (error) {
-        console.error('Error fetching broadcast information:', error);
+        logger.error('Error fetching broadcast information:', error);
         setStreamError('Failed to load broadcast information');
       }
     };
-    
+
     fetchCurrentBroadcast();
   }, [targetBroadcastId]);
 
@@ -142,7 +151,7 @@ export default function ListenerDashboard() {
     try {
       toggleAudio();
     } catch (error) {
-      console.error('Error toggling audio:', error);
+      logger.error('Error toggling audio:', error);
       setStreamError('Failed to control audio playback');
     }
   };
@@ -164,14 +173,14 @@ export default function ListenerDashboard() {
       const wasPlaying = audioPlaying;
       audioRef.current.pause();
       audioRef.current.src = '';
-      
+
       setTimeout(() => {
         audioRef.current.src = serverConfig.streamUrl;
         audioRef.current.load();
-        
+
         if (wasPlaying) {
           audioRef.current.play().catch(error => {
-            console.error('Error restarting playback:', error);
+            logger.error('Error restarting playback:', error);
             setStreamError('Failed to restart playback. Please try again.');
           });
         }
@@ -181,37 +190,48 @@ export default function ListenerDashboard() {
 
   // Initialize audio element when serverConfig is available
   useEffect(() => {
-    console.log('Audio initialization useEffect called:', {
+    logger.debug('Audio initialization useEffect called:', {
       serverConfigExists: !!serverConfig,
       audioRefCurrentExists: !!audioRef.current,
       streamUrl: serverConfig?.streamUrl
     });
-    
+
     if (serverConfig && !audioRef.current) {
-      console.log('Initializing audio element with stream URL:', serverConfig.streamUrl);
+      logger.debug('Initializing audio element with stream URL:', serverConfig.streamUrl);
       audioRef.current = new Audio();
       audioRef.current.preload = 'none';
       audioRef.current.volume = isMuted ? 0 : volume / 100;
-      
+
       // Add event listeners for audio events
-      audioRef.current.onloadstart = () => console.log('Audio loading started');
-      audioRef.current.oncanplay = () => console.log('Audio can start playing');
-      audioRef.current.onplay = () => console.log('Audio play event fired');
-      audioRef.current.onpause = () => console.log('Audio pause event fired');
+      audioRef.current.onloadstart = () => logger.debug('Audio loading started');
+      audioRef.current.oncanplay = () => logger.debug('Audio can start playing');
+      audioRef.current.onplay = () => logger.debug('Audio play event fired');
+      audioRef.current.onpause = () => logger.debug('Audio pause event fired');
       audioRef.current.onerror = (e) => {
-        console.error('Audio error:', e);
-        console.error('Audio error details:', {
-          error: e.target?.error,
-          code: e.target?.error?.code,
-          message: e.target?.error?.message,
-          networkState: e.target?.networkState,
-          readyState: e.target?.readyState,
-          src: e.target?.src
-        });
-        setStreamError('Audio playback error. Please try refreshing or check your internet connection.');
+        // Check if this is an empty src error (which is expected before play is clicked)
+        const isEmptySrcError = 
+          e.target?.error?.code === 4 && 
+          (!e.target?.src || e.target?.src === '') && 
+          e.target?.error?.message?.includes('Empty src attribute');
+
+        // Only log and show error if it's not the expected empty src error
+        if (!isEmptySrcError) {
+          logger.error('Audio error:', e);
+          logger.error('Audio error details:', {
+            error: e.target?.error,
+            code: e.target?.error?.code,
+            message: e.target?.error?.message,
+            networkState: e.target?.networkState,
+            readyState: e.target?.readyState,
+            src: e.target?.src
+          });
+          setStreamError('Audio playback error. Please try refreshing or check your internet connection.');
+        } else {
+          logger.debug('Ignoring expected empty src error before playback starts');
+        }
       };
     }
-    
+
     return () => {
       // Cleanup audio element on unmount
       if (audioRef.current) {
@@ -241,37 +261,32 @@ export default function ListenerDashboard() {
 
       // Prevent duplicate connections
       if (isReconnecting || wsConnectingRef.current) return;
-      
+
       // Increment connection attempt counter
       wsConnectionAttemptCount++;
-      
+
       // Use a delay to avoid React StrictMode double-mounting issues
       // Increase delay for subsequent attempts
       const connectionDelay = Math.min(300 * wsConnectionAttemptCount, 2000);
-      console.log(`Delaying WebSocket connection by ${connectionDelay}ms (attempt ${wsConnectionAttemptCount})`);
-      
+      logger.debug(`Delaying WebSocket connection by ${connectionDelay}ms (attempt ${wsConnectionAttemptCount})`);
+
       reconnectTimer = setTimeout(() => {
         isReconnecting = true;
         wsConnectingRef.current = true;
 
-        // Simple WebSocket URL construction
         // For deployed environments, always use secure WebSocket (wss)
         // For localhost development, use ws
         const wsProtocol = window.location.hostname === 'localhost' ? 'ws' : 'wss';
-        
-        // Check if we should use localhost instead of the deployed backend
-        // Force useLocalBackend to true to ensure we're using the local backend
-        const useLocalBackend = false; // Override the environment variable
-        
+
         let wsBaseUrl;
         if (useLocalBackend) {
           wsBaseUrl = 'localhost:8080';
         } else {
           wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
         }
-        
+
       const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-      
+
       // Get JWT token for authentication
       const getCookie = (name) => {
         const value = `; ${document.cookie}`;
@@ -279,14 +294,14 @@ export default function ListenerDashboard() {
         if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
         return null;
       };
-      
+
       const token = getCookie('token');
       const listenerWsUrl = `${wsProtocol}://${cleanHost}/ws/listener${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 
-      console.log('Using WebSocket URL:', listenerWsUrl.replace(/token=[^&]*/, 'token=***'));
+      logger.debug('Using WebSocket URL:', listenerWsUrl.replace(/token=[^&]*/, 'token=***'));
 
       try {
-          console.log('Listener Dashboard connecting to WebSocket with authentication');
+          logger.debug('Listener Dashboard connecting to WebSocket with authentication');
 
           // Close existing connection if any
           if (wsRef.current) {
@@ -294,13 +309,13 @@ export default function ListenerDashboard() {
               // First remove handlers to prevent reconnection logic from firing
               wsRef.current.onclose = null;
               wsRef.current.onerror = null;
-              
+
               if (wsRef.current.readyState !== WebSocket.CLOSING && 
                   wsRef.current.readyState !== WebSocket.CLOSED) {
                 wsRef.current.close(1000, "Replacing connection");
             }
           } catch (e) {
-              console.warn('Error closing existing WebSocket:', e);
+              logger.warn('Error closing existing WebSocket:', e);
           }
         }
 
@@ -310,7 +325,7 @@ export default function ListenerDashboard() {
 
           // Set up event handlers
         wsInstance.onopen = () => {
-            console.log('WebSocket connected for listener updates');
+            logger.info('WebSocket connected for listener updates');
             isReconnecting = false;
             wsConnectingRef.current = false;
             wsConnectionAttemptCount = 0; // Reset counter on successful connection
@@ -329,9 +344,9 @@ export default function ListenerDashboard() {
                     timestamp: Date.now()
                   };
                   wsRef.current.send(JSON.stringify(message));
-                  console.log('Sent initial listener status on WebSocket connect: listening', message);
+                  logger.debug('Sent initial listener status on WebSocket connect: listening', message);
                 } else {
-                  console.log('WebSocket connected but not currently listening');
+                  logger.debug('WebSocket connected but not currently listening');
                 }
               }
             }, 100);
@@ -354,7 +369,7 @@ export default function ListenerDashboard() {
                     timestamp: Date.now()
                   };
                   wsRef.current.send(JSON.stringify(message));
-                  console.log('Heartbeat: Sent listener status (listening)', message);
+                  logger.debug('Heartbeat: Sent listener status (listening)', message);
                 }
               }
             }, 15000);
@@ -363,24 +378,24 @@ export default function ListenerDashboard() {
         wsInstance.onmessage = (event) => {
           try {
               const data = JSON.parse(event.data);
-              console.log('WebSocket message received:', data);
+              logger.debug('WebSocket message received:', data);
 
             if (data.type === 'STREAM_STATUS') {
-                console.log('ListenerDashboard: Stream status updated via WebSocket:', data.isLive);
-                
+                logger.debug('ListenerDashboard: Stream status updated via WebSocket:', data.isLive);
+
                 // Update local listener count if provided
                 if (data.listenerCount !== undefined) {
-                  console.log('ListenerDashboard: Updating listener count to:', data.listenerCount);
+                  logger.debug('ListenerDashboard: Updating listener count to:', data.listenerCount);
                   setLocalListenerCount(data.listenerCount);
                 }
             }
           } catch (error) {
-              console.error('Error parsing WebSocket message:', error);
+              logger.error('Error parsing WebSocket message:', error);
           }
           };
 
         wsInstance.onclose = (event) => {
-            console.log(`WebSocket disconnected with code ${event.code}, reason: ${event.reason}`);
+            logger.info(`WebSocket disconnected with code ${event.code}, reason: ${event.reason}`);
             isReconnecting = false;
             wsConnectingRef.current = false;
 
@@ -391,22 +406,22 @@ export default function ListenerDashboard() {
 
             // Only reconnect on unexpected close and if we haven't exceeded max attempts
             if (event.code !== 1000 && event.code !== 1001 && wsConnectionAttemptCount < MAX_CONNECTION_ATTEMPTS) {
-              console.log(`Attempting to reconnect WebSocket in ${3000 * wsConnectionAttemptCount}ms (attempt ${wsConnectionAttemptCount})`);
+              logger.debug(`Attempting to reconnect WebSocket in ${3000 * wsConnectionAttemptCount}ms (attempt ${wsConnectionAttemptCount})`);
               reconnectTimer = setTimeout(connectWebSocket, 3000 * wsConnectionAttemptCount);
             } else if (wsConnectionAttemptCount >= MAX_CONNECTION_ATTEMPTS) {
-              console.log(`Maximum connection attempts (${MAX_CONNECTION_ATTEMPTS}) reached. Stopping reconnection attempts.`);
+              logger.warn(`Maximum connection attempts (${MAX_CONNECTION_ATTEMPTS}) reached. Stopping reconnection attempts.`);
             }
           };
 
         wsInstance.onerror = (error) => {
-            console.error('WebSocket error:', error);
+            logger.error('WebSocket error:', error);
             // Don't set isReconnecting to false here, let onclose handle it
           };
       } catch (error) {
-          console.error('Error creating WebSocket:', error);
+          logger.error('Error creating WebSocket:', error);
           isReconnecting = false;
           wsConnectingRef.current = false;
-          
+
           if (wsConnectionAttemptCount < MAX_CONNECTION_ATTEMPTS) {
             reconnectTimer = setTimeout(connectWebSocket, 3000 * wsConnectionAttemptCount);
           }
@@ -419,43 +434,26 @@ export default function ListenerDashboard() {
 
     // Cleanup function
     return () => {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-      }
+      logger.debug('Listener Dashboard: Cleaning up WebSocket connections for broadcast:', currentBroadcastId);
 
-      if (heartbeatInterval.current) {
-        clearInterval(heartbeatInterval.current);
-        heartbeatInterval.current = null;
-      }
+      // Reset WebSocket connection status
+      setWsConnected(false);
 
-      if (wsRef.current) {
-        try {
-          console.log('Closing WebSocket due to component unmount');
-          
-          // Send stop listening message if currently playing
-          if (wsRef.current.readyState === WebSocket.OPEN && localAudioPlaying) {
-            const message = {
-              type: 'LISTENER_STATUS',
-              action: 'STOP_LISTENING',
-              broadcastId: currentBroadcastId,
-              userId: currentUser?.id || null,
-              userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
-              timestamp: Date.now()
-            };
-            wsRef.current.send(JSON.stringify(message));
-            console.log('Sent listener stop message due to component unmount:', message);
-          }
-          
-          // Remove event handlers first
-          wsRef.current.onclose = null;
-          wsRef.current.onerror = null;
-          wsRef.current.onmessage = null;
-          wsRef.current.onopen = null;
-          
-          wsRef.current.close(1000, 'Component unmounting');
-        } catch (e) {
-          console.warn('Error closing WebSocket during cleanup:', e);
-        }
+      if (chatWsRef.current) {
+        chatWsRef.current.disconnect();
+        chatWsRef.current = null;
+      }
+      if (songRequestWsRef.current) {
+        songRequestWsRef.current.disconnect();
+        songRequestWsRef.current = null;
+      }
+      if (pollWsRef.current) {
+        pollWsRef.current.disconnect();
+        pollWsRef.current = null;
+      }
+      if (broadcastWsRef.current) {
+        broadcastWsRef.current.disconnect();
+        broadcastWsRef.current = null;
       }
     };
   }, [currentBroadcastId]); // Removed isLive dependency and unnecessary dependencies to prevent unnecessary re-runs
@@ -463,7 +461,7 @@ export default function ListenerDashboard() {
   // Send player status when playing state changes
   useEffect(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      console.log('Sent player status to server:', audioPlaying ? 'playing' : 'paused')
+      logger.debug('Sent player status to server:', audioPlaying ? 'playing' : 'paused')
     }
   }, [audioPlaying])
 
@@ -474,27 +472,27 @@ export default function ListenerDashboard() {
     const checkStatus = () => {
       // Skip polling if WebSocket is connected and working
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        console.log('Skipping status poll - WebSocket is active')
+        logger.debug('Skipping status poll - WebSocket is active')
         return
       }
 
       streamService.getStatus()
         .then(response => {
-          console.log("Backend stream status:", response.data)
+          logger.debug("Backend stream status:", response.data)
 
           if (response.data && response.data.data) {
             const statusData = response.data.data
-            console.log('Stream status updated via HTTP:', statusData.live)
+            logger.debug('Stream status updated via HTTP:', statusData.live)
           }
         })
         .catch(error => {
-          console.error('Error checking status:', error)
+          logger.error('Error checking status:', error)
         })
     }
 
     // Initial check
     checkStatus()
-    
+
     // Minimal polling since WebSocket handles real-time updates
     // Only check occasionally for server health when WebSocket isn't available
     statusCheckInterval.current = setInterval(checkStatus, 120000) // Check every 2 minutes instead of 30s
@@ -511,7 +509,7 @@ export default function ListenerDashboard() {
     if (audioRef.current) {
       const newVolume = isMuted ? 0 : volume / 100
       audioRef.current.volume = newVolume
-      console.log('Volume updated to:', newVolume)
+      logger.debug('Volume updated to:', newVolume)
     }
   }, [volume, isMuted])
 
@@ -578,7 +576,7 @@ export default function ListenerDashboard() {
         if (error.name === 'AbortError') {
           return;
         }
-        console.error("Listener Dashboard: Error fetching chat messages:", error);
+        logger.error("Listener Dashboard: Error fetching chat messages:", error);
       }
     };
 
@@ -627,22 +625,25 @@ export default function ListenerDashboard() {
       return;
     }
 
-    console.log('Listener Dashboard: Setting up WebSocket connections for broadcast:', currentBroadcastId);
+    logger.debug('Listener Dashboard: Setting up WebSocket connections for broadcast:', currentBroadcastId);
 
     // Setup Chat WebSocket
     const setupChatWebSocket = async () => {
       try {
+        // Reset connection status when setting up new connection
+        setWsConnected(false);
+
         // Clean up any existing connection first
         if (chatWsRef.current) {
-          console.log('Listener Dashboard: Cleaning up existing chat WebSocket');
+          logger.debug('Listener Dashboard: Cleaning up existing chat WebSocket');
           chatWsRef.current.disconnect();
           chatWsRef.current = null;
         }
         const connection = await chatService.subscribeToChatMessages(currentBroadcastId, (newMessage) => {
           // Set connection status to true on first message - this confirms WebSocket is working
           if (!wsConnected) {
-            wsConnected = true;
-            console.log('Listener Dashboard: WebSocket confirmed working');
+            setWsConnected(true);
+            logger.debug('Listener Dashboard: WebSocket confirmed working');
           }
 
           // Double-check the message is for the current broadcast
@@ -673,31 +674,31 @@ export default function ListenerDashboard() {
         // Add a connection status check
         setTimeout(() => {
           if (!wsConnected) {
-            console.warn('Listener Dashboard: WebSocket not confirmed working after 3 seconds, refreshing messages');
+            logger.warn('Listener Dashboard: WebSocket not confirmed working after 3 seconds, refreshing messages');
             // Fallback - fetch messages again if WebSocket isn't working
             chatService.getMessages(currentBroadcastId).then(response => {
               setChatMessages(response.data);
             }).catch(error => {
-              console.error('Listener Dashboard: Error fetching messages during fallback:', error);
+              logger.error('Listener Dashboard: Error fetching messages during fallback:', error);
             });
           }
         }, 3000);
 
         chatWsRef.current = connection;
-        console.log('Listener Dashboard: Chat WebSocket connected successfully');
+        logger.debug('Listener Dashboard: Chat WebSocket connected successfully');
       } catch (error) {
-        console.error('Listener Dashboard: Failed to connect chat WebSocket:', error);
+        logger.error('Listener Dashboard: Failed to connect chat WebSocket:', error);
 
         // Important: Fallback to polling on WebSocket failure
         const pollInterval = setInterval(() => {
           if (currentBroadcastId) {
-            console.log('Listener Dashboard: Polling for messages due to WebSocket failure');
+            logger.debug('Listener Dashboard: Polling for messages due to WebSocket failure');
             chatService.getMessages(currentBroadcastId)
                 .then(response => {
                   setChatMessages(response.data);
                 })
                 .catch(error => {
-                  console.error('Listener Dashboard: Error polling messages:', error);
+                  logger.error('Listener Dashboard: Error polling messages:', error);
                 });
           } else {
             clearInterval(pollInterval);
@@ -717,7 +718,7 @@ export default function ListenerDashboard() {
       try {
         // Clean up any existing connection first
         if (songRequestWsRef.current) {
-          console.log('Listener Dashboard: Cleaning up existing song request WebSocket');
+          logger.debug('Listener Dashboard: Cleaning up existing song request WebSocket');
           songRequestWsRef.current.disconnect();
           songRequestWsRef.current = null;
         }
@@ -729,9 +730,9 @@ export default function ListenerDashboard() {
           }
         });
         songRequestWsRef.current = connection;
-        console.log('Listener Dashboard: Song request WebSocket connected successfully');
+        logger.debug('Listener Dashboard: Song request WebSocket connected successfully');
       } catch (error) {
-        console.error('Listener Dashboard: Failed to connect song request WebSocket:', error);
+        logger.error('Listener Dashboard: Failed to connect song request WebSocket:', error);
       }
     };
 
@@ -740,17 +741,17 @@ export default function ListenerDashboard() {
       try {
         // Clean up any existing connection first
         if (pollWsRef.current) {
-          console.log('Listener Dashboard: Cleaning up existing poll WebSocket');
+          logger.debug('Listener Dashboard: Cleaning up existing poll WebSocket');
           pollWsRef.current.disconnect();
           pollWsRef.current = null;
         }
 
         const connection = await pollService.subscribeToPolls(currentBroadcastId, (data) => {
-          console.log('Listener Dashboard: Received poll WebSocket message:', data);
+          logger.debug('Listener Dashboard: Received poll WebSocket message:', data);
           switch (data.type) {
             case 'NEW_POLL':
               if (data.poll && data.poll.isActive) {
-                console.log('Listener Dashboard: New poll received:', data.poll);
+                logger.debug('Listener Dashboard: New poll received:', data.poll);
                 setActivePoll({
                   ...data.poll,
                   totalVotes: data.poll.options.reduce((sum, option) => sum + (option.votes || 0), 0),
@@ -764,7 +765,7 @@ export default function ListenerDashboard() {
             case 'POLL_VOTE':
               // Handle real-time vote updates
               if (data.pollId === activePoll?.id && data.poll) {
-                console.log('Listener Dashboard: Poll vote update received:', data.poll);
+                logger.debug('Listener Dashboard: Poll vote update received:', data.poll);
                 setActivePoll(prev => prev ? {
                   ...prev,
                   options: data.poll.options || prev.options,
@@ -775,7 +776,7 @@ export default function ListenerDashboard() {
 
             case 'POLL_UPDATED':
               if (data.poll && !data.poll.isActive && activePoll?.id === data.poll.id) {
-                console.log('Listener Dashboard: Poll ended:', data.poll);
+                logger.debug('Listener Dashboard: Poll ended:', data.poll);
                 setActivePoll(null);
                 setSelectedPollOption(null);
               }
@@ -783,7 +784,7 @@ export default function ListenerDashboard() {
 
             case 'POLL_RESULTS':
               if (data.pollId === activePoll?.id && data.results) {
-                console.log('Listener Dashboard: Poll results update received:', data.results);
+                logger.debug('Listener Dashboard: Poll results update received:', data.results);
                 setActivePoll(prev => prev ? {
                   ...prev,
                   options: data.results.options,
@@ -791,15 +792,15 @@ export default function ListenerDashboard() {
                 } : null);
               }
               break;
-              
+
             default:
-              console.log('Listener Dashboard: Unknown poll message type:', data.type);
+              logger.debug('Listener Dashboard: Unknown poll message type:', data.type);
           }
         });
         pollWsRef.current = connection;
-        console.log('Listener Dashboard: Poll WebSocket connected successfully');
+        logger.debug('Listener Dashboard: Poll WebSocket connected successfully');
       } catch (error) {
-        console.error('Listener Dashboard: Failed to connect poll WebSocket:', error);
+        logger.error('Listener Dashboard: Failed to connect poll WebSocket:', error);
       }
     };
 
@@ -808,50 +809,50 @@ export default function ListenerDashboard() {
       try {
         // Clean up any existing connection first
         if (broadcastWsRef.current) {
-          console.log('Listener Dashboard: Cleaning up existing broadcast WebSocket');
+          logger.debug('Listener Dashboard: Cleaning up existing broadcast WebSocket');
           broadcastWsRef.current.disconnect();
           broadcastWsRef.current = null;
         }
 
         // Use the broadcast service from api.js
         const connection = await broadcastService.subscribeToBroadcastUpdates(currentBroadcastId, (message) => {
-          
+
           switch (message.type) {
             case 'BROADCAST_STARTED':
-              console.log('Stream started via WebSocket');
+              logger.debug('Stream started via WebSocket');
               break;
-              
+
             case 'BROADCAST_ENDED':
-              console.log('Stream ended via WebSocket');
+              logger.debug('Stream ended via WebSocket');
               break;
-              
+
             case 'LISTENER_COUNT_UPDATE':
-              console.log('Listener count updated via WebSocket:', message.data?.listenerCount || 0);
+              logger.debug('Listener count updated via WebSocket:', message.data?.listenerCount || 0);
               break;
-              
+
             case 'BROADCAST_STATUS_UPDATE':
-              console.log('Broadcast status updated via WebSocket:', message.broadcast.status === 'LIVE');
+              logger.debug('Broadcast status updated via WebSocket:', message.broadcast.status === 'LIVE');
               break;
-              
+
             case 'LISTENER_JOINED':
               // Update listener count if provided
-              console.log('Listener joined via WebSocket:', message.data?.listenerCount !== undefined ? message.data.listenerCount : 0);
+              logger.debug('Listener joined via WebSocket:', message.data?.listenerCount !== undefined ? message.data.listenerCount : 0);
               break;
-              
+
             case 'LISTENER_LEFT':
               // Update listener count if provided
-              console.log('Listener left via WebSocket:', message.data?.listenerCount !== undefined ? message.data.listenerCount : 0);
+              logger.debug('Listener left via WebSocket:', message.data?.listenerCount !== undefined ? message.data.listenerCount : 0);
               break;
-              
+
             default:
               // Unknown message type - can be safely ignored
           }
         });
-        
+
         broadcastWsRef.current = connection;
-        console.log('Listener Dashboard: Broadcast WebSocket connected successfully');
+        logger.debug('Listener Dashboard: Broadcast WebSocket connected successfully');
       } catch (error) {
-        console.error('Listener Dashboard: Failed to connect broadcast WebSocket:', error);
+        logger.error('Listener Dashboard: Failed to connect broadcast WebSocket:', error);
       }
     };
 
@@ -862,7 +863,7 @@ export default function ListenerDashboard() {
     setupBroadcastWebSocket();
 
     return () => {
-      console.log('Listener Dashboard: Cleaning up WebSocket connections for broadcast:', currentBroadcastId);
+      logger.debug('Listener Dashboard: Cleaning up WebSocket connections for broadcast:', currentBroadcastId);
       if (chatWsRef.current) {
         chatWsRef.current.disconnect();
         chatWsRef.current = null;
@@ -940,7 +941,7 @@ export default function ListenerDashboard() {
       // Always scroll to bottom after sending your own message
       scrollToBottom();
     } catch (error) {
-      console.error("Error sending chat message:", error);
+      logger.error("Error sending chat message:", error);
       if (error.response?.data?.message?.includes("1500 characters")) {
         alert("Message cannot exceed 1500 characters");
       } else {
@@ -955,7 +956,7 @@ export default function ListenerDashboard() {
     const checkBroadcastStatus = async () => {
       // Skip polling if WebSocket is connected and handling broadcast updates
       if (broadcastWsRef.current?.isConnected && broadcastWsRef.current.isConnected()) {
-        console.log('Skipping broadcast status poll - WebSocket is handling updates')
+        logger.debug('Skipping broadcast status poll - WebSocket is handling updates')
         return
       }
 
@@ -966,37 +967,37 @@ export default function ListenerDashboard() {
             // Fetch the specific broadcast
             const broadcastResponse = await broadcastService.getBroadcast(targetBroadcastId);
             const targetBroadcast = broadcastResponse.data;
-            
+
             if (targetBroadcast) {
               setCurrentBroadcastId(targetBroadcast.id);
               setCurrentBroadcast(targetBroadcast);
-              console.log("Target broadcast loaded:", targetBroadcast);
+              logger.debug("Target broadcast loaded:", targetBroadcast);
               return; // Exit early since we found our target broadcast
             }
           } catch (error) {
-            console.error("Error fetching target broadcast:", error);
+            logger.error("Error fetching target broadcast:", error);
             // Continue to fetch live broadcasts as fallback
           }
         }
-        
+
         // Fetch live broadcasts from API
         const response = await broadcastService.getLive();
         const liveBroadcasts = response.data;
 
         // If there are any live broadcasts, set isLive to true
         if (liveBroadcasts && liveBroadcasts.length > 0) {
-          console.log("Live broadcast:", liveBroadcasts[0]);
+          logger.debug("Live broadcast:", liveBroadcasts[0]);
           } else {
-          console.log("No live broadcasts found");
+          logger.debug("No live broadcasts found");
         }
       } catch (error) {
-        console.error("Error checking broadcast status:", error);
+        logger.error("Error checking broadcast status:", error);
       }
     }
 
     // Initial check
     checkBroadcastStatus();
-    
+
     // Very minimal polling since WebSocket handles all real-time broadcast updates
     // Only check occasionally for fallback scenarios or initial setup
     const interval = setInterval(checkBroadcastStatus, 600000); // Check every 10 minutes instead of 5 minutes
@@ -1044,7 +1045,7 @@ export default function ListenerDashboard() {
                 });
               }
             } catch (error) {
-              console.error("Error checking user vote:", error);
+              logger.error("Error checking user vote:", error);
               setActivePoll({
                 ...activePoll,
                 totalVotes: activePoll.options.reduce((sum, option) => sum + option.votes, 0),
@@ -1055,7 +1056,7 @@ export default function ListenerDashboard() {
             setActivePoll(null);
           }
         } catch (error) {
-          console.error("Error fetching active polls:", error);
+          logger.error("Error fetching active polls:", error);
         }
       };
 
@@ -1074,7 +1075,7 @@ export default function ListenerDashboard() {
 
   // Toggle play/pause with enhanced logic from ListenerDashboard2.jsx
   const togglePlay = async () => {
-    console.log('Toggle play called, current state:', { 
+    logger.debug('Toggle play called, current state:', { 
       localAudioPlaying, 
       wsReadyState: wsRef.current?.readyState,
       audioRefExists: !!audioRef.current,
@@ -1083,7 +1084,7 @@ export default function ListenerDashboard() {
     })
 
     if (!audioRef.current || !serverConfig) {
-      console.error('Audio player not ready:', {
+      logger.error('Audio player not ready:', {
         audioRefCurrent: !!audioRef.current,
         serverConfig: !!serverConfig,
         serverConfigStreamUrl: serverConfig?.streamUrl
@@ -1094,11 +1095,11 @@ export default function ListenerDashboard() {
 
     try {
       if (localAudioPlaying) {
-        console.log('Pausing playback')
+        logger.debug('Pausing playback')
         audioRef.current.pause()
         setLocalAudioPlaying(false); // Update local state
-        console.log('Stream paused')
-        
+        logger.debug('Stream paused')
+
         // Notify server that listener stopped playing
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           const message = {
@@ -1110,23 +1111,23 @@ export default function ListenerDashboard() {
             timestamp: Date.now()
           };
           wsRef.current.send(JSON.stringify(message));
-          console.log('Sent listener stop message to server:', message);
+          logger.debug('Sent listener stop message to server:', message);
         }
       } else {
-        console.log('Starting playback')
+        logger.debug('Starting playback');
 
         // Clear any previous errors
         setStreamError(null);
 
         // Improved URL handling with format fallbacks
         let streamUrl = serverConfig.streamUrl;
-        
+
         // Ensure proper protocol
         if (!streamUrl.startsWith('http')) {
           streamUrl = `http://${streamUrl}`;
         }
 
-        console.log('Primary stream URL:', streamUrl);
+        logger.debug('Primary stream URL:', streamUrl);
 
         // Create array of fallback URLs for better browser compatibility
         const streamUrls = [
@@ -1138,7 +1139,7 @@ export default function ListenerDashboard() {
 
         // Remove duplicates
         const uniqueUrls = [...new Set(streamUrls)];
-        console.log('Trying stream URLs in order:', uniqueUrls);
+        logger.debug('Trying stream URLs in order:', uniqueUrls);
 
         // Try URLs sequentially
         const tryStreamUrl = async (urls, index = 0) => {
@@ -1147,7 +1148,7 @@ export default function ListenerDashboard() {
           }
 
           const currentUrl = urls[index];
-          console.log(`Trying stream URL ${index + 1}/${urls.length}:`, currentUrl);
+          logger.debug(`Trying stream URL ${index + 1}/${urls.length}:`, currentUrl);
 
           return new Promise((resolve, reject) => {
             // Set up audio element for this attempt
@@ -1156,19 +1157,19 @@ export default function ListenerDashboard() {
 
             // Set up event listeners for this attempt
             const handleCanPlay = () => {
-              console.log('Audio can play with URL:', currentUrl);
+              logger.debug('Audio can play with URL:', currentUrl);
               cleanup();
               resolve(currentUrl);
             };
 
             const handleError = (e) => {
-              console.log(`URL ${currentUrl} failed:`, e);
+              logger.debug(`URL ${currentUrl} failed:`, e);
               cleanup();
               tryStreamUrl(urls, index + 1).then(resolve).catch(reject);
             };
 
             const handleLoadStart = () => {
-              console.log('Loading started for:', currentUrl);
+              logger.debug('Loading started for:', currentUrl);
             };
 
             const cleanup = () => {
@@ -1185,7 +1186,7 @@ export default function ListenerDashboard() {
             // Set a timeout to try next URL if this one takes too long
             setTimeout(() => {
               if (audioRef.current.readyState === 0) { // HAVE_NOTHING
-                console.log('URL taking too long, trying next:', currentUrl);
+                logger.debug('URL taking too long, trying next:', currentUrl);
                 cleanup();
                 tryStreamUrl(urls, index + 1).then(resolve).catch(reject);
               }
@@ -1195,7 +1196,7 @@ export default function ListenerDashboard() {
 
         try {
           const workingUrl = await tryStreamUrl(uniqueUrls);
-          console.log('Found working stream URL:', workingUrl);
+          logger.debug('Found working stream URL:', workingUrl);
 
           // Set final configuration
           audioRef.current.volume = isMuted ? 0 : volume / 100;
@@ -1203,11 +1204,11 @@ export default function ListenerDashboard() {
 
           // Attempt to play
           const playPromise = audioRef.current.play();
-          
+
           if (playPromise !== undefined) {
             playPromise
               .then(() => {
-                console.log('Playback started successfully');
+                logger.debug('Playback started successfully');
                 setLocalAudioPlaying(true);
                 setStreamError(null);
 
@@ -1222,11 +1223,11 @@ export default function ListenerDashboard() {
                     timestamp: Date.now()
                   };
                   wsRef.current.send(JSON.stringify(message));
-                  console.log('Sent listener start message to server:', message);
+                  logger.debug('Sent listener start message to server:', message);
                 }
               })
               .catch(error => {
-                console.error("Playback failed:", error);
+                logger.error("Playback failed:", error);
 
                 if (error.name === 'NotAllowedError') {
                   setStreamError("Browser blocked autoplay. Please click play again to start listening.");
@@ -1238,8 +1239,8 @@ export default function ListenerDashboard() {
                   setStreamError(`Playback failed: ${error.message}. Please check if the stream is live.`);
                 }
                 setLocalAudioPlaying(false);
-                console.log('Stream paused due to error');
-                
+                logger.debug('Stream paused due to error');
+
                 // Notify server that listener stopped playing due to error
                 if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                   const message = {
@@ -1251,20 +1252,20 @@ export default function ListenerDashboard() {
                     timestamp: Date.now()
                   };
                   wsRef.current.send(JSON.stringify(message));
-                  console.log('Sent listener stop message to server (due to error):', message);
+                  logger.debug('Sent listener stop message to server (due to error):', message);
                 }
               });
           } else {
-            console.warn('Play promise is undefined, cannot track playback status');
+            logger.warn('Play promise is undefined, cannot track playback status');
           }
         } catch (error) {
-          console.error('All stream URLs failed:', error);
+          logger.error('All stream URLs failed:', error);
           setStreamError('Unable to load audio stream. The broadcast may not be live or your browser may not support the stream format.');
           setLocalAudioPlaying(false);
         }
       }
     } catch (error) {
-      console.error("Error toggling playback:", error);
+      logger.error("Error toggling playback:", error);
       setStreamError(`Playback error: ${error.message}. Please try again.`);
     }
   }
@@ -1295,8 +1296,10 @@ export default function ListenerDashboard() {
       // Reset the form
       setSongRequest({ title: '', artist: '', dedication: '' });
     } catch (error) {
-      console.error("Error submitting song request:", error);
-      alert("Failed to submit song request. Please try again.");
+      logger.error("Error submitting song request:", error);
+      setRequestError("Failed to submit request. Please try again.");
+    } finally {
+      setSongRequestLoading(false);
     }
   };
 
@@ -1349,7 +1352,7 @@ export default function ListenerDashboard() {
       setSelectedPollOption(null);
 
     } catch (error) {
-      console.error("Error submitting vote:", error);
+      logger.error("Error submitting vote:", error);
       alert("Failed to submit vote. Please try again.");
     } finally {
       setPollLoading(false);
@@ -1368,7 +1371,7 @@ export default function ListenerDashboard() {
           .map((msg) => {
             // Ensure we have valid message data
             if (!msg || !msg.sender) {
-              console.log('Listener Dashboard: Skipping invalid message:', msg);
+              logger.debug('Listener Dashboard: Skipping invalid message:', msg);
               return null;
             }
 
@@ -1382,7 +1385,7 @@ export default function ListenerDashboard() {
             try {
               messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
             } catch (error) {
-              console.error('Listener Dashboard: Error parsing message date:', error);
+              logger.error('Listener Dashboard: Error parsing message date:', error);
               messageDate = new Date();
             }
 
@@ -1814,7 +1817,7 @@ export default function ListenerDashboard() {
                               const isSelected = selectedPollOption === option.id;
                               const isUserChoice = activePoll.userVotedFor === option.id;
                               const canInteract = currentUser && !activePoll.userVoted;
-                              
+
                               return (
                                 <div key={option.id} className="space-y-1">
                                   <div 
@@ -1856,7 +1859,7 @@ export default function ListenerDashboard() {
                                           )}
                                         </div>
                                       </div>
-                                      
+
                                       {/* Progress bar for voted polls */}
                                       {(activePoll.userVoted && currentUser) && (
                                         <div className="mt-2">
@@ -1980,7 +1983,7 @@ export default function ListenerDashboard() {
                     try {
                       messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
                     } catch (error) {
-                      console.error('Error parsing message date:', error);
+                      logger.error('Listener Dashboard: Error parsing message date:', error);
                       messageDate = new Date();
                     }
 
@@ -2271,7 +2274,7 @@ export default function ListenerDashboard() {
                     try {
                       messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
                     } catch (error) {
-                      console.error('Error parsing message date:', error);
+                      logger.error('Listener Dashboard: Error parsing message date:', error);
                       messageDate = new Date();
                     }
 
@@ -2609,7 +2612,7 @@ export default function ListenerDashboard() {
                               const isSelected = selectedPollOption === option.id;
                               const isUserChoice = activePoll.userVotedFor === option.id;
                               const canInteract = currentUser && !activePoll.userVoted;
-                              
+
                               return (
                                 <div key={option.id} className="space-y-1">
                                   <div 
@@ -2651,7 +2654,7 @@ export default function ListenerDashboard() {
                                           )}
                                         </div>
                                       </div>
-                                      
+
                                       {/* Progress bar for voted polls */}
                                       {(activePoll.userVoted && currentUser) && (
                                         <div className="mt-2">

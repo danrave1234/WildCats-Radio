@@ -1,6 +1,10 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { broadcastService, streamService } from '../services/api';
 import { useAuth } from './AuthContext';
+import { useLocalBackend } from '../config';
+import { createLogger } from '../services/logger';
+
+const logger = createLogger('StreamingContext');
 
 const StreamingContext = createContext();
 
@@ -142,7 +146,7 @@ export function StreamingProvider({ children }) {
         setCurrentBroadcast(JSON.parse(broadcast));
       }
     } catch (error) {
-      console.error('Error loading persisted state:', error);
+      logger.error('Error loading persisted state:', error);
     }
   };
 
@@ -160,7 +164,7 @@ export function StreamingProvider({ children }) {
       setServerConfig(config);
       localStorage.setItem(STORAGE_KEYS.STREAM_CONFIG, JSON.stringify(config));
     } catch (error) {
-      console.error('Error loading server config:', error);
+      logger.error('Error loading server config:', error);
     }
   };
 
@@ -198,15 +202,17 @@ export function StreamingProvider({ children }) {
     try {
       // Check if getDisplayMedia is supported
       if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-        throw new Error('Screen sharing is not supported in this browser. Please use a modern browser like Chrome, Firefox, or Edge.');
+        throw new Error('Screen capture not supported in this browser');
       }
+
+      logger.debug('Attempting to get desktop audio stream...');
 
       // Check if we're in a secure context (HTTPS or localhost)
       if (!window.isSecureContext && window.location.protocol !== 'http:') {
         throw new Error('Desktop audio capture requires a secure connection (HTTPS). Please use HTTPS or localhost.');
       }
 
-      console.log('Attempting to get desktop audio stream...');
+      logger.debug('Attempting to get desktop audio stream...');
 
       // Some browsers require video to be true even for audio-only capture
       // We'll request both but then extract only the audio track
@@ -240,11 +246,11 @@ export function StreamingProvider({ children }) {
       // Stop any video tracks since we only need audio
       desktopStream.getVideoTracks().forEach(track => track.stop());
 
-      console.log('Desktop audio stream obtained successfully with', audioTracks.length, 'audio track(s)');
+      logger.debug('Desktop audio stream obtained successfully with', audioTracks.length, 'audio track(s)');
       return audioOnlyStream;
     } catch (error) {
-      console.error('Error getting desktop audio stream:', error);
-      
+      logger.error('Error getting desktop audio stream:', error);
+
       // Provide user-friendly error messages
       if (error.name === 'NotSupportedError') {
         throw new Error('Desktop audio capture is not supported in this browser. Please try using Chrome, Edge, or Firefox, or switch to microphone-only mode.');
@@ -272,23 +278,23 @@ export function StreamingProvider({ children }) {
           channelCount: 2
         }
       });
-      
-      console.log('Microphone audio stream obtained successfully');
+
+      logger.debug('Microphone audio stream obtained successfully');
 
       // Apply audio processing pipeline with noise gate
       const audioContext = new AudioContext({
         sampleRate: 44100 // Force consistent sample rate for streaming
       });
       audioContextRef.current = audioContext;
-      
+
       const processedStream = createAudioProcessingPipeline(micStream, audioContext);
-      
+
       // Stop the original stream tracks since we're using the processed stream
       micStream.getTracks().forEach(track => track.stop());
-      
+
       return processedStream;
     } catch (error) {
-      console.error('Error getting microphone audio stream:', error);
+      logger.error('Error getting microphone audio stream:', error);
       throw error;
     }
   };
@@ -298,38 +304,38 @@ export function StreamingProvider({ children }) {
     try {
       const audioContext = new AudioContext();
       const destination = audioContext.createMediaStreamDestination();
-      
+
       // Store audio context reference for later use
       audioContextRef.current = audioContext;
-      
+
       // Create audio sources
       const micSource = audioContext.createMediaStreamSource(micStream);
       const desktopSource = audioContext.createMediaStreamSource(desktopStream);
-      
+
       // Create gain nodes for volume control
       const micGain = audioContext.createGain();
       const desktopGain = audioContext.createGain();
       const masterGain = audioContext.createGain();
-      
+
       // Store master gain reference for DJ controls
       gainNodeRef.current = masterGain;
-      
+
       // Set initial gain levels (can be adjusted)
       micGain.gain.value = 1.0; // 100% microphone volume
       desktopGain.gain.value = 0.8; // 80% desktop volume to prevent overwhelming
       masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
-      
+
       // Connect the audio graph
       micSource.connect(micGain);
       desktopSource.connect(desktopGain);
       micGain.connect(masterGain);
       desktopGain.connect(masterGain);
       masterGain.connect(destination);
-      
-      console.log('Audio streams mixed successfully');
+
+      logger.debug('Audio streams mixed successfully');
       return destination.stream;
     } catch (error) {
-      console.error('Error mixing audio streams:', error);
+      logger.error('Error mixing audio streams:', error);
       throw error;
     }
   };
@@ -338,47 +344,47 @@ export function StreamingProvider({ children }) {
   const toggleDJMute = () => {
     const newMutedState = !isDJMuted;
     setIsDJMuted(newMutedState);
-    
+
     // Apply mute to gain node if available
     if (gainNodeRef.current) {
       gainNodeRef.current.gain.value = newMutedState ? 0.0 : djAudioGain;
     }
-    
-    console.log('DJ mute toggled:', newMutedState);
+
+    logger.debug('DJ mute toggled:', newMutedState);
   };
 
   const setDJAudioLevel = (level) => {
     // Clamp level between 0 and 1
     const clampedLevel = Math.max(0, Math.min(1, level));
     setDJAudioGain(clampedLevel);
-    
+
     // Apply gain to gain node if available and not muted
     if (gainNodeRef.current && !isDJMuted) {
       gainNodeRef.current.gain.value = clampedLevel;
     }
-    
-    console.log('DJ audio level set to:', clampedLevel);
+
+    logger.debug('DJ audio level set to:', clampedLevel);
   };
 
   // Seamless function to switch audio source during broadcast without disconnecting
   const switchAudioSourceLive = async (newSource) => {
     if (!isLive || !mediaRecorderRef.current) {
-      console.log('Cannot switch audio source: not live or no media recorder');
+      logger.warn('Cannot switch audio source: not live or no media recorder');
       setAudioSource(newSource);
       return;
     }
 
     try {
-      console.log('Switching audio source seamlessly from', audioSource, 'to', newSource);
-      
+      logger.info('Switching audio source seamlessly from', audioSource, 'to', newSource);
+
       // Don't stop MediaRecorder or WebSocket - we'll switch streams seamlessly
-      
+
       // 1. Get new audio stream
       const newStream = await getAudioStream(newSource);
-      
+
       // 2. Stop current audio level monitoring
       stopAudioLevelMonitoring();
-      
+
       // 3. Stop current audio streams (but not MediaRecorder)
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach(track => track.stop());
@@ -387,24 +393,24 @@ export function StreamingProvider({ children }) {
         desktopStreamRef.current.getTracks().forEach(track => track.stop());
         desktopStreamRef.current = null;
       }
-      
+
       // 4. Create new MediaRecorder with new stream, but keep it connected to same WebSocket
       const currentMediaRecorder = mediaRecorderRef.current;
-      
+
       // Stop current recorder gracefully
       if (currentMediaRecorder.state === 'recording') {
         currentMediaRecorder.stop();
       }
-      
+
       // Wait a brief moment for the stop to complete
       await new Promise(resolve => setTimeout(resolve, 100));
-      
+
       // 5. Create new MediaRecorder with new stream
       const newMediaRecorder = new MediaRecorder(newStream, {
         mimeType: "audio/webm;codecs=opus",
         audioBitsPerSecond: 96000 // Lower bitrate for better compatibility
       });
-      
+
       // 6. Set up data handling with existing WebSocket (no reconnection needed)
       newMediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
@@ -413,32 +419,32 @@ export function StreamingProvider({ children }) {
           });
         }
       };
-      
+
       // 7. Start new recorder immediately
       newMediaRecorder.start(250);
-      
+
       // 8. Update references
       mediaRecorderRef.current = newMediaRecorder;
       audioStreamRef.current = newStream;
-      
+
       // 9. Update audio source state
       setAudioSource(newSource);
-      
-      console.log('Audio source switched seamlessly to:', newSource, '- WebSocket remained connected');
-      
+
+      logger.info('Audio source switched seamlessly to:', newSource, '- WebSocket remained connected');
+
     } catch (error) {
-      console.error('Error during seamless audio source switch:', error);
-      
+      logger.error('Error during seamless audio source switch:', error);
+
       // If seamless switch fails, try to restore previous state
-      console.log('Attempting to restore previous audio source...');
+      logger.debug('Attempting to restore previous audio source...');
       try {
         const fallbackStream = await getAudioStream(audioSource);
-        
+
         const fallbackRecorder = new MediaRecorder(fallbackStream, {
           mimeType: "audio/webm;codecs=opus",
           audioBitsPerSecond: 96000 // Lower bitrate for better compatibility
         });
-        
+
         fallbackRecorder.ondataavailable = (event) => {
           if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
             event.data.arrayBuffer().then(buffer => {
@@ -446,17 +452,17 @@ export function StreamingProvider({ children }) {
             });
           }
         };
-        
+
         fallbackRecorder.start(250);
         mediaRecorderRef.current = fallbackRecorder;
         audioStreamRef.current = fallbackStream;
-        
-        console.log('Restored to previous audio source');
+
+        logger.info('Restored to previous audio source');
       } catch (restoreError) {
-        console.error('Failed to restore audio source:', restoreError);
+        logger.error('Failed to restore audio source:', restoreError);
         throw new Error(`Audio switch failed and could not restore: ${error.message}`);
       }
-      
+
       throw error;
     }
   };
@@ -465,11 +471,11 @@ export function StreamingProvider({ children }) {
   const getAudioStream = async (source = audioSource) => {
     try {
       console.log('Getting audio stream for source:', source);
-      
+
       switch (source) {
         case 'microphone':
           return await getMicrophoneAudioStream();
-          
+
         case 'desktop':
           try {
             const desktopStream = await getDesktopAudioStream();
@@ -480,14 +486,14 @@ export function StreamingProvider({ children }) {
             // Show user-friendly message about the fallback
             const fallbackMessage = `Desktop audio capture failed: ${error.message}\n\nFalling back to microphone only. You can change the audio source in the settings above.`;
             console.log('Fallback message:', fallbackMessage);
-            
+
             // Set audio source back to microphone
             setAudioSource('microphone');
-            
+
             // Throw the original error with fallback info
             throw new Error(fallbackMessage);
           }
-          
+
         case 'both':
           try {
             const micStream = await getMicrophoneAudioStream();
@@ -496,19 +502,19 @@ export function StreamingProvider({ children }) {
             return await mixAudioStreams(micStream, deskStream);
           } catch (error) {
             console.warn('Mixed audio capture failed, falling back to microphone:', error.message);
-            
+
             // If desktop part failed, fall back to microphone only
             if (error.message.includes('Desktop audio') || error.message.includes('Screen sharing') || error.message.includes('NotSupported')) {
               console.log('Desktop audio part failed, trying microphone only');
               setAudioSource('microphone');
-              
+
               const fallbackMessage = `Mixed audio setup failed: ${error.message}\n\nFalling back to microphone only. You can try again with desktop audio once you've resolved the issue.`;
               throw new Error(fallbackMessage);
             }
-            
+
             throw error;
           }
-          
+
         default:
           console.warn('Unknown audio source:', source, 'defaulting to microphone');
           return await getMicrophoneAudioStream();
@@ -546,7 +552,7 @@ export function StreamingProvider({ children }) {
       if (!djWebSocketRef.current || djWebSocketRef.current.readyState !== WebSocket.OPEN) {
         console.log('WebSocket not connected, connecting...');
         connectDJWebSocket();
-        
+
         // Wait for WebSocket to connect
         return new Promise((resolve) => {
           const checkConnection = () => {
@@ -601,10 +607,10 @@ export function StreamingProvider({ children }) {
           // If local state shows this user was broadcasting and the broadcast matches
           if (parsed.isLive && parsed.currentBroadcast?.id === activeBroadcast.id) {
             console.log('Restoring DJ streaming connection for active broadcast');
-            
+
             // Reconnect DJ WebSocket for streaming
             connectDJWebSocket();
-            
+
             // Note: MediaRecorder cannot be restored automatically after page refresh
             // due to browser security - microphone access requires user interaction
             // The DJ will need to manually start streaming again by clicking the start button
@@ -670,10 +676,10 @@ export function StreamingProvider({ children }) {
   const restoreAudioPlayback = () => {
     if (!audioRef.current && serverConfig?.streamUrl) {
       audioRef.current = new Audio();
-      
+
       // Improve URL handling and add fallback formats
       let streamUrl = serverConfig.streamUrl;
-      
+
       // Ensure proper protocol
       if (!streamUrl.startsWith('http')) {
         streamUrl = `http://${streamUrl}`;
@@ -703,7 +709,7 @@ export function StreamingProvider({ children }) {
       }).catch(error => {
         console.log('Could not auto-restore audio playback (user interaction required):', error);
         setAudioPlaying(false);
-        
+
         // Try fallback format if it's a format issue
         if (error.name === 'NotSupportedError' && streamUrl.includes('.ogg')) {
           console.log('Trying fallback format for restoration...');
@@ -736,18 +742,14 @@ export function StreamingProvider({ children }) {
       // For deployed environments, always use secure WebSocket (wss)
       // For localhost development, use ws
       const wsProtocol = window.location.hostname === 'localhost' ? 'ws' : 'wss';
-      
-      // Check if we should use localhost instead of the deployed backend
-      // Force useLocalBackend to true to ensure we're using the local backend
-      const useLocalBackend = false; // Override the environment variable
-      
+
       let wsBaseUrl;
       if (useLocalBackend) {
         wsBaseUrl = 'localhost:8080';
       } else {
         wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
       }
-      
+
       const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
       const wsUrl = `${wsProtocol}://${cleanHost}/ws/live`;
 
@@ -781,11 +783,11 @@ export function StreamingProvider({ children }) {
         // we need to re-establish the data flow to the new WebSocket connection
         if (mediaRecorderRef.current && audioStreamRef.current && isLive) {
           console.log('Reconnecting existing MediaRecorder to new WebSocket connection');
-          
+
           // Check if MediaRecorder is still recording
           if (mediaRecorderRef.current.state === 'recording') {
             console.log('MediaRecorder is still recording, re-establishing data flow');
-            
+
             // Re-establish the ondataavailable handler for the new WebSocket
             mediaRecorderRef.current.ondataavailable = (event) => {
               if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
@@ -795,12 +797,12 @@ export function StreamingProvider({ children }) {
                 });
               }
             };
-            
+
             // The MediaRecorder is already running, so we don't need to restart it
             console.log('MediaRecorder reconnected successfully to new WebSocket');
           } else if (mediaRecorderRef.current.state === 'inactive' && audioStreamRef.current.active) {
             console.log('MediaRecorder was stopped, restarting for reconnected WebSocket');
-            
+
             // Set up the data handler first
             mediaRecorderRef.current.ondataavailable = (event) => {
               if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
@@ -810,7 +812,7 @@ export function StreamingProvider({ children }) {
                 });
               }
             };
-            
+
             // Restart the MediaRecorder
             try {
               mediaRecorderRef.current.start(250);
@@ -834,7 +836,7 @@ export function StreamingProvider({ children }) {
       websocket.onclose = (event) => {
         console.log('DJ WebSocket disconnected:', event.code, event.reason);
         setWebsocketConnected(false);
-        
+
         // Don't null out the ref until we're ready to replace it
         // This helps prevent race conditions
         if (djWebSocketRef.current === websocket) {
@@ -846,9 +848,9 @@ export function StreamingProvider({ children }) {
           // Add random jitter to prevent all clients reconnecting simultaneously
           const jitter = Math.floor(Math.random() * 1000);
           const reconnectDelay = 3000 + jitter;
-          
+
           console.log(`Scheduling DJ WebSocket reconnection in ${reconnectDelay}ms`);
-          
+
           djReconnectTimerRef.current = setTimeout(() => {
             if (isLive) {
               console.log('Attempting DJ WebSocket reconnection...');
@@ -884,18 +886,14 @@ export function StreamingProvider({ children }) {
       // For deployed environments, always use secure WebSocket (wss)
       // For localhost development, use ws
       const wsProtocol = window.location.hostname === 'localhost' ? 'ws' : 'wss';
-      
-      // Check if we should use localhost instead of the deployed backend
-      // Force useLocalBackend to true to ensure we're using the local backend
-      const useLocalBackend = false; // Override the environment variable
-      
+
       let wsBaseUrl;
       if (useLocalBackend) {
         wsBaseUrl = 'localhost:8080';
       } else {
         wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
       }
-      
+
       const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
       const wsUrl = `${wsProtocol}://${cleanHost}/ws/listener`;
 
@@ -948,13 +946,13 @@ export function StreamingProvider({ children }) {
 
       websocket.onclose = (event) => {
         console.log('Listener WebSocket disconnected:', event.code, event.reason);
-        
+
         // Don't null out the ref until we're ready to replace it
         // This helps prevent race conditions
         if (listenerWebSocketRef.current === websocket) {
           listenerWebSocketRef.current = null;
         }
-        
+
         setIsListening(false);
 
         // Only auto-reconnect if not a clean close and connection wasn't replaced
@@ -962,9 +960,9 @@ export function StreamingProvider({ children }) {
           // Add random jitter to prevent all clients reconnecting simultaneously
           const jitter = Math.floor(Math.random() * 1000);
           const reconnectDelay = 3000 + jitter;
-          
+
           console.log(`Scheduling Listener WebSocket reconnection in ${reconnectDelay}ms`);
-          
+
           listenerReconnectTimerRef.current = setTimeout(() => {
             console.log('Attempting Listener WebSocket reconnection...');
             connectListenerWebSocket();
@@ -997,18 +995,14 @@ export function StreamingProvider({ children }) {
       // For deployed environments, always use secure WebSocket (wss)
       // For localhost development, use ws
       const wsProtocol = window.location.hostname === 'localhost' ? 'ws' : 'wss';
-      
-      // Check if we should use localhost instead of the deployed backend
-      // Force useLocalBackend to true to ensure we're using the local backend
-      const useLocalBackend = false; // Override the environment variable
-      
+
       let wsBaseUrl;
       if (useLocalBackend) {
         wsBaseUrl = 'localhost:8080';
       } else {
         wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
       }
-      
+
       const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
       const wsUrl = `${wsProtocol}://${cleanHost}/ws/listener`;
 
@@ -1043,7 +1037,7 @@ export function StreamingProvider({ children }) {
           if (data.type === 'STREAM_STATUS') {
             console.log('Stream status update received via Status WebSocket:', data);
             setListenerCount(data.listenerCount || 0);
-            
+
             // Update live status if provided
             if (data.isLive !== undefined) {
               setIsLive(data.isLive);
@@ -1060,7 +1054,7 @@ export function StreamingProvider({ children }) {
 
       websocket.onclose = (event) => {
         console.log('Status WebSocket disconnected:', event.code, event.reason);
-        
+
         // Don't null out the ref until we're ready to replace it
         // This helps prevent race conditions
         if (statusWebSocketRef.current === websocket) {
@@ -1072,9 +1066,9 @@ export function StreamingProvider({ children }) {
           // Add random jitter to prevent all clients reconnecting simultaneously
           const jitter = Math.floor(Math.random() * 1000);
           const reconnectDelay = 5000 + jitter;
-          
+
           console.log(`Scheduling Status WebSocket reconnection in ${reconnectDelay}ms`);
-          
+
           statusReconnectTimerRef.current = setTimeout(() => {
             console.log('Attempting Status WebSocket reconnection...');
             connectStatusWebSocket();
@@ -1262,14 +1256,14 @@ export function StreamingProvider({ children }) {
 
       // Improve URL handling and add fallback formats
       let streamUrl = serverConfig.streamUrl;
-      
+
       // Ensure proper protocol
       if (!streamUrl.startsWith('http')) {
         streamUrl = `http://${streamUrl}`;
       }
 
       console.log('Attempting to play stream:', streamUrl);
-      
+
       // Set CORS mode for external streams
       audioRef.current.crossOrigin = 'anonymous';
       audioRef.current.preload = 'none';
@@ -1289,7 +1283,7 @@ export function StreamingProvider({ children }) {
             MEDIA_ERR_DECODE: error.MEDIA_ERR_DECODE,
             MEDIA_ERR_SRC_NOT_SUPPORTED: error.MEDIA_ERR_SRC_NOT_SUPPORTED
           });
-          
+
           // Try alternative format if OGG is not supported
           if (error.code === error.MEDIA_ERR_SRC_NOT_SUPPORTED && streamUrl.includes('.ogg')) {
             console.log('OGG format not supported, trying MP3 fallback...');
@@ -1314,7 +1308,7 @@ export function StreamingProvider({ children }) {
         console.log('Audio playback started successfully');
       }).catch(error => {
         console.error('Error starting audio playback:', error);
-        
+
         // Try to provide more helpful error messages
         if (error.name === 'NotSupportedError') {
           console.warn('Stream format not supported, trying alternative...');
@@ -1393,7 +1387,7 @@ export function StreamingProvider({ children }) {
   // Disconnect all WebSockets
   const disconnectAll = () => {
     console.log('Disconnecting all WebSocket connections');
-    
+
     // Helper function to safely close a WebSocket connection
     const safelyCloseWebSocket = (wsRef, name) => {
       if (wsRef && wsRef.current) {
@@ -1404,7 +1398,7 @@ export function StreamingProvider({ children }) {
           wsRef.current.onerror = null;
           wsRef.current.onmessage = null;
           wsRef.current.onopen = null;
-          
+
           // Check if connection is already closed
           if (wsRef.current.readyState !== WebSocket.CLOSED && 
               wsRef.current.readyState !== WebSocket.CLOSING) {
@@ -1417,7 +1411,7 @@ export function StreamingProvider({ children }) {
         }
       }
     };
-    
+
     // Safely close all WebSocket connections
     safelyCloseWebSocket(djWebSocketRef, 'DJ');
     safelyCloseWebSocket(listenerWebSocketRef, 'Listener');
@@ -1478,18 +1472,14 @@ export function StreamingProvider({ children }) {
     // For deployed environments, always use secure WebSocket (wss)
     // For localhost development, use ws
     const wsProtocol = window.location.hostname === 'localhost' ? 'ws' : 'wss';
-    
-    // Check if we should use localhost instead of the deployed backend
-    // Force useLocalBackend to true to ensure we're using the local backend
-    const useLocalBackend = false; // Override the environment variable
-    
+
     let wsBaseUrl;
     if (useLocalBackend) {
       wsBaseUrl = 'localhost:8080';
     } else {
       wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
     }
-    
+
     const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
     return `${wsProtocol}://${cleanHost}/ws/${type}`;
   };
@@ -1606,7 +1596,7 @@ export function StreamingProvider({ children }) {
         sum += dataArray[i] * dataArray[i];
       }
       const rms = Math.sqrt(sum / dataArray.length);
-      
+
       // Convert to dB scale (0-255 -> -∞ to 0 dB)
       const dB = rms > 0 ? 20 * Math.log10(rms / 255) : -100;
       setAudioLevel(Math.max(-60, dB)); // Clamp to reasonable range
@@ -1614,15 +1604,15 @@ export function StreamingProvider({ children }) {
       // Apply noise gate with hold time
       if (noiseGateEnabled && noiseGateRef.current) {
         const now = Date.now();
-        
+
         // If audio is above threshold, update the timestamp
         if (dB >= noiseGateThreshold) {
           lastAudioAboveThresholdRef.current = now;
         }
-        
+
         // Check if we're within the hold time
         const isWithinHoldTime = (now - lastAudioAboveThresholdRef.current) < HOLD_TIME_MS;
-        
+
         if (dB >= noiseGateThreshold || isWithinHoldTime) {
           // Above threshold or within hold time - keep audio on
           noiseGateRef.current.gain.exponentialRampToValueAtTime(
