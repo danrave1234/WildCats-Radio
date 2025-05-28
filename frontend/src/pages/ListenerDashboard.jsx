@@ -18,7 +18,7 @@ import { broadcastService, chatService, songRequestService, pollService, streamS
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from "../context/AuthContext";
 import { useStreaming } from "../context/StreamingContext";
-import { useLocalBackend } from "../config";
+import { useLocalBackend, config } from "../config";
 import { createLogger } from "../services/logger";
 
 const logger = createLogger('ListenerDashboard');
@@ -274,18 +274,12 @@ export default function ListenerDashboard() {
         isReconnecting = true;
         wsConnectingRef.current = true;
 
-        // For deployed environments, always use secure WebSocket (wss)
-        // For localhost development, use ws
-        const wsProtocol = window.location.hostname === 'localhost' ? 'ws' : 'wss';
-
-        let wsBaseUrl;
-        if (useLocalBackend) {
-          wsBaseUrl = 'localhost:8080';
-        } else {
-          wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
-        }
-
-      const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
+        // Use secure WebSocket protocol (wss) when connecting to a remote server
+        // Use ws only if both frontend and backend are on localhost
+        const wsBaseUrl = config.wsBaseUrl;
+        const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
+        const isLocalBackend = cleanHost.includes('localhost') || cleanHost.includes('127.0.0.1');
+        const wsProtocol = isLocalBackend && window.location.hostname === 'localhost' ? 'ws' : 'wss';
 
       // Get JWT token for authentication
       const getCookie = (name) => {

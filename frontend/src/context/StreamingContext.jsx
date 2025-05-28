@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { broadcastService, streamService } from '../services/api';
 import { useAuth } from './AuthContext';
-import { useLocalBackend } from '../config';
+import { useLocalBackend, config } from '../config';
 import { createLogger } from '../services/logger';
 
 const logger = createLogger('StreamingContext');
@@ -739,19 +739,8 @@ export function StreamingProvider({ children }) {
     }
 
     try {
-      // For deployed environments, always use secure WebSocket (wss)
-      // For localhost development, use ws
-      const wsProtocol = window.location.hostname === 'localhost' ? 'ws' : 'wss';
-
-      let wsBaseUrl;
-      if (useLocalBackend) {
-        wsBaseUrl = 'localhost:8080';
-      } else {
-        wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
-      }
-
-      const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-      const wsUrl = `${wsProtocol}://${cleanHost}/ws/live`;
+      // Use the getWebSocketUrl function to get the proper WebSocket URL
+      const wsUrl = getWebSocketUrl('live');
 
       console.log('Connecting DJ WebSocket:', wsUrl);
 
@@ -883,19 +872,8 @@ export function StreamingProvider({ children }) {
     }
 
     try {
-      // For deployed environments, always use secure WebSocket (wss)
-      // For localhost development, use ws
-      const wsProtocol = window.location.hostname === 'localhost' ? 'ws' : 'wss';
-
-      let wsBaseUrl;
-      if (useLocalBackend) {
-        wsBaseUrl = 'localhost:8080';
-      } else {
-        wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
-      }
-
-      const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-      const wsUrl = `${wsProtocol}://${cleanHost}/ws/listener`;
+      // Use the getWebSocketUrl function to get the proper WebSocket URL
+      const wsUrl = getWebSocketUrl('listener');
 
       console.log('Connecting Listener WebSocket:', wsUrl);
 
@@ -992,19 +970,8 @@ export function StreamingProvider({ children }) {
     }
 
     try {
-      // For deployed environments, always use secure WebSocket (wss)
-      // For localhost development, use ws
-      const wsProtocol = window.location.hostname === 'localhost' ? 'ws' : 'wss';
-
-      let wsBaseUrl;
-      if (useLocalBackend) {
-        wsBaseUrl = 'localhost:8080';
-      } else {
-        wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
-      }
-
-      const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-      const wsUrl = `${wsProtocol}://${cleanHost}/ws/listener`;
+      // Use the getWebSocketUrl function to get the proper WebSocket URL
+      const wsUrl = getWebSocketUrl('listener');
 
       console.log('Connecting Status WebSocket:', wsUrl);
 
@@ -1469,18 +1436,10 @@ export function StreamingProvider({ children }) {
   // Get streaming URLs
   const getStreamUrl = () => serverConfig?.streamUrl;
   const getWebSocketUrl = (type = 'listener') => {
-    // For deployed environments, always use secure WebSocket (wss)
-    // For localhost development, use ws
-    const wsProtocol = window.location.hostname === 'localhost' ? 'ws' : 'wss';
-
-    let wsBaseUrl;
-    if (useLocalBackend) {
-      wsBaseUrl = 'localhost:8080';
-    } else {
-      wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
-    }
-
+    const wsBaseUrl = config.wsBaseUrl;
     const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
+    const isLocalBackend = cleanHost.includes('localhost') || cleanHost.includes('127.0.0.1');
+    const wsProtocol = isLocalBackend && window.location.hostname === 'localhost' ? 'ws' : 'wss';
     return `${wsProtocol}://${cleanHost}/ws/${type}`;
   };
 

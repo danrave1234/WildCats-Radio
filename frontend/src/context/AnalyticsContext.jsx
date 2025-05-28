@@ -8,21 +8,19 @@ import {
 } from '../services/api';
 import SockJS from 'sockjs-client';
 import { Stomp } from '@stomp/stompjs';
-import { useLocalBackend } from '../config';
+import { config } from '../config';
 import { useAuth } from './AuthContext';
 
 const AnalyticsContext = createContext();
 
-// Get the proper WebSocket URL from environment variables
+// Get the proper WebSocket URL from config
 const getWsUrl = () => {
-  if (useLocalBackend) {
-    return 'http://localhost:8080/ws-radio';
-  } else {
-    // Determine if current site is using HTTPS
-    const isSecure = window.location.protocol === 'https:';
-    const protocol = isSecure ? 'https:' : 'http:';
-    return `${protocol}//wildcat-radio-f05d362144e6.autoidleapp.com/ws-radio`;
-  }
+  const wsBaseUrl = config.wsBaseUrl;
+  const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
+  const isSecure = window.location.protocol === 'https:';
+  // SockJS requires http/https protocol, not ws/wss
+  const protocol = isSecure ? 'https:' : 'http:';
+  return `${protocol}//${cleanHost}/ws-radio`;
 };
 
 export function useAnalytics() {

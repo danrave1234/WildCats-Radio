@@ -7,14 +7,14 @@
 
 // Set this to true to use the local backend (localhost:8080)
 // Set this to false to use the deployed backend (wildcat-radio-f05d362144e6.autoidleapp.com)
-export const useLocalBackend = false;
+export const useLocalBackend = true;
 
 // Export other configuration settings as needed
 export const config = {
   // Base URLs are derived from the useLocalBackend setting
   // These are used internally by the application and should not be modified directly
   apiBaseUrl: useLocalBackend 
-    ? 'localhost:8080/api' 
+    ? 'localhost:8080'
     : 'wildcat-radio-f05d362144e6.autoidleapp.com',
   
   wsBaseUrl: useLocalBackend 

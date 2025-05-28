@@ -3,59 +3,63 @@ import { handleSecuritySoftwareErrors } from './errorHandler';
 // WebSocket support libraries
 import SockJS from 'sockjs-client';
 import { Stomp } from '@stomp/stompjs';
-import { useLocalBackend } from '../config';
+import { useLocalBackend, config } from '../config';
 import { createLogger } from './logger';
 
 const logger = createLogger('APIService');
 
 // Helper function to get the correct protocol for the current environment
-const getProtocol = (forWebSocket = false, host = '') => {
+const getProtocol = (forWebSocket = false, host = '', forSockJS = false) => {
   const isSecure = window.location.protocol === 'https:';
-  if (forWebSocket) {
-    return isSecure ? 'wss:' : 'wss:';
+
+  // SockJS requires http/https protocol, not ws/wss
+  if (forSockJS) {
+    if (host.includes('localhost')) {
+      return 'http:';
+    }
+    return 'https:';
   }
+
+  if (forWebSocket) {
+    // For WebSocket connections, use wss: for secure connections and ws: for localhost
+    const isLocalhost = host.includes('localhost') || host.includes('127.0.0.1');
+    return (isSecure || !isLocalhost) ? 'wss:' : 'ws:';
+  }
+
   // Use HTTP for localhost, HTTPS for other hosts
   if (host.includes('localhost')) {
     return 'http:';
   }
-  return isSecure ? 'https:' : 'http:';
+  return 'https:';
 };
 
-// Simple function to construct URLs from environment variables
-// Environment variables should NOT include protocols as specified in .env comments
-const constructUrl = (envVar, fallbackHost, fallbackPath = '', forWebSocket = false) => {
-  // Check if we should use localhost instead of the deployed backend
-  // Using centralized configuration from config.js
+// Simple function to construct URLs using the config from config.js
+const constructUrl = (configKey, fallbackPath = '', forWebSocket = false, forSockJS = false) => {
   logger.debug('Using useLocalBackend setting from config.js:', useLocalBackend);
 
-  // If using local backend, override the host for API and WebSocket (but not Icecast)
   let host;
-  if (useLocalBackend && !envVar.includes('ICECAST_URL')) {
-    host = 'localhost:8080';
-    // For API endpoints, add the path
-    if (envVar.includes('API_BASE_URL')) {
-      host += '/api';
-    }
+  if (configKey === 'apiBaseUrl') {
+    host = config.apiBaseUrl;
+  } else if (configKey === 'wsBaseUrl') {
+    host = config.wsBaseUrl;
+  } else if (configKey === 'icecastUrl') {
+    host = config.icecastUrl;
   } else {
-    // Use the environment variable as normal
-    host = envVar;
+    throw new Error(`Unknown config key: ${configKey}`);
   }
 
   // Simple clean - just remove any protocol if present
   const cleanHost = host.replace(/^(https?:\/\/|wss?:\/\/)/, '');
 
   // Get the appropriate protocol based on the host
-  const protocol = getProtocol(forWebSocket, cleanHost);
+  const protocol = getProtocol(forWebSocket, cleanHost, forSockJS);
 
   return `${protocol}//${cleanHost}${fallbackPath}`;
 };
 
 
 // Create axios instance with base URL pointing to our backend
-const API_BASE_URL = constructUrl(
-  import.meta.env.VITE_API_BASE_URL,
-  false
-);
+const API_BASE_URL = constructUrl('apiBaseUrl');
 
 logger.info('API_BASE_URL constructed:', API_BASE_URL);
 logger.info(`Using ${useLocalBackend ? 'LOCAL' : 'DEPLOYED'} backend`);
@@ -129,12 +133,7 @@ export const broadcastService = {
   // Subscribe to real-time broadcast updates (for broadcast status, listener count, etc.)
   subscribeToBroadcastUpdates: (broadcastId, callback) => {
     // Use the environment variable directly - no fallbacks needed
-    const wsBaseUrl = constructUrl(
-      import.meta.env.VITE_WS_BASE_URL,
-      '',
-      '',
-      false // HTTP for SockJS
-    );
+    const wsBaseUrl = constructUrl('wsBaseUrl', '', false, true); // Set forSockJS to true
 
     // Use factory function for proper auto-reconnect support
     const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
@@ -215,12 +214,7 @@ export const chatService = {
   // Subscribe to real-time chat messages for a specific broadcast
   subscribeToChatMessages: (broadcastId, callback) => {
     // Use the environment variable directly - no fallbacks needed
-    const wsBaseUrl = constructUrl(
-      import.meta.env.VITE_WS_BASE_URL,
-      '',
-      '',
-      false // HTTP for SockJS
-    );
+    const wsBaseUrl = constructUrl('wsBaseUrl', '', false, true); // Set forSockJS to true
 
     // Use factory function for proper auto-reconnect support
     const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
@@ -273,12 +267,7 @@ export const songRequestService = {
   // Subscribe to real-time song requests for a specific broadcast
   subscribeToSongRequests: (broadcastId, callback) => {
     // Use the environment variable directly - no fallbacks needed
-    const wsBaseUrl = constructUrl(
-      import.meta.env.VITE_WS_BASE_URL,
-      '',
-      '',
-      false // HTTP for SockJS
-    );
+    const wsBaseUrl = constructUrl('wsBaseUrl', '', false, true); // Set forSockJS to true
 
     // Use factory function for proper auto-reconnect support
     const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
@@ -332,12 +321,7 @@ export const notificationService = {
   getRecent: (since) => api.get(`/api/notifications/recent?since=${since}`),
     subscribeToNotifications: (callback) => {
     // Use the environment variable directly - no fallbacks needed
-    const wsBaseUrl = constructUrl(
-      import.meta.env.VITE_WS_BASE_URL,
-      '',
-      '',
-      false // HTTP for SockJS
-    );
+    const wsBaseUrl = constructUrl('wsBaseUrl', '', false, true); // Set forSockJS to true
 
     // Use factory function for proper auto-reconnect support
     const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
@@ -442,12 +426,7 @@ export const pollService = {
   // Subscribe to real-time poll updates for a specific broadcast
   subscribeToPolls: (broadcastId, callback) => {
     // Use the environment variable directly - no fallbacks needed
-    const wsBaseUrl = constructUrl(
-      import.meta.env.VITE_WS_BASE_URL,
-      '',
-      '',
-      false // HTTP for SockJS
-    );
+    const wsBaseUrl = constructUrl('wsBaseUrl', '', false, true); // Set forSockJS to true
 
     // Use factory function for proper auto-reconnect support
     const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
@@ -501,32 +480,13 @@ export const streamService = {
 
   // WebSocket URL for DJs to send audio to the server
   getStreamUrl: () => {
-    let wsBaseUrl;
-    if (useLocalBackend) {
-      wsBaseUrl = 'localhost:8080';
-    } else {
-      wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
-    }
-
-    const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-    // For deployed environments, always use secure WebSocket (wss)
-    // For localhost development, use ws
-    const protocol = window.location.hostname === 'localhost' ? 'ws' : 'wss';
-
-    return Promise.resolve(`${protocol}://${cleanHost}/ws/live`);
+    const wsBaseUrl = constructUrl('wsBaseUrl', '', true); // true for WebSocket
+    return Promise.resolve(wsBaseUrl + '/ws/live');
   },
 
   // Stream URL for listeners to tune in to the broadcast
   getListenerStreamUrl: () => {
-    // Use environment variable directly
-    return Promise.resolve(
-      constructUrl(
-        import.meta.env.VITE_ICECAST_URL,
-        '',
-        '',
-        false // HTTP for audio stream
-      )
-    );
+    return Promise.resolve(constructUrl('icecastUrl'));
   },
 
   // Check if Icecast server is running

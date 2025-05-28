@@ -33,6 +33,8 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
+                // Allow OPTIONS requests for CORS preflight
+                .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                 // Public endpoints that don't require authentication
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/user/register").permitAll()
@@ -47,6 +49,7 @@ public class SecurityConfig {
                 .requestMatchers("/ws/listener").permitAll()
                 .requestMatchers("/stream").permitAll()
                 .requestMatchers("/ws-radio/**").permitAll()
+                .requestMatchers("/ws-radio/info").permitAll()
                 // Swagger UI endpoints if you use it
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 // Health check endpoints
@@ -77,14 +80,43 @@ public class SecurityConfig {
             "https://wildcat-radio-f05d362144e6.autoidleapp.com"
         ));
 
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("*")); // Allow all headers including authorization
-        configuration.setExposedHeaders(Arrays.asList("x-auth-token"));
+        // Allow all methods required for REST and WebSocket/SockJS
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "CONNECT"));
+
+        // Allow all headers including those needed for SockJS
+        configuration.setAllowedHeaders(Arrays.asList(
+            "*",
+            "Authorization", 
+            "Content-Type", 
+            "X-Requested-With", 
+            "X-SockJS-Transport",
+            "Access-Control-Allow-Origin",
+            "Access-Control-Request-Method", 
+            "Access-Control-Request-Headers"
+        ));
+
+        // Expose headers needed for authentication and SockJS
+        configuration.setExposedHeaders(Arrays.asList(
+            "x-auth-token", 
+            "Authorization", 
+            "Content-Type", 
+            "Content-Length",
+            "Access-Control-Allow-Origin",
+            "Access-Control-Allow-Credentials"
+        ));
+
         configuration.setAllowCredentials(true); // Enable credentials for JWT tokens
         configuration.setMaxAge(3600L); // Cache preflight for 1 hour
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
+
+        // Add specific configuration for SockJS endpoints
+        CorsConfiguration sockJsConfig = new CorsConfiguration(configuration);
+        source.registerCorsConfiguration("/ws-radio/**", sockJsConfig);
+        source.registerCorsConfiguration("/ws-radio/info", sockJsConfig);
+        source.registerCorsConfiguration("/ws/**", sockJsConfig);
+
         return source;
     }
 
