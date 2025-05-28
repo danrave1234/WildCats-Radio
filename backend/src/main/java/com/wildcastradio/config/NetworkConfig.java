@@ -352,6 +352,31 @@ public class NetworkConfig {
         return getIcecastUrl() + "/live.ogg";
     }
 
+    /**
+     * Get the Icecast hostname without any protocol prefix
+     * This is specifically for FFmpeg connections to Icecast
+     * @return Clean hostname for Icecast server
+     */
+    public String getIcecastHostname() {
+        String host = getIcecastHost();
+
+        // Strip any protocol if present - FFmpeg needs just the hostname
+        if (host.startsWith("https://")) {
+            host = host.substring(8); // Remove "https://"
+        } else if (host.startsWith("http://")) {
+            host = host.substring(7); // Remove "http://"
+        }
+
+        // Also strip any trailing paths if they exist
+        int slashIndex = host.indexOf('/');
+        if (slashIndex != -1) {
+            host = host.substring(0, slashIndex);
+        }
+
+        logger.info("Clean Icecast hostname for FFmpeg: {}", host);
+        return host;
+    }
+
     // Getters
     public String getServerIp() {
         return serverIp;
