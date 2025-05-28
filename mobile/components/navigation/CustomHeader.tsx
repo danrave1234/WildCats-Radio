@@ -483,8 +483,8 @@ const CustomHeader = ({
                       ? {
                           transform: [
                             {
-                              rotate: shakeAnimation.interpolate({
-                                inputRange: [-1, 0, 1],
+                      rotate: shakeAnimation.interpolate({
+                        inputRange: [-1, 0, 1],
                                 outputRange: ['-7deg', '0deg', '7deg'],
                               }),
                             },
@@ -527,7 +527,7 @@ const CustomHeader = ({
                             includeFontPadding: false, 
                             paddingHorizontal: 1, // Small horizontal padding to help fit
                           }}
-                          numberOfLines={1}
+                          numberOfLines={1} 
                           adjustsFontSizeToFit
                           minimumFontScale={0.7}
                         >
@@ -626,7 +626,7 @@ const CustomHeader = ({
                     >
                       <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>
                         Mark all as read
-                      </Text>
+                  </Text>
                     </TouchableOpacity>
                   )}
                 </View>
