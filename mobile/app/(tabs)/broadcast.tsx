@@ -38,6 +38,7 @@ import {
   createSongRequest,
   getActivePollsForBroadcast,
   voteOnPoll,
+  getMe,
 } from '../../services/apiService';
 import { chatService } from '../../services/chatService';
 import { pollService } from '../../services/pollService';
@@ -199,7 +200,15 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
               }}
             >
               <Text className="text-white text-xs font-bold">
-                {(message.sender?.name || 'U').charAt(0).toUpperCase()}
+                {(() => {
+                  const senderName = message.sender?.name || 'U';
+                  // Check if sender is a DJ
+                  if (senderName.toLowerCase().includes('dj')) {
+                    return 'DJ';
+                  }
+                  // Regular initials for other users
+                  return senderName.charAt(0).toUpperCase();
+                })()}
               </Text>
             </View>
           ) : (
@@ -407,6 +416,10 @@ const BroadcastScreen: React.FC = () => {
   // Poll WebSocket connection ref
   const pollConnectionRef = useRef<any>(null);
 
+  // Add user data state
+  const [userData, setUserData] = useState<UserAuthData | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+
   // Early safety check for auth context - AFTER all hooks are called
   if (!authContext) {
     return (
@@ -418,29 +431,59 @@ const BroadcastScreen: React.FC = () => {
   }
 
   const authToken = authContext.authToken;
-  const user = (authContext as any)?.user as UserAuthData | undefined;
+
+  // Fetch user data when auth token is available
+  useEffect(() => {
+    const fetchUserData = async () => {
+      if (!authToken) {
+        setUserData(null);
+        setCurrentUserId(null);
+        return;
+      }
+
+      try {
+        console.log('🔍 Fetching current user data for chat ownership...');
+        const result = await getMe(authToken);
+        if ('error' in result) {
+          console.error('❌ Failed to fetch user data:', result.error);
+          setUserData(null);
+          setCurrentUserId(null);
+        } else {
+          console.log('✅ User data fetched successfully:', { id: result.id, name: result.name });
+          setUserData(result);
+          setCurrentUserId(result.id);
+        }
+      } catch (error) {
+        console.error('❌ Error fetching user data:', error);
+        setUserData(null);
+        setCurrentUserId(null);
+      }
+    };
+
+    fetchUserData();
+  }, [authToken]);
 
   const listenerName = useMemo(() => {
-    if (!user || typeof user !== 'object') return 'Listener';
+    if (!userData || typeof userData !== 'object') return 'Listener';
     
     try {
-      // Safely construct name from available fields with strict type checking
-      if (user.name && typeof user.name === 'string' && user.name.trim()) {
-        return user.name.trim();
+      // Use the same logic as the profile screen - prioritize 'name' field
+      if (userData.name && typeof userData.name === 'string' && userData.name.trim()) {
+        return userData.name.trim();
       }
-      if (user.fullName && typeof user.fullName === 'string' && user.fullName.trim()) {
-        return user.fullName.trim();
+      if (userData.fullName && typeof userData.fullName === 'string' && userData.fullName.trim()) {
+        return userData.fullName.trim();
       }
-      if (user.firstName && typeof user.firstName === 'string' && user.firstName.trim()) {
-        const lastName = user.lastName && typeof user.lastName === 'string' ? user.lastName.trim() : '';
-        return `${user.firstName.trim()} ${lastName}`.trim();
+      if (userData.firstName && typeof userData.firstName === 'string' && userData.firstName.trim()) {
+        const lastName = userData.lastName && typeof userData.lastName === 'string' ? userData.lastName.trim() : '';
+        return `${userData.firstName.trim()} ${lastName}`.trim();
       }
     } catch (error) {
       console.warn('Error processing user name:', error);
     }
     
     return 'Listener';
-  }, [user]);
+  }, [userData]);
 
   const tabDefinitions: TabDefinition[] = useMemo(() => [
     { name: 'Chat', icon: 'chatbubbles-outline', key: 'chat' },
@@ -1240,10 +1283,53 @@ const BroadcastScreen: React.FC = () => {
 
         {/* Enhanced Chat Messages with Animations */}
         {chatMessages.filter(msg => msg && msg.id).map((msg, index) => {
-          // More robust check for own messages
-          const isOwnMessage = userMessageIds.has(msg.id) || 
-                               msg.sender?.name === listenerName || 
-                               msg.sender?.name?.toLowerCase().trim() === listenerName.toLowerCase().trim();
+          // ROBUST MESSAGE OWNERSHIP DETECTION - FIXED FOR RELOAD PERSISTENCE
+          const isOwnMessage = (() => {
+            // Method 1: Check userMessageIds Set (for messages sent in this session)
+            if (userMessageIds.has(msg.id)) {
+              console.log(`✅ Message ${msg.id} identified as own (userMessageIds)`);
+              return true;
+            }
+            
+            // Method 2: Compare sender ID with current user ID (most reliable)
+            if (currentUserId && msg.sender?.id && msg.sender.id === currentUserId) {
+              console.log(`✅ Message ${msg.id} identified as own (sender ID: ${msg.sender.id} === user ID: ${currentUserId})`);
+              return true;
+            }
+            
+            // Method 3: Compare sender name with listenerName (fallback)
+            if (listenerName && listenerName !== 'Listener' && msg.sender?.name) {
+              const senderName = msg.sender.name.toLowerCase().trim();
+              const userListenerName = listenerName.toLowerCase().trim();
+              if (senderName === userListenerName) {
+                console.log(`✅ Message ${msg.id} identified as own (name match: "${senderName}" === "${userListenerName}")`);
+                return true;
+              }
+            }
+            
+            // Method 4: Additional name variations check
+            if (userData && msg.sender?.name) {
+              const senderName = msg.sender.name.toLowerCase().trim();
+              
+              // Check all possible name variations
+              const nameVariations = [
+                userData.name?.toLowerCase().trim(),
+                userData.fullName?.toLowerCase().trim(),
+                userData.firstName?.toLowerCase().trim(),
+                `${userData.firstName?.toLowerCase().trim()} ${userData.lastName?.toLowerCase().trim()}`.trim()
+              ].filter(Boolean);
+              
+              if (nameVariations.some(variation => variation === senderName)) {
+                console.log(`✅ Message ${msg.id} identified as own (name variation match: "${senderName}")`);
+                return true;
+              }
+            }
+            
+            // Debug log for unmatched messages
+            console.log(`➡️ Message ${msg.id} from "${msg.sender?.name}" (ID: ${msg.sender?.id}) not identified as own. User: "${listenerName}" (ID: ${currentUserId})`);
+            return false;
+          })();
+          
           const showAvatar = index === chatMessages.length - 1 || chatMessages[index + 1]?.sender?.name !== msg.sender?.name;
           const isLastInGroup = index === chatMessages.length - 1 || chatMessages[index + 1]?.sender?.name !== msg.sender?.name;
           const isFirstInGroup = index === 0 || chatMessages[index - 1]?.sender?.name !== msg.sender?.name;
