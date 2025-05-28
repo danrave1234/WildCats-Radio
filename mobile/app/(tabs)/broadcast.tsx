@@ -38,8 +38,10 @@ import {
   createSongRequest,
   getActivePollsForBroadcast,
   voteOnPoll,
+  getMe,
 } from '../../services/apiService';
-import { useWebSocket } from '../../services/websocketHook';
+import { chatService } from '../../services/chatService';
+import { pollService } from '../../services/pollService';
 import '../../global.css';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
 
@@ -198,7 +200,15 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
               }}
             >
               <Text className="text-white text-xs font-bold">
-                {(message.sender?.name || 'U').charAt(0).toUpperCase()}
+                {(() => {
+                  const senderName = message.sender?.name || 'U';
+                  // Check if sender is a DJ
+                  if (senderName.toLowerCase().includes('dj')) {
+                    return 'DJ';
+                  }
+                  // Regular initials for other users
+                  return senderName.charAt(0).toUpperCase();
+                })()}
               </Text>
             </View>
           ) : (
@@ -399,6 +409,16 @@ const BroadcastScreen: React.FC = () => {
   // Real-time update refs
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  
+  // Chat WebSocket connection ref
+  const chatConnectionRef = useRef<any>(null);
+  
+  // Poll WebSocket connection ref
+  const pollConnectionRef = useRef<any>(null);
+
+  // Add user data state
+  const [userData, setUserData] = useState<UserAuthData | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   // Early safety check for auth context - AFTER all hooks are called
   if (!authContext) {
@@ -411,29 +431,59 @@ const BroadcastScreen: React.FC = () => {
   }
 
   const authToken = authContext.authToken;
-  const user = (authContext as any)?.user as UserAuthData | undefined;
+
+  // Fetch user data when auth token is available
+  useEffect(() => {
+    const fetchUserData = async () => {
+      if (!authToken) {
+        setUserData(null);
+        setCurrentUserId(null);
+        return;
+      }
+
+      try {
+        console.log('🔍 Fetching current user data for chat ownership...');
+        const result = await getMe(authToken);
+        if ('error' in result) {
+          console.error('❌ Failed to fetch user data:', result.error);
+          setUserData(null);
+          setCurrentUserId(null);
+        } else {
+          console.log('✅ User data fetched successfully:', { id: result.id, name: result.name });
+          setUserData(result);
+          setCurrentUserId(result.id);
+        }
+      } catch (error) {
+        console.error('❌ Error fetching user data:', error);
+        setUserData(null);
+        setCurrentUserId(null);
+      }
+    };
+
+    fetchUserData();
+  }, [authToken]);
 
   const listenerName = useMemo(() => {
-    if (!user || typeof user !== 'object') return 'Listener';
+    if (!userData || typeof userData !== 'object') return 'Listener';
     
     try {
-      // Safely construct name from available fields with strict type checking
-      if (user.name && typeof user.name === 'string' && user.name.trim()) {
-        return user.name.trim();
+      // Use the same logic as the profile screen - prioritize 'name' field
+      if (userData.name && typeof userData.name === 'string' && userData.name.trim()) {
+        return userData.name.trim();
       }
-      if (user.fullName && typeof user.fullName === 'string' && user.fullName.trim()) {
-        return user.fullName.trim();
+      if (userData.fullName && typeof userData.fullName === 'string' && userData.fullName.trim()) {
+        return userData.fullName.trim();
       }
-      if (user.firstName && typeof user.firstName === 'string' && user.firstName.trim()) {
-        const lastName = user.lastName && typeof user.lastName === 'string' ? user.lastName.trim() : '';
-        return `${user.firstName.trim()} ${lastName}`.trim();
+      if (userData.firstName && typeof userData.firstName === 'string' && userData.firstName.trim()) {
+        const lastName = userData.lastName && typeof userData.lastName === 'string' ? userData.lastName.trim() : '';
+        return `${userData.firstName.trim()} ${lastName}`.trim();
       }
     } catch (error) {
       console.warn('Error processing user name:', error);
     }
     
     return 'Listener';
-  }, [user]);
+  }, [userData]);
 
   const tabDefinitions: TabDefinition[] = useMemo(() => [
     { name: 'Chat', icon: 'chatbubbles-outline', key: 'chat' },
@@ -441,66 +491,211 @@ const BroadcastScreen: React.FC = () => {
     { name: 'Polls', icon: 'stats-chart-outline', key: 'polls' },
   ], []);
 
-  // WebSocket integration - for receiving real-time updates only
-  const { isConnected: wsIsConnected } = useWebSocket({
-    broadcastId: currentBroadcast?.id || null,
-    authToken: authToken,
-    onNewMessage: useCallback((message: ChatMessageDTO) => {
-      console.log('📨 Received WebSocket message:', message);
-      setChatMessages(prev => {
-        // Prevent duplicates - check if message already exists by ID first (most reliable)
-        const exists = prev.some(msg => msg.id === message.id);
-        if (exists) {
-          console.log('⚠️ Duplicate message ignored (ID already exists)');
-          return prev;
-        }
-        
-        // Secondary duplicate check by content and timing for edge cases
-        const contentDuplicate = prev.some(msg => 
-          msg.content === message.content && 
-          msg.sender?.name === message.sender?.name &&
-          Math.abs(new Date(msg.createdAt).getTime() - new Date(message.createdAt).getTime()) < 5000
-        );
-        if (contentDuplicate) {
-          console.log('⚠️ Duplicate message ignored (content + timing match)');
-          return prev;
-        }
-        
-        // Add new message and sort by timestamp
-        console.log('✅ Adding new WebSocket message to chat');
-        const newMessages = [...prev, message];
-        return newMessages.sort((a, b) => 
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        );
-      });
-    }, []),
-    onPollUpdate: useCallback((poll: PollDTO) => {
-      setActivePolls(prev => {
-        const exists = prev.findIndex(p => p.id === poll.id);
-        if (exists >= 0) {
-          return prev.map(p => p.id === poll.id ? poll : p);
-        }
-        return [...prev, poll];
-      });
-    }, []),
-    onConnect: useCallback(() => {
-      console.log('💬 WebSocket connected for real-time chat!');
-      setIsWebSocketConnected(true);
-    }, []),
-    onDisconnect: useCallback(() => {
-      console.log('💬 WebSocket disconnected');
-      setIsWebSocketConnected(false);
-    }, []),
-    onError: useCallback((error: Event) => {
-      console.error('WebSocket error:', error);
-      setIsWebSocketConnected(false);
-    }, []),
-  });
-
-  // Sync WebSocket connection state
+  // Setup chat WebSocket subscription like frontend
   useEffect(() => {
-    setIsWebSocketConnected(wsIsConnected);
-  }, [wsIsConnected]);
+    if (!currentBroadcast?.id || !authToken) {
+      // Clean up chat connection if no broadcast or auth
+      if (chatConnectionRef.current) {
+        console.log('🧹 Cleaning up chat WebSocket connection');
+        chatConnectionRef.current.disconnect();
+        chatConnectionRef.current = null;
+        setIsWebSocketConnected(false);
+      }
+      return;
+    }
+
+    const setupChatWebSocket = async () => {
+      try {
+        console.log('🔄 Setting up chat WebSocket for broadcast:', currentBroadcast.id);
+        
+        // Clean up existing connection
+        if (chatConnectionRef.current) {
+          chatConnectionRef.current.disconnect();
+          chatConnectionRef.current = null;
+        }
+        
+        // Set up new connection like frontend
+        const connection = await chatService.subscribeToChatMessages(
+          currentBroadcast.id,
+          authToken,
+          (newMessage: ChatMessageDTO) => {
+            // Double-check the message is for the current broadcast
+            if (newMessage.broadcastId === currentBroadcast.id) {
+              console.log('📨 Received new chat message:', newMessage);
+              setChatMessages(prev => {
+                const exists = prev.some(msg => msg.id === newMessage.id);
+                if (exists) {
+                  console.log('⚠️ Duplicate message ignored (ID already exists)');
+                  return prev;
+                }
+                
+                // Secondary duplicate check by content and timing for edge cases
+                const contentDuplicate = prev.some(msg => 
+                  msg.content === newMessage.content && 
+                  msg.sender?.name === newMessage.sender?.name &&
+                  Math.abs(new Date(msg.createdAt).getTime() - new Date(newMessage.createdAt).getTime()) < 5000
+                );
+                if (contentDuplicate) {
+                  console.log('⚠️ Duplicate message ignored (content + timing match)');
+                  return prev;
+                }
+                
+                // Add new message and sort by timestamp
+                console.log('✅ Adding new WebSocket message to chat');
+                const newMessages = [...prev, newMessage];
+                return newMessages.sort((a, b) => 
+                  new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                );
+              });
+            } else {
+              console.log('⚠️ Ignoring message for different broadcast:', newMessage.broadcastId);
+            }
+          }
+        );
+        
+        chatConnectionRef.current = connection;
+        setIsWebSocketConnected(true);
+        console.log('✅ Chat WebSocket connected successfully');
+        
+      } catch (error) {
+        console.error('❌ Failed to setup chat WebSocket:', error);
+        setIsWebSocketConnected(false);
+      }
+    };
+
+    setupChatWebSocket();
+
+    return () => {
+      if (chatConnectionRef.current) {
+        console.log('🧹 Cleaning up chat WebSocket on unmount');
+        chatConnectionRef.current.disconnect();
+        chatConnectionRef.current = null;
+        setIsWebSocketConnected(false);
+      }
+    };
+  }, [currentBroadcast?.id, authToken]);
+
+  // Setup poll WebSocket subscription for real-time updates
+  useEffect(() => {
+    if (!currentBroadcast?.id || !authToken) {
+      // Clean up poll connection if no broadcast or auth
+      if (pollConnectionRef.current) {
+        console.log('🧹 Cleaning up poll WebSocket connection');
+        pollConnectionRef.current.disconnect();
+        pollConnectionRef.current = null;
+      }
+      return;
+    }
+
+    const setupPollWebSocket = async () => {
+      try {
+        console.log('🔄 Setting up poll WebSocket for broadcast:', currentBroadcast.id);
+        
+        // Clean up existing connection
+        if (pollConnectionRef.current) {
+          pollConnectionRef.current.disconnect();
+          pollConnectionRef.current = null;
+        }
+        
+        // Set up new connection like frontend
+        const connection = await pollService.subscribeToPolls(
+          currentBroadcast.id,
+          authToken,
+          (pollUpdate: any) => {
+            console.log('📊 Received poll update:', pollUpdate);
+            
+            switch (pollUpdate.type) {
+              case 'POLL_VOTE':
+                console.log('📊 Processing poll vote update for poll:', pollUpdate.pollId);
+                // Update existing poll with new vote data
+                setActivePolls(prev => prev.map(poll => 
+                  poll.id === pollUpdate.pollId 
+                    ? { 
+                        ...poll, 
+                        options: pollUpdate.poll?.options || poll.options,
+                        // Update vote counts if available
+                        ...(pollUpdate.poll ? pollUpdate.poll : {})
+                      }
+                    : poll
+                ));
+                break;
+                
+                             case 'NEW_POLL':
+                 console.log('📊 Processing new poll:', pollUpdate.poll);
+                 // Only add poll if it's active (listener behavior)
+                 if (pollUpdate.poll && pollUpdate.poll.isActive) {
+                   setActivePolls(prev => {
+                     const exists = prev.some(poll => poll.id === pollUpdate.poll.id);
+                     if (exists) return prev;
+                     return [pollUpdate.poll, ...prev];
+                   });
+                 }
+                 break;
+                
+                             case 'POLL_UPDATED':
+                 console.log('📊 Processing poll update:', pollUpdate.poll);
+                 if (pollUpdate.poll) {
+                   if (pollUpdate.poll.isActive) {
+                     // Poll became active, add it to the list
+                     setActivePolls(prev => {
+                       const exists = prev.some(poll => poll.id === pollUpdate.poll.id);
+                       if (exists) {
+                         // Update existing poll
+                         return prev.map(poll => 
+                           poll.id === pollUpdate.poll.id 
+                             ? { ...poll, ...pollUpdate.poll }
+                             : poll
+                         );
+                       } else {
+                         // Add new active poll
+                         return [pollUpdate.poll, ...prev];
+                       }
+                     });
+                   } else {
+                     // Poll became inactive, remove it from the list
+                     setActivePolls(prev => prev.filter(poll => poll.id !== pollUpdate.poll.id));
+                   }
+                 }
+                 break;
+                
+              case 'POLL_RESULTS':
+                console.log('📊 Processing poll results update:', pollUpdate.results);
+                if (pollUpdate.pollId && pollUpdate.results) {
+                  setActivePolls(prev => prev.map(poll => 
+                    poll.id === pollUpdate.pollId 
+                      ? { 
+                          ...poll, 
+                          options: pollUpdate.results.options || poll.options
+                        }
+                      : poll
+                  ));
+                }
+                break;
+                
+              default:
+                console.log('📊 Unknown poll update type:', pollUpdate.type);
+            }
+          }
+        );
+        
+        pollConnectionRef.current = connection;
+        console.log('✅ Poll WebSocket connected successfully');
+        
+      } catch (error) {
+        console.error('❌ Failed to setup poll WebSocket:', error);
+      }
+    };
+
+    setupPollWebSocket();
+
+    return () => {
+      if (pollConnectionRef.current) {
+        console.log('🧹 Cleaning up poll WebSocket on unmount');
+        pollConnectionRef.current.disconnect();
+        pollConnectionRef.current = null;
+      }
+    };
+  }, [currentBroadcast?.id, authToken]);
 
   // Keyboard animation handling
   useEffect(() => {
@@ -629,6 +824,16 @@ const BroadcastScreen: React.FC = () => {
       setIsBroadcastListening(false);
       // Also reset notification state to ensure tab bar is visible
       setIsNotificationOpen(false);
+      // Clean up chat connection
+      if (chatConnectionRef.current) {
+        chatConnectionRef.current.disconnect();
+        chatConnectionRef.current = null;
+      }
+      // Clean up poll connection
+      if (pollConnectionRef.current) {
+        pollConnectionRef.current.disconnect();
+        pollConnectionRef.current = null;
+      }
     };
   }, [setIsBroadcastListening, setIsNotificationOpen]);
 
@@ -678,9 +883,10 @@ const BroadcastScreen: React.FC = () => {
       }
 
       if (broadcastToUse) {
+        // Use chatService for messages and pollService for polls, keep original API for song requests
         const [messagesResult, pollsResult, songRequestsResult] = await Promise.all([
-          getChatMessages(broadcastToUse.id, authToken),
-          getActivePollsForBroadcast(broadcastToUse.id, authToken),
+          chatService.getMessages(broadcastToUse.id, authToken),
+          pollService.getPollsForBroadcast(broadcastToUse.id, authToken),
           getSongRequestsForBroadcast(broadcastToUse.id, authToken),
         ]);
 
@@ -689,33 +895,36 @@ const BroadcastScreen: React.FC = () => {
           setChatMessages(prevMessages => {
             if (prevMessages.length === 0) {
               // No previous messages, just use server messages
-              return messagesResult;
+              return messagesResult.data;
             }
             
             // Merge with any existing messages (e.g., from WebSocket)
-            const serverMessages = messagesResult;
+            const serverMessages = messagesResult.data;
             const mergedMessages = [...serverMessages, ...prevMessages];
             
-                      // Remove duplicates and sort by timestamp
-          const uniqueMessages = mergedMessages.filter((msg, index, array) => 
-            array.findIndex(m => 
-              m.id === msg.id || 
-              (m.content === msg.content && 
-               m.sender?.name === msg.sender?.name &&
-               Math.abs(new Date(m.createdAt).getTime() - new Date(msg.createdAt).getTime()) < 5000)
-            ) === index
-          );
-          
-          return uniqueMessages.sort((a, b) => 
-            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-          );
+            // Remove duplicates and sort by timestamp
+            const uniqueMessages = mergedMessages.filter((msg, index, array) => 
+              array.findIndex(m => 
+                m.id === msg.id || 
+                (m.content === msg.content && 
+                 m.sender?.name === msg.sender?.name &&
+                 Math.abs(new Date(m.createdAt).getTime() - new Date(msg.createdAt).getTime()) < 5000)
+              ) === index
+            );
+            
+            return uniqueMessages.sort((a, b) => 
+              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
           });
         } else {
           console.error('Failed to fetch initial chat:', messagesResult.error);
         }
 
-        if (!('error' in pollsResult)) setActivePolls(pollsResult);
-        else console.error('Failed to fetch initial polls:', pollsResult.error);
+        if (!('error' in pollsResult) && pollsResult.data) {
+          setActivePolls(pollsResult.data);
+        } else {
+          console.error('Failed to fetch initial polls:', 'error' in pollsResult ? pollsResult.error : 'Unknown error');
+        }
 
         if (!('error' in songRequestsResult)) setSongRequests(songRequestsResult);
         else console.error('Failed to fetch initial song requests:', songRequestsResult.error);
@@ -778,8 +987,6 @@ const BroadcastScreen: React.FC = () => {
     };
   }, [loadInitialDataForBroadcastScreen, startPolling, stopPolling]);
 
-
-
   useEffect(() => {
     if (chatMessages.length > 0) {
       setTimeout(() => chatScrollViewRef.current?.scrollToEnd({ animated: true }), 300);
@@ -795,9 +1002,9 @@ const BroadcastScreen: React.FC = () => {
         console.log('📱 App became active, checking WebSocket connection...');
         // App came to foreground and WebSocket is disconnected, try to reconnect
         setTimeout(() => {
-          if (!isWebSocketConnected && currentBroadcast?.id) {
+          if (!isWebSocketConnected && currentBroadcast?.id && authToken) {
             console.log('🔄 Attempting to restore WebSocket connection...');
-            // The WebSocket hook will handle reconnection automatically
+            // The WebSocket will be reconnected by the effect above
           }
         }, 1000);
       } else if (nextAppState === 'background') {
@@ -810,7 +1017,7 @@ const BroadcastScreen: React.FC = () => {
     return () => {
       subscription?.remove();
     };
-  }, [isWebSocketConnected, currentBroadcast?.id]);
+  }, [isWebSocketConnected, currentBroadcast?.id, authToken]);
 
   const handleSendChatMessage = async () => {
     if (!authToken || !currentBroadcast || !chatInput.trim()) return;
@@ -820,9 +1027,9 @@ const BroadcastScreen: React.FC = () => {
     setIsSubmitting(true);
     
     try {
-      // Use HTTP POST for sending messages (like web frontend)
-      console.log('🚀 Sending via HTTP API');
-      const result = await sendChatMessage(currentBroadcast.id, { content: messageToSend }, authToken);
+      // Use chatService like frontend
+      console.log('🚀 Sending via chatService');
+      const result = await chatService.sendMessage(currentBroadcast.id, { content: messageToSend }, authToken);
       
       if ('error' in result) {
         console.error('❌ Failed to send message:', result.error);
@@ -830,24 +1037,24 @@ const BroadcastScreen: React.FC = () => {
         setChatInput(messageToSend); // Restore the message
         Alert.alert("Error", result.error || "Failed to send message. Please try again.");
       } else {
-        console.log('✅ Message sent successfully via HTTP');
+        console.log('✅ Message sent successfully via chatService');
         // Message will appear via WebSocket when server broadcasts it
         // Track this as our own message FIRST to prevent left-side flicker
         setUserMessageIds(prev => {
-          const newSet = new Set([...prev, result.id]);
+          const newSet = new Set([...prev, result.data.id]);
           return newSet;
         });
         
         // Then add the sent message to chat messages
         setChatMessages(prev => {
           // Check if message already exists (avoid duplicates)
-          const exists = prev.some(msg => msg.id === result.id);
+          const exists = prev.some(msg => msg.id === result.data.id);
           if (exists) {
             return prev;
           }
           
           // Add new message and sort by timestamp
-          const newMessages = [...prev, result];
+          const newMessages = [...prev, result.data];
           return newMessages.sort((a, b) => 
             new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
           );
@@ -906,11 +1113,11 @@ const BroadcastScreen: React.FC = () => {
     if (!authToken || !currentBroadcast?.id) return;
     setIsRefreshingChat(true);
     try {
-      const messagesResult = await getChatMessages(currentBroadcast.id, authToken);
+      const messagesResult = await chatService.getMessages(currentBroadcast.id, authToken);
       if (!('error' in messagesResult)) {
         // Smart merge: preserve recent local messages that might not be on server yet
         setChatMessages(prevMessages => {
-          const serverMessages = messagesResult;
+          const serverMessages = messagesResult.data;
           const now = new Date().getTime();
           
           // Keep recent local messages (sent in last 30 seconds) that might not be on server
@@ -977,9 +1184,9 @@ const BroadcastScreen: React.FC = () => {
     if (!authToken || !currentBroadcast?.id) return;
     setIsRefreshingPolls(true);
     try {
-      const pollsResult = await getActivePollsForBroadcast(currentBroadcast.id, authToken);
-      if (!('error' in pollsResult)) {
-        setActivePolls(pollsResult);
+      const pollsResult = await pollService.getPollsForBroadcast(currentBroadcast.id, authToken);
+      if (!('error' in pollsResult) && pollsResult.data) {
+        setActivePolls(pollsResult.data);
       }
     } catch (err) {
       console.warn('Error refreshing polls:', err);
@@ -1076,10 +1283,53 @@ const BroadcastScreen: React.FC = () => {
 
         {/* Enhanced Chat Messages with Animations */}
         {chatMessages.filter(msg => msg && msg.id).map((msg, index) => {
-          // More robust check for own messages
-          const isOwnMessage = userMessageIds.has(msg.id) || 
-                               msg.sender?.name === listenerName || 
-                               msg.sender?.name?.toLowerCase().trim() === listenerName.toLowerCase().trim();
+          // ROBUST MESSAGE OWNERSHIP DETECTION - FIXED FOR RELOAD PERSISTENCE
+          const isOwnMessage = (() => {
+            // Method 1: Check userMessageIds Set (for messages sent in this session)
+            if (userMessageIds.has(msg.id)) {
+              console.log(`✅ Message ${msg.id} identified as own (userMessageIds)`);
+              return true;
+            }
+            
+            // Method 2: Compare sender ID with current user ID (most reliable)
+            if (currentUserId && msg.sender?.id && msg.sender.id === currentUserId) {
+              console.log(`✅ Message ${msg.id} identified as own (sender ID: ${msg.sender.id} === user ID: ${currentUserId})`);
+              return true;
+            }
+            
+            // Method 3: Compare sender name with listenerName (fallback)
+            if (listenerName && listenerName !== 'Listener' && msg.sender?.name) {
+              const senderName = msg.sender.name.toLowerCase().trim();
+              const userListenerName = listenerName.toLowerCase().trim();
+              if (senderName === userListenerName) {
+                console.log(`✅ Message ${msg.id} identified as own (name match: "${senderName}" === "${userListenerName}")`);
+                return true;
+              }
+            }
+            
+            // Method 4: Additional name variations check
+            if (userData && msg.sender?.name) {
+              const senderName = msg.sender.name.toLowerCase().trim();
+              
+              // Check all possible name variations
+              const nameVariations = [
+                userData.name?.toLowerCase().trim(),
+                userData.fullName?.toLowerCase().trim(),
+                userData.firstName?.toLowerCase().trim(),
+                `${userData.firstName?.toLowerCase().trim()} ${userData.lastName?.toLowerCase().trim()}`.trim()
+              ].filter(Boolean);
+              
+              if (nameVariations.some(variation => variation === senderName)) {
+                console.log(`✅ Message ${msg.id} identified as own (name variation match: "${senderName}")`);
+                return true;
+              }
+            }
+            
+            // Debug log for unmatched messages
+            console.log(`➡️ Message ${msg.id} from "${msg.sender?.name}" (ID: ${msg.sender?.id}) not identified as own. User: "${listenerName}" (ID: ${currentUserId})`);
+            return false;
+          })();
+          
           const showAvatar = index === chatMessages.length - 1 || chatMessages[index + 1]?.sender?.name !== msg.sender?.name;
           const isLastInGroup = index === chatMessages.length - 1 || chatMessages[index + 1]?.sender?.name !== msg.sender?.name;
           const isFirstInGroup = index === 0 || chatMessages[index - 1]?.sender?.name !== msg.sender?.name;

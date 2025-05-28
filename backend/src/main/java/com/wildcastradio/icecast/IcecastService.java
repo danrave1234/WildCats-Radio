@@ -32,6 +32,11 @@ public class IcecastService {
     @Value("${icecast.port:8000}")
     private int icecastPort;
 
+    // Flag to force HTTP even on port 443 (temporary solution until SSL certificate is ready)
+    // TODO: Remove this once SSL certificate is properly set up
+    @Value("${icecast.force.http:true}")
+    private boolean forceHttp;
+
     @Value("${icecast.source.username:source}")
     private String icecastUsername;
 
@@ -118,8 +123,9 @@ public class IcecastService {
      * @return URL for the Google Cloud Icecast server
      */
     public String getIcecastUrl() {
-        // Use HTTPS for port 443, HTTP for other ports
-        String protocol = (icecastPort == 443) ? "https" : "http";
+        // Use HTTP if forced or if port is not 443
+        // Only use HTTPS for port 443 when not forcing HTTP
+        String protocol = (icecastPort == 443 && !forceHttp) ? "https" : "http";
         return protocol + "://" + icecastHost + ":" + icecastPort;
     }
 
@@ -144,6 +150,7 @@ public class IcecastService {
 
         // If no active broadcasts, check Google Cloud Icecast server status
         try {
+            // Use getIcecastUrl to respect the forceHttp setting
             URL url = new URL(getIcecastUrl() + "/status-json.xsl");
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
@@ -191,6 +198,7 @@ public class IcecastService {
 
         // Otherwise, try to get the count from Google Cloud Icecast
         try {
+            // Use getIcecastUrl to respect the forceHttp setting
             URL url = new URL(getIcecastUrl() + "/status-json.xsl");
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
@@ -250,24 +258,49 @@ public class IcecastService {
      * @return true if Icecast server is reachable
      */
     public boolean isServerUp() {
-        // Try HTTPS first (as configured in getIcecastUrl)
-        boolean httpsResult = checkServerWithProtocol(getIcecastUrl());
-        if (httpsResult) {
-            return true;
-        }
+        // If forceHttp is true, try HTTP first, otherwise try HTTPS first for port 443
+        if (forceHttp || icecastPort != 443) {
+            // Try HTTP first
+            String httpUrl = "http://" + icecastHost + ":" + icecastPort;
+            boolean httpResult = checkServerWithProtocol(httpUrl);
+            if (httpResult) {
+                return true;
+            }
 
-        // If HTTPS fails, try HTTP as fallback
-        String httpUrl = getIcecastUrl().replace("https://", "http://");
-        boolean httpResult = checkServerWithProtocol(httpUrl);
-
-        // Log which protocol worked
-        if (httpResult) {
-            logger.info("Icecast server is UP using HTTP protocol (HTTPS failed)");
+            // If HTTP fails and we're on port 443, try HTTPS as fallback
+            if (icecastPort == 443) {
+                String httpsUrl = "https://" + icecastHost + ":" + icecastPort;
+                boolean httpsResult = checkServerWithProtocol(httpsUrl);
+                
+                if (httpsResult) {
+                    logger.info("Icecast server is UP using HTTPS protocol (HTTP failed)");
+                    return true;
+                }
+            }
+            
+            logger.warn("Icecast server is DOWN on both HTTP and HTTPS protocols");
+            return false;
         } else {
-            logger.warn("Icecast server is DOWN on both HTTPS and HTTP protocols");
-        }
+            // Try HTTPS first for port 443
+            String httpsUrl = "https://" + icecastHost + ":" + icecastPort;
+            boolean httpsResult = checkServerWithProtocol(httpsUrl);
+            if (httpsResult) {
+                return true;
+            }
 
-        return httpResult;
+            // If HTTPS fails, try HTTP as fallback
+            String httpUrl = "http://" + icecastHost + ":" + icecastPort;
+            boolean httpResult = checkServerWithProtocol(httpUrl);
+
+            // Log which protocol worked
+            if (httpResult) {
+                logger.info("Icecast server is UP using HTTP protocol (HTTPS failed)");
+            } else {
+                logger.warn("Icecast server is DOWN on both HTTPS and HTTP protocols");
+            }
+
+            return httpResult;
+        }
     }
 
     /**

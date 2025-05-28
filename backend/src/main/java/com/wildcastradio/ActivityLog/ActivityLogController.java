@@ -24,6 +24,8 @@ public class ActivityLogController {
     @Autowired
     private UserService userService;
 
+    int lol = 1;
+
     /**
      * Get all system activity logs (requires ADMIN role for complete access)
      */

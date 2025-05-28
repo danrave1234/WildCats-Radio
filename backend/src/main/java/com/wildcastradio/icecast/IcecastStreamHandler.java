@@ -49,9 +49,10 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         logger.info("WebSocket connection established with session ID: {}", session.getId());
-        
-        String serverIp = networkConfig.getServerIp();
-        logger.info("Using server IP: {}", serverIp);
+
+        // FIXED: Use the actual Icecast server hostname, not the Spring Boot app domain
+        String icecastHostname = networkConfig.getIcecastHostname();
+        logger.info("Using Icecast hostname for FFmpeg: {}", icecastHostname);
 
         // Build FFmpeg command for Icecast with improved reliability
         List<String> cmd = new ArrayList<>(Arrays.asList(
@@ -66,27 +67,29 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
         // Add reconnection settings if enabled
         if (networkConfig.isFfmpegReconnectEnabled()) {
             cmd.addAll(Arrays.asList(
-                "-reconnect", "1",           // Enable reconnection
-                "-reconnect_at_eof", "1",    // Reconnect at end of file
-                "-reconnect_streamed", "1",  // Reconnect for streaming protocols
-                "-reconnect_delay_max", String.valueOf(networkConfig.getFfmpegReconnectDelayMax()), // Max delay between reconnect attempts
-                "-rw_timeout", String.valueOf(networkConfig.getFfmpegRwTimeout())    // Read/write timeout (in microseconds)
+                    "-reconnect", "1",           // Enable reconnection
+                    "-reconnect_at_eof", "1",    // Reconnect at end of file
+                    "-reconnect_streamed", "1",  // Reconnect for streaming protocols
+                    "-reconnect_delay_max", String.valueOf(networkConfig.getFfmpegReconnectDelayMax()), // Max delay between reconnect attempts
+                    "-rw_timeout", String.valueOf(networkConfig.getFfmpegRwTimeout())    // Read/write timeout (in microseconds)
             ));
         }
 
         cmd.add("-f");
         cmd.add("ogg");
 
-        // Add Icecast URL with dynamic IP and source credentials
-        cmd.add("icecast://source:hackme@" + serverIp + ":" + networkConfig.getIcecastPort() + "/live.ogg");
+        // CRITICAL FIX: Build Icecast URL with the actual Icecast server hostname
+        String icecastUrl = "icecast://source:hackme@" + icecastHostname + ":" + networkConfig.getIcecastPort() + "/live.ogg";
+        cmd.add(icecastUrl);
 
         logger.info("Starting FFmpeg with command: {}", String.join(" ", cmd));
+        logger.info("Icecast URL: {}", icecastUrl);
 
         // Try to start FFmpeg with retry logic for 403 errors
         boolean started = false;
         final int[] attempts = {0}; // Use array to make it effectively final
         int maxAttempts = networkConfig.getFfmpegRetryAttempts();
-        
+
         while (!started && attempts[0] < maxAttempts) {
             attempts[0]++;
             try {
@@ -103,52 +106,61 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                     try (BufferedReader reader = new BufferedReader(new InputStreamReader(ffmpeg.getInputStream()))) {
                         String line;
                         boolean connectionSuccessful = false;
-                        
+
                         while ((line = reader.readLine()) != null && !shouldStopLogging) {
                             // Break immediately if we should stop logging
                             if (shouldStopLogging) {
                                 break;
                             }
-                            
+
                             logger.info("FFmpeg: {}", line);
-                            
+
                             // Check for successful connection indicators
                             if (line.contains("Opening") && line.contains("for writing")) {
                                 connectionSuccessful = true;
                                 isConnected = true;
                                 logger.info("FFmpeg successfully connected to Icecast");
                             }
-                            
+
                             // Check for 403 Forbidden error
                             if (line.contains("403") && line.contains("Forbidden")) {
                                 logger.warn("FFmpeg received 403 Forbidden from Icecast (attempt {})", attempts[0]);
                                 break;
                             }
-                            
+
                             // Check for connection errors
-                            if (line.contains("Error number -10053") || 
-                                line.contains("Connection aborted") ||
-                                line.contains("WSAECONNABORTED")) {
+                            if (line.contains("Error number -10053") ||
+                                    line.contains("Connection aborted") ||
+                                    line.contains("WSAECONNABORTED")) {
                                 logger.warn("FFmpeg connection aborted (attempt {}): {}", attempts[0], line);
                                 isConnected = false;
                                 break;
                             }
-                            
+
                             // Check for other network errors
-                            if (line.contains("Connection refused") || 
-                                line.contains("Network is unreachable") ||
-                                line.contains("Connection timed out")) {
+                            if (line.contains("Connection refused") ||
+                                    line.contains("Network is unreachable") ||
+                                    line.contains("Connection timed out")) {
                                 logger.warn("FFmpeg network error (attempt {}): {}", attempts[0], line);
                                 break;
                             }
+
+                            // ADDED: Check for URL/protocol errors (the main issue we're fixing)
+                            if (line.contains("Invalid argument") ||
+                                    line.contains("Port missing in uri") ||
+                                    line.contains("Protocol not found")) {
+                                logger.error("FFmpeg URL/protocol error (attempt {}): {}", attempts[0], line);
+                                logger.error("Check Icecast URL format: {}", icecastUrl);
+                                break;
+                            }
                         }
-                        
+
                         if (!connectionSuccessful && !shouldStopLogging) {
                             logger.warn("FFmpeg connection may have failed");
                         }
-                        
+
                         logger.debug("FFmpeg logging thread terminated");
-                        
+
                     } catch (IOException e) {
                         if (!shouldStopLogging) {
                             logger.warn("Error reading FFmpeg output: {}", e.getMessage());
@@ -161,18 +173,18 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
 
                 // Give FFmpeg a moment to establish connection
                 Thread.sleep(1000);
-                
+
                 // Check if process is still alive (not immediately failed)
                 if (ffmpeg.isAlive()) {
                     started = true;
                     logger.info("FFmpeg process started successfully for session: {} (attempt {})", session.getId(), attempts[0]);
-                    
+
                     // Notify service that broadcast started
                     icecastService.notifyBroadcastStarted(session.getId());
-                    
+
                     // Publish event to trigger status update
                     eventPublisher.publishEvent(new StreamStatusChangeEvent(this, true));
-                    
+
                 } else {
                     logger.warn("FFmpeg process failed immediately (attempt {})", attempts[0]);
                     if (attempts[0] < maxAttempts) {
@@ -198,7 +210,7 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                 break;
             }
         }
-        
+
         if (!started) {
             logger.error("Failed to start FFmpeg after {} attempts", maxAttempts);
             session.close(new CloseStatus(1011, "Failed to start streaming process after multiple attempts"));

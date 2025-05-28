@@ -1,6 +1,10 @@
 // Error handler service for the application
 // This service handles specific errors that might occur due to browser extensions or security software
 
+import { createLogger } from './logger';
+
+const logger = createLogger('ErrorHandler');
+
 // Function to check if an error is related to Kaspersky or other security software being blocked
 export const isSecuritySoftwareBlockedError = (error) => {
   // Check if the error is related to Kaspersky being blocked
@@ -19,7 +23,7 @@ export const isSecuritySoftwareBlockedError = (error) => {
 export const handleSecuritySoftwareErrors = (error) => {
   if (isSecuritySoftwareBlockedError(error)) {
     // Log the error but don't propagate it to the user
-    console.log('Security software request blocked. This is normal and can be ignored.');
+    logger.info('Security software request blocked. This is normal and can be ignored.');
     // Return a resolved promise to prevent the error from propagating
     return Promise.resolve({ data: null });
   }

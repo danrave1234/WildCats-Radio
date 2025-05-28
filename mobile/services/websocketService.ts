@@ -3,9 +3,9 @@ import SockJS from 'sockjs-client';
 import { Stomp, StompSubscription } from '@stomp/stompjs';
 
 interface WebSocketMessage {
-  type: 'chat' | 'poll' | 'broadcast_update';
+  type: 'chat' | 'poll' | 'broadcast_update' | 'notification';
   data: any;
-  broadcastId: number;
+  broadcastId?: number;
 }
 
 interface WebSocketService {
@@ -16,12 +16,14 @@ interface WebSocketService {
   onConnect: (callback: () => void) => void;
   onDisconnect: (callback: () => void) => void;
   onError: (callback: (error: Event) => void) => void;
+  isConnected: () => boolean;
 }
 
 class WebSocketManager implements WebSocketService {
   private stompClient: any = null;
   private chatSubscription: StompSubscription | null = null;
   private pollSubscription: StompSubscription | null = null;
+  private notificationSubscription: StompSubscription | null = null;
   private messageHandlers: ((message: WebSocketMessage) => void)[] = [];
   private connectHandlers: (() => void)[] = [];
   private disconnectHandlers: (() => void)[] = [];
@@ -53,23 +55,18 @@ class WebSocketManager implements WebSocketService {
     this.currentAuthToken = authToken;
     
     console.log('🔄 Attempting STOMP connection to broadcast:', broadcastId);
-    console.log('🔗 WebSocket URL: https://wildcat-radio-f05d362144e6.autoidleapp.com/ws-radio');
-    console.log('🔑 Auth token present:', !!authToken);
     
     try {
-      // Use SockJS + STOMP like the web implementation
-      // Smart URL detection for different environments
-      const getWebSocketUrl = () => {
-        // For development, try different URLs based on platform
-        if (__DEV__) {
-          // Try the same IP as your API service first
-          return 'https://wildcat-radio-f05d362144e6.autoidleapp.com/ws-radio';
-        }
-        return 'https://wildcat-radio-f05d362144e6.autoidleapp.com/ws-radio';
-      };
+      // Use the same base as your API service for consistency
+      //const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.autoidleapp.com'; // Match your apiService.ts Deployed URL
+      const API_BASE_URL = 'http://192.168.5.60:8080'; // Match your apiService.ts Expo
+      //const API_BASE_URL = 'http://10.0.2.2:8080'; // For Android emulator (localhost)
+      const wsUrl = `${API_BASE_URL}/ws-radio`;
       
-      const wsUrl = getWebSocketUrl();
-      console.log('🌐 Connecting to WebSocket:', wsUrl);
+      console.log('🔗 WebSocket URL:', wsUrl);
+    console.log('🔑 Auth token present:', !!authToken);
+    
+      // Use SockJS + STOMP like the web implementation
       const socket = new SockJS(wsUrl);
       this.stompClient = Stomp.over(socket);
       
@@ -97,40 +94,63 @@ class WebSocketManager implements WebSocketService {
         
         this.connectHandlers.forEach(handler => handler());
         
-        // Subscribe to chat messages for this broadcast
-        console.log('📡 Subscribing to chat topic:', `/topic/broadcast/${broadcastId}/chat`);
-        this.chatSubscription = this.stompClient.subscribe(
-          `/topic/broadcast/${broadcastId}/chat`, 
-          (message: any) => {
-            try {
-              console.log('📨 Received chat message:', message.body);
-              const chatMessage = JSON.parse(message.body);
-              this.messageHandlers.forEach(handler => handler({
-                type: 'chat',
-                data: chatMessage,
-                broadcastId: broadcastId
-              }));
-            } catch (error) {
-              console.error('❌ Error parsing chat message:', error);
+        // Only subscribe to broadcast-specific topics if broadcastId is valid (not -1)
+        if (broadcastId > 0) {
+          // Subscribe to chat messages for this broadcast
+          console.log('📡 Subscribing to chat topic:', `/topic/broadcast/${broadcastId}/chat`);
+          this.chatSubscription = this.stompClient.subscribe(
+            `/topic/broadcast/${broadcastId}/chat`, 
+            (message: any) => {
+              try {
+                console.log('📨 Received chat message:', message.body);
+                const chatMessage = JSON.parse(message.body);
+                this.messageHandlers.forEach(handler => handler({
+                  type: 'chat',
+                  data: chatMessage,
+                  broadcastId: broadcastId
+                }));
+              } catch (error) {
+                console.error('❌ Error parsing chat message:', error);
+              }
             }
-          }
-        );
+          );
+          
+          // Subscribe to poll updates for this broadcast
+          console.log('📊 Subscribing to poll topic:', `/topic/broadcast/${broadcastId}/polls`);
+          this.pollSubscription = this.stompClient.subscribe(
+            `/topic/broadcast/${broadcastId}/polls`, 
+            (message: any) => {
+              try {
+                console.log('📊 Received poll update:', message.body);
+                const pollData = JSON.parse(message.body);
+                this.messageHandlers.forEach(handler => handler({
+                  type: 'poll',
+                  data: pollData,
+                  broadcastId: broadcastId
+                }));
+              } catch (error) {
+                console.error('❌ Error parsing poll message:', error);
+              }
+            }
+          );
+        } else {
+          console.log('🔕 Skipping broadcast-specific subscriptions (notification-only connection)');
+        }
         
-        // Subscribe to poll updates for this broadcast
-        console.log('📊 Subscribing to poll topic:', `/topic/broadcast/${broadcastId}/polls`);
-        this.pollSubscription = this.stompClient.subscribe(
-          `/topic/broadcast/${broadcastId}/polls`, 
+        // Subscribe to user-specific notifications
+        console.log('📢 Subscribing to notification topic:', `/user/queue/notifications`);
+        this.notificationSubscription = this.stompClient.subscribe(
+          `/user/queue/notifications`, 
           (message: any) => {
             try {
-              console.log('📊 Received poll update:', message.body);
-              const pollData = JSON.parse(message.body);
+              console.log('📢 Received notification:', message.body);
+              const notificationData = JSON.parse(message.body);
               this.messageHandlers.forEach(handler => handler({
-                type: 'poll',
-                data: pollData,
-                broadcastId: broadcastId
+                type: 'notification',
+                data: notificationData
               }));
             } catch (error) {
-              console.error('❌ Error parsing poll message:', error);
+              console.error('❌ Error parsing notification message:', error);
             }
           }
         );
@@ -142,9 +162,8 @@ class WebSocketManager implements WebSocketService {
         this.disconnectHandlers.forEach(handler => handler()); // Call disconnect handlers on connection failure
         this.attemptReconnect();
       });
-      
     } catch (error) {
-      console.error('💥 Failed to create STOMP connection:', error);
+      console.error('❌ Error setting up WebSocket connection:', error);
       this.errorHandlers.forEach(handler => handler(error as Event));
       this.disconnectHandlers.forEach(handler => handler());
     }
@@ -211,6 +230,10 @@ class WebSocketManager implements WebSocketService {
     if (this.pollSubscription) {
       this.pollSubscription.unsubscribe();
       this.pollSubscription = null;
+    }
+    if (this.notificationSubscription) {
+      this.notificationSubscription.unsubscribe();
+      this.notificationSubscription = null;
     }
     
     // Disconnect STOMP client
@@ -288,6 +311,11 @@ class WebSocketManager implements WebSocketService {
     if (!this.errorHandlers.includes(callback)) {
       this.errorHandlers.push(callback);
     }
+  }
+
+  // Check if WebSocket is connected
+  isConnected(): boolean {
+    return !!(this.stompClient && this.stompClient.connected);
   }
 
   // Clean up handlers

@@ -8,9 +8,20 @@ import {
 } from '../services/api';
 import SockJS from 'sockjs-client';
 import { Stomp } from '@stomp/stompjs';
+import { config } from '../config';
+import { useAuth } from './AuthContext';
 
 const AnalyticsContext = createContext();
-const API_BASE_URL = 'http://localhost:8080';
+
+// Get the proper WebSocket URL from config
+const getWsUrl = () => {
+  const wsBaseUrl = config.wsBaseUrl;
+  const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
+  const isSecure = window.location.protocol === 'https:';
+  // SockJS requires http/https protocol, not ws/wss
+  const protocol = isSecure ? 'https:' : 'http:';
+  return `${protocol}//${cleanHost}/ws-radio`;
+};
 
 export function useAnalytics() {
   const context = useContext(AnalyticsContext);
@@ -21,7 +32,7 @@ export function useAnalytics() {
 }
 
 export function AnalyticsProvider({ children }) {
-  // Dashboard data states
+  const { isAuthenticated } = useAuth();
   const [userStats, setUserStats] = useState({
     totalUsers: 0,
     listeners: 0,
@@ -88,7 +99,7 @@ export function AnalyticsProvider({ children }) {
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
       // Create WebSocket connection with factory function for proper auto-reconnect support
-      const stompClient = Stomp.over(() => new SockJS(`${API_BASE_URL}/ws-radio`));
+      const stompClient = Stomp.over(() => new SockJS(getWsUrl()));
 
       // Enable auto-reconnect with 5 second delay
       stompClient.reconnect_delay = 5000;
@@ -527,13 +538,15 @@ export function AnalyticsProvider({ children }) {
 
   // Connect to WebSocket and fetch initial data on mount
   useEffect(() => {
-    fetchInitialData();
-    connectWebSocket();
+    if (isAuthenticated) {
+      fetchInitialData();
+      connectWebSocket();
+    }
 
     return () => {
       disconnectWebSocket();
     };
-  }, []);
+  }, [isAuthenticated]);
 
   // Function to manually refresh data
   const refreshData = async () => {

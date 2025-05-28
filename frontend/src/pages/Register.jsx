@@ -161,13 +161,6 @@ export default function Register() {
                   onChange={handleChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#91403E] focus:border-[#91403E]"
                   placeholder="Create a password"
-                  style={{
-                    // Hide browser's built-in password reveal button
-                    "&::-ms-reveal, &::-ms-clear": {
-                      display: "none"
-                    },
-                    "-webkit-text-security": showPassword ? "none" : "disc"
-                  }}
                 />
                 <button 
                   type="button" 
@@ -198,13 +191,6 @@ export default function Register() {
                   onChange={handleChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#91403E] focus:border-[#91403E]"
                   placeholder="Confirm your password"
-                  style={{
-                    // Hide browser's built-in password reveal button
-                    "&::-ms-reveal, &::-ms-clear": {
-                      display: "none"
-                    },
-                    "-webkit-text-security": showConfirmPassword ? "none" : "disc"
-                  }}
                 />
                 <button 
                   type="button" 

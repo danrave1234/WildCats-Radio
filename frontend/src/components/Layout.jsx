@@ -7,11 +7,11 @@ const Layout = ({ children }) => {
   
   return (
     <div className="min-h-screen flex bg-wildcats-background dark:bg-gray-900">
-      {/* Sidebar - Full height priority */}
+      {/* Sidebar - Fixed positioning to stay sticky during scroll */}
       {isAuthenticated && <Sidebar userRole={currentUser?.role} />}
       
       {/* Main Content Area - Contains both main content and footer */}
-      <div className={`flex-1 flex flex-col transition-all duration-300 ${isAuthenticated ? 'ml-0' : ''}`}>
+      <div className={`flex flex-col transition-all duration-300 ${isAuthenticated ? 'md:ml-64' : ''}`}>
         <main className={`flex-1 p-4 md:p-6 lg:p-8 ${isAuthenticated ? 'pt-16 md:pt-4' : 'pt-4'}`}>
           <div className="max-w-7xl mx-auto">
             {children || <Outlet />}
