@@ -57,6 +57,25 @@ export function StreamingProvider({ children }) {
   const listenerReconnectTimerRef = useRef(null);
   const statusReconnectTimerRef = useRef(null);
 
+  // Add new audio source state
+  const [audioSource, setAudioSource] = useState('microphone'); // 'microphone', 'desktop', 'both'
+  const desktopStreamRef = useRef(null);
+
+  // Add DJ audio controls
+  const [isDJMuted, setIsDJMuted] = useState(false);
+  const [djAudioGain, setDJAudioGain] = useState(1.0); // 0.0 to 1.0
+  const audioContextRef = useRef(null);
+  const gainNodeRef = useRef(null);
+
+  // Add noise gate and audio monitoring
+  const [noiseGateEnabled, setNoiseGateEnabled] = useState(true);
+  const [noiseGateThreshold, setNoiseGateThreshold] = useState(-50); // dB - more lenient default
+  const [audioLevel, setAudioLevel] = useState(0);
+  const analyserRef = useRef(null);
+  const noiseGateRef = useRef(null);
+  const audioLevelIntervalRef = useRef(null);
+  const lastAudioAboveThresholdRef = useRef(0); // Track when audio was last above threshold
+
   // Load persisted state on startup
   useEffect(() => {
     loadPersistedState();
@@ -174,7 +193,333 @@ export function StreamingProvider({ children }) {
     localStorage.setItem('wildcats_muted', isMuted.toString());
   };
 
-  // Restore MediaRecorder for DJ after page refresh or reconnection
+  // New function to get desktop audio
+  const getDesktopAudioStream = async () => {
+    try {
+      // Check if getDisplayMedia is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        throw new Error('Screen sharing is not supported in this browser. Please use a modern browser like Chrome, Firefox, or Edge.');
+      }
+
+      // Check if we're in a secure context (HTTPS or localhost)
+      if (!window.isSecureContext && window.location.protocol !== 'http:') {
+        throw new Error('Desktop audio capture requires a secure connection (HTTPS). Please use HTTPS or localhost.');
+      }
+
+      console.log('Attempting to get desktop audio stream...');
+
+      // Some browsers require video to be true even for audio-only capture
+      // We'll request both but then extract only the audio track
+      const desktopStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          mediaSource: 'screen',
+          width: { max: 1 },
+          height: { max: 1 }
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: 2
+        }
+      });
+
+      // Check if we got audio tracks
+      const audioTracks = desktopStream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        // Stop any video tracks we don't need
+        desktopStream.getVideoTracks().forEach(track => track.stop());
+        throw new Error('No audio track found in the selected source. Please select a source that includes audio (like a browser tab with music) or choose "System Audio" in the sharing dialog.');
+      }
+
+      // Create a new stream with only the audio track
+      const audioOnlyStream = new MediaStream();
+      audioTracks.forEach(track => audioOnlyStream.addTrack(track));
+
+      // Stop any video tracks since we only need audio
+      desktopStream.getVideoTracks().forEach(track => track.stop());
+
+      console.log('Desktop audio stream obtained successfully with', audioTracks.length, 'audio track(s)');
+      return audioOnlyStream;
+    } catch (error) {
+      console.error('Error getting desktop audio stream:', error);
+      
+      // Provide user-friendly error messages
+      if (error.name === 'NotSupportedError') {
+        throw new Error('Desktop audio capture is not supported in this browser. Please try using Chrome, Edge, or Firefox, or switch to microphone-only mode.');
+      } else if (error.name === 'NotAllowedError') {
+        throw new Error('Permission denied for desktop audio capture. Please allow screen sharing and make sure to select a source with audio.');
+      } else if (error.name === 'NotFoundError') {
+        throw new Error('No audio source found. Please select a source that includes audio (like a browser tab with music playing).');
+      } else if (error.name === 'AbortError') {
+        throw new Error('Desktop audio capture was cancelled. Please try again and select a source with audio.');
+      } else {
+        throw new Error(error.message || 'Failed to capture desktop audio. Please try using microphone mode instead.');
+      }
+    }
+  };
+
+  // New function to get microphone audio
+  const getMicrophoneAudioStream = async () => {
+    try {
+      const micStream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: false, // We'll handle noise with our own gate
+          autoGainControl: false, // We'll handle gain control
+          sampleRate: 44100, // Standard audio rate for better compatibility
+          channelCount: 2
+        }
+      });
+      
+      console.log('Microphone audio stream obtained successfully');
+
+      // Apply audio processing pipeline with noise gate
+      const audioContext = new AudioContext({
+        sampleRate: 44100 // Force consistent sample rate for streaming
+      });
+      audioContextRef.current = audioContext;
+      
+      const processedStream = createAudioProcessingPipeline(micStream, audioContext);
+      
+      // Stop the original stream tracks since we're using the processed stream
+      micStream.getTracks().forEach(track => track.stop());
+      
+      return processedStream;
+    } catch (error) {
+      console.error('Error getting microphone audio stream:', error);
+      throw error;
+    }
+  };
+
+  // New function to mix audio streams
+  const mixAudioStreams = async (micStream, desktopStream) => {
+    try {
+      const audioContext = new AudioContext();
+      const destination = audioContext.createMediaStreamDestination();
+      
+      // Store audio context reference for later use
+      audioContextRef.current = audioContext;
+      
+      // Create audio sources
+      const micSource = audioContext.createMediaStreamSource(micStream);
+      const desktopSource = audioContext.createMediaStreamSource(desktopStream);
+      
+      // Create gain nodes for volume control
+      const micGain = audioContext.createGain();
+      const desktopGain = audioContext.createGain();
+      const masterGain = audioContext.createGain();
+      
+      // Store master gain reference for DJ controls
+      gainNodeRef.current = masterGain;
+      
+      // Set initial gain levels (can be adjusted)
+      micGain.gain.value = 1.0; // 100% microphone volume
+      desktopGain.gain.value = 0.8; // 80% desktop volume to prevent overwhelming
+      masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
+      
+      // Connect the audio graph
+      micSource.connect(micGain);
+      desktopSource.connect(desktopGain);
+      micGain.connect(masterGain);
+      desktopGain.connect(masterGain);
+      masterGain.connect(destination);
+      
+      console.log('Audio streams mixed successfully');
+      return destination.stream;
+    } catch (error) {
+      console.error('Error mixing audio streams:', error);
+      throw error;
+    }
+  };
+
+  // DJ Audio Control Functions
+  const toggleDJMute = () => {
+    const newMutedState = !isDJMuted;
+    setIsDJMuted(newMutedState);
+    
+    // Apply mute to gain node if available
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.value = newMutedState ? 0.0 : djAudioGain;
+    }
+    
+    console.log('DJ mute toggled:', newMutedState);
+  };
+
+  const setDJAudioLevel = (level) => {
+    // Clamp level between 0 and 1
+    const clampedLevel = Math.max(0, Math.min(1, level));
+    setDJAudioGain(clampedLevel);
+    
+    // Apply gain to gain node if available and not muted
+    if (gainNodeRef.current && !isDJMuted) {
+      gainNodeRef.current.gain.value = clampedLevel;
+    }
+    
+    console.log('DJ audio level set to:', clampedLevel);
+  };
+
+  // Seamless function to switch audio source during broadcast without disconnecting
+  const switchAudioSourceLive = async (newSource) => {
+    if (!isLive || !mediaRecorderRef.current) {
+      console.log('Cannot switch audio source: not live or no media recorder');
+      setAudioSource(newSource);
+      return;
+    }
+
+    try {
+      console.log('Switching audio source seamlessly from', audioSource, 'to', newSource);
+      
+      // Don't stop MediaRecorder or WebSocket - we'll switch streams seamlessly
+      
+      // 1. Get new audio stream
+      const newStream = await getAudioStream(newSource);
+      
+      // 2. Stop current audio level monitoring
+      stopAudioLevelMonitoring();
+      
+      // 3. Stop current audio streams (but not MediaRecorder)
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (desktopStreamRef.current) {
+        desktopStreamRef.current.getTracks().forEach(track => track.stop());
+        desktopStreamRef.current = null;
+      }
+      
+      // 4. Create new MediaRecorder with new stream, but keep it connected to same WebSocket
+      const currentMediaRecorder = mediaRecorderRef.current;
+      
+      // Stop current recorder gracefully
+      if (currentMediaRecorder.state === 'recording') {
+        currentMediaRecorder.stop();
+      }
+      
+      // Wait a brief moment for the stop to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // 5. Create new MediaRecorder with new stream
+      const newMediaRecorder = new MediaRecorder(newStream, {
+        mimeType: "audio/webm;codecs=opus",
+        audioBitsPerSecond: 96000 // Lower bitrate for better compatibility
+      });
+      
+      // 6. Set up data handling with existing WebSocket (no reconnection needed)
+      newMediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+          event.data.arrayBuffer().then(buffer => {
+            djWebSocketRef.current.send(buffer);
+          });
+        }
+      };
+      
+      // 7. Start new recorder immediately
+      newMediaRecorder.start(250);
+      
+      // 8. Update references
+      mediaRecorderRef.current = newMediaRecorder;
+      audioStreamRef.current = newStream;
+      
+      // 9. Update audio source state
+      setAudioSource(newSource);
+      
+      console.log('Audio source switched seamlessly to:', newSource, '- WebSocket remained connected');
+      
+    } catch (error) {
+      console.error('Error during seamless audio source switch:', error);
+      
+      // If seamless switch fails, try to restore previous state
+      console.log('Attempting to restore previous audio source...');
+      try {
+        const fallbackStream = await getAudioStream(audioSource);
+        
+        const fallbackRecorder = new MediaRecorder(fallbackStream, {
+          mimeType: "audio/webm;codecs=opus",
+          audioBitsPerSecond: 96000 // Lower bitrate for better compatibility
+        });
+        
+        fallbackRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+            event.data.arrayBuffer().then(buffer => {
+              djWebSocketRef.current.send(buffer);
+            });
+          }
+        };
+        
+        fallbackRecorder.start(250);
+        mediaRecorderRef.current = fallbackRecorder;
+        audioStreamRef.current = fallbackStream;
+        
+        console.log('Restored to previous audio source');
+      } catch (restoreError) {
+        console.error('Failed to restore audio source:', restoreError);
+        throw new Error(`Audio switch failed and could not restore: ${error.message}`);
+      }
+      
+      throw error;
+    }
+  };
+
+  // Enhanced function to get audio stream based on selected source
+  const getAudioStream = async (source = audioSource) => {
+    try {
+      console.log('Getting audio stream for source:', source);
+      
+      switch (source) {
+        case 'microphone':
+          return await getMicrophoneAudioStream();
+          
+        case 'desktop':
+          try {
+            const desktopStream = await getDesktopAudioStream();
+            desktopStreamRef.current = desktopStream;
+            return desktopStream;
+          } catch (error) {
+            console.warn('Desktop audio capture failed, falling back to microphone:', error.message);
+            // Show user-friendly message about the fallback
+            const fallbackMessage = `Desktop audio capture failed: ${error.message}\n\nFalling back to microphone only. You can change the audio source in the settings above.`;
+            console.log('Fallback message:', fallbackMessage);
+            
+            // Set audio source back to microphone
+            setAudioSource('microphone');
+            
+            // Throw the original error with fallback info
+            throw new Error(fallbackMessage);
+          }
+          
+        case 'both':
+          try {
+            const micStream = await getMicrophoneAudioStream();
+            const deskStream = await getDesktopAudioStream();
+            desktopStreamRef.current = deskStream;
+            return await mixAudioStreams(micStream, deskStream);
+          } catch (error) {
+            console.warn('Mixed audio capture failed, falling back to microphone:', error.message);
+            
+            // If desktop part failed, fall back to microphone only
+            if (error.message.includes('Desktop audio') || error.message.includes('Screen sharing') || error.message.includes('NotSupported')) {
+              console.log('Desktop audio part failed, trying microphone only');
+              setAudioSource('microphone');
+              
+              const fallbackMessage = `Mixed audio setup failed: ${error.message}\n\nFalling back to microphone only. You can try again with desktop audio once you've resolved the issue.`;
+              throw new Error(fallbackMessage);
+            }
+            
+            throw error;
+          }
+          
+        default:
+          console.warn('Unknown audio source:', source, 'defaulting to microphone');
+          return await getMicrophoneAudioStream();
+      }
+    } catch (error) {
+      console.error('Error getting audio stream:', error);
+      throw error;
+    }
+  };
+
+  // Enhanced restore DJ streaming function
   const restoreDJStreaming = async () => {
     if (!isLive || !currentBroadcast) {
       console.log('Cannot restore DJ streaming: not live or no current broadcast');
@@ -184,21 +529,15 @@ export function StreamingProvider({ children }) {
     try {
       console.log('Attempting to restore DJ streaming...');
 
-      // Get microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
+      // Get audio stream based on selected source
+      const stream = await getAudioStream();
 
       audioStreamRef.current = stream;
 
-      // Create new MediaRecorder
+      // Create MediaRecorder
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: "audio/webm;codecs=opus",
-        audioBitsPerSecond: 128000
+        audioBitsPerSecond: 96000 // Lower bitrate for better compatibility
       });
 
       mediaRecorderRef.current = mediaRecorder;
@@ -797,21 +1136,15 @@ export function StreamingProvider({ children }) {
       // Start the broadcast
       await broadcastService.start(createdBroadcast.id);
 
-      // Get microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
+      // Get audio stream based on selected source
+      const stream = await getAudioStream();
 
       audioStreamRef.current = stream;
 
       // Create MediaRecorder
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: "audio/webm;codecs=opus",
-        audioBitsPerSecond: 128000
+        audioBitsPerSecond: 96000 // Lower bitrate for better compatibility
       });
 
       mediaRecorderRef.current = mediaRecorder;
@@ -853,6 +1186,9 @@ export function StreamingProvider({ children }) {
     try {
       console.log('Stopping broadcast');
 
+      // Stop audio level monitoring
+      stopAudioLevelMonitoring();
+
       // End broadcast on server
       if (currentBroadcast) {
         await broadcastService.end(currentBroadcast.id);
@@ -869,11 +1205,28 @@ export function StreamingProvider({ children }) {
         djWebSocketRef.current = null;
       }
 
+      // Close audio context
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        await audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+
       // Stop audio stream
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach(track => track.stop());
         audioStreamRef.current = null;
       }
+
+      // Stop desktop stream if it exists
+      if (desktopStreamRef.current) {
+        desktopStreamRef.current.getTracks().forEach(track => track.stop());
+        desktopStreamRef.current = null;
+      }
+
+      // Clear audio processing references
+      analyserRef.current = null;
+      noiseGateRef.current = null;
+      gainNodeRef.current = null;
 
       // Clear reconnection timer
       if (djReconnectTimerRef.current) {
@@ -886,6 +1239,7 @@ export function StreamingProvider({ children }) {
       setWebsocketConnected(false);
       setCurrentBroadcast(null);
       setListenerCount(0);
+      setAudioLevel(0);
 
       // Clear persisted state
       localStorage.removeItem(STORAGE_KEYS.DJ_BROADCASTING_STATE);
@@ -1100,6 +1454,17 @@ export function StreamingProvider({ children }) {
       }
     }
 
+    // Stop desktop stream if it exists
+    if (desktopStreamRef.current) {
+      try {
+        console.log('Stopping desktop stream');
+        desktopStreamRef.current.getTracks().forEach(track => track.stop());
+        desktopStreamRef.current = null;
+      } catch (error) {
+        console.error('Error stopping desktop stream:', error);
+      }
+    }
+
     // Reset state
     setWebsocketConnected(false);
     setIsListening(false);
@@ -1183,6 +1548,106 @@ export function StreamingProvider({ children }) {
     };
   }, [isAuthenticated, currentUser, isLive, websocketConnected]);
 
+  // Function to create noise gate and audio processing pipeline
+  const createAudioProcessingPipeline = (inputStream, audioContext) => {
+    try {
+      // Create audio processing nodes
+      const source = audioContext.createMediaStreamSource(inputStream);
+      const analyser = audioContext.createAnalyser();
+      const gainNode = audioContext.createGain();
+      const noiseGate = audioContext.createGain();
+      const destination = audioContext.createMediaStreamDestination();
+
+      // Configure analyser for audio level monitoring
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+
+      // Store references
+      analyserRef.current = analyser;
+      noiseGateRef.current = noiseGate;
+      gainNodeRef.current = gainNode;
+
+      // Set initial values
+      gainNode.gain.value = isDJMuted ? 0.0 : djAudioGain;
+      noiseGate.gain.value = 1.0; // Will be controlled by noise gate logic
+
+      // Connect audio pipeline
+      source.connect(analyser);
+      analyser.connect(noiseGate);
+      noiseGate.connect(gainNode);
+      gainNode.connect(destination);
+
+      // Start audio level monitoring and noise gate
+      startAudioLevelMonitoring();
+
+      console.log('Audio processing pipeline created with noise gate');
+      return destination.stream;
+    } catch (error) {
+      console.error('Error creating audio processing pipeline:', error);
+      throw error;
+    }
+  };
+
+  // Audio level monitoring and noise gate logic
+  const startAudioLevelMonitoring = () => {
+    if (!analyserRef.current || audioLevelIntervalRef.current) return;
+
+    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+    const HOLD_TIME_MS = 500; // Hold gate open for 500ms after sound drops below threshold
+
+    audioLevelIntervalRef.current = setInterval(() => {
+      if (!analyserRef.current) return;
+
+      analyserRef.current.getByteFrequencyData(dataArray);
+
+      // Calculate RMS (Root Mean Square) for audio level
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i] * dataArray[i];
+      }
+      const rms = Math.sqrt(sum / dataArray.length);
+      
+      // Convert to dB scale (0-255 -> -∞ to 0 dB)
+      const dB = rms > 0 ? 20 * Math.log10(rms / 255) : -100;
+      setAudioLevel(Math.max(-60, dB)); // Clamp to reasonable range
+
+      // Apply noise gate with hold time
+      if (noiseGateEnabled && noiseGateRef.current) {
+        const now = Date.now();
+        
+        // If audio is above threshold, update the timestamp
+        if (dB >= noiseGateThreshold) {
+          lastAudioAboveThresholdRef.current = now;
+        }
+        
+        // Check if we're within the hold time
+        const isWithinHoldTime = (now - lastAudioAboveThresholdRef.current) < HOLD_TIME_MS;
+        
+        if (dB >= noiseGateThreshold || isWithinHoldTime) {
+          // Above threshold or within hold time - keep audio on
+          noiseGateRef.current.gain.exponentialRampToValueAtTime(
+            1.0,
+            audioContextRef.current.currentTime + 0.01
+          );
+        } else {
+          // Below threshold and past hold time - gradually reduce to silence
+          noiseGateRef.current.gain.exponentialRampToValueAtTime(
+            0.001, // Very small value instead of 0 to prevent Math errors
+            audioContextRef.current.currentTime + 0.2 // Slower fade out (200ms)
+          );
+        }
+      }
+    }, 50); // Check every 50ms for responsive noise gate
+  };
+
+  // Stop audio level monitoring
+  const stopAudioLevelMonitoring = () => {
+    if (audioLevelIntervalRef.current) {
+      clearInterval(audioLevelIntervalRef.current);
+      audioLevelIntervalRef.current = null;
+    }
+  };
+
   const value = {
     // State
     isLive,
@@ -1194,6 +1659,12 @@ export function StreamingProvider({ children }) {
     volume,
     isMuted,
     serverConfig,
+    audioSource,
+    isDJMuted,
+    djAudioGain,
+    noiseGateEnabled,
+    noiseGateThreshold,
+    audioLevel,
 
     // DJ Functions
     startBroadcast,
@@ -1209,6 +1680,20 @@ export function StreamingProvider({ children }) {
     toggleMute,
     connectListenerWebSocket,
 
+    // Audio Source Functions
+    setAudioSource,
+    getAudioStream,
+    getDesktopAudioStream,
+    getMicrophoneAudioStream,
+    mixAudioStreams,
+
+    // DJ Audio Control Functions
+    toggleDJMute,
+    setDJAudioLevel,
+    switchAudioSourceLive,
+    setNoiseGateEnabled,
+    setNoiseGateThreshold,
+
     // Shared Functions
     connectStatusWebSocket,
     disconnectAll,
@@ -1221,7 +1706,8 @@ export function StreamingProvider({ children }) {
     statusWebSocketRef,
     audioRef,
     mediaRecorderRef,
-    audioStreamRef
+    audioStreamRef,
+    desktopStreamRef
   };
 
   return (

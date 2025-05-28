@@ -11,6 +11,7 @@ import {
   PlusIcon,
   CheckIcon,
   ClockIcon,
+  ExclamationTriangleIcon,
 } from "@heroicons/react/24/solid"
 import { 
   ChatBubbleLeftRightIcon,
@@ -25,6 +26,8 @@ import { streamService, broadcastService, authService, chatService, songRequestS
 import { useAuth } from "../context/AuthContext"
 import { useStreaming } from "../context/StreamingContext"
 import { formatDistanceToNow } from 'date-fns'
+import AudioSourceSelector from "../components/AudioSourceSelector"
+import DJAudioControls from "../components/DJAudioControls"
 
 // Broadcast workflow states
 const WORKFLOW_STATES = {
@@ -619,7 +622,38 @@ export default function DJDashboard() {
       
     } catch (error) {
       console.error("Error starting broadcast:", error)
-      setStreamError(`Error starting broadcast: ${error.message}`)
+      
+      // Provide user-friendly error messages based on the error type
+      let errorMessage = error.message || "Unknown error occurred";
+      
+      if (errorMessage.includes('Desktop audio capture failed') || errorMessage.includes('NotSupported')) {
+        setStreamError(
+          `Desktop Audio Issue: ${errorMessage}\n\n` +
+          "💡 Suggestions:\n" +
+          "• Switch to 'Microphone Only' mode above\n" +
+          "• Make sure you're using Chrome, Firefox, or Edge\n" +
+          "• Ensure you're on HTTPS (or localhost)\n" +
+          "• When prompted, select a source with audio (like a browser tab playing music)"
+        );
+      } else if (errorMessage.includes('Permission denied') || errorMessage.includes('NotAllowed')) {
+        setStreamError(
+          `Permission Error: ${errorMessage}\n\n` +
+          "💡 Please:\n" +
+          "• Allow microphone/screen sharing access when prompted\n" +
+          "• Check your browser's permission settings\n" +
+          "• Try refreshing the page and allowing permissions"
+        );
+      } else if (errorMessage.includes('Mixed audio setup failed')) {
+        setStreamError(
+          `Mixed Audio Error: ${errorMessage}\n\n` +
+          "💡 Try:\n" +
+          "• Using 'Microphone Only' mode instead\n" +
+          "• Ensuring desktop audio is working in other apps\n" +
+          "• Using a supported browser (Chrome, Firefox, Edge)"
+        );
+      } else {
+        setStreamError(`Error starting broadcast: ${errorMessage}`);
+      }
     }
   }
 
@@ -961,9 +995,15 @@ export default function DJDashboard() {
 
           {/* Error Display */}
           {streamError && (
-          <div className="mb-6 p-4 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md">
-              {streamError}
-                  </div>
+            <div className="mb-6 p-4 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md border border-red-300 dark:border-red-800">
+              <div className="flex items-start space-x-3">
+                <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <h3 className="font-semibold text-red-800 dark:text-red-200 mb-2">Broadcast Error</h3>
+                  <div className="text-sm whitespace-pre-line">{streamError}</div>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Audio Restoration Notice - Show when live but audio not streaming */}
@@ -1076,8 +1116,11 @@ export default function DJDashboard() {
               </div>
             </div>
 
-            {/* Song Requests & Poll Creation */}
+            {/* Song Requests, DJ Controls & Polls */}
             <div className="col-span-12 lg:col-span-4 space-y-6">
+              {/* DJ Audio Controls */}
+              <DJAudioControls />
+
               {/* Song Requests Section */}
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
                 <div className="bg-yellow-600 text-white px-4 py-3">
@@ -1449,6 +1492,9 @@ export default function DJDashboard() {
                   )}
                 </div>
 
+                {/* Audio Source Selection */}
+                <AudioSourceSelector disabled={isCreatingBroadcast} />
+
                 {/* Info about scheduling */}
                 <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4">
                   <div className="flex">
@@ -1505,6 +1551,11 @@ export default function DJDashboard() {
                 </div>
               </div>
 
+              {/* Audio Source Selection */}
+              <div className="mb-6">
+                <AudioSourceSelector />
+              </div>
+
               {/* Go Live Button */}
               <div className="flex justify-center">
                 <button
@@ -1518,7 +1569,7 @@ export default function DJDashboard() {
               </div>
 
               <p className="text-center text-sm text-gray-600 dark:text-gray-400 mt-4">
-                Make sure to allow microphone access when prompted
+                Make sure to allow audio source access when prompted (microphone and/or screen sharing)
               </p>
             </div>
           </div>
