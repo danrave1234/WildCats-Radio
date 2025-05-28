@@ -739,7 +739,7 @@ export function StreamingProvider({ children }) {
       
       // Check if we should use localhost instead of the deployed backend
       // Force useLocalBackend to true to ensure we're using the local backend
-      const useLocalBackend = true; // Override the environment variable
+      const useLocalBackend = false; // Override the environment variable
       
       let wsBaseUrl;
       if (useLocalBackend) {
@@ -887,7 +887,7 @@ export function StreamingProvider({ children }) {
       
       // Check if we should use localhost instead of the deployed backend
       // Force useLocalBackend to true to ensure we're using the local backend
-      const useLocalBackend = true; // Override the environment variable
+      const useLocalBackend = false; // Override the environment variable
       
       let wsBaseUrl;
       if (useLocalBackend) {
@@ -1000,7 +1000,7 @@ export function StreamingProvider({ children }) {
       
       // Check if we should use localhost instead of the deployed backend
       // Force useLocalBackend to true to ensure we're using the local backend
-      const useLocalBackend = true; // Override the environment variable
+      const useLocalBackend = false; // Override the environment variable
       
       let wsBaseUrl;
       if (useLocalBackend) {
@@ -1481,7 +1481,7 @@ export function StreamingProvider({ children }) {
     
     // Check if we should use localhost instead of the deployed backend
     // Force useLocalBackend to true to ensure we're using the local backend
-    const useLocalBackend = true; // Override the environment variable
+    const useLocalBackend = false; // Override the environment variable
     
     let wsBaseUrl;
     if (useLocalBackend) {
