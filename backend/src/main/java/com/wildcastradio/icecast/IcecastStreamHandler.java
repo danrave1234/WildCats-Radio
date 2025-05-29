@@ -78,12 +78,27 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
         cmd.add("-f");
         cmd.add("ogg");
 
-        // CRITICAL FIX: Build Icecast URL with the actual Icecast server hostname
-        String icecastUrl = "icecast://source:hackme@" + icecastHostname + ":" + networkConfig.getIcecastPort() + "/live.ogg";
+        // CRITICAL FIX: Build Icecast URL with the actual Icecast server hostname and port
+        // FFmpeg must connect directly to Icecast server on port 8000, not through reverse proxy
+        String icecastUrl = "icecast://source:hackme@" + icecastHostname + ":8000/live.ogg";
         cmd.add(icecastUrl);
 
         logger.info("Starting FFmpeg with command: {}", String.join(" ", cmd));
         logger.info("Icecast URL: {}", icecastUrl);
+        logger.info("Icecast hostname resolved to: {}", icecastHostname);
+        
+        // Test Icecast server connectivity before starting FFmpeg
+        try {
+            logger.info("Testing connectivity to Icecast server at {}:8000", icecastHostname);
+            java.net.Socket testSocket = new java.net.Socket();
+            testSocket.connect(new java.net.InetSocketAddress(icecastHostname, 8000), 5000);
+            testSocket.close();
+            logger.info("Successfully connected to Icecast server on port 8000");
+        } catch (IOException e) {
+            logger.error("Cannot connect to Icecast server at {}:8000 - {}", icecastHostname, e.getMessage());
+            session.close(new CloseStatus(1011, "Cannot connect to Icecast server: " + e.getMessage()));
+            return;
+        }
 
         // Try to start FFmpeg with retry logic for 403 errors
         boolean started = false;
@@ -125,6 +140,13 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                             // Check for 403 Forbidden error
                             if (line.contains("403") && line.contains("Forbidden")) {
                                 logger.warn("FFmpeg received 403 Forbidden from Icecast (attempt {})", attempts[0]);
+                                logger.warn("This usually means authentication failed or mount point access denied");
+                                break;
+                            }
+                            
+                            // Check for authentication errors
+                            if (line.contains("401") && line.contains("Unauthorized")) {
+                                logger.error("FFmpeg authentication failed - check source credentials");
                                 break;
                             }
 
@@ -142,6 +164,7 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                                     line.contains("Network is unreachable") ||
                                     line.contains("Connection timed out")) {
                                 logger.warn("FFmpeg network error (attempt {}): {}", attempts[0], line);
+                                logger.warn("Check if Icecast server is running and accessible on port 8000");
                                 break;
                             }
 
@@ -151,6 +174,20 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                                     line.contains("Protocol not found")) {
                                 logger.error("FFmpeg URL/protocol error (attempt {}): {}", attempts[0], line);
                                 logger.error("Check Icecast URL format: {}", icecastUrl);
+                                break;
+                            }
+                            
+                            // ADDED: Check for mount point errors
+                            if (line.contains("mount point") && line.contains("not found")) {
+                                logger.error("FFmpeg mount point error: {}", line);
+                                logger.error("Mount point /live.ogg may not exist or be configured on Icecast server");
+                                break;
+                            }
+                            
+                            // ADDED: Check for server not running
+                            if (line.contains("No such host") || line.contains("Name resolution failed")) {
+                                logger.error("FFmpeg hostname resolution failed: {}", line);
+                                logger.error("Cannot resolve hostname: {}", icecastHostname);
                                 break;
                             }
                         }

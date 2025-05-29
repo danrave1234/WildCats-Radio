@@ -22,7 +22,7 @@ export const config = {
     : 'wildcat-radio-f05d362144e6.autoidleapp.com',
   
   // Icecast URL is always the same regardless of local/deployed backend
-  icecastUrl: 'wildcat-radio-f05d362144e6.autoidleapp.com:8000/live.ogg',
+  icecastUrl: 'https://icecast.software/live.ogg',
   
   // Default volume settings
   defaultVolume: 80,

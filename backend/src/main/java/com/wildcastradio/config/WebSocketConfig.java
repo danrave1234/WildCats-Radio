@@ -50,10 +50,28 @@ public class WebSocketConfig implements WebSocketConfigurer {
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         // Audio streaming endpoint for DJs
         registry.addHandler(icecastStreamHandler, "/ws/live")
-                .setAllowedOriginPatterns("*"); // Use patterns instead of origins for CORS compatibility
+                .setAllowedOrigins(
+                    "http://localhost:3000",   // React development server
+                    "http://localhost:5173",   // Vite development server  
+                    "http://127.0.0.1:3000",
+                    "http://127.0.0.1:5173",
+                    "https://wildcat-radio-f05d362144e6.herokuapp.com",
+                    "https://wildcat-radio.vercel.app",
+                    "https://wildcat-radio-f05d362144e6.autoidleapp.com",
+                    "https://wildcat-radio.live"  // New production domain
+                );
         
         // Status updates endpoint for listeners  
         registry.addHandler(listenerStatusHandler, "/ws/listener")
-                .setAllowedOriginPatterns("*");
+                .setAllowedOrigins(
+                    "http://localhost:3000",   // React development server
+                    "http://localhost:5173",   // Vite development server  
+                    "http://127.0.0.1:3000",
+                    "http://127.0.0.1:5173",
+                    "https://wildcat-radio-f05d362144e6.herokuapp.com",
+                    "https://wildcat-radio.vercel.app",
+                    "https://wildcat-radio-f05d362144e6.autoidleapp.com",
+                    "https://wildcat-radio.live"  // New production domain
+                );
     }
 }

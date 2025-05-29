@@ -72,13 +72,17 @@ export function StreamingProvider({ children }) {
   const gainNodeRef = useRef(null);
 
   // Add noise gate and audio monitoring
-  const [noiseGateEnabled, setNoiseGateEnabled] = useState(true);
-  const [noiseGateThreshold, setNoiseGateThreshold] = useState(-50); // dB - more lenient default
+  const [noiseGateEnabled, setNoiseGateEnabled] = useState(false); // DISABLED by default for troubleshooting
+  const [noiseGateThreshold, setNoiseGateThreshold] = useState(-60); // dB - more lenient threshold
   const [audioLevel, setAudioLevel] = useState(0);
   const analyserRef = useRef(null);
   const noiseGateRef = useRef(null);
   const audioLevelIntervalRef = useRef(null);
   const lastAudioAboveThresholdRef = useRef(0); // Track when audio was last above threshold
+
+  // Add microphone boost control state
+  const [microphoneBoost, setMicrophoneBoost] = useState(3.0); // Default 3x boost (~9.5dB)
+  const microphoneBoostRef = useRef(null);
 
   // Load persisted state on startup
   useEffect(() => {
@@ -269,32 +273,209 @@ export function StreamingProvider({ children }) {
   // New function to get microphone audio
   const getMicrophoneAudioStream = async () => {
     try {
+      // Use diagnostic approach to identify and fix silent microphone issues
+      return await getDiagnosticMicrophoneAudioStream();
+    } catch (error) {
+      console.error('❌ Error getting microphone audio stream:', error);
+      logger.error('Error getting microphone audio stream:', error);
+      throw error;
+    }
+  };
+
+  // Diagnostic microphone audio stream with comprehensive testing
+  const getDiagnosticMicrophoneAudioStream = async () => {
+    try {
+      console.log('🔬 Starting diagnostic microphone audio capture...');
+      
+      // Step 1: Test basic microphone access
       const micStream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
-          noiseSuppression: false, // We'll handle noise with our own gate
-          autoGainControl: false, // We'll handle gain control
-          sampleRate: 44100, // Standard audio rate for better compatibility
+          noiseSuppression: false,
+          autoGainControl: false,
+          sampleRate: 48000,
           channelCount: 2
         }
       });
 
-      logger.debug('Microphone audio stream obtained successfully');
+      console.log('✅ Diagnostic microphone stream obtained');
+      
+      // Step 2: Test audio levels directly from raw stream
+      const testContext = new AudioContext({ sampleRate: 48000 });
+      const testSource = testContext.createMediaStreamSource(micStream);
+      const testAnalyser = testContext.createAnalyser();
+      testAnalyser.fftSize = 256;
+      testSource.connect(testAnalyser);
 
-      // Apply audio processing pipeline with noise gate
-      const audioContext = new AudioContext({
-        sampleRate: 44100 // Force consistent sample rate for streaming
+      // Step 3: Monitor raw audio for 2 seconds to ensure it's working
+      const testData = new Uint8Array(testAnalyser.frequencyBinCount);
+      let maxLevel = 0;
+      let testCount = 0;
+
+      console.log('🔬 Testing raw microphone audio levels for 2 seconds...');
+      
+      await new Promise((resolve) => {
+        const testInterval = setInterval(() => {
+          testAnalyser.getByteFrequencyData(testData);
+          let sum = 0;
+          for (let i = 0; i < testData.length; i++) {
+            sum += testData[i] * testData[i];
+          }
+          const rms = Math.sqrt(sum / testData.length);
+          const dB = rms > 0 ? 20 * Math.log10(rms / 255) : -100;
+          
+          if (rms > maxLevel) maxLevel = rms;
+          testCount++;
+
+          if (testCount % 10 === 0) {
+            console.log(`🔬 Raw mic test ${testCount/10}/20: RMS=${rms.toFixed(2)}, dB=${dB.toFixed(1)}, Max=${maxLevel.toFixed(2)}`);
+          }
+
+          if (testCount >= 200) { // 2 seconds of testing
+            clearInterval(testInterval);
+            testContext.close();
+            resolve();
+          }
+        }, 10);
       });
-      audioContextRef.current = audioContext;
 
-      const processedStream = createAudioProcessingPipeline(micStream, audioContext);
+      // Step 4: Evaluate results
+      if (maxLevel < 1) {
+        console.warn('⚠️ Raw microphone levels extremely low, trying fallback capture method');
+        micStream.getTracks().forEach(track => track.stop());
+        return await getFallbackMicrophoneAudioStream();
+      }
 
-      // Stop the original stream tracks since we're using the processed stream
-      micStream.getTracks().forEach(track => track.stop());
+      console.log(`✅ Raw microphone working (max level: ${maxLevel.toFixed(2)}), proceeding with processing`);
 
-      return processedStream;
+      // Step 5: Try direct stream first (no processing) to test Chrome WebRTC issues
+      console.log('🔧 Testing direct stream approach first...');
+      try {
+        // Test: return the raw stream directly without any processing
+        // This will help identify if the issue is in the processing pipeline
+        console.log('⚠️ Using DIRECT STREAM mode (no processing) for testing');
+        
+        // Set up basic references for audio level monitoring
+        const testContext = new AudioContext({ sampleRate: 48000 });
+        const testSource = testContext.createMediaStreamSource(micStream);
+        const testAnalyser = testContext.createAnalyser();
+        testSource.connect(testAnalyser);
+        
+        analyserRef.current = testAnalyser;
+        audioContextRef.current = testContext;
+        
+        // Start basic monitoring
+        startSimplifiedAudioLevelMonitoring();
+        
+        console.log('✅ Direct stream mode active - no audio processing applied');
+        return micStream; // Return raw stream directly
+        
+      } catch (directError) {
+        console.warn('⚠️ Direct stream failed, falling back to processing pipeline:', directError);
+        
+        // Step 5b: Create processing pipeline as fallback
+        const audioContext = new AudioContext({
+          sampleRate: 48000,
+          latencyHint: 'interactive'
+        });
+        audioContextRef.current = audioContext;
+
+        const processedStream = createSimplifiedAudioProcessingPipeline(micStream, audioContext);
+        
+        // DON'T stop original stream immediately - let processed stream establish first
+        setTimeout(() => {
+          console.log('🔧 Stopping original microphone stream after processed stream established');
+          micStream.getTracks().forEach(track => track.stop());
+        }, 1000);
+
+        console.log('✅ Diagnostic microphone pipeline complete');
+        return processedStream;
+      }
+
     } catch (error) {
-      logger.error('Error getting microphone audio stream:', error);
+      console.error('❌ Error in diagnostic microphone capture:', error);
+      throw error;
+    }
+  };
+
+  // Fallback microphone audio stream with minimal processing
+  const getFallbackMicrophoneAudioStream = async () => {
+    try {
+      console.log('🔄 Attempting fallback microphone capture...');
+      
+      // Try different audio constraints
+      const constraints = [
+        // Constraint 1: Minimal settings
+        {
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: true, // Let browser handle gain
+            sampleRate: 44100, // Standard rate
+            channelCount: 1 // Mono for simplicity
+          }
+        },
+        // Constraint 2: Default settings
+        {
+          audio: true
+        },
+        // Constraint 3: High quality settings
+        {
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: false,
+            autoGainControl: false,
+            sampleRate: 48000,
+            channelCount: 2,
+            volume: 1.0
+          }
+        }
+      ];
+
+      for (let i = 0; i < constraints.length; i++) {
+        try {
+          console.log(`🔄 Trying fallback constraint ${i + 1}:`, constraints[i]);
+          
+          const stream = await navigator.mediaDevices.getUserMedia(constraints[i]);
+          
+          // Test this stream briefly
+          const testCtx = new AudioContext();
+          const testSrc = testCtx.createMediaStreamSource(stream);
+          const testAna = testCtx.createAnalyser();
+          testSrc.connect(testAna);
+          
+          // Quick test
+          const testArr = new Uint8Array(testAna.frequencyBinCount);
+          await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms
+          testAna.getByteFrequencyData(testArr);
+          
+          let sum = 0;
+          for (let j = 0; j < testArr.length; j++) {
+            sum += testArr[j];
+          }
+          const avgLevel = sum / testArr.length;
+          
+          testCtx.close();
+          
+          console.log(`🔄 Fallback constraint ${i + 1} average level: ${avgLevel.toFixed(2)}`);
+          
+          if (avgLevel > 0.5 || i === constraints.length - 1) { // Accept if any audio or last attempt
+            console.log(`✅ Fallback constraint ${i + 1} accepted, using direct stream`);
+            
+            // Return the stream directly without complex processing
+            return stream;
+          } else {
+            stream.getTracks().forEach(track => track.stop());
+          }
+          
+        } catch (error) {
+          console.warn(`⚠️ Fallback constraint ${i + 1} failed:`, error.message);
+        }
+      }
+
+      throw new Error('All fallback microphone capture methods failed');
+    } catch (error) {
+      console.error('❌ Error in fallback microphone capture:', error);
       throw error;
     }
   };
@@ -302,7 +483,9 @@ export function StreamingProvider({ children }) {
   // New function to mix audio streams
   const mixAudioStreams = async (micStream, desktopStream) => {
     try {
-      const audioContext = new AudioContext();
+      const audioContext = new AudioContext({
+        latencyHint: 'interactive' // Optimize for low latency
+      });
       const destination = audioContext.createMediaStreamDestination();
 
       // Store audio context reference for later use
@@ -366,6 +549,21 @@ export function StreamingProvider({ children }) {
     logger.debug('DJ audio level set to:', clampedLevel);
   };
 
+  // Microphone Boost Control Function
+  const setMicrophoneBoostLevel = (boostMultiplier) => {
+    // Clamp boost between 0.1 and 10.0 (equivalent to -20dB to +20dB)
+    const clampedBoost = Math.max(0.1, Math.min(10.0, boostMultiplier));
+    setMicrophoneBoost(clampedBoost);
+
+    // Apply boost to microphone gain node if available
+    if (microphoneBoostRef.current) {
+      microphoneBoostRef.current.gain.value = clampedBoost;
+      console.log(`🎤 Microphone boost set to ${clampedBoost.toFixed(1)}x (~${(20 * Math.log10(clampedBoost)).toFixed(1)}dB)`);
+    }
+
+    logger.debug('Microphone boost level set to:', clampedBoost);
+  };
+
   // Seamless function to switch audio source during broadcast without disconnecting
   const switchAudioSourceLive = async (newSource) => {
     if (!isLive || !mediaRecorderRef.current) {
@@ -415,13 +613,18 @@ export function StreamingProvider({ children }) {
       newMediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
           event.data.arrayBuffer().then(buffer => {
-            djWebSocketRef.current.send(buffer);
+            // Double check WebSocket is still available before sending
+            if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+              djWebSocketRef.current.send(buffer);
+            }
+          }).catch(error => {
+            console.error('Error sending audio data:', error);
           });
         }
       };
 
       // 7. Start new recorder immediately
-      newMediaRecorder.start(250);
+      newMediaRecorder.start(500);
 
       // 8. Update references
       mediaRecorderRef.current = newMediaRecorder;
@@ -453,7 +656,7 @@ export function StreamingProvider({ children }) {
           }
         };
 
-        fallbackRecorder.start(250);
+        fallbackRecorder.start(500);
         mediaRecorderRef.current = fallbackRecorder;
         audioStreamRef.current = fallbackStream;
 
@@ -571,15 +774,47 @@ export function StreamingProvider({ children }) {
       }
 
       function setupMediaRecorderConnection() {
+        // Helper function to safely send audio data through WebSocket
+        const safelySendAudioData = (buffer) => {
+          if (djWebSocketRef.current && 
+              djWebSocketRef.current.readyState === WebSocket.OPEN) {
+            try {
+              djWebSocketRef.current.send(buffer);
+              return true;
+            } catch (error) {
+              console.error('Error sending audio data through WebSocket:', error);
+              return false;
+            }
+          }
+          return false;
+        };
+
+        let lastChunkTime = Date.now();
+        let chunkCount = 0;
+
         mediaRecorder.ondataavailable = (event) => {
           if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+            const currentTime = Date.now();
+            const timeSinceLastChunk = currentTime - lastChunkTime;
+            chunkCount++;
+
+            // Log timing info every 10th chunk to track regularity
+            if (chunkCount % 10 === 0) {
+              console.log(`🎵 Audio chunk #${chunkCount}: ${event.data.size} bytes, ${timeSinceLastChunk}ms since last chunk`);
+            }
+
+            lastChunkTime = currentTime;
+
             event.data.arrayBuffer().then(buffer => {
-              djWebSocketRef.current.send(buffer);
+              safelySendAudioData(buffer);
+            }).catch(error => {
+              console.error('Error processing audio data:', error);
             });
           }
         };
 
-        mediaRecorder.start(250);
+        mediaRecorder.start(500);
+        setIsLive(true);
         console.log('DJ streaming restored successfully');
       }
 
@@ -777,12 +1012,29 @@ export function StreamingProvider({ children }) {
           if (mediaRecorderRef.current.state === 'recording') {
             console.log('MediaRecorder is still recording, re-establishing data flow');
 
+            // Helper function to safely send audio data through WebSocket
+            const safelySendAudioData = (buffer) => {
+              if (djWebSocketRef.current && 
+                  djWebSocketRef.current.readyState === WebSocket.OPEN) {
+                try {
+                  djWebSocketRef.current.send(buffer);
+                  console.log('Audio data sent through reconnected WebSocket, size:', buffer.byteLength);
+                  return true;
+                } catch (error) {
+                  console.error('Error sending audio data through reconnected WebSocket:', error);
+                  return false;
+                }
+              }
+              return false;
+            };
+
             // Re-establish the ondataavailable handler for the new WebSocket
             mediaRecorderRef.current.ondataavailable = (event) => {
               if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
                 event.data.arrayBuffer().then(buffer => {
-                  djWebSocketRef.current.send(buffer);
-                  console.log('Audio data sent through reconnected WebSocket, size:', event.data.size);
+                  safelySendAudioData(buffer);
+                }).catch(error => {
+                  console.error('Error processing audio data:', error);
                 });
               }
             };
@@ -792,19 +1044,36 @@ export function StreamingProvider({ children }) {
           } else if (mediaRecorderRef.current.state === 'inactive' && audioStreamRef.current.active) {
             console.log('MediaRecorder was stopped, restarting for reconnected WebSocket');
 
+            // Helper function to safely send audio data through WebSocket
+            const safelySendAudioDataRestart = (buffer) => {
+              if (djWebSocketRef.current && 
+                  djWebSocketRef.current.readyState === WebSocket.OPEN) {
+                try {
+                  djWebSocketRef.current.send(buffer);
+                  console.log('Audio data sent through restarted WebSocket, size:', buffer.byteLength);
+                  return true;
+                } catch (error) {
+                  console.error('Error sending audio data through restarted WebSocket:', error);
+                  return false;
+                }
+              }
+              return false;
+            };
+
             // Set up the data handler first
             mediaRecorderRef.current.ondataavailable = (event) => {
               if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
                 event.data.arrayBuffer().then(buffer => {
-                  djWebSocketRef.current.send(buffer);
-                  console.log('Audio data sent through reconnected WebSocket, size:', event.data.size);
+                  safelySendAudioDataRestart(buffer);
+                }).catch(error => {
+                  console.error('Error processing audio data:', error);
                 });
               }
             };
 
             // Restart the MediaRecorder
             try {
-              mediaRecorderRef.current.start(250);
+              mediaRecorderRef.current.start(500);
               console.log('MediaRecorder restarted successfully');
             } catch (error) {
               console.error('Failed to restart MediaRecorder:', error);
@@ -825,6 +1094,12 @@ export function StreamingProvider({ children }) {
       websocket.onclose = (event) => {
         console.log('DJ WebSocket disconnected:', event.code, event.reason);
         setWebsocketConnected(false);
+
+        // Clear MediaRecorder handler to prevent errors after WebSocket is closed
+        if (mediaRecorderRef.current && mediaRecorderRef.current.ondataavailable) {
+          console.log('Clearing MediaRecorder handler due to WebSocket disconnect');
+          mediaRecorderRef.current.ondataavailable = null;
+        }
 
         // Don't null out the ref until we're ready to replace it
         // This helps prevent race conditions
@@ -1116,15 +1391,47 @@ export function StreamingProvider({ children }) {
       // Set up MediaRecorder when WebSocket connects
       const setupRecording = () => {
         if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
-          mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0 && djWebSocketRef.current.readyState === WebSocket.OPEN) {
-              event.data.arrayBuffer().then(buffer => {
+          
+          // Helper function to safely send audio data through WebSocket
+          const safelySendAudioData = (buffer) => {
+            if (djWebSocketRef.current && 
+                djWebSocketRef.current.readyState === WebSocket.OPEN) {
+              try {
                 djWebSocketRef.current.send(buffer);
+                return true;
+              } catch (error) {
+                console.error('Error sending audio data through WebSocket:', error);
+                return false;
+              }
+            }
+            return false;
+          };
+
+          let lastChunkTime = Date.now();
+          let chunkCount = 0;
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+              const currentTime = Date.now();
+              const timeSinceLastChunk = currentTime - lastChunkTime;
+              chunkCount++;
+
+              // Log timing info every 10th chunk to track regularity
+              if (chunkCount % 10 === 0) {
+                console.log(`🎵 Audio chunk #${chunkCount}: ${event.data.size} bytes, ${timeSinceLastChunk}ms since last chunk`);
+              }
+
+              lastChunkTime = currentTime;
+
+              event.data.arrayBuffer().then(buffer => {
+                safelySendAudioData(buffer);
+              }).catch(error => {
+                console.error('Error processing audio data:', error);
               });
             }
           };
 
-          mediaRecorder.start(250);
+          mediaRecorder.start(500);
           setIsLive(true);
           console.log('Broadcasting started successfully');
         } else {
@@ -1500,11 +1807,14 @@ export function StreamingProvider({ children }) {
   // Function to create noise gate and audio processing pipeline
   const createAudioProcessingPipeline = (inputStream, audioContext) => {
     try {
+      console.log('🎛️ Creating audio processing pipeline...');
+      
       // Create audio processing nodes
       const source = audioContext.createMediaStreamSource(inputStream);
       const analyser = audioContext.createAnalyser();
-      const gainNode = audioContext.createGain();
+      const micBoostNode = audioContext.createGain(); // NEW: Microphone boost stage
       const noiseGate = audioContext.createGain();
+      const masterGain = audioContext.createGain();
       const destination = audioContext.createMediaStreamDestination();
 
       // Configure analyser for audio level monitoring
@@ -1514,26 +1824,167 @@ export function StreamingProvider({ children }) {
       // Store references
       analyserRef.current = analyser;
       noiseGateRef.current = noiseGate;
-      gainNodeRef.current = gainNode;
+      gainNodeRef.current = masterGain;
+      microphoneBoostRef.current = micBoostNode; // Store microphone boost reference
 
-      // Set initial values
-      gainNode.gain.value = isDJMuted ? 0.0 : djAudioGain;
-      noiseGate.gain.value = 1.0; // Will be controlled by noise gate logic
+      // Set initial values with microphone boost
+      micBoostNode.gain.value = microphoneBoost; // Use state value
+      noiseGate.gain.value = 1.0; // Will be controlled by noise gate logic  
+      masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
+      
+      console.log('🎛️ Audio pipeline initial settings:', {
+        microphoneBoost: micBoostNode.gain.value,
+        noiseGateValue: noiseGate.gain.value,
+        masterGainValue: masterGain.gain.value,
+        isDJMuted,
+        djAudioGain,
+        noiseGateEnabled,
+        noiseGateThreshold
+      });
 
-      // Connect audio pipeline
+      // Connect audio pipeline: Source -> Analyser -> MicBoost -> NoiseGate -> MasterGain -> Destination
       source.connect(analyser);
-      analyser.connect(noiseGate);
-      noiseGate.connect(gainNode);
-      gainNode.connect(destination);
+      analyser.connect(micBoostNode);
+      micBoostNode.connect(noiseGate);
+      noiseGate.connect(masterGain);
+      masterGain.connect(destination);
 
       // Start audio level monitoring and noise gate
       startAudioLevelMonitoring();
 
-      console.log('Audio processing pipeline created with noise gate');
+      console.log('✅ Audio processing pipeline created with microphone boost and noise gate');
       return destination.stream;
     } catch (error) {
-      console.error('Error creating audio processing pipeline:', error);
+      console.error('❌ Error creating audio processing pipeline:', error);
       throw error;
+    }
+  };
+
+  // Simplified audio processing pipeline to avoid timing issues  
+  const createSimplifiedAudioProcessingPipeline = (inputStream, audioContext) => {
+    try {
+      console.log('🎛️ Creating simplified audio processing pipeline...');
+      
+      // Create minimal processing nodes to avoid timing issues
+      const source = audioContext.createMediaStreamSource(inputStream);
+      const analyser = audioContext.createAnalyser();
+      const micBoostNode = audioContext.createGain();
+      const masterGain = audioContext.createGain();
+      const destination = audioContext.createMediaStreamDestination();
+
+      // Configure analyser with less aggressive settings
+      analyser.fftSize = 128; // Smaller FFT to reduce processing overhead
+      analyser.smoothingTimeConstant = 0.9; // More smoothing
+
+      // Store references
+      analyserRef.current = analyser;
+      gainNodeRef.current = masterGain;
+      microphoneBoostRef.current = micBoostNode;
+      noiseGateRef.current = null; // Disable noise gate temporarily to avoid timing issues
+
+      // Set initial values - simplified gain staging
+      micBoostNode.gain.value = microphoneBoost; // Apply microphone boost
+      masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
+      
+      console.log('🎛️ Simplified audio pipeline settings:', {
+        microphoneBoost: micBoostNode.gain.value,
+        masterGainValue: masterGain.gain.value,
+        isDJMuted,
+        djAudioGain,
+        noiseGateEnabled: false // Disabled to prevent timing issues
+      });
+
+      // Connect simplified pipeline: Source -> Analyser -> MicBoost -> MasterGain -> Destination
+      source.connect(analyser);
+      analyser.connect(micBoostNode);
+      micBoostNode.connect(masterGain);
+      masterGain.connect(destination);
+
+      // DEBUG: Test each stage of the pipeline
+      console.log('🔧 Testing audio pipeline stages...');
+      
+      // Test raw source audio levels
+      const sourceAnalyser = audioContext.createAnalyser();
+      sourceAnalyser.fftSize = 256;
+      source.connect(sourceAnalyser);
+      
+      // Test final destination audio levels  
+      const destAnalyser = audioContext.createAnalyser();
+      destAnalyser.fftSize = 256;
+      masterGain.connect(destAnalyser);
+      
+      // Monitor both for 3 seconds
+      let debugCount = 0;
+      const debugInterval = setInterval(() => {
+        const sourceData = new Uint8Array(sourceAnalyser.frequencyBinCount);
+        const destData = new Uint8Array(destAnalyser.frequencyBinCount);
+        
+        sourceAnalyser.getByteFrequencyData(sourceData);
+        destAnalyser.getByteFrequencyData(destData);
+        
+        const sourceRMS = Math.sqrt(sourceData.reduce((sum, val) => sum + val*val, 0) / sourceData.length);
+        const destRMS = Math.sqrt(destData.reduce((sum, val) => sum + val*val, 0) / destData.length);
+        
+        console.log(`🔧 Pipeline debug ${debugCount}: Source RMS=${sourceRMS.toFixed(2)}, Dest RMS=${destRMS.toFixed(2)}, Boost=${micBoostNode.gain.value}x, Master=${masterGain.gain.value}`);
+        
+        debugCount++;
+        if (debugCount >= 30) { // 3 seconds
+          clearInterval(debugInterval);
+          console.log('🔧 Pipeline debugging complete');
+        }
+      }, 100);
+
+      // Start simplified audio level monitoring
+      startSimplifiedAudioLevelMonitoring();
+
+      console.log('✅ Simplified audio processing pipeline created without noise gate');
+      return destination.stream;
+    } catch (error) {
+      console.error('❌ Error creating simplified audio processing pipeline:', error);
+      throw error;
+    }
+  };
+
+  // Minimal processing for fallback streams - just basic volume control
+  const createFallbackAudioProcessingPipeline = (inputStream) => {
+    try {
+      console.log('🎛️ Creating fallback audio processing pipeline...');
+      
+      // Create minimal audio context for basic processing
+      const audioContext = new AudioContext({
+        sampleRate: inputStream.getAudioTracks()[0].getSettings().sampleRate || 44100,
+        latencyHint: 'interactive'
+      });
+      audioContextRef.current = audioContext;
+
+      const source = audioContext.createMediaStreamSource(inputStream);
+      const micBoostNode = audioContext.createGain();
+      const destination = audioContext.createMediaStreamDestination();
+
+      // Store essential references
+      microphoneBoostRef.current = micBoostNode;
+      gainNodeRef.current = micBoostNode; // Use boost as master gain for simplicity
+
+      // Apply basic microphone boost
+      micBoostNode.gain.value = microphoneBoost * (isDJMuted ? 0.0 : djAudioGain);
+      
+      console.log('🎛️ Fallback audio pipeline settings:', {
+        microphoneBoost: microphoneBoost,
+        isDJMuted,
+        djAudioGain,
+        totalGain: micBoostNode.gain.value
+      });
+
+      // Simple connection: Source -> MicBoost -> Destination
+      source.connect(micBoostNode);
+      micBoostNode.connect(destination);
+
+      console.log('✅ Fallback audio processing pipeline created with minimal processing');
+      return destination.stream;
+    } catch (error) {
+      console.error('❌ Error creating fallback audio processing pipeline:', error);
+      // Return original stream if processing fails
+      return inputStream;
     }
   };
 
@@ -1543,6 +1994,12 @@ export function StreamingProvider({ children }) {
 
     const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
     const HOLD_TIME_MS = 500; // Hold gate open for 500ms after sound drops below threshold
+
+    console.log('🎵 Starting audio level monitoring with noise gate:', {
+      noiseGateEnabled,
+      noiseGateThreshold,
+      holdTimeMs: HOLD_TIME_MS
+    });
 
     audioLevelIntervalRef.current = setInterval(() => {
       if (!analyserRef.current) return;
@@ -1560,7 +2017,19 @@ export function StreamingProvider({ children }) {
       const dB = rms > 0 ? 20 * Math.log10(rms / 255) : -100;
       setAudioLevel(Math.max(-60, dB)); // Clamp to reasonable range
 
-      // Apply noise gate with hold time
+      // Log audio levels more frequently during initial setup (every 1 second instead of 2)
+      if (Date.now() % 1000 < 50) {
+        console.log('🎵 Audio levels:', {
+          rms: rms.toFixed(2),
+          dB: dB.toFixed(1),
+          threshold: noiseGateThreshold,
+          aboveThreshold: dB >= noiseGateThreshold,
+          gateEnabled: noiseGateEnabled,
+          micBoostApplied: true
+        });
+      }
+
+      // Apply noise gate with hold time (only if enabled)
       if (noiseGateEnabled && noiseGateRef.current) {
         const now = Date.now();
 
@@ -1574,19 +2043,66 @@ export function StreamingProvider({ children }) {
 
         if (dB >= noiseGateThreshold || isWithinHoldTime) {
           // Above threshold or within hold time - keep audio on
+          if (noiseGateRef.current.gain.value < 0.9) {
+            console.log('🔊 Noise gate OPENING (audio detected)');
+          }
           noiseGateRef.current.gain.exponentialRampToValueAtTime(
             1.0,
             audioContextRef.current.currentTime + 0.01
           );
         } else {
           // Below threshold and past hold time - gradually reduce to silence
+          if (noiseGateRef.current.gain.value > 0.1) {
+            console.log('🔇 Noise gate CLOSING (audio below threshold)');
+          }
           noiseGateRef.current.gain.exponentialRampToValueAtTime(
             0.001, // Very small value instead of 0 to prevent Math errors
             audioContextRef.current.currentTime + 0.2 // Slower fade out (200ms)
           );
         }
+      } else {
+        // Noise gate disabled - ensure full volume
+        if (noiseGateRef.current && noiseGateRef.current.gain.value < 0.9) {
+          console.log('🔊 Noise gate DISABLED - setting full volume');
+          noiseGateRef.current.gain.value = 1.0;
+        }
       }
-    }, 50); // Check every 50ms for responsive noise gate
+    }, 25); // Faster refresh rate (every 25ms) for more responsive audio level indicator
+  };
+
+  // Simplified audio level monitoring without noise gate to avoid timing issues
+  const startSimplifiedAudioLevelMonitoring = () => {
+    if (!analyserRef.current || audioLevelIntervalRef.current) return;
+
+    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+
+    console.log('🎵 Starting simplified audio level monitoring (no noise gate)');
+
+    audioLevelIntervalRef.current = setInterval(() => {
+      if (!analyserRef.current) return;
+
+      analyserRef.current.getByteFrequencyData(dataArray);
+
+      // Calculate RMS (Root Mean Square) for audio level
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i] * dataArray[i];
+      }
+      const rms = Math.sqrt(sum / dataArray.length);
+
+      // Convert to dB scale (0-255 -> -∞ to 0 dB)
+      const dB = rms > 0 ? 20 * Math.log10(rms / 255) : -100;
+      setAudioLevel(Math.max(-60, dB)); // Clamp to reasonable range
+
+      // Less frequent logging to reduce console noise
+      if (Date.now() % 2000 < 100) {
+        console.log('🎵 Audio levels (simplified):', {
+          rms: rms.toFixed(2),
+          dB: dB.toFixed(1),
+          micBoostApplied: microphoneBoostRef.current?.gain.value.toFixed(1) + 'x'
+        });
+      }
+    }, 50); // Slower refresh rate (every 50ms) to reduce processing overhead
   };
 
   // Stop audio level monitoring
@@ -1614,6 +2130,7 @@ export function StreamingProvider({ children }) {
     noiseGateEnabled,
     noiseGateThreshold,
     audioLevel,
+    microphoneBoost,
 
     // DJ Functions
     startBroadcast,
@@ -1639,6 +2156,7 @@ export function StreamingProvider({ children }) {
     // DJ Audio Control Functions
     toggleDJMute,
     setDJAudioLevel,
+    setMicrophoneBoostLevel,
     switchAudioSourceLive,
     setNoiseGateEnabled,
     setNoiseGateThreshold,

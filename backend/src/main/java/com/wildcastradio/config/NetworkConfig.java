@@ -32,7 +32,7 @@ public class NetworkConfig {
     @Value("${icecast.port:8000}")
     private int icecastPort;
 
-    @Value("${icecast.host:#{null}}")
+    @Value("${icecast.host:icecast.software}")
     private String configuredIcecastHost;
 
     @Value("${app.domain:#{null}}")
@@ -277,9 +277,13 @@ public class NetworkConfig {
 
     // URL helpers for various components
     public String getIcecastUrl() {
-        // Use HTTPS for port 443, HTTP for other ports
-        String protocol = (icecastPort == 443) ? "https" : "http";
-        return protocol + "://" + icecastHost + ":" + icecastPort;
+        // For web interface, use HTTPS through reverse proxy
+        return "https://" + icecastHost;
+    }
+
+    public String getIcecastStreamingUrl() {
+        // For FFmpeg streaming, connect directly to Icecast server port
+        return "http://" + icecastHost + ":" + icecastPort;
     }
 
     public String getWebSocketUrl() {
