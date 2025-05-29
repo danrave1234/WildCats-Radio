@@ -85,14 +85,7 @@ public class SecurityConfig {
 
         // Allow all headers including those needed for SockJS
         configuration.setAllowedHeaders(Arrays.asList(
-            "*",
-            "Authorization", 
-            "Content-Type", 
-            "X-Requested-With", 
-            "X-SockJS-Transport",
-            "Access-Control-Allow-Origin",
-            "Access-Control-Request-Method", 
-            "Access-Control-Request-Headers"
+            "*"
         ));
 
         // Expose headers needed for authentication and SockJS
@@ -102,7 +95,8 @@ public class SecurityConfig {
             "Content-Type", 
             "Content-Length",
             "Access-Control-Allow-Origin",
-            "Access-Control-Allow-Credentials"
+            "Access-Control-Allow-Credentials",
+            "X-SockJS-Transport"
         ));
 
         configuration.setAllowCredentials(true); // Enable credentials for JWT tokens
@@ -111,8 +105,30 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
 
-        // Add specific configuration for SockJS endpoints
-        CorsConfiguration sockJsConfig = new CorsConfiguration(configuration);
+        // Create specific enhanced configuration for SockJS endpoints
+        CorsConfiguration sockJsConfig = new CorsConfiguration();
+        sockJsConfig.setAllowedOrigins(Arrays.asList(
+            "http://localhost:3000",
+            "http://localhost:5173", 
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:5173",
+            "https://wildcat-radio-f05d362144e6.herokuapp.com",
+            "https://wildcat-radio.vercel.app",
+            "https://wildcat-radio-f05d362144e6.autoidleapp.com"
+        ));
+        sockJsConfig.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"));
+        sockJsConfig.setAllowedHeaders(Arrays.asList("*"));
+        sockJsConfig.setExposedHeaders(Arrays.asList(
+            "Content-Type", 
+            "Content-Length",
+            "X-SockJS-Transport",
+            "Access-Control-Allow-Origin",
+            "Access-Control-Allow-Credentials"
+        ));
+        sockJsConfig.setAllowCredentials(true);
+        sockJsConfig.setMaxAge(3600L);
+        
+        // Register specific configurations for SockJS endpoints
         source.registerCorsConfiguration("/ws-radio/**", sockJsConfig);
         source.registerCorsConfiguration("/ws-radio/info", sockJsConfig);
         source.registerCorsConfiguration("/ws/**", sockJsConfig);
