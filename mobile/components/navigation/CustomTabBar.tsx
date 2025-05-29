@@ -114,14 +114,19 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
       }).start();
     } else {
       // Show tab bar by sliding up - use moderate speed that works well for both scenarios
-      Animated.timing(tabBarTranslateY, {
-        toValue: 0,
-        duration: 350, // Balanced duration that works well for both notification and broadcast returns
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
+      // Add a small delay when coming back from broadcast to coordinate with header animation
+      const delay = isBroadcastSelected ? 200 : 0; // Delay only when coming back from broadcast
+      
+      setTimeout(() => {
+        Animated.timing(tabBarTranslateY, {
+          toValue: 0,
+          duration: 350, // Balanced duration that works well for both notification and broadcast returns
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
+      }, delay);
     }
-  }, [isNotificationOpen, isBroadcastListening, tabBarTranslateY]);
+  }, [isNotificationOpen, isBroadcastListening, tabBarTranslateY, isBroadcastSelected]);
 
   return (
     <Animated.View style={[styles.container, animatedStyle, {

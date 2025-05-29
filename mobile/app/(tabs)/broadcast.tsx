@@ -94,8 +94,8 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
     return () => clearInterval(timer);
   }, []);
 
-  // Get the appropriate border radius for message grouping
-  const getBorderRadius = () => {
+  // Memoized border radius calculation
+  const borderRadius = useMemo(() => {
     const baseRadius = 18;
     const smallRadius = 4;
     
@@ -170,7 +170,10 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
         };
       }
     }
-  };
+  }, [isOwnMessage, isFirstInGroup, isLastInGroup]);
+
+  // Get the appropriate border radius for message grouping
+  const getBorderRadius = () => borderRadius;
 
   return (
     <Animated.View 
@@ -338,6 +341,17 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
       </View>
     </Animated.View>
   );
+}, (prevProps, nextProps) => {
+  // Only re-render if essential props change
+  return (
+    prevProps.message.id === nextProps.message.id &&
+    prevProps.message.content === nextProps.message.content &&
+    prevProps.isOwnMessage === nextProps.isOwnMessage &&
+    prevProps.showAvatar === nextProps.showAvatar &&
+    prevProps.isLastInGroup === nextProps.isLastInGroup &&
+    prevProps.isFirstInGroup === nextProps.isFirstInGroup &&
+    prevProps.listenerName === nextProps.listenerName
+  );
 });
 
 interface UserAuthData {
@@ -358,6 +372,75 @@ interface NowPlayingInfo {
   songTitle: string;
   artist: string;
 }
+
+// Animated Audio Wave Component
+const AnimatedAudioWave: React.FC<{ isPlaying: boolean; size?: number }> = ({ isPlaying, size = 40 }) => {
+  const waveAnimations = useRef([
+    new Animated.Value(0.3),
+    new Animated.Value(0.5),
+    new Animated.Value(0.8),
+    new Animated.Value(0.4),
+    new Animated.Value(0.6),
+  ]).current;
+
+  useEffect(() => {
+    if (isPlaying) {
+      const animations = waveAnimations.map((anim, index) =>
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(anim, {
+              toValue: Math.random() * 0.8 + 0.2,
+              duration: 300 + Math.random() * 200,
+              useNativeDriver: false,
+            }),
+            Animated.timing(anim, {
+              toValue: Math.random() * 0.8 + 0.2,
+              duration: 300 + Math.random() * 200,
+              useNativeDriver: false,
+            }),
+          ])
+        )
+      );
+
+      animations.forEach((animation, index) => {
+        setTimeout(() => animation.start(), index * 100);
+      });
+
+      return () => {
+        animations.forEach(animation => animation.stop());
+      };
+    } else {
+      // Reset to static state when not playing
+      waveAnimations.forEach(anim => {
+        Animated.timing(anim, {
+          toValue: 0.3,
+          duration: 200,
+          useNativeDriver: false,
+        }).start();
+      });
+    }
+  }, [isPlaying, waveAnimations]);
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: size, justifyContent: 'center' }}>
+      {waveAnimations.map((anim, index) => (
+        <Animated.View
+          key={index}
+          style={{
+            width: 3,
+            backgroundColor: '#91403E',
+            marginHorizontal: 1,
+            borderRadius: 1.5,
+            height: anim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [size * 0.2, size],
+            }),
+          }}
+        />
+      ))}
+    </View>
+  );
+};
 
 const BroadcastScreen: React.FC = () => {
   // ALL HOOKS MUST BE CALLED FIRST - BEFORE ANY CONDITIONAL LOGIC
@@ -818,6 +901,19 @@ const BroadcastScreen: React.FC = () => {
     fetchUserData();
   }, [authToken]);
 
+  // Update media metadata when now playing info changes - OPTIMIZED to prevent loops
+  useEffect(() => {
+    if (nowPlayingInfo && streamingState.isPlaying) {
+      streamingActions.updateMediaMetadata(
+        nowPlayingInfo.songTitle,
+        nowPlayingInfo.artist,
+        'WildCat Radio Live'
+      ).catch(error => {
+        console.error('Failed to update media metadata:', error);
+      });
+    }
+  }, [nowPlayingInfo?.songTitle, nowPlayingInfo?.artist, streamingState.isPlaying]); // Removed streamingActions to prevent loops
+
   const listenerName = useMemo(() => {
     if (!userData || typeof userData !== 'object') return 'Listener';
     
@@ -1155,6 +1251,24 @@ const BroadcastScreen: React.FC = () => {
       setIsListening(false);
     });
   }, [tuneInTranslateX, setIsBroadcastListening]);
+
+  // Handle broadcast end detection and smooth transition
+  useEffect(() => {
+    // Check if broadcast ended while user is listening
+    if (isListening && currentBroadcast && currentBroadcast.status !== 'LIVE') {
+      console.log('📻 Broadcast ended while listening, transitioning back to poster');
+      
+      // Stop audio playback
+      streamingActions.stop().catch(error => {
+        console.error('Failed to stop audio on broadcast end:', error);
+      });
+      
+      // Animate back to poster with a slight delay for smooth transition
+      setTimeout(() => {
+        animateBackToPoster();
+      }, 500);
+    }
+  }, [isListening, currentBroadcast?.status, streamingActions, animateBackToPoster]);
 
   // Notification state change handler for the broadcast screen's CustomHeader
   const handleNotificationStateChange = useCallback((isOpen: boolean) => {
@@ -1562,6 +1676,65 @@ const BroadcastScreen: React.FC = () => {
     }
   }, [loadInitialDataForBroadcastScreen]);
 
+  // Memoized chat messages to prevent unnecessary re-renders
+  const memoizedChatMessages = useMemo(() => {
+    const filteredMessages = chatMessages.filter(msg => msg && msg.id);
+    console.log(`🔄 Chat messages memoized: ${filteredMessages.length} messages`);
+    return filteredMessages;
+  }, [chatMessages]);
+
+  // Memoized message ownership calculation to prevent performance loops
+  const messageOwnershipMap = useMemo(() => {
+    const ownershipMap = new Map<number, boolean>();
+    
+    memoizedChatMessages.forEach(msg => {
+      // Method 1: Check userMessageIds Set (for messages sent in this session)
+      if (userMessageIds.has(msg.id)) {
+        ownershipMap.set(msg.id, true);
+        return;
+      }
+      
+      // Method 2: Compare sender ID with current user ID (most reliable)
+      if (currentUserId && msg.sender?.id && msg.sender.id === currentUserId) {
+        ownershipMap.set(msg.id, true);
+        return;
+      }
+      
+      // Method 3: Compare sender name with listenerName (fallback)
+      if (listenerName && listenerName !== 'Listener' && msg.sender?.name) {
+        const senderName = msg.sender.name.toLowerCase().trim();
+        const userListenerName = listenerName.toLowerCase().trim();
+        if (senderName === userListenerName) {
+          ownershipMap.set(msg.id, true);
+          return;
+        }
+      }
+      
+      // Method 4: Additional name variations check
+      if (userData && msg.sender?.name) {
+        const senderName = msg.sender.name.toLowerCase().trim();
+        
+        // Check all possible name variations
+        const nameVariations = [
+          userData.name?.toLowerCase().trim(),
+          userData.fullName?.toLowerCase().trim(),
+          userData.firstName?.toLowerCase().trim(),
+          `${userData.firstName?.toLowerCase().trim()} ${userData.lastName?.toLowerCase().trim()}`.trim()
+        ].filter(Boolean);
+        
+        if (nameVariations.some(variation => variation === senderName)) {
+          ownershipMap.set(msg.id, true);
+          return;
+        }
+      }
+      
+      // Default to false if no match
+      ownershipMap.set(msg.id, false);
+    });
+    
+    return ownershipMap;
+  }, [memoizedChatMessages, currentUserId, listenerName, userData, userMessageIds]);
+
   const renderChatTab = () => (
     <View style={styles.tabContentContainer} className="flex-1 bg-gray-50">
       {/* Enhanced Chat Header */}
@@ -1600,14 +1773,14 @@ const BroadcastScreen: React.FC = () => {
         className="flex-1 bg-gray-50"
         contentContainerStyle={{ 
           flexGrow: 1,
-          justifyContent: chatMessages.length === 0 ? 'center' : 'flex-end',
+          justifyContent: memoizedChatMessages.length === 0 ? 'center' : 'flex-end',
           paddingTop: 20, 
           paddingBottom: 20, 
           paddingHorizontal: 16 
         }}
         showsVerticalScrollIndicator={false}
       >
-        {(isLoading && chatMessages.length === 0) && (
+        {(isLoading && memoizedChatMessages.length === 0) && (
           <View className="flex-1 items-center justify-center py-20">
             <View className="bg-white rounded-2xl p-8 shadow-xl items-center">
               <ActivityIndicator size="large" color="#91403E" className="mb-4" />
@@ -1616,7 +1789,7 @@ const BroadcastScreen: React.FC = () => {
           </View>
         )}
         
-        {!isLoading && chatMessages.length === 0 && (
+        {!isLoading && memoizedChatMessages.length === 0 && (
           <View className="flex-1 items-center justify-center py-20 px-8">
             <Ionicons name="chatbubbles-outline" size={48} color="#91403E" className="mb-4" />
             <Text className="text-2xl font-bold text-cordovan mb-3 text-center">
@@ -1637,57 +1810,13 @@ const BroadcastScreen: React.FC = () => {
         )}
 
         {/* Enhanced Chat Messages with Animations */}
-        {chatMessages.filter(msg => msg && msg.id).map((msg, index) => {
-          // ROBUST MESSAGE OWNERSHIP DETECTION - FIXED FOR RELOAD PERSISTENCE
-          const isOwnMessage = (() => {
-            // Method 1: Check userMessageIds Set (for messages sent in this session)
-            if (userMessageIds.has(msg.id)) {
-              console.log(`✅ Message ${msg.id} identified as own (userMessageIds)`);
-              return true;
-            }
-            
-            // Method 2: Compare sender ID with current user ID (most reliable)
-            if (currentUserId && msg.sender?.id && msg.sender.id === currentUserId) {
-              console.log(`✅ Message ${msg.id} identified as own (sender ID: ${msg.sender.id} === user ID: ${currentUserId})`);
-              return true;
-            }
-            
-            // Method 3: Compare sender name with listenerName (fallback)
-            if (listenerName && listenerName !== 'Listener' && msg.sender?.name) {
-              const senderName = msg.sender.name.toLowerCase().trim();
-              const userListenerName = listenerName.toLowerCase().trim();
-              if (senderName === userListenerName) {
-                console.log(`✅ Message ${msg.id} identified as own (name match: "${senderName}" === "${userListenerName}")`);
-                return true;
-              }
-            }
-            
-            // Method 4: Additional name variations check
-            if (userData && msg.sender?.name) {
-              const senderName = msg.sender.name.toLowerCase().trim();
-              
-              // Check all possible name variations
-              const nameVariations = [
-                userData.name?.toLowerCase().trim(),
-                userData.fullName?.toLowerCase().trim(),
-                userData.firstName?.toLowerCase().trim(),
-                `${userData.firstName?.toLowerCase().trim()} ${userData.lastName?.toLowerCase().trim()}`.trim()
-              ].filter(Boolean);
-              
-              if (nameVariations.some(variation => variation === senderName)) {
-                console.log(`✅ Message ${msg.id} identified as own (name variation match: "${senderName}")`);
-                return true;
-              }
-            }
-            
-            // Debug log for unmatched messages
-            console.log(`➡️ Message ${msg.id} from "${msg.sender?.name}" (ID: ${msg.sender?.id}) not identified as own. User: "${listenerName}" (ID: ${currentUserId})`);
-            return false;
-          })();
+        {memoizedChatMessages.map((msg, index) => {
+          // OPTIMIZED MESSAGE OWNERSHIP DETECTION - Using memoized map to prevent performance loops
+          const isOwnMessage = messageOwnershipMap.get(msg.id) || false;
           
-          const showAvatar = index === chatMessages.length - 1 || chatMessages[index + 1]?.sender?.name !== msg.sender?.name;
-          const isLastInGroup = index === chatMessages.length - 1 || chatMessages[index + 1]?.sender?.name !== msg.sender?.name;
-          const isFirstInGroup = index === 0 || chatMessages[index - 1]?.sender?.name !== msg.sender?.name;
+          const showAvatar = index === memoizedChatMessages.length - 1 || memoizedChatMessages[index + 1]?.sender?.name !== msg.sender?.name;
+          const isLastInGroup = index === memoizedChatMessages.length - 1 || memoizedChatMessages[index + 1]?.sender?.name !== msg.sender?.name;
+          const isFirstInGroup = index === 0 || memoizedChatMessages[index - 1]?.sender?.name !== msg.sender?.name;
           
           return (
             <AnimatedMessage
@@ -2082,19 +2211,10 @@ const BroadcastScreen: React.FC = () => {
                 )}
               </View>
               
-              {/* Audio Visualizer */}
+              {/* Animated Audio Wave Visualizer */}
               {streamingState.isPlaying && (
-                <View className="flex-row items-end space-x-1">
-                  {[...Array(3)].map((_, i) => (
-                    <Animated.View
-                      key={i}
-                      className={`bg-cordovan rounded-full w-1`}
-                      style={{ 
-                        height: i % 2 === 0 ? 12 : 8,
-                        opacity: 0.7,
-                      }}
-                    />
-                  ))}
+                <View className="mr-2">
+                  <AnimatedAudioWave isPlaying={streamingState.isPlaying} size={24} />
                 </View>
               )}
 
@@ -2167,6 +2287,16 @@ const BroadcastScreen: React.FC = () => {
                       : 'Waiting for Stream...'}
             </Text>
           </View>
+
+          {/* Background Audio Status */}
+          {streamingState.backgroundAudio.isBackgroundActive && (
+            <View className="flex-row items-center justify-center mt-2">
+              <View className="w-2 h-2 rounded-full mr-2 bg-purple-500" />
+              <Text className="text-xs font-medium text-purple-600">
+                🎵 Background Audio Active
+              </Text>
+            </View>
+          )}
 
           {/* Error Message */}
           {streamingState.error && (
@@ -2368,17 +2498,9 @@ const BroadcastScreen: React.FC = () => {
                     <Text className="text-gray-800 text-sm font-bold uppercase tracking-widest">
                       NOW PLAYING
                     </Text>
-                    {/* Audio Visualizer */}
-                    <View className="flex-row items-end space-x-1 ml-auto">
-                      {[...Array(4)].map((_, i) => (
-                        <View
-                          key={i}
-                          className={`bg-cordovan rounded-full w-1 ${
-                            i % 2 === 0 ? 'h-4' : 'h-3'
-                          }`}
-                          style={{ opacity: 0.8 }}
-                        />
-                      ))}
+                    {/* Animated Audio Wave Visualizer */}
+                    <View className="ml-auto">
+                      <AnimatedAudioWave isPlaying={streamingState.isPlaying} size={20} />
                     </View>
                   </View>
                   

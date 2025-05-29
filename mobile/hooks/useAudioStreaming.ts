@@ -5,6 +5,7 @@ import audioStreamingService, {
   StreamConfig, 
   ListenerStatus 
 } from '../services/audioStreamingService';
+import { BackgroundAudioState } from '../services/backgroundAudioService';
 import { createLogger } from '../services/logger';
 
 const logger = createLogger('useAudioStreaming');
@@ -13,6 +14,7 @@ interface StreamingState extends AudioState {
   streamConfig: StreamConfig | null;
   isLive: boolean;
   listenerCount: number;
+  backgroundAudio: BackgroundAudioState;
 }
 
 interface StreamingActions {
@@ -25,6 +27,7 @@ interface StreamingActions {
   setMuted: (muted: boolean) => Promise<void>;
   refreshStream: () => Promise<void>;
   updateStreamConfig: (config: StreamConfig) => Promise<void>;
+  updateMediaMetadata: (title: string, artist: string, album?: string) => Promise<void>;
   sendListenerStatus: (status: Partial<ListenerStatus>) => void;
 }
 
@@ -41,11 +44,18 @@ export const useAudioStreaming = (): [StreamingState, StreamingActions] => {
     streamConfig: null,
     isLive: false,
     listenerCount: 0,
+    backgroundAudio: {
+      isPlaying: false,
+      currentTrack: null,
+      isBackgroundActive: false,
+    },
   });
 
   const [listenerStatusCallback, setListenerStatusCallback] = useState<((status: ListenerStatus) => void) | null>(null);
   const appState = useRef(AppState.currentState);
   const wasPlayingBeforeBackground = useRef(false);
+  const lastMetadataUpdate = useRef<number | null>(null);
+  const lastMetadataKey = useRef<string | null>(null);
 
   // Initialize audio streaming service callbacks
   useEffect(() => {
@@ -95,6 +105,25 @@ export const useAudioStreaming = (): [StreamingState, StreamingActions] => {
       audioStreamingService.setListenerStatusCallback(null);
     };
   }, [listenerStatusCallback]);
+
+  // Monitor background audio state changes
+  useEffect(() => {
+    const updateBackgroundState = () => {
+      const backgroundState = audioStreamingService.getBackgroundAudioState();
+      setStreamingState(prev => ({
+        ...prev,
+        backgroundAudio: backgroundState,
+      }));
+    };
+
+    // Update background state periodically
+    const interval = setInterval(updateBackgroundState, 1000);
+    
+    // Initial update
+    updateBackgroundState();
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Handle app state changes for background audio
   useEffect(() => {
@@ -214,6 +243,30 @@ export const useAudioStreaming = (): [StreamingState, StreamingActions] => {
         logger.debug('Stream config updated:', config);
       } catch (error) {
         logger.error('Failed to update stream config:', error);
+      }
+    }, []),
+
+    updateMediaMetadata: useCallback(async (title: string, artist: string, album?: string) => {
+      try {
+        // Debounce rapid metadata updates to prevent performance loops
+        const metadataKey = `${title}-${artist}-${album || 'WildCat Radio'}`;
+        const now = Date.now();
+        
+        // Use a simple debounce mechanism
+        if (lastMetadataUpdate.current && 
+            lastMetadataKey.current === metadataKey && 
+            now - lastMetadataUpdate.current < 1000) {
+          logger.debug('Metadata update debounced - too rapid');
+          return;
+        }
+        
+        lastMetadataUpdate.current = now;
+        lastMetadataKey.current = metadataKey;
+        
+        await audioStreamingService.updateMediaMetadata(title, artist, album);
+        logger.debug('Media metadata updated:', { title, artist, album });
+      } catch (error) {
+        logger.error('Failed to update media metadata:', error);
       }
     }, []),
 

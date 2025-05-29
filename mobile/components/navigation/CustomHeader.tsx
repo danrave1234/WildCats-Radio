@@ -301,20 +301,23 @@ const CustomHeader = React.memo(({
       
       // Only animate logo if not already animating back
       if (!isAnimatingBack.current) {
-        Animated.parallel([
-          Animated.spring(logoTranslateX, {
-            toValue: 0,
-            tension: 65, // Match exactly with broadcast screen animation
-            friction: 10, // Match exactly with broadcast screen animation
-            useNativeDriver: true
-          }),
-          Animated.spring(logoScale, {
-            toValue: 1,
-            tension: 65, // Match exactly with broadcast screen animation
-            friction: 10, // Match exactly with broadcast screen animation
-            useNativeDriver: true
-          })
-        ]).start();
+        // Add a small delay to coordinate with broadcast screen transition
+        setTimeout(() => {
+          Animated.parallel([
+            Animated.spring(logoTranslateX, {
+              toValue: 0,
+              tension: 65, // Match exactly with broadcast screen animation
+              friction: 10, // Match exactly with broadcast screen animation
+              useNativeDriver: true
+            }),
+            Animated.spring(logoScale, {
+              toValue: 1,
+              tension: 65, // Match exactly with broadcast screen animation
+              friction: 10, // Match exactly with broadcast screen animation
+              useNativeDriver: true
+            })
+          ]).start();
+        }, 100); // Small delay to coordinate with broadcast transition
       }
     }
   }, [showBackButton, anim, logoTranslateX, logoScale]);

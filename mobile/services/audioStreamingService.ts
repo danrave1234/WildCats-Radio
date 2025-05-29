@@ -1,6 +1,7 @@
-import { Audio, AVPlaybackStatus, AVPlaybackStatusSuccess, AVPlaybackStatusError } from 'expo-av';
+import { Audio, AVPlaybackStatus, AVPlaybackStatusSuccess, AVPlaybackStatusError, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import backgroundAudioService, { MediaMetadata } from './backgroundAudioService';
 
 // Simple logger replacement
 const logger = {
@@ -61,24 +62,54 @@ class AudioStreamingService {
 
   constructor() {
     this.initializeAudio();
+    this.initializeBackgroundAudio();
   }
 
   private async initializeAudio(): Promise<void> {
     try {
-      // Configure audio session for streaming with more stable settings
+      // Configure audio session for background streaming - CRITICAL for background audio
       await Audio.setAudioModeAsync({
         staysActiveInBackground: true,
         playsInSilentModeIOS: true,
         allowsRecordingIOS: false,
         shouldDuckAndroid: false,
         playThroughEarpieceAndroid: false,
+        // CRITICAL: Set interruption mode for background audio
+        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
       });
 
       this.isInitialized = true;
-      logger.debug('Audio initialized successfully with stable settings');
+      logger.debug('Audio initialized successfully with background audio support');
     } catch (error) {
       logger.error('Failed to initialize audio:', error);
       this.handleError('Failed to initialize audio system');
+    }
+  }
+
+  private async initializeBackgroundAudio(): Promise<void> {
+    try {
+      // Initialize background audio service
+      await backgroundAudioService.initialize();
+      
+      // Set up media action callback to handle notification controls
+      backgroundAudioService.setMediaActionCallback((action) => {
+        switch (action) {
+          case 'play':
+            this.play().catch(error => logger.error('Failed to play from notification:', error));
+            break;
+          case 'pause':
+            this.pause().catch(error => logger.error('Failed to pause from notification:', error));
+            break;
+          case 'stop':
+            this.stop().catch(error => logger.error('Failed to stop from notification:', error));
+            break;
+        }
+      });
+      
+      logger.debug('Background audio integration initialized');
+    } catch (error) {
+      logger.error('Failed to initialize background audio integration:', error);
     }
   }
 
@@ -216,6 +247,18 @@ class AudioStreamingService {
         throw new Error('Sound not loaded and could not reload');
       }
       
+      // CRITICAL: Ensure audio session is configured for background before playing
+      logger.debug('🎵 Configuring audio session for background playback...');
+      await Audio.setAudioModeAsync({
+        staysActiveInBackground: true,
+        playsInSilentModeIOS: true,
+        allowsRecordingIOS: false,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+      });
+      
       // iOS-specific handling for Icecast streams
       const isIcecastStream = this.currentStreamUrl && 
         (this.currentStreamUrl.includes('icecast') || 
@@ -229,12 +272,25 @@ class AudioStreamingService {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
       
+      logger.debug('🎵 Starting audio playback...');
       await this.sound.playAsync();
       this.startHeartbeat();
-      logger.debug('Playback started');
+      
+      // Start background audio with metadata
+      const metadata: MediaMetadata = {
+        title: 'WildCat Radio Live',
+        artist: 'Live Broadcast',
+        album: 'WildCat Radio',
+        duration: 0, // Live stream has no duration
+      };
+      
+      logger.debug('🎵 Starting background audio service...');
+      await backgroundAudioService.startBackgroundAudio(metadata);
+      
+      logger.debug('✅ Playback started with background audio support');
     } catch (error) {
       this.updateStatus({ isLoading: false });
-      logger.error('Failed to start playback:', error);
+      logger.error('❌ Failed to start playback:', error);
       
       // iOS-specific error handling for Icecast
       if (Platform.OS === 'ios' && this.currentStreamUrl?.includes('icecast')) {
@@ -247,12 +303,24 @@ class AudioStreamingService {
             staysActiveInBackground: true,
             playsInSilentModeIOS: true,
             allowsRecordingIOS: false,
+            interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+            interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
           });
           
           // Try to play again after session reset
           if (this.sound) {
             await this.sound.playAsync();
             this.startHeartbeat();
+            
+            // Try background audio again
+            const metadata: MediaMetadata = {
+              title: 'WildCat Radio Live',
+              artist: 'Live Broadcast',
+              album: 'WildCat Radio',
+              duration: 0,
+            };
+            await backgroundAudioService.startBackgroundAudio(metadata);
+            
             logger.debug('🍎 iOS Icecast playback recovered after session reset');
             return;
           }
@@ -284,7 +352,11 @@ class AudioStreamingService {
     try {
       await this.sound.pauseAsync();
       this.stopHeartbeat();
-      logger.debug('Playback paused');
+      
+      // Pause background audio (updates notification)
+      await backgroundAudioService.pauseBackgroundAudio();
+      
+      logger.debug('Playback paused with background audio support');
     } catch (error) {
       logger.error('Failed to pause playback:', error);
     }
@@ -296,7 +368,11 @@ class AudioStreamingService {
     try {
       await this.sound.stopAsync();
       this.stopHeartbeat();
-      logger.debug('Playback stopped');
+      
+      // Stop background audio (removes notification)
+      await backgroundAudioService.stopBackgroundAudio();
+      
+      logger.debug('Playback stopped with background audio support');
     } catch (error) {
       logger.error('Failed to stop playback:', error);
     }
@@ -767,6 +843,49 @@ class AudioStreamingService {
     const mp3Url = 'https://icecast.software/live.mp3';
     console.log('[AudioStreamingService] Loading MP3 stream exclusively for mobile:', mp3Url);
     await this.loadStream(mp3Url);
+  }
+
+  // Update media metadata for background audio
+  public async updateMediaMetadata(title: string, artist: string, album?: string): Promise<void> {
+    try {
+      // Prevent duplicate updates with same metadata
+      const currentState = backgroundAudioService.getState();
+      if (currentState.currentTrack && 
+          currentState.currentTrack.title === title && 
+          currentState.currentTrack.artist === artist &&
+          currentState.currentTrack.album === (album || 'WildCat Radio')) {
+        logger.debug('Media metadata unchanged, skipping update');
+        return;
+      }
+
+      const metadata: MediaMetadata = {
+        title,
+        artist,
+        album: album || 'WildCat Radio',
+        duration: 0, // Live stream has no duration
+      };
+      
+      await backgroundAudioService.updateMetadata(metadata);
+      logger.debug('Media metadata updated:', { title, artist, album });
+    } catch (error) {
+      logger.error('Failed to update media metadata:', error);
+    }
+  }
+
+  // Get background audio state
+  public getBackgroundAudioState() {
+    return backgroundAudioService.getState();
+  }
+
+  // Cleanup background audio on service destruction
+  public async cleanup(): Promise<void> {
+    try {
+      await this.unloadStream();
+      await backgroundAudioService.cleanup();
+      logger.debug('Audio streaming service cleaned up');
+    } catch (error) {
+      logger.error('Failed to cleanup audio streaming service:', error);
+    }
   }
 }
 
