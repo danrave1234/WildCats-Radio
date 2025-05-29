@@ -49,7 +49,9 @@ public class SecurityConfig {
                 .requestMatchers("/ws/listener").permitAll()
                 .requestMatchers("/stream").permitAll()
                 .requestMatchers("/ws-radio/**").permitAll()
+                .requestMatchers("/ws-radio/info/**").permitAll()
                 .requestMatchers("/ws-radio/info").permitAll()
+                .requestMatchers("/api/broadcasts/**").permitAll()
                 // Swagger UI endpoints if you use it
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 // Health check endpoints
@@ -77,7 +79,8 @@ public class SecurityConfig {
             "http://127.0.0.1:5173",
             "https://wildcat-radio-f05d362144e6.herokuapp.com",
             "https://wildcat-radio.vercel.app",
-            "https://wildcat-radio-f05d362144e6.autoidleapp.com"
+            "https://wildcat-radio-f05d362144e6.autoidleapp.com",
+            "https://wildcat-radio.live"  // New production domain
         ));
 
         // Allow all methods required for REST and WebSocket/SockJS
@@ -114,7 +117,8 @@ public class SecurityConfig {
             "http://127.0.0.1:5173",
             "https://wildcat-radio-f05d362144e6.herokuapp.com",
             "https://wildcat-radio.vercel.app",
-            "https://wildcat-radio-f05d362144e6.autoidleapp.com"
+            "https://wildcat-radio-f05d362144e6.autoidleapp.com",
+            "https://wildcat-radio.live"  // New production domain
         ));
         sockJsConfig.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"));
         sockJsConfig.setAllowedHeaders(Arrays.asList("*"));
@@ -130,6 +134,7 @@ public class SecurityConfig {
         
         // Register specific configurations for SockJS endpoints
         source.registerCorsConfiguration("/ws-radio/**", sockJsConfig);
+        source.registerCorsConfiguration("/ws-radio/info/**", sockJsConfig);
         source.registerCorsConfiguration("/ws-radio/info", sockJsConfig);
         source.registerCorsConfiguration("/ws/**", sockJsConfig);
 

@@ -57,7 +57,8 @@ public class WebSocketConfig implements WebSocketConfigurer {
                     "http://127.0.0.1:5173",
                     "https://wildcat-radio-f05d362144e6.herokuapp.com",
                     "https://wildcat-radio.vercel.app",
-                    "https://wildcat-radio-f05d362144e6.autoidleapp.com"
+                    "https://wildcat-radio-f05d362144e6.autoidleapp.com",
+                    "https://wildcat-radio.live"  // New production domain
                 );
         
         // Status updates endpoint for listeners  
@@ -69,7 +70,8 @@ public class WebSocketConfig implements WebSocketConfigurer {
                     "http://127.0.0.1:5173",
                     "https://wildcat-radio-f05d362144e6.herokuapp.com",
                     "https://wildcat-radio.vercel.app",
-                    "https://wildcat-radio-f05d362144e6.autoidleapp.com"
+                    "https://wildcat-radio-f05d362144e6.autoidleapp.com",
+                    "https://wildcat-radio.live"  // New production domain
                 );
     }
 }
