@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { View, TouchableOpacity, Platform, Animated, Easing, Image, Dimensions, Text, ScrollView, StatusBar, InteractionManager } from 'react-native';
+import { View, TouchableOpacity, Platform, Animated, Easing, Image, Dimensions, Text, ScrollView, StatusBar, InteractionManager, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -52,6 +52,8 @@ const CustomHeader = React.memo(({
     forceRefresh,
     debugNotifications,
     manualTestFetch,
+    loadMoreNotificationsForTab,
+    getTabPaginationState,
   } = useNotifications();
   
   const anim = {
@@ -73,6 +75,54 @@ const CustomHeader = React.memo(({
   const animationTimer = useRef<NodeJS.Timeout | null>(null);
 
   const [selectedTab, setSelectedTab] = useState<NotificationTabKey>('all');
+
+  // Ripple effect state for sync button
+  const [ripples, setRipples] = useState<Array<{ id: number; x: number; y: number; scale: Animated.Value; opacity: Animated.Value }>>([]);
+  const rippleIdRef = useRef(0);
+
+  // Create ripple effect for sync button
+  const createRipple = useCallback((event: any) => {
+    const { locationX, locationY } = event.nativeEvent;
+    const rippleId = rippleIdRef.current++;
+    
+    const scale = new Animated.Value(0);
+    const opacity = new Animated.Value(0.6);
+    
+    const newRipple = {
+      id: rippleId,
+      x: locationX,
+      y: locationY,
+      scale,
+      opacity
+    };
+    
+    setRipples(prev => [...prev, newRipple]);
+    
+    // Animate ripple
+    Animated.parallel([
+      Animated.timing(scale, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: 400,
+        useNativeDriver: true,
+      })
+    ]).start(() => {
+      // Remove ripple after animation
+      setRipples(prev => prev.filter(r => r.id !== rippleId));
+    });
+  }, []);
+
+  // Handle sync button press with ripple
+  const handleSyncPress = useCallback((event: any) => {
+    if (!isLoading) {
+      createRipple(event);
+      fetchNotificationsWithUnreadPriority();
+    }
+  }, [createRipple, fetchNotificationsWithUnreadPriority, isLoading]);
 
   // Memoized helper functions to prevent recreations
   const getNotificationIcon = useCallback((type: string) => {
@@ -474,15 +524,45 @@ const CustomHeader = React.memo(({
             {/* Smart Refresh Button (combines priority + refresh) */}
             <TouchableOpacity 
               style={{ 
-                padding: 4, 
+                padding: 6, 
                 marginRight: 8,
                 backgroundColor: '#8B5CF6',
-                borderRadius: 4
+                borderRadius: 6,
+                minWidth: 32,
+                minHeight: 20,
+                alignItems: 'center',
+                justifyContent: 'center',
+                position: 'relative',
+                overflow: 'hidden',
               }} 
               activeOpacity={0.7}
-              onPress={fetchNotificationsWithUnreadPriority}
+              onPress={handleSyncPress}
+              disabled={isLoading}
             >
+              {/* Ripple effects */}
+              {ripples.map((ripple) => (
+                <Animated.View
+                  key={ripple.id}
+                  style={{
+                    position: 'absolute',
+                    left: ripple.x - 15,
+                    top: ripple.y - 15,
+                    width: 30,
+                    height: 30,
+                    borderRadius: 15,
+                    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                    transform: [{ scale: ripple.scale }],
+                    opacity: ripple.opacity,
+                    pointerEvents: 'none',
+                  }}
+                />
+              ))}
+              
+              {/* Button content - always show the same */}
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="refresh-outline" size={10} color="white" style={{ marginRight: 2 }} />
               <Text style={{ fontSize: 8, fontWeight: 'bold', color: 'white' }}>SYNC</Text>
+              </View>
             </TouchableOpacity>
             
             <TouchableOpacity 
@@ -607,6 +687,8 @@ const CustomHeader = React.memo(({
         onMarkAllAsRead={handleMarkAllAsRead}
         onTabChange={(tab: string) => setSelectedTab(tab as NotificationTabKey)}
         onLoadMore={loadMoreNotifications}
+        onLoadMoreForTab={loadMoreNotificationsForTab}
+        getTabPaginationState={getTabPaginationState}
         onAnimationStart={handleAnimationStart}
         onAnimationComplete={handleAnimationComplete}
         getNotificationIcon={getNotificationIcon}

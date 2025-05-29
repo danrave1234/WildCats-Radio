@@ -25,6 +25,16 @@ interface NotificationContextType {
   forceRefresh: () => Promise<void>;
   fetchNotificationsWithUnreadPriority: () => Promise<void>;
   manualTestFetch: () => Promise<void>;
+  checkStoredData: () => Promise<any>;
+  // NEW: Tab-specific pagination methods
+  loadMoreNotificationsForTab: (tab: 'all' | 'unread' | 'read') => Promise<void>;
+  getTabPaginationState: (tab: 'all' | 'unread' | 'read') => {
+    currentPage: number;
+    hasMore: boolean;
+    isLoadingMore: boolean;
+    totalCount: number;
+  };
+  refreshTabNotifications: (tab: 'all' | 'unread' | 'read') => Promise<void>;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -42,6 +52,31 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   const [hasMore, setHasMore] = useState<boolean>(true);
   const [currentPage, setCurrentPage] = useState<number>(0);
   const [totalCount, setTotalCount] = useState<number>(0);
+  
+  // NEW: Tab-specific pagination states
+  const [tabPaginationState, setTabPaginationState] = useState({
+    all: {
+      currentPage: 0,
+      hasMore: true,
+      isLoadingMore: false,
+      totalCount: 0
+    },
+    unread: {
+      currentPage: 0,
+      hasMore: true,
+      isLoadingMore: false,
+      totalCount: 0
+    },
+    read: {
+      currentPage: 0,
+      hasMore: true,
+      isLoadingMore: false,
+      totalCount: 0
+    }
+  });
+  
+  // NEW: Track if we've finished loading from AsyncStorage
+  const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState<boolean>(false);
   
   const { authToken } = useAuth();
   const isLoggedIn = !!authToken;
@@ -153,9 +188,40 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   // Auto-save state when notifications, unreadCount, or totalCount changes
   useEffect(() => {
     if (notifications.length > 0 || unreadCount > 0) {
+      console.log('💾 AUTO-SAVE: Saving notification state to AsyncStorage:', {
+        notificationCount: notifications.length,
+        unreadCount,
+        totalCount,
+        trigger: 'notifications or counts changed'
+      });
       saveNotificationState(notifications, unreadCount, totalCount);
     }
   }, [notifications, unreadCount, totalCount, saveNotificationState]);
+
+  // DEBUG: Function to check what's stored in AsyncStorage
+  const checkStoredData = useCallback(async () => {
+    try {
+      const storedData = await AsyncStorage.getItem(STORAGE_KEYS.notifications);
+      if (storedData) {
+        const parsed = JSON.parse(storedData);
+        console.log('🔍 STORED DATA CHECK:', {
+          hasData: !!storedData,
+          notificationCount: parsed.notifications?.length || 0,
+          unreadCount: parsed.unreadCount || 0,
+          totalCount: parsed.totalCount || 0,
+          lastSync: parsed.lastSync,
+          authToken: parsed.authToken ? `${parsed.authToken.substring(0, 10)}...` : 'None'
+        });
+        return parsed;
+      } else {
+        console.log('🔍 STORED DATA CHECK: No data found in AsyncStorage');
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ Error checking stored data:', error);
+      return null;
+    }
+  }, []);
 
   // Load saved state on initialization
   useEffect(() => {
@@ -167,6 +233,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
         setTotalCount(0);
         setCurrentPage(0);
         setHasMore(true);
+        setHasLoadedFromStorage(true); // Mark as loaded even when not logged in
         await clearNotificationState();
         return;
       }
@@ -181,7 +248,12 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
         setTotalCount(savedState.totalCount);
         setCurrentPage(Math.floor(savedState.notifications.length / 25)); // Estimate current page
         setHasMore(savedState.notifications.length < savedState.totalCount);
+      } else {
+        console.log('📱 No saved notification state found');
       }
+      
+      // Mark that we've finished loading from storage (regardless of whether data was found)
+      setHasLoadedFromStorage(true);
     };
 
     initializeNotificationState();
@@ -864,7 +936,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     }
   }, [authToken, notifications.length, isLoading, unreadCount, isLoggedIn]);
 
-  // Fetch notifications with priority for unread items - PRESERVE EXISTING DATA + PERSISTENCE
+  // Fetch notifications with priority for unread items - PRESERVE EXISTING DATA + PERSISTENCE + SYNC READ STATUS
   const fetchNotificationsWithUnreadPriority = useCallback(async () => {
     if (!authToken) {
       console.log('⚠️ No auth token for fetchNotificationsWithUnreadPriority');
@@ -882,8 +954,8 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
 
     try {
       console.log('🔥 SYNC: Step 1 - Fetching fresh unread notifications...');
-      // First, get unread notifications
-      const unreadResult = await notificationService.getUnreadPaginated(authToken, 0, 50); // Get more unread items
+      // First, get current unread notifications from server
+      const unreadResult = await notificationService.getUnreadPaginated(authToken, 0, 50);
       
       if ('error' in unreadResult) {
         console.error('❌ SYNC: Error fetching unread notifications:', unreadResult.error);
@@ -893,6 +965,9 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
 
       console.log(`✅ SYNC: Got ${unreadResult.data.length} unread notifications from server`);
       
+      // Create a Set of current unread notification IDs from server for quick lookup
+      const serverUnreadIds = new Set(unreadResult.data.map(n => n.id));
+      
       // Get existing notification IDs to avoid duplicates
       const existingIds = new Set(notifications.map(n => n.id));
       
@@ -900,24 +975,48 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       const newUnreadNotifications = unreadResult.data.filter(n => !existingIds.has(n.id));
       
       console.log(`📊 SYNC: New unread notifications to add: ${newUnreadNotifications.length}`);
+      console.log(`📊 SYNC: Server unread IDs: [${Array.from(serverUnreadIds).join(', ')}]`);
       
-      if (newUnreadNotifications.length > 0) {
-        // Merge new notifications with existing ones - put new unread at the top
+      // Update existing notifications AND add new ones
         setNotifications(prev => {
-          const updated = [...newUnreadNotifications, ...prev];
-          console.log(`📊 SYNC: Notifications updated: ${prev.length} + ${newUnreadNotifications.length} = ${updated.length}`);
-          return updated;
+        // Step 1: Update read status of existing notifications based on server state
+        const updatedExisting = prev.map(notification => {
+          // If notification exists on server as unread, keep it unread
+          if (serverUnreadIds.has(notification.id)) {
+            if (notification.read) {
+              console.log(`📖 SYNC: Marking notification ${notification.id} as unread (exists on server unread list)`);
+            }
+            return { ...notification, read: false };
+          } else {
+            // If notification doesn't exist in server unread list, mark it as read
+            if (!notification.read) {
+              console.log(`✅ SYNC: Marking notification ${notification.id} as read (not in server unread list)`);
+            }
+            return { ...notification, read: true };
+          }
         });
         
+        // Step 2: Add any new unread notifications at the top
+        const finalUpdated = [...newUnreadNotifications, ...updatedExisting];
+        
+        console.log(`📊 SYNC: Notifications updated:`, {
+          previousCount: prev.length,
+          newUnreadAdded: newUnreadNotifications.length,
+          finalCount: finalUpdated.length,
+          unreadAfterSync: finalUpdated.filter(n => !n.read).length,
+          readAfterSync: finalUpdated.filter(n => n.read).length
+        });
+        
+        return finalUpdated;
+        });
+        
+      // Update total count if we added new notifications
+      if (newUnreadNotifications.length > 0) {
         setTotalCount(prev => {
           const newTotal = prev + newUnreadNotifications.length;
           console.log(`📊 SYNC: Total count updated: ${prev} → ${newTotal}`);
           return newTotal;
         });
-        
-        console.log('✅ SYNC: Added new notifications to existing data (preserved!)');
-      } else {
-        console.log('ℹ️ SYNC: No new notifications to add - all up to date!');
       }
       
       // Always update unread count from server (most accurate)
@@ -930,15 +1029,23 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
           console.log('✅ SYNC: Unread count updated from server');
         } else {
           console.error('📊 SYNC: Server unread count error:', countResult.error);
-          // Keep existing unread count if server fails
-          console.log('📊 SYNC: Keeping existing unread count due to server error');
+          // Fallback to counting unread from our updated notifications
+          console.log('📊 SYNC: Using local count fallback after sync');
         }
       } catch (countError) {
         console.warn('⚠️ SYNC: Failed to get server unread count:', countError);
-        console.log('📊 SYNC: Keeping existing unread count due to error');
+        console.log('📊 SYNC: Using local count fallback after sync');
       }
 
-      console.log('🎉 SYNC: Priority refresh completed successfully!');
+      console.log('🎉 SYNC: Priority refresh with read status sync completed successfully!');
+
+      // Log final state for debugging persistence
+      console.log('💾 SYNC: Final notification state that will be saved:', {
+        totalNotifications: notifications.length,
+        unreadCount: unreadCount,
+        totalCount: totalCount,
+        willTriggerAutoSave: notifications.length > 0 || unreadCount > 0
+      });
 
     } catch (error) {
       console.error('❌ SYNC: Error in fetchNotificationsWithUnreadPriority:', error);
@@ -950,14 +1057,13 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     }
   }, [authToken, notifications, unreadCount, totalCount]);
 
-  // Initial fetch when logged in - RESPECT SAVED DATA
+  // Initial fetch when logged in - SIMPLIFIED WEB-INSPIRED APPROACH
   useEffect(() => {
     console.log('🔧 DEBUG: Initial fetch useEffect triggered with:', {
       isLoggedIn,
       authTokenExists: !!authToken,
       authTokenLength: authToken?.length || 0,
-      currentIsLoading: isLoading,
-      notificationsLength: notifications.length,
+      hasLoadedFromStorage,
       timestamp: new Date().toISOString()
     });
 
@@ -970,16 +1076,23 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       setHasMore(true);
       setTotalCount(0);
       setIsLoading(false);
+      setHasLoadedFromStorage(false); // Reset the flag when logging out
       return;
     }
 
-    // Don't fetch if we already have saved data (it will be loaded by the initialization effect)
-    if (notifications.length > 0) {
-      console.log('ℹ️ Already have notification data, skipping initial fetch');
+    // CRITICAL: Wait for AsyncStorage loading to complete before deciding whether to fetch
+    if (!hasLoadedFromStorage) {
+      console.log('⏳ Waiting for AsyncStorage loading to complete...');
       return;
     }
 
-    console.log('🚀 Starting initial notification fetch (no cached data)...');
+    // SIMPLIFIED: Only check once after login and storage loading is complete
+    // If we have data from storage, use it. If not, fetch fresh data.
+    console.log('✅ Storage loading complete. Current notifications in state:', notifications.length);
+    
+    if (notifications.length === 0) {
+      console.log('🚀 No cached data found, fetching fresh notifications...');
+      
     setIsLoading(true);
 
     const fetchInitialData = async () => {
@@ -1028,7 +1141,6 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
         
       } catch (error) {
         console.error('❌ Error in initial fetch:', error);
-        // On error, keep existing data - don't clear it
         console.log('⚠️ Keeping existing data due to initial fetch error');
       } finally {
         console.log('🔄 Initial fetch: Setting isLoading to false');
@@ -1039,7 +1151,10 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     };
 
     fetchInitialData();
-  }, [isLoggedIn, authToken, notifications.length]); // Added notifications.length to prevent fetch when we have data
+    } else {
+      console.log('ℹ️ Using cached notification data from storage, skipping initial fetch');
+    }
+  }, [isLoggedIn, authToken, hasLoadedFromStorage]); // REMOVED notifications.length - this was causing the infinite loop!
 
   // Manual test fetch for debugging - SIMPLE VERSION
   const manualTestFetch = useCallback(async () => {
@@ -1095,6 +1210,197 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     }
   }, [authToken, isLoggedIn]);
 
+  // NEW: Tab-specific pagination methods
+  const getTabPaginationState = useCallback((tab: 'all' | 'unread' | 'read') => {
+    return tabPaginationState[tab];
+  }, [tabPaginationState]);
+
+  const loadMoreNotificationsForTab = useCallback(async (tab: 'all' | 'unread' | 'read') => {
+    if (!authToken) {
+      console.log('⚠️ No auth token for loadMoreNotificationsForTab');
+      return;
+    }
+
+    const currentTabState = tabPaginationState[tab];
+    
+    if (currentTabState.isLoadingMore || !currentTabState.hasMore) {
+      console.log(`⚠️ Cannot load more for ${tab} tab:`, {
+        isLoadingMore: currentTabState.isLoadingMore,
+        hasMore: currentTabState.hasMore
+      });
+      return;
+    }
+
+    console.log(`📥 Loading more notifications for ${tab} tab...`);
+    
+    // Set loading state for this specific tab
+    setTabPaginationState(prev => ({
+      ...prev,
+      [tab]: { ...prev[tab], isLoadingMore: true }
+    }));
+
+    try {
+      const nextPage = currentTabState.currentPage + 1;
+      let result;
+
+      // Call appropriate API based on tab
+      switch (tab) {
+        case 'all':
+          result = await notificationService.getAllPaginated(authToken, nextPage, 25);
+          break;
+        case 'unread':
+          result = await notificationService.getUnreadPaginated(authToken, nextPage, 25);
+          break;
+        case 'read':
+          result = await notificationService.getReadPaginated(authToken, nextPage, 25);
+          break;
+        default:
+          throw new Error(`Invalid tab: ${tab}`);
+      }
+
+      if ('error' in result) {
+        console.error(`❌ Error loading more for ${tab} tab:`, result.error);
+        return;
+      }
+
+      console.log(`✅ Loaded ${result.data.length} more notifications for ${tab} tab`);
+
+      // Merge new notifications, avoiding duplicates
+      setNotifications(prev => {
+        const existingIds = new Set(prev.map(n => n.id));
+        const newNotifications = result.data.filter(n => !existingIds.has(n.id));
+        
+        if (newNotifications.length === 0) {
+          console.log(`⚠️ No new notifications to add for ${tab} tab (all duplicates)`);
+          return prev;
+        }
+        
+        const merged = [...prev, ...newNotifications];
+        console.log(`📊 Merged notifications for ${tab}: ${prev.length} + ${newNotifications.length} = ${merged.length}`);
+        return merged;
+      });
+
+      // Update tab-specific pagination state
+      setTabPaginationState(prev => ({
+        ...prev,
+        [tab]: {
+          ...prev[tab],
+          currentPage: result.currentPage,
+          hasMore: result.hasMore,
+          totalCount: result.total,
+          isLoadingMore: false
+        }
+      }));
+
+      // Update global pagination state if this is the 'all' tab
+      if (tab === 'all') {
+        setHasMore(result.hasMore);
+        setCurrentPage(result.currentPage);
+        setTotalCount(result.total);
+      }
+
+    } catch (error) {
+      console.error(`❌ Error in loadMoreNotificationsForTab (${tab}):`, error);
+    } finally {
+      // Always clear loading state for this tab
+      setTabPaginationState(prev => ({
+        ...prev,
+        [tab]: { ...prev[tab], isLoadingMore: false }
+      }));
+    }
+  }, [authToken, tabPaginationState]);
+
+  const refreshTabNotifications = useCallback(async (tab: 'all' | 'unread' | 'read') => {
+    if (!authToken) {
+      console.log('⚠️ No auth token for refreshTabNotifications');
+      return;
+    }
+
+    console.log(`🔄 Refreshing notifications for ${tab} tab...`);
+    setIsLoading(true);
+
+    try {
+      let result;
+      
+      // Call appropriate API based on tab
+      switch (tab) {
+        case 'all':
+          result = await notificationService.getAllPaginated(authToken, 0, 25);
+          break;
+        case 'unread':
+          result = await notificationService.getUnreadPaginated(authToken, 0, 25);
+          break;
+        case 'read':
+          result = await notificationService.getReadPaginated(authToken, 0, 25);
+          break;
+        default:
+          throw new Error(`Invalid tab: ${tab}`);
+      }
+
+      if ('error' in result) {
+        console.error(`❌ Error refreshing ${tab} tab:`, result.error);
+        return;
+      }
+
+      console.log(`✅ Refreshed ${result.data.length} notifications for ${tab} tab`);
+
+      // For 'all' tab, replace all notifications
+      // For specific tabs, merge intelligently with existing data
+      if (tab === 'all') {
+        setNotifications(result.data);
+        setHasMore(result.hasMore);
+        setCurrentPage(result.currentPage);
+        setTotalCount(result.total);
+      } else {
+        // For unread/read tabs, merge with existing notifications
+        setNotifications(prev => {
+          // Remove notifications of the same type (read/unread) and add new ones
+          const filteredExisting = prev.filter(n => {
+            if (tab === 'unread') return n.read; // Keep read notifications
+            if (tab === 'read') return !n.read; // Keep unread notifications
+            return true;
+          });
+          
+          // Add new notifications from this tab
+          const merged = [...result.data, ...filteredExisting];
+          
+          // Sort by timestamp (newest first)
+          merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          
+          return merged;
+        });
+      }
+
+      // Update tab-specific pagination state
+      setTabPaginationState(prev => ({
+        ...prev,
+        [tab]: {
+          currentPage: result.currentPage,
+          hasMore: result.hasMore,
+          totalCount: result.total,
+          isLoadingMore: false
+        }
+      }));
+
+      // Update unread count if needed
+      if (tab === 'all' || tab === 'unread') {
+        try {
+          const countResult = await notificationService.getUnreadCount(authToken);
+          if (!('error' in countResult)) {
+            setUnreadCount(countResult.data);
+          }
+        } catch (countError) {
+          console.warn(`⚠️ Failed to get unread count after ${tab} refresh:`, countError);
+        }
+      }
+
+    } catch (error) {
+      console.error(`❌ Error in refreshTabNotifications (${tab}):`, error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [authToken]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -1129,6 +1435,11 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     forceRefresh,
     fetchNotificationsWithUnreadPriority,
     manualTestFetch,
+    checkStoredData,
+    // NEW: Tab-specific pagination methods
+    loadMoreNotificationsForTab,
+    getTabPaginationState,
+    refreshTabNotifications,
   };
 
   return (

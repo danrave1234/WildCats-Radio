@@ -42,6 +42,9 @@ import {
 } from '../../services/apiService';
 import { chatService } from '../../services/chatService';
 import { pollService } from '../../services/pollService';
+// Audio streaming imports
+import { useAudioStreaming } from '../../hooks/useAudioStreaming';
+import streamService from '../../services/streamService';
 import '../../global.css';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
 
@@ -419,6 +422,19 @@ const BroadcastScreen: React.FC = () => {
   // Add user data state
   const [userData, setUserData] = useState<UserAuthData | null>(null);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  
+  // Audio streaming integration
+  const [streamingState, streamingActions] = useAudioStreaming();
+  const [isStreamLoaded, setIsStreamLoaded] = useState(false);
+  const [streamStatus, setStreamStatus] = useState<any>(null);
+  
+  // Audio visualizer animation
+  const visualizerBars = useRef([
+    new Animated.Value(0.3),
+    new Animated.Value(0.5),
+    new Animated.Value(0.4),
+    new Animated.Value(0.6),
+  ]).current;
 
   // Early safety check for auth context - AFTER all hooks are called
   if (!authContext) {
@@ -451,7 +467,7 @@ const BroadcastScreen: React.FC = () => {
         } else {
           console.log('✅ User data fetched successfully:', { id: result.id, name: result.name });
           setUserData(result);
-          setCurrentUserId(result.id);
+          setCurrentUserId(result.id ? parseInt(result.id.toString(), 10) : null);
         }
       } catch (error) {
         console.error('❌ Error fetching user data:', error);
@@ -938,6 +954,124 @@ const BroadcastScreen: React.FC = () => {
     }
   }, [authToken, routeBroadcastId, authContext]);
 
+  // Audio streaming effects
+  useEffect(() => {
+    const loadStreamConfig = async () => {
+      if (!currentBroadcast || currentBroadcast.status !== 'LIVE') {
+        return;
+      }
+
+      try {
+        console.log('🎵 Loading stream configuration...');
+        const config = await streamService.getStreamConfig();
+        const status = await streamService.getStreamStatus();
+        
+        setStreamStatus(status);
+        
+        // Only load if stream is actually live and we haven't loaded it yet
+        if (config.isLive && status.live && config.streamUrl && !isStreamLoaded) {
+          console.log('🎵 Stream is live, loading audio stream...');
+          await streamingActions.updateStreamConfig(config);
+          await streamingActions.loadStream(config.streamUrl);
+          setIsStreamLoaded(true);
+          
+          // Auto-play if in listening mode
+          if (isListening) {
+            console.log('🎵 Auto-starting playback for live broadcast...');
+            await streamingActions.play();
+          }
+        } else if (!config.isLive || !status.live) {
+          // Reset stream loaded state if stream goes offline
+          setIsStreamLoaded(false);
+          console.log('📻 Stream is offline, stopping audio...');
+          await streamingActions.stop();
+        }
+      } catch (error) {
+        console.error('❌ Failed to load stream configuration:', error);
+      }
+    };
+
+    loadStreamConfig();
+  }, [currentBroadcast?.status, currentBroadcast?.id, streamingActions, isListening, isStreamLoaded]); // Added dependencies to prevent excessive calls
+
+  // Audio visualizer animation effect
+  useEffect(() => {
+    const animateVisualizer = () => {
+      if (streamingState.isPlaying && !streamingState.isBuffering) {
+        // Create staggered animation for each bar
+        const animations = visualizerBars.map((bar, index) => 
+          Animated.loop(
+            Animated.sequence([
+              Animated.timing(bar, {
+                toValue: Math.random() * 0.7 + 0.3, // Random height between 0.3 and 1.0
+                duration: 200 + (index * 50), // Staggered timing
+                useNativeDriver: false,
+              }),
+              Animated.timing(bar, {
+                toValue: Math.random() * 0.5 + 0.2, // Different random height
+                duration: 150 + (index * 30),
+                useNativeDriver: false,
+              }),
+            ])
+          )
+        );
+        
+        // Start all animations
+        animations.forEach(animation => animation.start());
+        
+        return () => {
+          animations.forEach(animation => animation.stop());
+        };
+      } else {
+        // Reset bars to idle state
+        visualizerBars.forEach((bar, index) => {
+          Animated.timing(bar, {
+            toValue: 0.3 + (index * 0.1), // Idle heights
+            duration: 300,
+            useNativeDriver: false,
+          }).start();
+        });
+      }
+    };
+
+    const cleanup = animateVisualizer();
+    return cleanup;
+  }, [streamingState.isPlaying, streamingState.isBuffering, visualizerBars]);
+
+  // Stream status monitoring effect
+  useEffect(() => {
+    const monitorStreamStatus = async () => {
+      if (!currentBroadcast || currentBroadcast.status !== 'LIVE') return;
+      
+      try {
+        const status = await streamService.getStreamStatus();
+        setStreamStatus(status);
+        
+        // Auto-load stream when broadcast goes live
+        if (status.live && !isStreamLoaded && currentBroadcast.status === 'LIVE') {
+          console.log('🎵 Broadcast went live, loading stream...');
+          const config = await streamService.getStreamConfig();
+          await streamingActions.updateStreamConfig(config);
+          await streamingActions.loadStream(config.streamUrl);
+          setIsStreamLoaded(true);
+        }
+      } catch (error) {
+        console.error('❌ Error monitoring stream status:', error);
+      }
+    };
+
+    // Only monitor if broadcast is live
+    if (currentBroadcast?.status === 'LIVE') {
+      // Monitor every 60 seconds (reduced from 30 seconds)
+      const interval = setInterval(monitorStreamStatus, 60000);
+      
+      // Initial check
+      monitorStreamStatus();
+      
+      return () => clearInterval(interval);
+    }
+  }, [currentBroadcast?.status, currentBroadcast?.id, isStreamLoaded, streamingActions]); // More specific dependencies
+
   // Start polling for broadcast status updates
   const startPolling = useCallback(() => {
     if (pollIntervalRef.current) {
@@ -1020,7 +1154,24 @@ const BroadcastScreen: React.FC = () => {
   }, [isWebSocketConnected, currentBroadcast?.id, authToken]);
 
   const handleSendChatMessage = async () => {
-    if (!authToken || !currentBroadcast || !chatInput.trim()) return;
+    // Enhanced debugging for chat message sending
+    console.log('🔍 [DEBUG] Chat Send - Starting message send process...');
+    console.log('🔍 [DEBUG] Chat Send - Auth Token exists:', !!authToken);
+    console.log('🔍 [DEBUG] Chat Send - Current Broadcast exists:', !!currentBroadcast);
+    console.log('🔍 [DEBUG] Chat Send - Current Broadcast ID:', currentBroadcast?.id);
+    console.log('🔍 [DEBUG] Chat Send - Chat Input length:', chatInput.trim().length);
+    console.log('🔍 [DEBUG] Chat Send - Chat Input content:', `"${chatInput.trim()}"`);
+    console.log('🔍 [DEBUG] Chat Send - Current User ID:', currentUserId);
+    console.log('🔍 [DEBUG] Chat Send - Listener Name:', listenerName);
+    console.log('🔍 [DEBUG] Chat Send - WebSocket Connected:', isWebSocketConnected);
+    
+    if (!authToken || !currentBroadcast || !chatInput.trim()) {
+      console.log('❌ [DEBUG] Chat Send - Early return due to missing requirements');
+      console.log('❌ [DEBUG] Chat Send - Auth Token:', !!authToken);
+      console.log('❌ [DEBUG] Chat Send - Current Broadcast:', !!currentBroadcast);
+      console.log('❌ [DEBUG] Chat Send - Chat Input Valid:', !!chatInput.trim());
+      return;
+    }
     
     const messageToSend = chatInput;
     setChatInput(''); // Clear input immediately
@@ -1028,20 +1179,31 @@ const BroadcastScreen: React.FC = () => {
     
     try {
       // Use chatService like frontend
-      console.log('🚀 Sending via chatService');
+      console.log('🚀 [DEBUG] Chat Send - Sending via chatService');
+      console.log('🚀 [DEBUG] Chat Send - Payload:', { content: messageToSend });
+      console.log('🚀 [DEBUG] Chat Send - Broadcast ID:', currentBroadcast.id);
+      console.log('🚀 [DEBUG] Chat Send - Auth Token Preview:', authToken.substring(0, 20) + '...');
+      
       const result = await chatService.sendMessage(currentBroadcast.id, { content: messageToSend }, authToken);
       
+      console.log('📨 [DEBUG] Chat Send - Result received:', result);
+      
       if ('error' in result) {
-        console.error('❌ Failed to send message:', result.error);
+        console.error('❌ [DEBUG] Chat Send - Failed to send message:', result.error);
         // Show error message to user
         setChatInput(messageToSend); // Restore the message
-        Alert.alert("Error", result.error || "Failed to send message. Please try again.");
+        Alert.alert("Chat Error", result.error || "Failed to send message. Please try again.");
       } else {
-        console.log('✅ Message sent successfully via chatService');
+        console.log('✅ [DEBUG] Chat Send - Message sent successfully via chatService');
+        console.log('✅ [DEBUG] Chat Send - Message ID:', result.data.id);
+        console.log('✅ [DEBUG] Chat Send - Message Sender:', result.data.sender);
+        
         // Message will appear via WebSocket when server broadcasts it
         // Track this as our own message FIRST to prevent left-side flicker
         setUserMessageIds(prev => {
           const newSet = new Set([...prev, result.data.id]);
+          console.log('🏷️ [DEBUG] Chat Send - Added message ID to userMessageIds:', result.data.id);
+          console.log('🏷️ [DEBUG] Chat Send - Updated userMessageIds size:', newSet.size);
           return newSet;
         });
         
@@ -1050,22 +1212,26 @@ const BroadcastScreen: React.FC = () => {
           // Check if message already exists (avoid duplicates)
           const exists = prev.some(msg => msg.id === result.data.id);
           if (exists) {
+            console.log('⚠️ [DEBUG] Chat Send - Message already exists in chat, skipping add');
             return prev;
           }
           
           // Add new message and sort by timestamp
           const newMessages = [...prev, result.data];
-          return newMessages.sort((a, b) => 
+          const sortedMessages = newMessages.sort((a, b) => 
             new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
           );
+          console.log('✅ [DEBUG] Chat Send - Added message to chat list, total messages:', sortedMessages.length);
+          return sortedMessages;
         });
       }
     } catch (error) {
-      console.error('❌ Error sending message:', error);
+      console.error('❌ [DEBUG] Chat Send - Exception occurred:', error);
       setChatInput(messageToSend); // Restore the message
-      Alert.alert("Error", "Failed to send message. Please check your connection and try again.");
+      Alert.alert("Chat Error", "Failed to send message. Please check your connection and try again.");
     } finally {
       setIsSubmitting(false);
+      console.log('🏁 [DEBUG] Chat Send - Process completed');
     }
   };
 
@@ -1630,6 +1796,26 @@ const BroadcastScreen: React.FC = () => {
     if (!currentBroadcast || currentBroadcast.status !== 'LIVE' || !nowPlayingInfo) {
       return null; // Don't render if not live or no song info
     }
+
+    // Helper function to get connection status info
+    const getConnectionStatus = () => {
+      if (streamingState.error) {
+        return { color: 'bg-red-500', textColor: 'text-red-600', text: 'Audio Error', icon: 'warning-outline' };
+      }
+      if (streamingState.isLoading || streamingState.isBuffering) {
+        return { color: 'bg-yellow-500', textColor: 'text-yellow-600', text: 'Buffering...', icon: 'refresh-outline' };
+      }
+      if (streamingState.isPlaying) {
+        return { color: 'bg-green-500', textColor: 'text-green-600', text: 'Playing • Crystal Clear HD', icon: 'play-circle' };
+      }
+      if (isStreamLoaded) {
+        return { color: 'bg-blue-500', textColor: 'text-blue-600', text: 'Ready to Play', icon: 'pause-circle' };
+      }
+      return { color: 'bg-gray-500', textColor: 'text-gray-600', text: 'Stream Loading...', icon: 'radio-outline' };
+    };
+
+    const connectionStatus = getConnectionStatus();
+
     return (
       <View className="mx-4 my-2 bg-white rounded-2xl shadow-lg overflow-hidden">
         {/* Live Badge */}
@@ -1660,7 +1846,7 @@ const BroadcastScreen: React.FC = () => {
           </View>
 
           {/* Now Playing Section */}
-          <View className="bg-gray-50 rounded-xl p-3">
+          <View className="bg-gray-50 rounded-xl p-3 mb-3">
             <View className="flex-row items-center justify-between">
               <View className="flex-1">
                 <View className="flex-row items-center mb-1">
@@ -1678,32 +1864,160 @@ const BroadcastScreen: React.FC = () => {
                 </Text>
               </View>
               
-              {/* Audio Visualizer */}
+              {/* Enhanced Audio Visualizer */}
               <View className="flex-row items-end space-x-1 ml-3">
-                {[...Array(3)].map((_, i) => (
-                  <View
-                    key={i}
-                    className={`bg-cordovan rounded-full w-1 ${
-                      i % 2 === 0 ? 'h-3' : 'h-2'
-                    }`}
-                    style={{ opacity: 0.7 }}
+                {visualizerBars.map((bar, index) => (
+                  <Animated.View
+                    key={index}
+                    className="bg-cordovan rounded-full w-1.5"
+                    style={{
+                      height: bar.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [8, 24], // Dynamic height range
+                      }),
+                      opacity: streamingState.isPlaying ? 0.9 : 0.4,
+                    }}
                   />
                 ))}
               </View>
             </View>
           </View>
 
-          {/* Connection Status */}
-          <View className="flex-row items-center justify-center mt-3">
-            <View className={`w-2 h-2 rounded-full mr-2 ${
-              isWebSocketConnected ? 'bg-green-500' : 'bg-orange-500'
-            }`} />
-            <Text className={`text-xs font-medium ${
-              isWebSocketConnected ? 'text-green-600' : 'text-orange-600'
-            }`}>
-              {isWebSocketConnected ? 'Connected • Crystal Clear HD' : 'Connecting...'}
-            </Text>
+          {/* Audio Controls Section */}
+          <View className="bg-gray-50 rounded-xl p-3 mb-3">
+            <View className="flex-row items-center justify-between">
+              {/* Play/Pause Button */}
+              <TouchableOpacity
+                onPress={async () => {
+                  try {
+                    // Check if stream is actually live before attempting to play
+                    if (!streamStatus?.live && !streamingState.streamConfig?.isLive) {
+                      Alert.alert(
+                        'Stream Offline',
+                        'The audio stream is currently offline. Please wait for the broadcast to go live.'
+                      );
+                      return;
+                    }
+                    
+                    if (!isStreamLoaded && streamingState.streamConfig?.streamUrl) {
+                      console.log('🎵 Loading stream before play...');
+                      await streamingActions.loadStream(streamingState.streamConfig.streamUrl);
+                    }
+                    await streamingActions.togglePlayPause();
+                  } catch (error) {
+                    console.error('❌ Error toggling playback:', error);
+                    Alert.alert(
+                      'Playback Error', 
+                      'Unable to play audio. The stream may be offline or experiencing technical difficulties.'
+                    );
+                  }
+                }}
+                disabled={streamingState.isLoading}
+                className={`w-12 h-12 rounded-full items-center justify-center ${
+                  streamingState.isPlaying 
+                    ? 'bg-yellow-500 active:bg-yellow-600' 
+                    : streamingState.isLoading 
+                    ? 'bg-gray-400' 
+                    : (!streamStatus?.live || !streamingState.streamConfig?.isLive)
+                    ? 'bg-gray-400'  // Gray when offline
+                    : 'bg-green-500 active:bg-green-600'
+                }`}
+                style={{
+                  shadowColor: streamingState.isPlaying ? '#EAB308' : '#10B981',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 4,
+                  elevation: 4,
+                }}
+              >
+                {streamingState.isLoading ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Ionicons 
+                    name={streamingState.isPlaying ? "pause" : "play"} 
+                    size={20} 
+                    color="white" 
+                  />
+                )}
+              </TouchableOpacity>
+
+              {/* Volume Control */}
+              <View className="flex-1 mx-4">
+                <View className="flex-row items-center">
+                  <TouchableOpacity
+                    onPress={() => streamingActions.setMuted(!streamingState.isMuted)}
+                    className="mr-2"
+                  >
+                    <Ionicons 
+                      name={streamingState.isMuted ? "volume-mute" : "volume-medium"} 
+                      size={16} 
+                      color="#6B7280" 
+                    />
+                  </TouchableOpacity>
+                  
+                  <View className="flex-1 bg-gray-300 h-1 rounded-full">
+                    <View 
+                      className="bg-cordovan h-1 rounded-full" 
+                      style={{ width: `${streamingState.isMuted ? 0 : streamingState.volume}%` }}
+                    />
+                  </View>
+                  
+                  <Text className="ml-2 text-xs text-gray-600 w-8 text-right">
+                    {streamingState.isMuted ? '0' : Math.round(streamingState.volume)}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Refresh Stream Button */}
+              <TouchableOpacity
+                onPress={async () => {
+                  try {
+                    console.log('🔄 Refreshing stream...');
+                    await streamingActions.refreshStream();
+                  } catch (error) {
+                    console.error('❌ Error refreshing stream:', error);
+                  }
+                }}
+                className="w-8 h-8 rounded-full bg-gray-200 items-center justify-center active:bg-gray-300"
+              >
+                <Ionicons name="refresh" size={14} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
           </View>
+
+          {/* Connection Status */}
+          <View className="flex-row items-center justify-center">
+            <View className={`w-2 h-2 rounded-full mr-2 ${connectionStatus.color}`} />
+            <Text className={`text-xs font-medium ${connectionStatus.textColor}`}>
+              {connectionStatus.text}
+            </Text>
+            
+            {/* Error Display */}
+            {streamingState.error && (
+              <TouchableOpacity 
+                onPress={() => Alert.alert('Audio Error', streamingState.error || 'Unknown error')}
+                className="ml-2"
+              >
+                <Ionicons name="information-circle-outline" size={14} color="#EF4444" />
+              </TouchableOpacity>
+            )}
+            
+            {/* Listener Count */}
+            {streamingState.listenerCount > 0 && (
+              <Text className="text-xs text-gray-500 ml-2">
+                • {streamingState.listenerCount} listening
+              </Text>
+            )}
+          </View>
+
+          {/* Stream Info */}
+          {streamStatus && (
+            <View className="mt-2 pt-2 border-t border-gray-200">
+              <Text className="text-xs text-gray-500 text-center">
+                Server: {streamStatus.live ? '🟢' : '🔴'} {streamingState.streamConfig?.serverIp || '34.142.131.206'}:{streamingState.streamConfig?.icecastPort || 8000}
+              </Text>
+            </View>
+          )}
         </View>
       </View>
     );
@@ -1940,6 +2254,36 @@ const BroadcastScreen: React.FC = () => {
                 </Text>
               </View>
             </View>
+
+            {/* Audio Streaming Debug Info - Shows current state */}
+            {__DEV__ && (
+              <View className="mt-4 bg-blue-50 border border-blue-200 rounded-2xl p-4">
+                <Text className="text-blue-800 font-bold text-sm mb-2">🎵 Audio Streaming Debug</Text>
+                <Text className="text-blue-700 text-xs">
+                  Stream Loaded: {isStreamLoaded ? '✅ Yes' : '❌ No'}
+                </Text>
+                <Text className="text-blue-700 text-xs">
+                  Is Playing: {streamingState.isPlaying ? '▶️ Playing' : '⏸️ Stopped'}
+                </Text>
+                <Text className="text-blue-700 text-xs">
+                  Is Loading: {streamingState.isLoading ? '⏳ Loading' : '✅ Ready'}
+                </Text>
+                <Text className="text-blue-700 text-xs">
+                  Volume: {streamingState.volume}% {streamingState.isMuted ? '(Muted)' : ''}
+                </Text>
+                <Text className="text-blue-700 text-xs">
+                  Stream URL: {streamingState.streamConfig?.streamUrl ? '✅ Available' : '❌ Missing'}
+                </Text>
+                <Text className="text-blue-700 text-xs">
+                  Server Status: {streamStatus?.live ? '🟢 Live' : '🔴 Offline'} | {streamStatus?.server || 'Unknown'}
+                </Text>
+                {streamingState.error && (
+                  <Text className="text-red-600 text-xs mt-1">
+                    Error: {streamingState.error}
+                  </Text>
+                )}
+              </View>
+            )}
           </ScrollView>
           </View>
 

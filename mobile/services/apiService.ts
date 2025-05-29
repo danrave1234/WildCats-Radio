@@ -1,5 +1,5 @@
 //const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.autoidleapp.com/api'; // Adjusted base URL
-const API_BASE_URL = 'http://192.168.5.60:8080/api';
+const API_BASE_URL = 'http://192.168.34.212:8080/api';
 //const API_BASE_URL = 'http://10.0.2.2:8080/api'; // For Android emulator, use this if running on localhost
 interface AuthResponse {
   token?: string; // Assuming your API returns a token
@@ -412,21 +412,59 @@ export const getChatMessages = async (broadcastId: number, token: string): Promi
 
 export const sendChatMessage = async (broadcastId: number, payload: SendChatMessagePayload, token: string): Promise<ChatMessageDTO | { error: string }> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/chats/${broadcastId}`, {
+    console.log('🌐 [DEBUG] API: Starting sendChatMessage...');
+    console.log('🌐 [DEBUG] API: Broadcast ID:', broadcastId);
+    console.log('🌐 [DEBUG] API: Payload:', payload);
+    console.log('🌐 [DEBUG] API: Token exists:', !!token);
+    console.log('🌐 [DEBUG] API: Token length:', token.length);
+    console.log('🌐 [DEBUG] API: API_BASE_URL:', API_BASE_URL);
+    
+    const url = `${API_BASE_URL}/chats/${broadcastId}`;
+    console.log('🌐 [DEBUG] API: Request URL:', url);
+    
+    const requestOptions = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify(payload),
+    };
+    console.log('🌐 [DEBUG] API: Request options:', {
+      method: requestOptions.method,
+      headers: { ...requestOptions.headers, Authorization: `Bearer ${token.substring(0, 20)}...` },
+      body: requestOptions.body,
     });
+    
+    console.log('🌐 [DEBUG] API: Making fetch request...');
+    const response = await fetch(url, requestOptions);
+    
+    console.log('📡 [DEBUG] API: Response received');
+    console.log('📡 [DEBUG] API: Response status:', response.status);
+    console.log('📡 [DEBUG] API: Response ok:', response.ok);
+    console.log('📡 [DEBUG] API: Response headers:', Object.fromEntries(response.headers.entries()));
+    
     const data = await response.json();
+    console.log('📦 [DEBUG] API: Response data:', data);
+    
     if (!response.ok) {
-      return { error: data.message || data.error || `Failed to send chat message. Status: ${response.status}` };
+      const errorMessage = data.message || data.error || `Failed to send chat message. Status: ${response.status}`;
+      console.error('❌ [DEBUG] API: Request failed:', errorMessage);
+      console.error('❌ [DEBUG] API: Response data for failed request:', data);
+      return { error: errorMessage };
     }
+    
+    console.log('✅ [DEBUG] API: Message sent successfully');
+    console.log('✅ [DEBUG] API: Returned message ID:', data.id);
+    console.log('✅ [DEBUG] API: Returned message content:', data.content);
+    
     return data as ChatMessageDTO;
   } catch (error) {
-    console.error('SendChatMessage API error:', error);
+    console.error('❌ [DEBUG] API: Exception in sendChatMessage:', error);
+    console.error('❌ [DEBUG] API: Error type:', typeof error);
+    console.error('❌ [DEBUG] API: Error name:', error instanceof Error ? error.name : 'Unknown');
+    console.error('❌ [DEBUG] API: Error message:', error instanceof Error ? error.message : String(error));
+    
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
     return { error: errorMessage };
   }

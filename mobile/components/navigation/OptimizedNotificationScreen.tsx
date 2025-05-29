@@ -259,6 +259,13 @@ interface OptimizedNotificationScreenProps {
   onMarkAllAsRead: () => void;
   onTabChange: (tab: string) => void;
   onLoadMore: () => void;
+  onLoadMoreForTab: (tab: 'all' | 'unread' | 'read') => void;
+  getTabPaginationState: (tab: 'all' | 'unread' | 'read') => {
+    currentPage: number;
+    hasMore: boolean;
+    isLoadingMore: boolean;
+    totalCount: number;
+  };
   onAnimationStart?: () => void;
   onAnimationComplete?: () => void;
   getNotificationIcon: (type: string) => string;
@@ -280,6 +287,8 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
   onMarkAllAsRead,
   onTabChange,
   onLoadMore,
+  onLoadMoreForTab,
+  getTabPaginationState,
   onAnimationStart,
   onAnimationComplete,
   getNotificationIcon,
@@ -593,6 +602,9 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
 
   // Footer component - CONSISTENT FOR ALL TABS WITH SMOOTH ANIMATIONS
   const FooterComponent = useMemo(() => {
+    // Get tab-specific pagination state
+    const tabState = getTabPaginationState(selectedTab as 'all' | 'unread' | 'read');
+    
     if (isLoading && filteredNotifications.length === 0) {
       return null; // Don't show footer during initial load
     }
@@ -602,7 +614,7 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
     }
 
     // Show loading indicator when loading more - WITH SMOOTH FADE
-    if (isLoadingMore) {
+    if (tabState.isLoadingMore) {
       return (
         <Animated.View style={{
           padding: 20,
@@ -632,7 +644,7 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
     }
 
     // Show "all loaded" message when no more data
-    if (!hasMore) {
+    if (!tabState.hasMore) {
       return (
         <Animated.View style={{
           padding: 20,
@@ -666,18 +678,21 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
 
     // Return null when there are more items (let infinite scroll handle it)
     return null;
-  }, [isLoading, isLoadingMore, hasMore, totalCount, filteredNotifications.length, selectedTab]);
+  }, [isLoading, filteredNotifications.length, selectedTab, getTabPaginationState]);
 
-  // Handle end reached for infinite scroll - SMART LOADING FOR FILTERED TABS
+  // Handle end reached for infinite scroll - TAB-SPECIFIC SMART LOADING
   const handleEndReached = useCallback(() => {
+    // Get tab-specific pagination state
+    const tabState = getTabPaginationState(selectedTab as 'all' | 'unread' | 'read');
+    
     // Add multiple safety checks to prevent duplicate calls
-    if (isLoadingMore) {
-      console.log('⚠️ Already loading more, ignoring onEndReached');
+    if (tabState.isLoadingMore) {
+      console.log(`⚠️ Already loading more for ${selectedTab} tab, ignoring onEndReached`);
       return;
     }
     
-    if (!hasMore) {
-      console.log('⚠️ No more data available, ignoring onEndReached');
+    if (!tabState.hasMore) {
+      console.log(`⚠️ No more data available for ${selectedTab} tab, ignoring onEndReached`);
       return;
     }
     
@@ -703,17 +718,19 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
       });
     }
     
-    console.log('📱 End reached, loading more notifications...', {
+    console.log(`📱 End reached for ${selectedTab} tab, loading more notifications...`, {
       currentCount: filteredNotifications.length,
-      hasMore,
-      isLoadingMore,
+      hasMore: tabState.hasMore,
+      isLoadingMore: tabState.isLoadingMore,
       selectedTab,
       isFilteredTab,
-      shouldLoadEarly
+      shouldLoadEarly,
+      currentPage: tabState.currentPage
     });
     
-    onLoadMore();
-  }, [isLoadingMore, hasMore, filteredNotifications.length, onLoadMore, selectedTab]);
+    // Use tab-specific loading function
+    onLoadMoreForTab(selectedTab as 'all' | 'unread' | 'read');
+  }, [filteredNotifications.length, onLoadMoreForTab, selectedTab, getTabPaginationState]);
 
   // Animate tab changes
   const handleTabChange = useCallback((newTab: string) => {
