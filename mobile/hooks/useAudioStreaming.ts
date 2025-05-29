@@ -105,15 +105,14 @@ export const useAudioStreaming = (): [StreamingState, StreamingActions] => {
         // App came to foreground
         logger.debug('App came to foreground');
         
-        // Restore playback if it was playing before
-        if (wasPlayingBeforeBackground.current && streamingState.streamConfig?.streamUrl) {
-          logger.debug('Restoring playback after foreground');
-          await audioStreamingService.refreshStream();
-        }
+        // Don't automatically refresh - let the user control playback
+        // This prevents conflicts and disconnections
+        logger.debug('App returned to foreground - audio state preserved');
       } else if (appState.current === 'active' && nextAppState.match(/inactive|background/)) {
         // App went to background
         logger.debug('App went to background');
         wasPlayingBeforeBackground.current = streamingState.isPlaying;
+        // Audio will continue playing in background thanks to staysActiveInBackground: true
       }
 
       appState.current = nextAppState;
@@ -121,7 +120,7 @@ export const useAudioStreaming = (): [StreamingState, StreamingActions] => {
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription?.remove();
-  }, [streamingState.isPlaying, streamingState.streamConfig]);
+  }, [streamingState.isPlaying]); // Simplified dependencies
 
   // Actions
   const actions: StreamingActions = {

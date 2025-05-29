@@ -465,8 +465,19 @@ const BroadcastScreen: React.FC = () => {
         return;
       }
 
+      // Don't reinitialize if stream is already ready and playing
+      if (isStreamReady && streamingState.isPlaying) {
+        console.log('🎵 Stream already ready and playing, skipping initialization');
+        return;
+      }
+
+      // Don't reinitialize if already loading to prevent conflicts
+      if (streamingState.isLoading) {
+        console.log('🎵 Stream already loading, skipping duplicate initialization');
+        return;
+      }
+
       try {
-        setIsStreamReady(false);
         console.log('🎵 Initializing MP3 audio stream for broadcast:', currentBroadcast.id);
         
         // Get stream configuration (always MP3 for mobile)
@@ -476,44 +487,6 @@ const BroadcastScreen: React.FC = () => {
         // Use MP3 stream exclusively for mobile
         const mp3StreamUrl = 'https://icecast.software/live.mp3';
         console.log('🎵 Using MP3 stream exclusively for mobile:', mp3StreamUrl);
-        
-        // Test MP3 stream availability
-        console.log('🔍 Testing MP3 stream availability...');
-        let mp3Available = await streamService.isMp3StreamAvailable();
-        
-        // If the detailed test fails, try a simpler approach
-        if (!mp3Available) {
-          console.log('🔄 Detailed MP3 test failed, trying simpler connectivity check...');
-          mp3Available = await streamService.isMp3StreamAvailableSimple();
-        }
-        
-        // If both tests fail but we have a live broadcast, assume stream should be available
-        if (!mp3Available && currentBroadcast.status === 'LIVE') {
-          console.log('🎵 Broadcast is LIVE but tests failed - assuming MP3 stream should be available');
-          mp3Available = streamService.assumeMp3StreamAvailable();
-        }
-        
-        if (!mp3Available) {
-          console.log('⚠️ MP3 stream not currently available (broadcast may not be active)');
-          // Don't show alert, just update the stream status to indicate waiting for stream
-          setStreamStatus({
-            isLive: currentBroadcast.status === 'LIVE',
-            listenerCount: config.listenerCount || 0,
-            streamUrl: mp3StreamUrl,
-          });
-          
-          // Set a placeholder stream config but don't load it yet
-          await streamingActions.updateStreamConfig({
-            ...config,
-            streamUrl: mp3StreamUrl,
-            isLive: false, // Mark as not live since stream isn't available
-          });
-          
-          console.log('📡 Stream configured but not available yet - waiting for broadcast to start');
-          return;
-        }
-
-        console.log('✅ MP3 stream is available and ready');
         
         // Update stream config in audio service
         await streamingActions.updateStreamConfig({
@@ -557,8 +530,9 @@ const BroadcastScreen: React.FC = () => {
       }
     };
 
+    // Only initialize once per broadcast
     initializeStream();
-  }, [currentBroadcast?.id, currentBroadcast?.status]);
+  }, [currentBroadcast?.id, currentBroadcast?.status]); // Removed isStreamReady and streamingState.isPlaying dependencies to prevent loops
 
   // Periodic check for MP3 stream availability when broadcast is live but stream not ready
   useEffect(() => {
@@ -571,27 +545,16 @@ const BroadcastScreen: React.FC = () => {
     const checkInterval = setInterval(async () => {
       try {
         console.log('🔍 Checking if MP3 stream is now available...');
-        let mp3Available = await streamService.isMp3StreamAvailable();
         
-        // If the detailed test fails, try simpler approaches
-        if (!mp3Available) {
-          console.log('🔄 Detailed test failed, trying simpler connectivity check...');
-          mp3Available = await streamService.isMp3StreamAvailableSimple();
-        }
+        // Simplified check - just try to load the stream directly
+        // This is less aggressive than the previous approach
+        const mp3StreamUrl = 'https://icecast.software/live.mp3';
         
-        // If we have a live broadcast, be more optimistic about stream availability
-        if (!mp3Available && currentBroadcast?.status === 'LIVE') {
-          console.log('🎵 Broadcast is LIVE - assuming MP3 stream should be available');
-          mp3Available = streamService.assumeMp3StreamAvailable();
-        }
-        
-        if (mp3Available) {
-          console.log('✅ MP3 stream is now available! Loading...');
-          clearInterval(checkInterval);
-          
-          // Load the stream
-          const mp3StreamUrl = 'https://icecast.software/live.mp3';
+        try {
           await streamingActions.loadStream(mp3StreamUrl);
+          
+          console.log('✅ MP3 stream is now available! Loaded successfully.');
+          clearInterval(checkInterval);
           
           // Update stream status
           setStreamStatus(prev => ({
@@ -604,13 +567,13 @@ const BroadcastScreen: React.FC = () => {
             setIsStreamReady(true);
             console.log('✅ MP3 stream automatically loaded and ready');
           }, 1000);
-        } else {
+        } catch (error) {
           console.log('📡 MP3 stream still not available, will check again...');
         }
       } catch (error) {
         console.error('❌ Error checking MP3 stream availability:', error);
       }
-    }, 10000); // Check every 10 seconds
+    }, 30000); // Check every 30 seconds instead of 10 to be less aggressive
 
     // Cleanup interval on unmount or when dependencies change
     return () => {
@@ -735,64 +698,51 @@ const BroadcastScreen: React.FC = () => {
     }
   }, [streamingState.isPlaying, currentBroadcast?.id, currentUserId, userData]);
 
-  // Custom volume setter with validation
-  const handleVolumeChange = useCallback(async (newVolume: number) => {
-    const clampedVolume = Math.max(0, Math.min(100, newVolume));
-    await streamingActions.setVolume(clampedVolume);
-    
-    // Auto-unmute if volume is increased from 0
-    if (streamingState.isMuted && clampedVolume > 0) {
-      await streamingActions.setMuted(false);
-    }
-  }, [streamingActions, streamingState.isMuted]);
-
   // Custom play function with better error handling
   const handlePlayPause = useCallback(async () => {
-    console.log('🎵 Play/Pause requested. Stream ready:', isStreamReady, 'Current state:', streamingState.isPlaying);
+    console.log('🎵 Play/Pause requested. Current audio state:', streamingState.isPlaying, 'Loading:', streamingState.isLoading);
     
     if (!currentBroadcast || currentBroadcast.status !== 'LIVE') {
       Alert.alert('Stream Unavailable', 'The broadcast is not currently live. Please check back later.');
       return;
     }
 
-    // Check if MP3 stream is available before trying to play
-    if (!isStreamReady && !streamingState.isLoading) {
-      console.log('⚠️ Stream not ready yet, checking MP3 availability...');
-      
-      try {
-        const mp3Available = await streamService.isMp3StreamAvailable();
-        
-        if (!mp3Available) {
-          console.log('📡 MP3 stream still not available - broadcast may not have started streaming yet');
-          Alert.alert(
-            'Stream Starting Up', 
-            'The audio stream is not ready yet. The DJ may still be setting up the broadcast. Please try again in a moment.',
-            [{ text: 'OK', style: 'default' }]
-          );
-          return;
-        }
-        
-        // Stream is now available, try to load it
-        console.log('✅ MP3 stream is now available, loading...');
-        setIsStreamReady(false);
-        await streamingActions.loadStream('https://icecast.software/live.mp3');
-        
-        // Wait a moment and try again
-        setTimeout(async () => {
-          setIsStreamReady(true);
-          await streamingActions.togglePlayPause();
-        }, 1000);
-      } catch (error) {
-        console.error('❌ Failed to check/load stream:', error);
-        Alert.alert('Connection Error', 'Unable to connect to the audio stream. Please check your internet connection and try again.');
-      }
+    // Prevent rapid clicking
+    if (streamingState.isLoading) {
+      console.log('🎵 Already loading, ignoring click');
       return;
     }
 
     try {
-      await streamingActions.togglePlayPause();
+      // If stream is ready or already playing, just toggle
+      if (isStreamReady || streamingState.isPlaying) {
+        console.log('🎵 Stream ready or playing, toggling...');
+        await streamingActions.togglePlayPause();
+        return;
+      }
+
+      // If stream not ready and not playing, try to load first
+      console.log('🎵 Stream not ready, attempting to load...');
+      const mp3StreamUrl = 'https://icecast.software/live.mp3';
+      
+      try {
+        await streamingActions.loadStream(mp3StreamUrl);
+        
+        // Wait a moment and try to play
+        setTimeout(async () => {
+          setIsStreamReady(true);
+          try {
+            await streamingActions.togglePlayPause();
+          } catch (error) {
+            console.error('❌ Failed to start playback after loading:', error);
+          }
+        }, 1000);
+      } catch (error) {
+        console.error('❌ Failed to load stream:', error);
+        Alert.alert('Connection Error', 'Unable to connect to the audio stream. Please check your internet connection and try again.');
+      }
     } catch (error) {
-      console.error('❌ Failed to toggle playback:', error);
+      console.error('❌ Failed to handle play/pause:', error);
       Alert.alert('Playback Error', 'Failed to control audio playback. Please try again.');
     }
   }, [isStreamReady, streamingState.isPlaying, streamingState.isLoading, streamingActions, currentBroadcast]);
@@ -2068,39 +2018,49 @@ const BroadcastScreen: React.FC = () => {
 
           {/* Audio Player Controls */}
           <View className="bg-gray-50 rounded-xl p-3">
-            <View className="flex-row items-center justify-between mb-3">
-              {/* Play/Pause Button */}
-              <TouchableOpacity
-                onPress={handlePlayPause}
-                disabled={streamingState.isLoading || !currentBroadcast}
-                className={`p-3 rounded-full ${
-                  streamingState.isLoading || !isStreamReady
-                    ? 'bg-gray-200'
-                    : streamingState.isPlaying
-                    ? 'bg-yellow-100'
-                    : 'bg-green-100'
-                }`}
-                style={{
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.1,
-                  shadowRadius: 3,
-                  elevation: 3,
-                }}
-              >
-                {streamingState.isLoading || !isStreamReady ? (
-                  <ActivityIndicator size="small" color="#91403E" />
-                ) : streamingState.isPlaying ? (
-                  <Ionicons name="pause" size={24} color="#B5830F" />
-                ) : (
-                  <Ionicons name="play" size={24} color="#22C55E" />
-                )}
-              </TouchableOpacity>
+            <View className="flex-row items-center justify-between">
+              {/* Connection Status Dot */}
+              <View className="flex-row items-center">
+                <View className={`w-3 h-3 rounded-full mr-3 ${
+                  streamingState.error 
+                    ? 'bg-red-500' 
+                    : isStreamReady && streamingState.isPlaying 
+                      ? 'bg-green-500' 
+                      : isStreamReady 
+                        ? 'bg-orange-500'
+                        : streamingState.isLoading
+                          ? 'bg-blue-500'
+                          : 'bg-gray-400'
+                }`} />
+                
+                {/* Play/Pause Button - Clean without loading state */}
+                <TouchableOpacity
+                  onPress={handlePlayPause}
+                  disabled={!currentBroadcast}
+                  className={`p-3 rounded-full ${
+                    streamingState.isPlaying
+                      ? 'bg-yellow-100'
+                      : 'bg-green-100'
+                  }`}
+                  style={{
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 3,
+                    elevation: 3,
+                  }}
+                >
+                  {streamingState.isPlaying ? (
+                    <Ionicons name="pause" size={24} color="#B5830F" />
+                  ) : (
+                    <Ionicons name="play" size={24} color="#22C55E" />
+                  )}
+                </TouchableOpacity>
+              </View>
 
               {/* Now Playing Info */}
               <View className="flex-1 mx-3">
                 <View className="flex-row items-center mb-1">
-                  <View className="w-2 h-2 bg-cordovan rounded-full mr-2" />
                   <Text className="text-gray-800 text-sm font-bold uppercase tracking-wide">
                     {streamingState.isPlaying ? 'NOW PLAYING' : 'PAUSED'}
                   </Text>
@@ -2150,85 +2110,25 @@ const BroadcastScreen: React.FC = () => {
                   color={streamingState.isLoading ? "#CBD5E0" : "#91403E"} 
                 />
               </TouchableOpacity>
-            </View>
 
-            {/* Volume Control */}
-            <View className="flex-row items-center">
-              <TouchableOpacity
-                onPress={() => streamingActions.setMuted(!streamingState.isMuted)}
-                className="mr-2"
-              >
-                <Ionicons
-                  name={streamingState.isMuted ? "volume-mute" : "volume-high"}
-                  size={20}
-                  color="#91403E"
-                />
-              </TouchableOpacity>
-              
-              <View className="flex-1 h-1 bg-gray-200 rounded-full mr-2">
-                <View 
-                  className="h-full bg-cordovan rounded-full"
-                  style={{ width: `${streamingState.isMuted ? 0 : streamingState.volume}%` }}
-                />
-              </View>
-              
-              <Text className="text-xs text-gray-600 font-medium w-10 text-right">
-                {streamingState.isMuted ? '0' : streamingState.volume}%
-              </Text>
-            </View>
-
-            {/* Slider for volume control */}
-            <View className="mt-2">
-              <Pressable
-                onPress={(e) => {
-                  const { locationX } = e.nativeEvent;
-                  const sliderWidth = Dimensions.get('window').width - 80; // Account for margins and padding
-                  const percentage = Math.max(0, Math.min(100, (locationX / sliderWidth) * 100));
-                  handleVolumeChange(Math.round(percentage));
-                }}
-                style={{
-                  height: 32,
-                  justifyContent: 'center',
-                  paddingHorizontal: 4,
-                }}
-              >
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: 4,
-                    right: 4,
-                    height: 4,
-                    backgroundColor: '#E5E7EB',
-                    borderRadius: 2,
+              {/* Debug: Simple Load Button (remove in production) */}
+              {__DEV__ && (
+                <TouchableOpacity
+                  onPress={async () => {
+                    try {
+                      console.log('🔧 DEBUG: Direct MP3 load test');
+                      await streamingActions.loadStream('https://icecast.software/live.mp3');
+                      setIsStreamReady(true);
+                      Alert.alert('Debug', 'MP3 stream loaded directly!');
+                    } catch (error) {
+                      Alert.alert('Debug Error', `Failed: ${error}`);
+                    }
                   }}
-                />
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: 4,
-                    height: 4,
-                    backgroundColor: '#91403E',
-                    borderRadius: 2,
-                    width: `${Math.max(0, Math.min(100, streamingState.isMuted ? 0 : streamingState.volume))}%`,
-                  }}
-                />
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: `${Math.max(0, Math.min(100, streamingState.isMuted ? 0 : streamingState.volume))}%`,
-                    marginLeft: -10,
-                    width: 20,
-                    height: 20,
-                    backgroundColor: '#91403E',
-                    borderRadius: 10,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.2,
-                    shadowRadius: 3,
-                    elevation: 4,
-                  }}
-                />
-              </Pressable>
+                  className="p-2 ml-1"
+                >
+                  <Ionicons name="bug" size={16} color="#91403E" />
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 
@@ -2241,7 +2141,9 @@ const BroadcastScreen: React.FC = () => {
                   ? 'bg-green-500' 
                   : isStreamReady 
                     ? 'bg-orange-500'
-                    : 'bg-yellow-500'
+                    : streamingState.isLoading
+                      ? 'bg-blue-500'
+                      : 'bg-gray-400'
             }`} />
             <Text className={`text-xs font-medium ${
               streamingState.error 
@@ -2250,7 +2152,9 @@ const BroadcastScreen: React.FC = () => {
                   ? 'text-green-600' 
                   : isStreamReady 
                     ? 'text-orange-600'
-                    : 'text-yellow-600'
+                    : streamingState.isLoading
+                      ? 'text-blue-600'
+                      : 'text-gray-600'
             }`}>
               {streamingState.error 
                 ? 'Connection Error' 
@@ -2258,7 +2162,9 @@ const BroadcastScreen: React.FC = () => {
                   ? 'Connected • Crystal Clear HD' 
                   : isStreamReady
                     ? 'Ready to Stream'
-                    : 'Waiting for Stream...'}
+                    : streamingState.isLoading
+                      ? 'Connecting to Stream...'
+                      : 'Waiting for Stream...'}
             </Text>
           </View>
 

@@ -48,6 +48,8 @@ class AudioStreamingService {
   private maxReconnectAttempts = 5;
   private reconnectDelay = 3000;
   private listenerStatusCallback: ((status: ListenerStatus) => void) | null = null;
+  private lastToggleTime = 0;
+  private readonly TOGGLE_DEBOUNCE_MS = 1000; // Prevent rapid toggles
 
   // Storage keys for persistence
   private static readonly STORAGE_KEYS = {
@@ -63,15 +65,17 @@ class AudioStreamingService {
 
   private async initializeAudio(): Promise<void> {
     try {
-      // Configure audio session for streaming with correct expo-av API
+      // Configure audio session for streaming with more stable settings
       await Audio.setAudioModeAsync({
         staysActiveInBackground: true,
         playsInSilentModeIOS: true,
         allowsRecordingIOS: false,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
       });
 
       this.isInitialized = true;
-      logger.debug('Audio initialized successfully');
+      logger.debug('Audio initialized successfully with stable settings');
     } catch (error) {
       logger.error('Failed to initialize audio:', error);
       this.handleError('Failed to initialize audio system');
@@ -101,11 +105,6 @@ class AudioStreamingService {
       // iOS-specific handling for Icecast streams
       // Reference: https://github.com/doublesymmetry/react-native-track-player/issues/2096
       const isIcecastStream = streamUrl.includes('icecast') || streamUrl.includes('.mp3') || streamUrl.includes('.ogg');
-      const shouldUseIosOptimization = Platform.OS === 'ios' && isIcecastStream;
-
-      if (shouldUseIosOptimization) {
-        logger.debug('🍎 Using iOS-optimized loading for Icecast stream');
-      }
 
       // Create new sound instance with proper volume normalization
       const soundConfig = {
@@ -113,34 +112,13 @@ class AudioStreamingService {
         isLooping: false,
         isMuted: currentMuted,
         volume: currentMuted ? 0 : currentVolume / 100, // Convert 0-100 to 0.0-1.0
+        // Simplified settings to prevent iOS issues
+        progressUpdateIntervalMillis: 5000, // Reduce update frequency
       };
-
-      // For iOS Icecast streams, add specific configuration to prevent duplicate connections
-      if (shouldUseIosOptimization) {
-        // Add iOS-specific audio session configuration to prevent -11819 buffer allocation errors
-        // Reference: https://developer.apple.com/forums/thread/101588
-        await Audio.setAudioModeAsync({
-          staysActiveInBackground: true,
-          playsInSilentModeIOS: true,
-          allowsRecordingIOS: false,
-          shouldDuckAndroid: false,
-          playThroughEarpieceAndroid: false,
-        });
-        
-        // Add a delay to prevent rapid buffer allocation that causes -11819
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
 
       const { sound } = await Audio.Sound.createAsync(
         { uri: streamUrl },
-        {
-          ...soundConfig,
-          // iOS-specific settings to prevent buffer allocation issues
-          ...(shouldUseIosOptimization && {
-            progressUpdateIntervalMillis: 5000, // Reduce update frequency for iOS
-            positionMillis: 0,
-          }),
-        },
+        soundConfig,
         this.onPlaybackStatusUpdate.bind(this)
       );
 
@@ -355,6 +333,14 @@ class AudioStreamingService {
   }
 
   public async togglePlayPause(): Promise<void> {
+    // Debounce rapid toggle attempts to prevent flickering
+    const now = Date.now();
+    if (now - this.lastToggleTime < this.TOGGLE_DEBOUNCE_MS) {
+      logger.debug('Toggle debounced - too rapid');
+      return;
+    }
+    this.lastToggleTime = now;
+
     if (!this.sound) {
       this.handleError('No audio stream loaded');
       return;
@@ -510,18 +496,6 @@ class AudioStreamingService {
       if (successStatus.isPlaying || successStatus.isBuffering) {
         this.reconnectAttempts = 0;
       }
-
-      // Only attempt reconnect if stream has completely stopped and we're not buffering
-      // and it's been a while since the last attempt
-      if (!successStatus.isPlaying && !successStatus.isBuffering && 
-          this.reconnectAttempts < this.maxReconnectAttempts &&
-          this.currentStreamUrl) {
-        // Add a delay before attempting reconnect to avoid rapid reconnection attempts
-        setTimeout(() => {
-          if (!this.sound || this.reconnectAttempts >= this.maxReconnectAttempts) return;
-          this.attemptReconnect();
-        }, 5000); // Wait 5 seconds before attempting reconnect
-      }
     } else {
       const errorStatus = status as AVPlaybackStatusError;
       
@@ -538,8 +512,6 @@ class AudioStreamingService {
       const errorString = String(errorMessage);
       
       // AVFoundationErrorDomain -11819: Buffer allocation failure (iOS-specific)
-      // Reference: https://help.discoveryplus.com/hc/en-us/articles/360059870694--11819-error-message
-      // Reference: https://developer.apple.com/forums/thread/101588
       if (Platform.OS === 'ios' && errorString.includes('-11819')) {
         logger.error('🍎 iOS AVFoundation -11819 error detected (buffer allocation failure)');
         this.handleIos11819Error();
@@ -642,31 +614,6 @@ class AudioStreamingService {
         await this.refreshStream();
       }
     }
-  }
-
-  private async attemptReconnect(): Promise<void> {
-    if (!this.currentStreamUrl || this.reconnectAttempts >= this.maxReconnectAttempts) {
-      return;
-    }
-
-    this.reconnectAttempts++;
-    logger.debug(`Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
-
-    // Store the current URL to prevent it from being lost
-    const streamUrlToReconnect = this.currentStreamUrl;
-
-    setTimeout(async () => {
-      try {
-        // Only attempt reconnect if we still have the same stream URL
-        if (this.currentStreamUrl === streamUrlToReconnect) {
-          await this.refreshStream();
-          this.reconnectAttempts = 0; // Reset on successful reconnect
-        }
-      } catch (error) {
-        logger.error('Reconnect attempt failed:', error);
-        // Don't unload the stream on reconnect failure - keep trying
-      }
-    }, this.reconnectDelay * this.reconnectAttempts);
   }
 
   private startHeartbeat(): void {
