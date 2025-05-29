@@ -11,15 +11,20 @@ export const useLocalBackend = false;
 
 // Export other configuration settings as needed
 export const config = {
-  // Base URLs are derived from the useLocalBackend setting
-  // These are used internally by the application and should not be modified directly
+  // Base URLs with explicit protocols based on the useLocalBackend setting
   apiBaseUrl: useLocalBackend 
-    ? 'localhost:8080'
-    : 'wildcat-radio-f05d362144e6.autoidleapp.com',
+    ? 'http://localhost:8080'
+    : 'https://wildcat-radio-f05d362144e6.autoidleapp.com',
   
+  // WebSocket URLs with explicit protocols
   wsBaseUrl: useLocalBackend 
-    ? 'localhost:8080' 
-    : 'wildcat-radio-f05d362144e6.autoidleapp.com',
+    ? 'ws://localhost:8080' 
+    : 'wss://wildcat-radio-f05d362144e6.autoidleapp.com',
+    
+  // SockJS URLs (uses HTTP/HTTPS, not WS/WSS)
+  sockJsBaseUrl: useLocalBackend 
+    ? 'http://localhost:8080' 
+    : 'https://wildcat-radio-f05d362144e6.autoidleapp.com',
   
   // Icecast URL is always the same regardless of local/deployed backend
   icecastUrl: 'https://icecast.software/live.ogg',

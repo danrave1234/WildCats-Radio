@@ -1744,10 +1744,7 @@ export function StreamingProvider({ children }) {
   const getStreamUrl = () => serverConfig?.streamUrl;
   const getWebSocketUrl = (type = 'listener') => {
     const wsBaseUrl = config.wsBaseUrl;
-    const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-    const isLocalBackend = cleanHost.includes('localhost') || cleanHost.includes('127.0.0.1');
-    const wsProtocol = isLocalBackend && window.location.hostname === 'localhost' ? 'ws' : 'wss';
-    return `${wsProtocol}://${cleanHost}/ws/${type}`;
+    return `${wsBaseUrl}/ws/${type}`;
   };
 
   // Cleanup on unmount

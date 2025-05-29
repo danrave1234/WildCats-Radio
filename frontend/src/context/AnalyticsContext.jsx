@@ -15,12 +15,8 @@ const AnalyticsContext = createContext();
 
 // Get the proper WebSocket URL from config
 const getWsUrl = () => {
-  const wsBaseUrl = config.wsBaseUrl;
-  const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-  const isSecure = window.location.protocol === 'https:';
-  // SockJS requires http/https protocol, not ws/wss
-  const protocol = isSecure ? 'https:' : 'http:';
-  return `${protocol}//${cleanHost}/ws-radio`;
+  const sockJsBaseUrl = config.sockJsBaseUrl;
+  return sockJsBaseUrl + '/ws-radio';
 };
 
 export function useAnalytics() {

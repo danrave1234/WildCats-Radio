@@ -8,55 +8,25 @@ import { createLogger } from './logger';
 
 const logger = createLogger('APIService');
 
-// Helper function to get the correct protocol for the current environment
-const getProtocol = (forWebSocket = false, host = '', forSockJS = false) => {
-  const isSecure = window.location.protocol === 'https:';
-
-  // SockJS requires http/https protocol, not ws/wss
-  if (forSockJS) {
-    if (host.includes('localhost')) {
-      return 'http:';
-    }
-    return 'https:';
-  }
-
-  if (forWebSocket) {
-    // For WebSocket connections, use wss: for secure connections and ws: for localhost
-    const isLocalhost = host.includes('localhost') || host.includes('127.0.0.1');
-    return (isSecure || !isLocalhost) ? 'wss:' : 'ws:';
-  }
-
-  // Use HTTP for localhost, HTTPS for other hosts
-  if (host.includes('localhost')) {
-    return 'http:';
-  }
-  return 'https:';
-};
-
-// Simple function to construct URLs using the config from config.js
-const constructUrl = (configKey, fallbackPath = '', forWebSocket = false, forSockJS = false) => {
+// Simple function to construct URLs using the explicit protocols from config
+const constructUrl = (configKey, fallbackPath = '') => {
   logger.debug('Using useLocalBackend setting from config.js:', useLocalBackend);
 
-  let host;
+  let baseUrl;
   if (configKey === 'apiBaseUrl') {
-    host = config.apiBaseUrl;
+    baseUrl = config.apiBaseUrl;
   } else if (configKey === 'wsBaseUrl') {
-    host = config.wsBaseUrl;
+    baseUrl = config.wsBaseUrl;
+  } else if (configKey === 'sockJsBaseUrl') {
+    baseUrl = config.sockJsBaseUrl;
   } else if (configKey === 'icecastUrl') {
-    host = config.icecastUrl;
+    baseUrl = config.icecastUrl;
   } else {
     throw new Error(`Unknown config key: ${configKey}`);
   }
 
-  // Simple clean - just remove any protocol if present
-  const cleanHost = host.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-
-  // Get the appropriate protocol based on the host
-  const protocol = getProtocol(forWebSocket, cleanHost, forSockJS);
-
-  return `${protocol}//${cleanHost}${fallbackPath}`;
+  return baseUrl + fallbackPath;
 };
-
 
 // Create axios instance with base URL pointing to our backend
 const API_BASE_URL = constructUrl('apiBaseUrl');
@@ -132,11 +102,11 @@ export const broadcastService = {
 
   // Subscribe to real-time broadcast updates (for broadcast status, listener count, etc.)
   subscribeToBroadcastUpdates: (broadcastId, callback) => {
-    // Use the environment variable directly - no fallbacks needed
-    const wsBaseUrl = constructUrl('wsBaseUrl', '', false, true); // Set forSockJS to true
+    // Use SockJS base URL for SockJS connections
+    const sockJsBaseUrl = constructUrl('sockJsBaseUrl');
 
     // Use factory function for proper auto-reconnect support
-    const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
+    const stompClient = Stomp.over(() => new SockJS(`${sockJsBaseUrl}/ws-radio`));
 
     // Enable auto-reconnect with 5 second delay
     stompClient.reconnect_delay = 5000;
@@ -213,11 +183,11 @@ export const chatService = {
 
   // Subscribe to real-time chat messages for a specific broadcast
   subscribeToChatMessages: (broadcastId, callback) => {
-    // Use the environment variable directly - no fallbacks needed
-    const wsBaseUrl = constructUrl('wsBaseUrl', '', false, true); // Set forSockJS to true
+    // Use SockJS base URL for SockJS connections
+    const sockJsBaseUrl = constructUrl('sockJsBaseUrl');
 
     // Use factory function for proper auto-reconnect support
-    const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
+    const stompClient = Stomp.over(() => new SockJS(`${sockJsBaseUrl}/ws-radio`));
 
     // Enable auto-reconnect with 5 second delay
     stompClient.reconnect_delay = 5000;
@@ -266,11 +236,11 @@ export const songRequestService = {
 
   // Subscribe to real-time song requests for a specific broadcast
   subscribeToSongRequests: (broadcastId, callback) => {
-    // Use the environment variable directly - no fallbacks needed
-    const wsBaseUrl = constructUrl('wsBaseUrl', '', false, true); // Set forSockJS to true
+    // Use SockJS base URL for SockJS connections
+    const sockJsBaseUrl = constructUrl('sockJsBaseUrl');
 
     // Use factory function for proper auto-reconnect support
-    const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
+    const stompClient = Stomp.over(() => new SockJS(`${sockJsBaseUrl}/ws-radio`));
 
     // Enable auto-reconnect with 5 second delay
     stompClient.reconnect_delay = 5000;
@@ -320,11 +290,11 @@ export const notificationService = {
   getByType: (type) => api.get(`/api/notifications/by-type/${type}`),
   getRecent: (since) => api.get(`/api/notifications/recent?since=${since}`),
     subscribeToNotifications: (callback) => {
-    // Use the environment variable directly - no fallbacks needed
-    const wsBaseUrl = constructUrl('wsBaseUrl', '', false, true); // Set forSockJS to true
+    // Use SockJS base URL for SockJS connections
+    const sockJsBaseUrl = constructUrl('sockJsBaseUrl');
 
     // Use factory function for proper auto-reconnect support
-    const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
+    const stompClient = Stomp.over(() => new SockJS(`${sockJsBaseUrl}/ws-radio`));
 
     // Enable auto-reconnect with 5 second delay
     stompClient.reconnect_delay = 5000;
@@ -425,11 +395,11 @@ export const pollService = {
 
   // Subscribe to real-time poll updates for a specific broadcast
   subscribeToPolls: (broadcastId, callback) => {
-    // Use the environment variable directly - no fallbacks needed
-    const wsBaseUrl = constructUrl('wsBaseUrl', '', false, true); // Set forSockJS to true
+    // Use SockJS base URL for SockJS connections
+    const sockJsBaseUrl = constructUrl('sockJsBaseUrl');
 
     // Use factory function for proper auto-reconnect support
-    const stompClient = Stomp.over(() => new SockJS(`${wsBaseUrl}/ws-radio`));
+    const stompClient = Stomp.over(() => new SockJS(`${sockJsBaseUrl}/ws-radio`));
 
     // Enable auto-reconnect with 5 second delay
     stompClient.reconnect_delay = 5000;
@@ -480,7 +450,7 @@ export const streamService = {
 
   // WebSocket URL for DJs to send audio to the server
   getStreamUrl: () => {
-    const wsBaseUrl = constructUrl('wsBaseUrl', '', true); // true for WebSocket
+    const wsBaseUrl = constructUrl('wsBaseUrl');
     return Promise.resolve(wsBaseUrl + '/ws/live');
   },
 

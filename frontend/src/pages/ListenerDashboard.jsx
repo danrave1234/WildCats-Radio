@@ -46,6 +46,18 @@ export default function ListenerDashboard() {
   // If we're accessing a specific broadcast by ID, set it as the current broadcast
   const targetBroadcastId = isSpecificBroadcast && broadcastIdParam ? parseInt(broadcastIdParam, 10) : null;
   const [streamError, setStreamError] = useState(null);
+    // Filter function to prevent showing audio playback errors
+    const setFilteredStreamError = (error) => {
+      if (error && typeof error === 'string' && 
+          (error.includes('Audio playback error') || 
+           error.includes('MEDIA_ELEMENT_ERROR') || 
+           error.includes('Empty src attribute'))) {
+        // Don't set the error if it's an audio playback error
+        logger.debug('Suppressing audio playback error message:', error);
+        return;
+      }
+      setStreamError(error);
+    };
 
   // Original states from ListenerDashboard.jsx
   const [nextBroadcast, setNextBroadcast] = useState(null);
@@ -139,7 +151,7 @@ export default function ListenerDashboard() {
         }
       } catch (error) {
         logger.error('Error fetching broadcast information:', error);
-        setStreamError('Failed to load broadcast information');
+        setFilteredStreamError('Failed to load broadcast information');
       }
     };
 
@@ -152,7 +164,7 @@ export default function ListenerDashboard() {
       toggleAudio();
     } catch (error) {
       logger.error('Error toggling audio:', error);
-      setStreamError('Failed to control audio playback');
+      setFilteredStreamError('Failed to control audio playback');
     }
   };
 
@@ -181,7 +193,7 @@ export default function ListenerDashboard() {
         if (wasPlaying) {
           audioRef.current.play().catch(error => {
             logger.error('Error restarting playback:', error);
-            setStreamError('Failed to restart playback. Please try again.');
+            setFilteredStreamError('Failed to restart playback. Please try again.');
           });
         }
       }, 100);
@@ -196,17 +208,16 @@ export default function ListenerDashboard() {
       streamUrl: serverConfig?.streamUrl
     });
 
-    if (serverConfig && !audioRef.current) {
-      logger.debug('Initializing audio element with stream URL:', serverConfig.streamUrl);
+    if (!audioRef.current) {
+      logger.debug('Initializing audio element');
       audioRef.current = new Audio();
       audioRef.current.preload = 'none';
       audioRef.current.volume = isMuted ? 0 : volume / 100;
 
-      // Set the src attribute immediately if streamUrl is available
-      if (serverConfig.streamUrl) {
-        audioRef.current.src = serverConfig.streamUrl;
-        logger.debug('Set initial audio source to:', serverConfig.streamUrl);
-      }
+      // Always set a valid source - use config.icecastUrl as fallback
+      const streamUrl = serverConfig?.streamUrl || config.icecastUrl;
+      audioRef.current.src = streamUrl;
+      logger.debug('Set initial audio source to:', streamUrl);
 
       // Add event listeners for audio events
       audioRef.current.onloadstart = () => logger.debug('Audio loading started');
@@ -214,32 +225,33 @@ export default function ListenerDashboard() {
       audioRef.current.onplay = () => logger.debug('Audio play event fired');
       audioRef.current.onpause = () => logger.debug('Audio pause event fired');
       audioRef.current.onerror = (e) => {
-        // Check if this is an empty src error (which is expected before play is clicked)
+        // Always ignore empty src attribute errors as they're expected
         const isEmptySrcError = 
           e.target?.error?.code === 4 && 
-          (!e.target?.src || e.target?.src === '' || e.target?.src === 'undefined') && 
           e.target?.error?.message?.includes('Empty src attribute');
 
-        // Only log and show error if it's not the expected empty src error
-        if (!isEmptySrcError) {
-          logger.error('Audio error:', e);
-          logger.error('Audio error details:', {
-            error: e.target?.error,
-            code: e.target?.error?.code,
-            message: e.target?.error?.message,
-            networkState: e.target?.networkState,
-            readyState: e.target?.readyState,
-            src: e.target?.src
-          });
-          setStreamError('Audio playback error. Please try refreshing or check your internet connection.');
-        } else {
-          logger.debug('Ignoring expected empty src error before playback starts');
+        // Ignore MEDIA_ELEMENT_ERROR errors completely
+        if (isEmptySrcError || e.target?.error?.message?.includes('MEDIA_ELEMENT_ERROR')) {
+          logger.debug('Ignoring expected error before playback starts:', e.target?.error?.message);
+          return;
         }
+
+        // Only log and show error for other types of errors
+        logger.error('Audio error:', e);
+        logger.error('Audio error details:', {
+          error: e.target?.error,
+          code: e.target?.error?.code,
+          message: e.target?.error?.message,
+          networkState: e.target?.networkState,
+          readyState: e.target?.readyState,
+          src: e.target?.src
+        });
+        // Don't set stream error message as requested
       };
     }
 
     // Update src if serverConfig changes and audioRef already exists
-    if (serverConfig?.streamUrl && audioRef.current && (!audioRef.current.src || audioRef.current.src === '')) {
+    if (serverConfig?.streamUrl && audioRef.current) {
       audioRef.current.src = serverConfig.streamUrl;
       logger.debug('Updated audio source to:', serverConfig.streamUrl);
     }
@@ -1095,7 +1107,7 @@ export default function ListenerDashboard() {
         serverConfig: !!serverConfig,
         serverConfigStreamUrl: serverConfig?.streamUrl
       });
-      setStreamError("Audio player not ready. Please wait...")
+      setFilteredStreamError("Audio player not ready. Please wait...")
       return
     }
 
@@ -1123,7 +1135,7 @@ export default function ListenerDashboard() {
         logger.debug('Starting playback');
 
         // Clear any previous errors
-        setStreamError(null);
+        setFilteredStreamError(null);
 
         // Improved URL handling with format fallbacks
         let streamUrl = serverConfig.streamUrl;
@@ -1216,7 +1228,7 @@ export default function ListenerDashboard() {
               .then(() => {
                 logger.debug('Playback started successfully');
                 setLocalAudioPlaying(true);
-                setStreamError(null);
+                setFilteredStreamError(null);
 
                 // Notify server that listener started playing
                 if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -1236,13 +1248,13 @@ export default function ListenerDashboard() {
                 logger.error("Playback failed:", error);
 
                 if (error.name === 'NotAllowedError') {
-                  setStreamError("Browser blocked autoplay. Please click play again to start listening.");
+                  setFilteredStreamError("Browser blocked autoplay. Please click play again to start listening.");
                 } else if (error.name === 'NotSupportedError') {
-                  setStreamError("Your browser doesn't support this audio format. Please try a different browser or check if the stream is live.");
+                  setFilteredStreamError("Your browser doesn't support this audio format. Please try a different browser or check if the stream is live.");
                 } else if (error.name === 'AbortError') {
-                  setStreamError("Playback was interrupted. Please try again.");
+                  setFilteredStreamError("Playback was interrupted. Please try again.");
                 } else {
-                  setStreamError(`Playback failed: ${error.message}. Please check if the stream is live.`);
+                  setFilteredStreamError(`Playback failed: ${error.message}. Please check if the stream is live.`);
                 }
                 setLocalAudioPlaying(false);
                 logger.debug('Stream paused due to error');
@@ -1266,13 +1278,13 @@ export default function ListenerDashboard() {
           }
         } catch (error) {
           logger.error('All stream URLs failed:', error);
-          setStreamError('Unable to load audio stream. The broadcast may not be live or your browser may not support the stream format.');
+          setFilteredStreamError('Unable to load audio stream. The broadcast may not be live or your browser may not support the stream format.');
           setLocalAudioPlaying(false);
         }
       }
     } catch (error) {
       logger.error("Error toggling playback:", error);
-      setStreamError(`Playback error: ${error.message}. Please try again.`);
+      setFilteredStreamError(`Playback error: ${error.message}. Please try again.`);
     }
   }
 
@@ -2798,7 +2810,7 @@ export default function ListenerDashboard() {
         </div>
       )}
 
-      {streamError && (
+      {streamError && !streamError.includes('Audio playback error') && (
         <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-lg">
           <div className="flex items-start">
             <div className="flex-shrink-0">
