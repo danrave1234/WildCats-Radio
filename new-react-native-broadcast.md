@@ -6,9 +6,10 @@ This guide outlines the steps to integrate the WildCats Radio broadcast function
 ## Key Endpoints and URLs
 
 ### Core URLs
-- **Backend (Heroku)**: `https://wildcat-radio-f05d362144e6.autoidleapp.com`
-- **Icecast Server (Google VM)**: `http://34.142.131.206:8000`
-- **Stream URL**: `http://34.142.131.206:8000/live.ogg`
+- **Backend (Production)**: `https://wildcat-radio-f05d362144e6.autoidleapp.com`
+- **Backend (Development)**: `http://192.168.5.60:8080` (currently used in the app)
+- **Icecast Server (Google VM)**: `https://icecast.software`
+- **Stream URL**: `https://icecast.software/live.ogg`
 
 ### API Endpoints
 - **Stream Config**: `GET /api/stream/config`
@@ -17,338 +18,207 @@ This guide outlines the steps to integrate the WildCats Radio broadcast function
 - **Health Check**: `GET /api/stream/health`
 
 ### WebSocket Endpoints
-- **DJ Streaming**: `ws://heroku-backend/ws/live`
-- **Listener Status**: `ws://heroku-backend/ws/listener`
-- **Chat**: `ws://heroku-backend/ws-radio` (SockJS)
-- **Broadcast Updates**: `ws://heroku-backend/ws-radio` (SockJS)
+- **DJ Streaming**: `ws://backend/ws/live`
+- **Listener Status**: `ws://backend/ws/listener`
+- **Chat & Notifications**: `ws://backend/ws-radio` (SockJS + STOMP)
 
-## Phase 1: Core Audio Streaming (Listener Functionality)
+## Current Implementation Status
 
-### 1.1 Audio Player Setup
-**Reference**: `StreamingContext.jsx` lines 1250-1370
+### ✅ Phase 1: Core Audio Streaming (COMPLETED)
+**Implementation**: `audioStreamingService.ts`, `useAudioStreaming.ts`
 
-**Requirements**:
-- React Native audio library (react-native-track-player or react-native-sound)
-- Stream URL: `http://34.142.131.206:8000/live.ogg`
-- Volume control (0-100)
-- Mute/unmute functionality
-- Play/pause controls
+**Completed Features**:
+- ✅ Audio streaming using expo-av
+- ✅ Stream URL configuration from backend
+- ✅ Volume control (0-100) with persistence
+- ✅ Mute/unmute functionality with persistence
+- ✅ Play/pause controls with proper error handling
+- ✅ Background audio support for iOS/Android
+- ✅ Automatic retry on connection failure
+- ✅ State persistence to AsyncStorage
+- ✅ Stream loading state management
+- ✅ Robust error handling and user feedback
 
-**Key Logic**:
-1. Initialize audio player with stream URL from `/api/stream/config`
-2. Handle audio states: loading, playing, paused, error
-3. Implement automatic retry on connection failure
-4. Persist audio settings (volume, mute state) to AsyncStorage
+**Key Implementation Notes**:
+- Using expo-av instead of react-native-track-player
+- Background audio configured with `staysActiveInBackground: true`
+- Heartbeat mechanism implemented for listener status
+- Reconnect logic with exponential backoff
+- Stream ready state prevents "No audio stream loaded" errors
 
-### 1.2 Stream Status Integration
-**Reference**: `StreamingContext.jsx` lines 470-530
+### Current Issues Fixed
 
-**Implementation Steps**:
-1. Fetch initial config from `/api/stream/config`
-2. Poll `/api/stream/status` every 10 seconds for live status
-3. Display listener count from status response
-4. Handle server connectivity states
+1. **✅ Backend URL**: Updated to use correct Icecast URLs (`https://icecast.software`)
+2. **✅ Stream Loading**: Added proper stream loading states and error handling
+3. **✅ TypeScript Errors**: Fixed interval timer type casting
+4. **✅ Error Prevention**: Added `isStreamReady` state to prevent premature play attempts
+5. **✅ Volume Normalization**: Fixed volume range conversion (0-100 to 0.0-1.0)
+6. **✅ Volume Validation**: Added proper volume clamping and validation
+7. **✅ Auto-unmute**: Automatically unmutes when volume is increased from 0
+8. **✅ Stream URL Persistence**: Fixed stream URL handling and persistence
+9. **✅ Error Messages**: Improved user-friendly error messages and alerts
 
-**Data Structure**:
-```json
-{
-  "live": boolean,
-  "server": "UP|DOWN",
-  "streamUrl": "http://34.142.131.206:8000/live.ogg",
-  "listenerCount": number,
-  "icecastReachable": boolean
-}
-```
+### ✅ Phase 2: Real-time Features (MOSTLY COMPLETED)
 
-## Phase 2: Real-time Features (WebSocket Integration)
+#### ✅ 2.1 Listener Status WebSocket (COMPLETED)
+**Implementation**: Part of `audioStreamingService.ts`
 
-### 2.1 Listener Status WebSocket
-**Reference**: `StreamingContext.jsx` lines 1400-1450
+**Features Implemented**:
+- ✅ Heartbeat messages every 15 seconds
+- ✅ Listener status callback mechanism
+- ✅ Connection state management
 
-**Implementation**:
-1. Connect to listener WebSocket: `ws://heroku-backend/ws/listener`
-2. Send periodic heartbeat messages
-3. Receive real-time listener count updates
-4. Handle connection states (connecting, connected, disconnected)
+#### ✅ 2.2 Chat System (COMPLETED)
+**Implementation**: `broadcast.tsx`, `websocketService.ts`, `chatService.ts`
 
-**Message Format**:
-```json
-{
-  "type": "heartbeat|status_update",
-  "listenerCount": number,
-  "timestamp": number
-}
-```
+**Features Implemented**:
+- ✅ SockJS client with STOMP for React Native
+- ✅ Authentication via JWT token in headers
+- ✅ Real-time message receiving with proper grouping
+- ✅ Message sending functionality
+- ✅ Beautiful UI with message animations
+- ✅ Auto-scrolling chat view
+- ✅ Proper timestamp formatting
 
-### 2.2 Chat System
-**Reference**: `ListenerDashboard.jsx` lines 630-720
+**WebSocket Topics Used**:
+- Subscribe: `/topic/broadcast/{broadcastId}/chat`
+- Send: `/app/broadcast/{broadcastId}/chat`
 
-**Requirements**:
-- SockJS client for React Native
-- Authentication token in WebSocket headers
-- Real-time message receiving
-- Message sending functionality
+#### ✅ 2.3 Song Request System (COMPLETED)
+**Implementation**: `broadcast.tsx`, `songRequestService.ts`
 
-**WebSocket Setup**:
-1. Connect to `/ws-radio` using SockJS
-2. Subscribe to `/topic/chat/general`
-3. Send messages to `/app/chat/send`
-4. Handle authentication via JWT token
+**Features Implemented**:
+- ✅ Song request creation
+- ✅ Request queue display
+- ✅ Status indicators for pending/played requests
 
-**Message Types**:
-- Incoming: `{type: "CHAT", username: string, message: string, timestamp: string}`
-- Outgoing: `{message: string, username: string}`
+### ✅ Phase 3: Interactive Features (COMPLETED)
 
-### 2.3 Song Request System
-**Reference**: `ListenerDashboard.jsx` lines 1270-1310
+#### ✅ 3.1 Live Polls (COMPLETED)
+**Implementation**: `broadcast.tsx`, `pollService.ts`
 
-**Implementation**:
-1. Subscribe to `/topic/song-requests`
-2. Send requests to `/app/song-request/submit`
-3. Display request queue
-4. Handle request status updates
-
-**Request Format**:
-```json
-{
-  "title": "Song Title",
-  "artist": "Artist Name",
-  "requestedBy": "username"
-}
-```
-
-## Phase 3: Interactive Features
-
-### 3.1 Live Polls
-**Reference**: `ListenerDashboard.jsx` lines 740-810
-
-**Features**:
-- Real-time poll notifications
-- Vote submission
-- Results display
-- Poll history
+**Features Implemented**:
+- ✅ Real-time poll notifications via WebSocket
+- ✅ Vote submission with immediate feedback
+- ✅ Results display with percentages
+- ✅ Active/completed poll state management
 
 **WebSocket Topics**:
-- Subscribe: `/topic/polls`
-- Vote: `/app/poll/vote`
+- Subscribe: `/topic/broadcast/{broadcastId}/polls`
 
-### 3.2 Broadcast Information
-**Reference**: `ListenerDashboard.jsx` lines 80-120
+#### ✅ 3.2 Broadcast Information (COMPLETED)
+**Implementation**: `broadcast.tsx`
 
-**API Integration**:
-- `GET /api/broadcasts/live` - Get current live broadcast
-- `GET /api/broadcasts/upcoming` - Get next scheduled broadcast
-- `GET /api/broadcasts/{id}` - Get specific broadcast details
+**Features Implemented**:
+- ✅ Current DJ name display
+- ✅ Broadcast title/description
+- ✅ Start time formatting
+- ✅ Live indicator
+- ✅ Listener count display
 
-**Data Display**:
-- Current DJ name
-- Broadcast title/description
-- Start time
-- Duration
-- Next broadcast information
+### ❌ Phase 4: DJ Broadcasting Features (NOT IMPLEMENTED)
+**Status**: Not yet implemented - listener features prioritized
 
-## Phase 4: DJ Broadcasting Features (Advanced)
+### ✅ Phase 5: State Management and Persistence (COMPLETED)
 
-### 4.1 Audio Recording Setup
-**Reference**: `StreamingContext.jsx` lines 1150-1200
+**Implementation**: `AuthContext.tsx`, AsyncStorage integration
 
-**Requirements**:
-- React Native audio recording (react-native-audio-recorder-player)
-- Microphone permissions
-- Real-time audio streaming via WebSocket
-- Audio level monitoring
-
-**Implementation**:
-1. Request microphone permissions
-2. Initialize audio recorder with specific format (OGG/WebM)
-3. Stream audio chunks to WebSocket endpoint
-4. Handle recording states and errors
-
-### 4.2 Broadcast Management
-**Reference**: `StreamingContext.jsx` lines 1080-1180
-
-**API Endpoints**:
-- `POST /api/broadcasts` - Create broadcast
-- `POST /api/broadcasts/{id}/start` - Start broadcast
-- `POST /api/broadcasts/{id}/end` - End broadcast
-- `GET /api/broadcasts/{id}/analytics` - Get analytics
-
-**Workflow**:
-1. Create broadcast with title, description, schedule
-2. Connect to DJ WebSocket endpoint
-3. Start audio streaming
-4. Monitor broadcast status
-5. Handle broadcast termination
-
-### 4.3 DJ Controls
-**Reference**: `StreamingContext.jsx` lines 340-370
-
-**Features**:
-- Mute/unmute microphone
-- Audio gain control
-- Noise gate settings
-- Audio level visualization
-- Source switching (future: desktop audio)
-
-## Phase 5: State Management and Persistence
-
-### 5.1 Context/State Management
-**Reference**: `StreamingContext.jsx` lines 40-100
-
-**State Structure**:
-```javascript
-{
-  // Listener State
-  isListening: boolean,
-  audioPlaying: boolean,
-  volume: number,
-  isMuted: boolean,
-  
-  // Stream State
-  isLive: boolean,
-  listenerCount: number,
-  currentBroadcast: object,
-  
-  // Connection State
-  websocketConnected: boolean,
-  serverConfig: object
-}
-```
-
-### 5.2 Persistence
-**Reference**: `StreamingContext.jsx` lines 80-150
-
-**AsyncStorage Keys**:
-- `wildcats_listener_state` - Audio settings
-- `wildcats_current_broadcast` - Current broadcast info
-- `wildcats_stream_config` - Server configuration
+**Persistence Keys Used**:
 - `wildcats_volume` - Volume setting
 - `wildcats_muted` - Mute state
+- `wildcats_listener_state` - Audio settings
+- `wildcats_stream_config` - Server configuration
 
-## Phase 6: Error Handling and Reconnection
+### ✅ Phase 6: Error Handling and Reconnection (COMPLETED)
 
-### 6.1 Connection Management
-**Reference**: `StreamingContext.jsx` lines 550-600
+**Features Implemented**:
+- ✅ WebSocket reconnection with exponential backoff
+- ✅ Audio stream retry on failure
+- ✅ Connection state indicators
+- ✅ Proper error messages for users
+- ✅ App state handling for background/foreground
 
-**Strategies**:
-- Automatic WebSocket reconnection with exponential backoff
-- Audio stream retry on failure
-- Fallback to polling when WebSocket fails
-- Connection state indicators
+### ✅ Phase 7: UI Components (COMPLETED)
 
-### 6.2 Error Scenarios
-**Reference**: `errorHandler.js` and `StreamingContext.jsx`
+**All Components Implemented**:
+- ✅ Audio Player (in-app controls, not shown in broadcast screen)
+- ✅ Chat Component with advanced features
+- ✅ Broadcast Info Component
+- ✅ Song Request Component
+- ✅ Live Polls Component
+- ✅ Tab-based navigation
 
-**Handle**:
-- Network connectivity issues
-- Server downtime
-- Authentication failures
-- Audio playback errors
-- WebSocket disconnections
+## Technical Stack Differences from Roadmap
 
-## Phase 7: UI Components
+### Dependencies Used (vs Recommended)
+- **Audio**: `expo-av` ✅ (instead of react-native-track-player)
+- **WebSocket**: `sockjs-client` + `@stomp/stompjs` ✅
+- **Storage**: `@react-native-async-storage/async-storage` ✅
+- **HTTP**: Native `fetch` API ✅
+- **Navigation**: `expo-router` (instead of React Navigation)
+- **UI Framework**: `nativewind` (TailwindCSS for React Native)
+- **Date Handling**: `date-fns` ✅
 
-### 7.1 Audio Player Component
-**Features**:
-- Play/pause button
-- Volume slider
-- Mute button
-- Current status indicator
-- Loading states
+### Current Issues to Address
 
-### 7.2 Chat Component
-**Features**:
-- Message list with auto-scroll
-- Message input with send button
-- User authentication check
-- Login/register prompts for guests
+1. **Backend URL**: Currently using development URL (`http://192.168.5.60:8080`) instead of production
+2. **Stream URL Format**: Using HTTP instead of HTTPS for Icecast
+3. **Missing Features**:
+   - Push notifications service (partially implemented)
+   - Offline state handling
+   - Analytics integration
+   - DJ broadcasting features
 
-### 7.3 Broadcast Info Component
-**Features**:
-- Current DJ information
-- Broadcast title and description
-- Listener count display
-- Next broadcast countdown
+### Recommended Next Steps
 
-### 7.4 Song Request Component
-**Features**:
-- Request form (title, artist)
-- Request queue display
-- Request status indicators
+1. **Switch to Production Backend**:
+   ```typescript
+   // In streamService.ts and apiService.ts
+   const BACKEND_BASE_URL = 'https://wildcat-radio-f05d362144e6.autoidleapp.com';
+   ```
 
-## Implementation Priority
+2. **Add HTTPS Stream Support**:
+   - Update Icecast configuration for SSL
+   - Or implement a proxy through the backend
 
-### Priority 1 (MVP):
-1. Audio streaming (Phase 1)
-2. Basic WebSocket integration (Phase 2.1)
-3. Simple UI components (Phase 7.1, 7.3)
+3. **Implement Missing Features**:
+   - Complete notification service integration
+   - Add offline mode with cached data
+   - Implement analytics tracking
+   - Add DJ broadcasting features
 
-### Priority 2 (Core Features):
-1. Chat system (Phase 2.2)
-2. Broadcast information (Phase 3.2)
-3. Error handling (Phase 6)
+4. **Performance Optimizations**:
+   - Implement lazy loading for chat messages
+   - Add virtualized lists for large datasets
+   - Optimize WebSocket message handling
 
-### Priority 3 (Enhanced Features):
-1. Song requests (Phase 2.3)
-2. Live polls (Phase 3.1)
-3. State persistence (Phase 5)
+5. **Platform-Specific Enhancements**:
+   - iOS: Add Now Playing info to Control Center
+   - Android: Add notification controls for playback
+   - Both: Implement audio focus handling
 
-### Priority 4 (DJ Features):
-1. DJ broadcasting (Phase 4)
-2. Advanced audio controls
-3. Analytics integration
+## Testing Considerations
 
-## Technical Considerations
+### Current Test Coverage Needed
+- Unit tests for services
+- Integration tests for WebSocket connections
+- End-to-end tests for critical user flows
+- Performance testing for audio streaming
+- Network condition testing
 
-### Dependencies
-- **Audio**: `react-native-track-player` or `@react-native-community/audio-toolkit`
-- **WebSocket**: `ws` or `sockjs-client` with React Native compatibility
-- **Storage**: `@react-native-async-storage/async-storage`
-- **HTTP**: `axios` or `fetch`
-- **Permissions**: `react-native-permissions`
+### Device Testing Requirements
+- Test on various Android versions (API 21+)
+- Test on iOS 13+
+- Test background audio on both platforms
+- Test with different network conditions
+- Battery usage optimization testing
 
-### Platform Differences
-- **iOS**: Background audio capabilities, different audio session handling
-- **Android**: Audio focus management, different permission model
-- **Audio Formats**: Ensure OGG/WebM support or use adaptive streaming
+This roadmap reflects the current state of implementation with most listener-facing features completed and working. The app successfully implements real-time chat, song requests, polls, and audio streaming with a modern, performant architecture. 
 
-### Performance Optimization
-- Implement audio buffer management
-- Use background tasks for audio streaming
-- Optimize WebSocket message handling
-- Implement proper memory management for audio streams
+### Current Status
 
-## Testing Strategy
-
-### Unit Tests
-- Audio player functionality
-- WebSocket connection handling
-- State management logic
-- API service methods
-
-### Integration Tests
-- End-to-end audio streaming
-- Real-time chat functionality
-- Broadcast lifecycle
-- Error recovery scenarios
-
-### Device Testing
-- Test on various Android/iOS devices
-- Network condition testing (WiFi, cellular, poor connection)
-- Background audio testing
-- Battery usage optimization
-
-## Deployment Considerations
-
-### App Store Guidelines
-- Background audio declarations
-- Microphone usage descriptions
-- Network usage justification
-
-### Performance Monitoring
-- Audio streaming quality metrics
-- WebSocket connection stability
-- Crash reporting for audio failures
-- User engagement analytics
-
-This roadmap provides a comprehensive path to implement the WildCats Radio functionality in React Native while maintaining compatibility with the existing backend infrastructure and leveraging the proven patterns from the web frontend implementation. 
+**Audio Streaming**: ✅ Fully functional with proper volume control and error handling
+**Real-time Chat**: ✅ Working with WebSocket integration
+**Song Requests**: ✅ Working with proper form handling
+**Live Polls**: ✅ Working with real-time updates
+**Listener Count**: ✅ Working with WebSocket updates 

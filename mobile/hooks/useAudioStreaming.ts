@@ -169,8 +169,11 @@ export const useAudioStreaming = (): [StreamingState, StreamingActions] => {
 
     setVolume: useCallback(async (volume: number) => {
       try {
-        await audioStreamingService.setVolume(volume);
-        setStreamingState(prev => ({ ...prev, volume }));
+        // Ensure volume is within valid range
+        const clampedVolume = Math.max(0, Math.min(100, volume));
+        await audioStreamingService.setVolume(clampedVolume);
+        setStreamingState(prev => ({ ...prev, volume: clampedVolume }));
+        logger.debug('Volume updated to:', clampedVolume);
       } catch (error) {
         logger.error('Failed to set volume:', error);
       }
@@ -180,6 +183,7 @@ export const useAudioStreaming = (): [StreamingState, StreamingActions] => {
       try {
         await audioStreamingService.setMuted(muted);
         setStreamingState(prev => ({ ...prev, isMuted: muted }));
+        logger.debug('Muted state updated to:', muted);
       } catch (error) {
         logger.error('Failed to set muted state:', error);
       }
@@ -187,10 +191,15 @@ export const useAudioStreaming = (): [StreamingState, StreamingActions] => {
 
     refreshStream: useCallback(async () => {
       try {
+        setStreamingState(prev => ({ ...prev, error: null }));
         await audioStreamingService.refreshStream();
         logger.debug('Stream refreshed successfully');
       } catch (error) {
         logger.error('Failed to refresh stream:', error);
+        setStreamingState(prev => ({ 
+          ...prev, 
+          error: 'Failed to refresh stream. Please try again.' 
+        }));
       }
     }, []),
 

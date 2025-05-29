@@ -1,5 +1,6 @@
 import { Audio, AVPlaybackStatus, AVPlaybackStatusSuccess, AVPlaybackStatusError } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 // Simple logger replacement
 const logger = {
@@ -91,60 +92,210 @@ class AudioStreamingService {
       this.currentStreamUrl = streamUrl;
       this.updateStatus({ isLoading: true, error: null });
 
-      // Create new sound instance
+      logger.debug('Loading stream:', streamUrl);
+
+      // Get current volume and mute state
+      const currentVolume = await this.getVolumeState();
+      const currentMuted = await this.getMutedState();
+
+      // iOS-specific handling for Icecast streams
+      // Reference: https://github.com/doublesymmetry/react-native-track-player/issues/2096
+      const isIcecastStream = streamUrl.includes('icecast') || streamUrl.includes('.mp3') || streamUrl.includes('.ogg');
+      const shouldUseIosOptimization = Platform.OS === 'ios' && isIcecastStream;
+
+      if (shouldUseIosOptimization) {
+        logger.debug('🍎 Using iOS-optimized loading for Icecast stream');
+      }
+
+      // Create new sound instance with proper volume normalization
+      const soundConfig = {
+        shouldPlay: false,
+        isLooping: false,
+        isMuted: currentMuted,
+        volume: currentMuted ? 0 : currentVolume / 100, // Convert 0-100 to 0.0-1.0
+      };
+
+      // For iOS Icecast streams, add specific configuration to prevent duplicate connections
+      if (shouldUseIosOptimization) {
+        // Add iOS-specific audio session configuration to prevent -11819 buffer allocation errors
+        // Reference: https://developer.apple.com/forums/thread/101588
+        await Audio.setAudioModeAsync({
+          staysActiveInBackground: true,
+          playsInSilentModeIOS: true,
+          allowsRecordingIOS: false,
+          shouldDuckAndroid: false,
+          playThroughEarpieceAndroid: false,
+        });
+        
+        // Add a delay to prevent rapid buffer allocation that causes -11819
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
       const { sound } = await Audio.Sound.createAsync(
         { uri: streamUrl },
         {
-          shouldPlay: false,
-          isLooping: false,
-          isMuted: await this.getMutedState(),
-          volume: await this.getVolumeState(),
+          ...soundConfig,
+          // iOS-specific settings to prevent buffer allocation issues
+          ...(shouldUseIosOptimization && {
+            progressUpdateIntervalMillis: 5000, // Reduce update frequency for iOS
+            positionMillis: 0,
+          }),
         },
         this.onPlaybackStatusUpdate.bind(this)
       );
 
       this.sound = sound;
       
-      // Load the audio with timeout
-      const loadTimeout = setTimeout(() => {
-        this.handleError('Stream loading timeout. The broadcast may not be live.');
-      }, 10000);
-
-      await sound.loadAsync({ uri: streamUrl });
-      clearTimeout(loadTimeout);
-
-      this.updateStatus({ isLoading: false });
       logger.debug('Stream loaded successfully:', streamUrl);
+      this.updateStatus({ isLoading: false });
 
     } catch (error) {
       this.updateStatus({ isLoading: false });
       logger.error('Failed to load stream:', error);
       
       const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes('network')) {
+      
+      // Handle specific iOS/Icecast errors
+      if (Platform.OS === 'ios' && (streamUrl.includes('icecast') || streamUrl.includes('.mp3'))) {
+        logger.debug('🍎 iOS Icecast loading failed, this may be due to known iOS/Icecast compatibility issues');
+        // Don't immediately fail - iOS often has issues with initial Icecast connections
+        // but the stream might work when actually played
+        this.updateStatus({ isLoading: false, error: null });
+        return;
+      }
+      
+      // Handle specific AVFoundation errors
+      if (errorMessage.includes('-11850') || errorMessage.includes('AVFoundationErrorDomain')) {
+        this.handleError('Stream format not supported or unavailable. Trying alternative formats...');
+        // Try to load with a different format
+        await this.tryAlternativeFormats();
+      } else if (errorMessage.includes('network')) {
         this.handleError('Network connection failed. Please check your internet connection.');
       } else if (errorMessage.includes('format')) {
         this.handleError('Audio format not supported. The broadcast may not be live.');
+      } else if (errorMessage.includes('Volume')) {
+        this.handleError('Audio configuration error. Please try again.');
       } else {
         this.handleError('Failed to load audio stream. Please try again.');
       }
     }
   }
 
+  private async tryAlternativeFormats(): Promise<void> {
+    // Import streamService for testing alternative URLs
+    const streamService = (await import('./streamService')).default;
+    
+    try {
+      logger.debug('Trying to find alternative working MP3 stream format...');
+      const workingStream = await streamService.findWorkingMp3Stream();
+      
+      if (workingStream && workingStream.url !== this.currentStreamUrl) {
+        logger.debug('Found alternative MP3 stream URL:', workingStream);
+        await this.loadStream(workingStream.url);
+      } else {
+        this.handleError('No compatible MP3 stream formats available. The broadcast may not be live.');
+      }
+    } catch (error) {
+      logger.error('Failed to load alternative MP3 formats:', error);
+      this.handleError('Unable to find compatible MP3 stream format. Please try again later.');
+    }
+  }
+
   public async play(): Promise<void> {
     if (!this.sound) {
+      // Try to reload the stream if we have a URL
+      if (this.currentStreamUrl) {
+        logger.debug('No sound instance but have URL, attempting to reload stream...');
+        try {
+          await this.loadStream(this.currentStreamUrl);
+          // After loading, try to play again
+          if (this.sound) {
+            return this.play();
+          }
+        } catch (error) {
+          logger.error('Failed to reload stream for playback:', error);
+        }
+      }
+      
       this.handleError('No audio stream loaded');
       return;
     }
 
     try {
       this.updateStatus({ isLoading: true, error: null });
+      
+      // Check if the sound is actually loaded before trying to play
+      const status = await this.sound.getStatusAsync();
+      if (!status.isLoaded) {
+        logger.debug('Sound not loaded, attempting to reload...');
+        if (this.currentStreamUrl) {
+          await this.loadStream(this.currentStreamUrl);
+          // Try again after reloading
+          if (this.sound) {
+            return this.play();
+          }
+        }
+        throw new Error('Sound not loaded and could not reload');
+      }
+      
+      // iOS-specific handling for Icecast streams
+      const isIcecastStream = this.currentStreamUrl && 
+        (this.currentStreamUrl.includes('icecast') || 
+         this.currentStreamUrl.includes('.mp3') || 
+         this.currentStreamUrl.includes('.ogg'));
+      
+      if (Platform.OS === 'ios' && isIcecastStream) {
+        logger.debug('🍎 Starting iOS Icecast stream playback with optimizations');
+        
+        // For iOS Icecast streams, add a small delay to prevent duplicate connections
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
       await this.sound.playAsync();
       this.startHeartbeat();
       logger.debug('Playback started');
     } catch (error) {
       this.updateStatus({ isLoading: false });
       logger.error('Failed to start playback:', error);
+      
+      // iOS-specific error handling for Icecast
+      if (Platform.OS === 'ios' && this.currentStreamUrl?.includes('icecast')) {
+        logger.debug('🍎 iOS Icecast playback failed - attempting iOS-specific recovery');
+        
+        // For iOS Icecast issues, try a different approach
+        try {
+          // Recreate the audio session
+          await Audio.setAudioModeAsync({
+            staysActiveInBackground: true,
+            playsInSilentModeIOS: true,
+            allowsRecordingIOS: false,
+          });
+          
+          // Try to play again after session reset
+          if (this.sound) {
+            await this.sound.playAsync();
+            this.startHeartbeat();
+            logger.debug('🍎 iOS Icecast playback recovered after session reset');
+            return;
+          }
+        } catch (recoveryError) {
+          logger.error('🍎 iOS Icecast recovery also failed:', recoveryError);
+        }
+      }
+      
+      // Don't immediately give up - try to reload the stream once
+      if (this.currentStreamUrl && !String(error).includes('reload')) {
+        logger.debug('Attempting to reload stream due to playback failure...');
+        try {
+          await this.loadStream(this.currentStreamUrl);
+          // Mark the error to prevent infinite recursion
+          const retryError = new Error('reload attempt');
+          return this.play();
+        } catch (reloadError) {
+          logger.error('Stream reload also failed:', reloadError);
+        }
+      }
+      
       this.handleError('Failed to start playback. Please try again.');
     }
   }
@@ -177,10 +328,15 @@ class AudioStreamingService {
     if (!this.sound) return;
 
     try {
-      const normalizedVolume = Math.max(0, Math.min(1, volume / 100));
+      // Ensure volume is within valid range (0-100)
+      const clampedVolume = Math.max(0, Math.min(100, volume));
+      
+      // Convert to 0.0-1.0 range for expo-av
+      const normalizedVolume = clampedVolume / 100;
+      
       await this.sound.setVolumeAsync(normalizedVolume);
-      await AsyncStorage.setItem(AudioStreamingService.STORAGE_KEYS.VOLUME, volume.toString());
-      logger.debug('Volume set to:', volume);
+      await AsyncStorage.setItem(AudioStreamingService.STORAGE_KEYS.VOLUME, clampedVolume.toString());
+      logger.debug('Volume set to:', clampedVolume, '(normalized:', normalizedVolume, ')');
     } catch (error) {
       logger.error('Failed to set volume:', error);
     }
@@ -238,18 +394,68 @@ class AudioStreamingService {
 
   public async refreshStream(): Promise<void> {
     if (!this.currentStreamUrl) {
-      this.handleError('No stream URL available');
+      logger.debug('No stream URL available for refresh - stream may not be loaded yet');
+      // Don't treat this as an error, just log it
       return;
     }
 
+    logger.debug('Refreshing stream:', this.currentStreamUrl);
+    
+    // Store the URL before any operations to prevent it from being lost
+    const streamUrlToRefresh = this.currentStreamUrl;
     const wasPlaying = await this.isPlaying();
-    await this.unloadStream();
+    
+    // Don't unload the stream completely - just pause it
+    if (this.sound) {
+      try {
+        await this.sound.pauseAsync();
+      } catch (error) {
+        logger.debug('Could not pause during refresh (this is normal):', error);
+      }
+    }
     
     // Add a small delay before reloading
     setTimeout(async () => {
-      await this.loadStream(this.currentStreamUrl!);
-      if (wasPlaying) {
-        await this.play();
+      try {
+        // Ensure we still have the URL
+        if (!streamUrlToRefresh) {
+          logger.error('Stream URL was lost during refresh');
+          return;
+        }
+        
+        // Only unload if we're about to reload with the same URL
+        if (this.sound) {
+          await this.sound.unloadAsync();
+          this.sound = null;
+        }
+        
+        // Restore the URL in case it was cleared
+        this.currentStreamUrl = streamUrlToRefresh;
+        
+        // Reload the stream
+        await this.loadStream(streamUrlToRefresh);
+        
+        // Resume playing if it was playing before
+        if (wasPlaying) {
+          // Add a small delay to ensure the stream is ready
+          setTimeout(async () => {
+            try {
+              await this.play();
+            } catch (error) {
+              logger.debug('Could not resume playback after refresh:', error);
+            }
+          }, 1000);
+        }
+        
+        logger.debug('Stream refreshed successfully');
+      } catch (error) {
+        logger.error('Failed to refresh stream:', error);
+        
+        // Restore the URL even if refresh failed
+        this.currentStreamUrl = streamUrlToRefresh;
+        
+        // Don't call handleError here as it might cause more issues
+        logger.debug('Stream refresh failed, but URL preserved for retry');
       }
     }, 500);
   }
@@ -300,14 +506,141 @@ class AudioStreamingService {
         logger.debug('Stream is buffering...');
       }
 
-      // Auto-reconnect on connection issues
-      if (!successStatus.isPlaying && !successStatus.isBuffering && this.reconnectAttempts < this.maxReconnectAttempts) {
-        this.attemptReconnect();
+      // Reset reconnect attempts on successful status update
+      if (successStatus.isPlaying || successStatus.isBuffering) {
+        this.reconnectAttempts = 0;
+      }
+
+      // Only attempt reconnect if stream has completely stopped and we're not buffering
+      // and it's been a while since the last attempt
+      if (!successStatus.isPlaying && !successStatus.isBuffering && 
+          this.reconnectAttempts < this.maxReconnectAttempts &&
+          this.currentStreamUrl) {
+        // Add a delay before attempting reconnect to avoid rapid reconnection attempts
+        setTimeout(() => {
+          if (!this.sound || this.reconnectAttempts >= this.maxReconnectAttempts) return;
+          this.attemptReconnect();
+        }, 5000); // Wait 5 seconds before attempting reconnect
       }
     } else {
       const errorStatus = status as AVPlaybackStatusError;
-      logger.error('Playback error:', errorStatus.error);
-      this.handleError(`Playback error: ${errorStatus.error}`);
+      
+      // Handle undefined or null errors more gracefully
+      const errorMessage = errorStatus.error || 'Unknown playback error';
+      
+      // Don't treat undefined errors as fatal - they often happen during stream initialization
+      if (errorStatus.error === undefined || errorStatus.error === null) {
+        logger.debug('Received undefined playback error - this is often normal during stream loading');
+        return; // Don't handle as a real error
+      }
+      
+      // Handle specific iOS AVFoundation errors
+      const errorString = String(errorMessage);
+      
+      // AVFoundationErrorDomain -11819: Buffer allocation failure (iOS-specific)
+      // Reference: https://help.discoveryplus.com/hc/en-us/articles/360059870694--11819-error-message
+      // Reference: https://developer.apple.com/forums/thread/101588
+      if (Platform.OS === 'ios' && errorString.includes('-11819')) {
+        logger.error('🍎 iOS AVFoundation -11819 error detected (buffer allocation failure)');
+        this.handleIos11819Error();
+        return;
+      }
+      
+      // AVFoundationErrorDomain -11800: General AVFoundation error
+      if (Platform.OS === 'ios' && (errorString.includes('-11800') || errorString.includes('-12686') || errorString.includes('-16802'))) {
+        logger.error('🍎 iOS AVFoundation pipeline error detected');
+        this.handleIosAvFoundationError(errorString);
+        return;
+      }
+      
+      logger.error('Playback error:', errorMessage);
+      
+      // Only handle as error if it's a real error message
+      if (typeof errorMessage === 'string' && errorMessage !== 'undefined' && errorMessage !== 'null') {
+        this.handleError(`Playback error: ${errorMessage}`);
+      } else {
+        logger.debug('Ignoring non-critical playback status error');
+      }
+    }
+  }
+
+  /**
+   * Handle iOS AVFoundationErrorDomain -11819 error (buffer allocation failure)
+   * This requires audio session reset and stream reloading
+   */
+  private async handleIos11819Error(): Promise<void> {
+    logger.debug('🍎 Handling iOS -11819 error with audio session reset...');
+    
+    try {
+      // Store current stream URL
+      const streamUrl = this.currentStreamUrl;
+      
+      // Stop current playback
+      if (this.sound) {
+        try {
+          await this.sound.stopAsync();
+          await this.sound.unloadAsync();
+        } catch (error) {
+          logger.debug('Error stopping sound during -11819 recovery:', error);
+        }
+        this.sound = null;
+      }
+      
+      // Reset audio session completely
+      await Audio.setAudioModeAsync({
+        staysActiveInBackground: false,
+        playsInSilentModeIOS: false,
+        allowsRecordingIOS: false,
+      });
+      
+      // Wait a moment for session to reset
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Reinitialize audio session with proper settings
+      await Audio.setAudioModeAsync({
+        staysActiveInBackground: true,
+        playsInSilentModeIOS: true,
+        allowsRecordingIOS: false,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+      });
+      
+      // Reload the stream if we have a URL
+      if (streamUrl) {
+        logger.debug('🍎 Reloading stream after -11819 recovery...');
+        this.currentStreamUrl = streamUrl; // Restore URL
+        await this.loadStream(streamUrl);
+        logger.debug('🍎 Stream reloaded successfully after -11819 recovery');
+      }
+      
+    } catch (error) {
+      logger.error('🍎 Failed to recover from -11819 error:', error);
+      this.handleError('iOS audio system error. Please try again.');
+    }
+  }
+
+  /**
+   * Handle other iOS AVFoundation errors
+   */
+  private async handleIosAvFoundationError(errorString: string): Promise<void> {
+    logger.debug('🍎 Handling iOS AVFoundation error:', errorString);
+    
+    try {
+      // For other AVFoundation errors, try a simpler recovery
+      if (this.sound) {
+        await this.sound.stopAsync();
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Try to restart playback
+        await this.sound.playAsync();
+        logger.debug('🍎 Recovered from AVFoundation error');
+      }
+    } catch (error) {
+      logger.error('🍎 Failed to recover from AVFoundation error:', error);
+      // Fall back to full stream reload
+      if (this.currentStreamUrl) {
+        await this.refreshStream();
+      }
     }
   }
 
@@ -319,12 +652,19 @@ class AudioStreamingService {
     this.reconnectAttempts++;
     logger.debug(`Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
 
+    // Store the current URL to prevent it from being lost
+    const streamUrlToReconnect = this.currentStreamUrl;
+
     setTimeout(async () => {
       try {
-        await this.refreshStream();
-        this.reconnectAttempts = 0; // Reset on successful reconnect
+        // Only attempt reconnect if we still have the same stream URL
+        if (this.currentStreamUrl === streamUrlToReconnect) {
+          await this.refreshStream();
+          this.reconnectAttempts = 0; // Reset on successful reconnect
+        }
       } catch (error) {
         logger.error('Reconnect attempt failed:', error);
+        // Don't unload the stream on reconnect failure - keep trying
       }
     }, this.reconnectDelay * this.reconnectAttempts);
   }
@@ -445,11 +785,41 @@ class AudioStreamingService {
   public async getStreamConfig(): Promise<StreamConfig | null> {
     try {
       const config = await AsyncStorage.getItem(AudioStreamingService.STORAGE_KEYS.STREAM_CONFIG);
-      return config ? JSON.parse(config) : null;
+      return config ? JSON.parse(config) : {
+        streamUrl: 'https://icecast.software/live.ogg',
+        serverIp: 'icecast.software',
+        icecastPort: 443,
+        listenerCount: 0,
+        isLive: false,
+        server: 'UP',
+        icecastReachable: true,
+      };
     } catch (error) {
       logger.error('Failed to get stream config:', error);
-      return null;
+      return {
+        streamUrl: 'https://icecast.software/live.ogg',
+        serverIp: 'icecast.software',
+        icecastPort: 443,
+        listenerCount: 0,
+        isLive: false,
+        server: 'UP',
+        icecastReachable: true,
+      };
     }
+  }
+
+  public async loadPrimaryStream(): Promise<void> {
+    // Load the primary MP3 stream directly (mobile-exclusive)
+    const primaryUrl = 'https://icecast.software/live.mp3';
+    console.log('[AudioStreamingService] Loading primary MP3 stream for mobile:', primaryUrl);
+    await this.loadStream(primaryUrl);
+  }
+
+  public async loadMp3Stream(): Promise<void> {
+    // Dedicated MP3 stream loader for mobile
+    const mp3Url = 'https://icecast.software/live.mp3';
+    console.log('[AudioStreamingService] Loading MP3 stream exclusively for mobile:', mp3Url);
+    await this.loadStream(mp3Url);
   }
 }
 

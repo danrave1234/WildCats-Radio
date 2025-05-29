@@ -7,7 +7,7 @@
 
 // Set this to true to use the local backend (localhost:8080)
 // Set this to false to use the deployed backend (wildcat-radio-f05d362144e6.autoidleapp.com)
-export const useLocalBackend = false;
+export const useLocalBackend = true;
 
 // Export other configuration settings as needed
 export const config = {

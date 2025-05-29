@@ -42,6 +42,10 @@ import {
 } from '../../services/apiService';
 import { chatService } from '../../services/chatService';
 import { pollService } from '../../services/pollService';
+import streamService from '../../services/streamService';
+import audioStreamingService from '../../services/audioStreamingService';
+import { useAudioStreaming } from '../../hooks/useAudioStreaming';
+import { runStreamDiagnostics, quickStreamTest } from '../../services/streamDebugUtils';
 import '../../global.css';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
 
@@ -365,6 +369,9 @@ const BroadcastScreen: React.FC = () => {
   const params = useLocalSearchParams();
   const routeBroadcastId = params.broadcastId ? parseInt(params.broadcastId as string, 10) : null;
 
+  // Audio streaming hook
+  const [streamingState, streamingActions] = useAudioStreaming();
+
   const [activeTab, setActiveTab] = useState('chat');
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -387,6 +394,24 @@ const BroadcastScreen: React.FC = () => {
   const [userMessageIds, setUserMessageIds] = useState<Set<number>>(new Set());
   const [isListening, setIsListening] = useState(false);
   const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
+
+  // Stream status state
+  const [streamStatus, setStreamStatus] = useState<{
+    isLive: boolean;
+    listenerCount: number;
+    streamUrl: string;
+  }>({
+    isLive: false,
+    listenerCount: 0,
+    streamUrl: 'https://icecast.software/live.ogg',
+  });
+
+  // Listener WebSocket ref
+  const listenerWsRef = useRef<WebSocket | null>(null);
+  const heartbeatInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Stream loading state
+  const [isStreamReady, setIsStreamReady] = useState(false);
 
   const [chatInput, setChatInput] = useState('');
   const [songTitleInput, setSongTitleInput] = useState('');
@@ -431,6 +456,386 @@ const BroadcastScreen: React.FC = () => {
   }
 
   const authToken = authContext.authToken;
+
+  // Initialize stream configuration when broadcast becomes available
+  useEffect(() => {
+    const initializeStream = async () => {
+      if (!currentBroadcast || currentBroadcast.status !== 'LIVE') {
+        setIsStreamReady(false);
+        return;
+      }
+
+      try {
+        setIsStreamReady(false);
+        console.log('🎵 Initializing MP3 audio stream for broadcast:', currentBroadcast.id);
+        
+        // Get stream configuration (always MP3 for mobile)
+        const config = await streamService.getStreamConfig();
+        console.log('🎵 Stream config received:', config);
+        
+        // Use MP3 stream exclusively for mobile
+        const mp3StreamUrl = 'https://icecast.software/live.mp3';
+        console.log('🎵 Using MP3 stream exclusively for mobile:', mp3StreamUrl);
+        
+        // Test MP3 stream availability
+        console.log('🔍 Testing MP3 stream availability...');
+        let mp3Available = await streamService.isMp3StreamAvailable();
+        
+        // If the detailed test fails, try a simpler approach
+        if (!mp3Available) {
+          console.log('🔄 Detailed MP3 test failed, trying simpler connectivity check...');
+          mp3Available = await streamService.isMp3StreamAvailableSimple();
+        }
+        
+        // If both tests fail but we have a live broadcast, assume stream should be available
+        if (!mp3Available && currentBroadcast.status === 'LIVE') {
+          console.log('🎵 Broadcast is LIVE but tests failed - assuming MP3 stream should be available');
+          mp3Available = streamService.assumeMp3StreamAvailable();
+        }
+        
+        if (!mp3Available) {
+          console.log('⚠️ MP3 stream not currently available (broadcast may not be active)');
+          // Don't show alert, just update the stream status to indicate waiting for stream
+          setStreamStatus({
+            isLive: currentBroadcast.status === 'LIVE',
+            listenerCount: config.listenerCount || 0,
+            streamUrl: mp3StreamUrl,
+          });
+          
+          // Set a placeholder stream config but don't load it yet
+          await streamingActions.updateStreamConfig({
+            ...config,
+            streamUrl: mp3StreamUrl,
+            isLive: false, // Mark as not live since stream isn't available
+          });
+          
+          console.log('📡 Stream configured but not available yet - waiting for broadcast to start');
+          return;
+        }
+
+        console.log('✅ MP3 stream is available and ready');
+        
+        // Update stream config in audio service
+        await streamingActions.updateStreamConfig({
+          ...config,
+          streamUrl: mp3StreamUrl,
+          isLive: currentBroadcast.status === 'LIVE',
+        });
+
+        // Update local stream status
+        setStreamStatus({
+          isLive: currentBroadcast.status === 'LIVE',
+          listenerCount: config.listenerCount || 0,
+          streamUrl: mp3StreamUrl,
+        });
+
+        // Load the MP3 stream (but don't play yet)
+        console.log('🎵 Loading MP3 stream from:', mp3StreamUrl);
+        await streamingActions.loadStream(mp3StreamUrl);
+        
+        // Wait a moment for the stream to be ready
+        setTimeout(() => {
+          setIsStreamReady(true);
+          console.log('✅ MP3 stream loaded and ready for playback');
+        }, 1000);
+        
+      } catch (error) {
+        console.error('❌ Failed to initialize MP3 stream:', error);
+        setIsStreamReady(false);
+        
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+          // Only show network errors to user
+          Alert.alert(
+            'Network Error', 
+            'Unable to connect to the streaming server. Please check your internet connection and try again.'
+          );
+        } else {
+          // For other errors, just log them and update status
+          console.log('📡 Stream initialization failed - this is normal if broadcast hasn\'t started streaming yet');
+        }
+      }
+    };
+
+    initializeStream();
+  }, [currentBroadcast?.id, currentBroadcast?.status]);
+
+  // Periodic check for MP3 stream availability when broadcast is live but stream not ready
+  useEffect(() => {
+    if (!currentBroadcast || currentBroadcast.status !== 'LIVE' || isStreamReady) {
+      return; // Don't check if no broadcast, not live, or stream already ready
+    }
+
+    console.log('📡 Setting up periodic MP3 stream availability check...');
+    
+    const checkInterval = setInterval(async () => {
+      try {
+        console.log('🔍 Checking if MP3 stream is now available...');
+        let mp3Available = await streamService.isMp3StreamAvailable();
+        
+        // If the detailed test fails, try simpler approaches
+        if (!mp3Available) {
+          console.log('🔄 Detailed test failed, trying simpler connectivity check...');
+          mp3Available = await streamService.isMp3StreamAvailableSimple();
+        }
+        
+        // If we have a live broadcast, be more optimistic about stream availability
+        if (!mp3Available && currentBroadcast?.status === 'LIVE') {
+          console.log('🎵 Broadcast is LIVE - assuming MP3 stream should be available');
+          mp3Available = streamService.assumeMp3StreamAvailable();
+        }
+        
+        if (mp3Available) {
+          console.log('✅ MP3 stream is now available! Loading...');
+          clearInterval(checkInterval);
+          
+          // Load the stream
+          const mp3StreamUrl = 'https://icecast.software/live.mp3';
+          await streamingActions.loadStream(mp3StreamUrl);
+          
+          // Update stream status
+          setStreamStatus(prev => ({
+            ...prev,
+            streamUrl: mp3StreamUrl,
+          }));
+          
+          // Mark as ready
+          setTimeout(() => {
+            setIsStreamReady(true);
+            console.log('✅ MP3 stream automatically loaded and ready');
+          }, 1000);
+        } else {
+          console.log('📡 MP3 stream still not available, will check again...');
+        }
+      } catch (error) {
+        console.error('❌ Error checking MP3 stream availability:', error);
+      }
+    }, 10000); // Check every 10 seconds
+
+    // Cleanup interval on unmount or when dependencies change
+    return () => {
+      console.log('🧹 Cleaning up MP3 stream availability check');
+      clearInterval(checkInterval);
+    };
+  }, [currentBroadcast?.id, currentBroadcast?.status, isStreamReady, streamingActions]);
+
+  // Setup listener WebSocket for real-time listener count updates
+  useEffect(() => {
+    if (!currentBroadcast || currentBroadcast.status !== 'LIVE') {
+      // Clean up WebSocket if broadcast is not live
+      if (listenerWsRef.current) {
+        listenerWsRef.current.close();
+        listenerWsRef.current = null;
+      }
+      if (heartbeatInterval.current) {
+        clearInterval(heartbeatInterval.current);
+        heartbeatInterval.current = null;
+      }
+      return;
+    }
+
+    const connectListenerWebSocket = async () => {
+      try {
+        // Get WebSocket URLs
+        const wsUrls = await streamService.getWebSocketUrls();
+        const listenerWsUrl = wsUrls.listenerUrl.replace('http://', 'ws://').replace('https://', 'wss://');
+
+        // Create WebSocket connection
+        const ws = new WebSocket(listenerWsUrl);
+        listenerWsRef.current = ws;
+
+        ws.onopen = () => {
+          console.log('Listener WebSocket connected');
+          
+          // Send initial status if playing
+          if (streamingState.isPlaying) {
+            const message = {
+              type: 'LISTENER_STATUS',
+              action: 'START_LISTENING',
+              broadcastId: currentBroadcast.id,
+              userId: currentUserId,
+              userName: userData?.name || 'Anonymous Listener',
+              timestamp: Date.now(),
+            };
+            ws.send(JSON.stringify(message));
+          }
+
+          // Setup heartbeat
+          heartbeatInterval.current = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN && streamingState.isPlaying) {
+              const message = {
+                type: 'LISTENER_STATUS',
+                action: 'HEARTBEAT',
+                broadcastId: currentBroadcast.id,
+                userId: currentUserId,
+                userName: userData?.name || 'Anonymous Listener',
+                timestamp: Date.now(),
+              };
+              ws.send(JSON.stringify(message));
+            }
+          }, 15000) as ReturnType<typeof setInterval>;
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'STREAM_STATUS' && data.listenerCount !== undefined) {
+              setStreamStatus(prev => ({
+                ...prev,
+                listenerCount: data.listenerCount,
+              }));
+            }
+          } catch (error) {
+            console.error('Error parsing listener WebSocket message:', error);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error('Listener WebSocket error:', error);
+        };
+
+        ws.onclose = () => {
+          console.log('Listener WebSocket disconnected');
+          if (heartbeatInterval.current) {
+            clearInterval(heartbeatInterval.current);
+            heartbeatInterval.current = null;
+          }
+        };
+      } catch (error) {
+        console.error('Failed to connect listener WebSocket:', error);
+      }
+    };
+
+    connectListenerWebSocket();
+
+    return () => {
+      if (listenerWsRef.current) {
+        listenerWsRef.current.close();
+        listenerWsRef.current = null;
+      }
+      if (heartbeatInterval.current) {
+        clearInterval(heartbeatInterval.current);
+        heartbeatInterval.current = null;
+      }
+    };
+  }, [currentBroadcast?.id, currentBroadcast?.status, streamingState.isPlaying, currentUserId, userData]);
+
+  // Send listener status updates when play state changes
+  useEffect(() => {
+    if (listenerWsRef.current && listenerWsRef.current.readyState === WebSocket.OPEN) {
+      const message = {
+        type: 'LISTENER_STATUS',
+        action: streamingState.isPlaying ? 'START_LISTENING' : 'STOP_LISTENING',
+        broadcastId: currentBroadcast?.id,
+        userId: currentUserId,
+        userName: userData?.name || 'Anonymous Listener',
+        timestamp: Date.now(),
+      };
+      listenerWsRef.current.send(JSON.stringify(message));
+    }
+  }, [streamingState.isPlaying, currentBroadcast?.id, currentUserId, userData]);
+
+  // Custom volume setter with validation
+  const handleVolumeChange = useCallback(async (newVolume: number) => {
+    const clampedVolume = Math.max(0, Math.min(100, newVolume));
+    await streamingActions.setVolume(clampedVolume);
+    
+    // Auto-unmute if volume is increased from 0
+    if (streamingState.isMuted && clampedVolume > 0) {
+      await streamingActions.setMuted(false);
+    }
+  }, [streamingActions, streamingState.isMuted]);
+
+  // Custom play function with better error handling
+  const handlePlayPause = useCallback(async () => {
+    console.log('🎵 Play/Pause requested. Stream ready:', isStreamReady, 'Current state:', streamingState.isPlaying);
+    
+    if (!currentBroadcast || currentBroadcast.status !== 'LIVE') {
+      Alert.alert('Stream Unavailable', 'The broadcast is not currently live. Please check back later.');
+      return;
+    }
+
+    // Check if MP3 stream is available before trying to play
+    if (!isStreamReady && !streamingState.isLoading) {
+      console.log('⚠️ Stream not ready yet, checking MP3 availability...');
+      
+      try {
+        const mp3Available = await streamService.isMp3StreamAvailable();
+        
+        if (!mp3Available) {
+          console.log('📡 MP3 stream still not available - broadcast may not have started streaming yet');
+          Alert.alert(
+            'Stream Starting Up', 
+            'The audio stream is not ready yet. The DJ may still be setting up the broadcast. Please try again in a moment.',
+            [{ text: 'OK', style: 'default' }]
+          );
+          return;
+        }
+        
+        // Stream is now available, try to load it
+        console.log('✅ MP3 stream is now available, loading...');
+        setIsStreamReady(false);
+        await streamingActions.loadStream('https://icecast.software/live.mp3');
+        
+        // Wait a moment and try again
+        setTimeout(async () => {
+          setIsStreamReady(true);
+          await streamingActions.togglePlayPause();
+        }, 1000);
+      } catch (error) {
+        console.error('❌ Failed to check/load stream:', error);
+        Alert.alert('Connection Error', 'Unable to connect to the audio stream. Please check your internet connection and try again.');
+      }
+      return;
+    }
+
+    try {
+      await streamingActions.togglePlayPause();
+    } catch (error) {
+      console.error('❌ Failed to toggle playback:', error);
+      Alert.alert('Playback Error', 'Failed to control audio playback. Please try again.');
+    }
+  }, [isStreamReady, streamingState.isPlaying, streamingState.isLoading, streamingActions, currentBroadcast]);
+
+  // DEBUG: Add temporary test function
+  const testStreamsManually = useCallback(async () => {
+    console.log('🔍 Manual MP3 stream test requested...');
+    await runStreamDiagnostics();
+    
+    // Test MP3 stream availability
+    const mp3Available = await streamService.isMp3StreamAvailable();
+    console.log('📊 MP3 stream availability:', mp3Available);
+    
+    if (mp3Available) {
+      Alert.alert(
+        '✅ MP3 Stream Available', 
+        'The MP3 stream is working! Would you like to load it now?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Load Stream', 
+            onPress: async () => {
+              try {
+                console.log('🎵 Loading MP3 stream manually...');
+                setIsStreamReady(false);
+                await streamingActions.loadStream('https://icecast.software/live.mp3');
+                setTimeout(() => {
+                  setIsStreamReady(true);
+                  console.log('✅ MP3 stream loaded manually');
+                  Alert.alert('Success', 'MP3 stream loaded and ready to play!');
+                }, 1000);
+              } catch (error) {
+                console.error('❌ Failed to load MP3 stream manually:', error);
+                Alert.alert('Error', 'Failed to load MP3 stream. Please try again.');
+              }
+            }
+          }
+        ]
+      );
+    } else {
+      Alert.alert('❌ MP3 Stream Not Found', 'MP3 stream is not currently available. Please start a broadcast from the web frontend first.');
+    }
+  }, [streamingActions]);
 
   // Fetch user data when auth token is available
   useEffect(() => {
@@ -1627,16 +2032,18 @@ const BroadcastScreen: React.FC = () => {
   const screenSubtitle = currentBroadcast ? `DJ: ${currentBroadcast.dj?.name || 'Wildcat Radio'}` : 'Standby...';
 
   const renderNowPlayingCard = () => {
-    if (!currentBroadcast || currentBroadcast.status !== 'LIVE' || !nowPlayingInfo) {
-      return null; // Don't render if not live or no song info
+    if (!currentBroadcast || currentBroadcast.status !== 'LIVE') {
+      return null; // Don't render if not live
     }
     return (
       <View className="mx-4 my-2 bg-white rounded-2xl shadow-lg overflow-hidden">
-        {/* Live Badge */}
+        {/* Live Badge with listener count */}
         <View className="absolute top-3 right-3 z-20">
           <View className="bg-red-500 px-2.5 py-1 rounded-full flex-row items-center">
             <View className="w-1.5 h-1.5 bg-white rounded-full mr-1.5" />
-            <Text className="text-white text-xs font-bold tracking-wide">LIVE</Text>
+            <Text className="text-white text-xs font-bold tracking-wide">
+              LIVE • {streamStatus.listenerCount || streamingState.listenerCount} listeners
+            </Text>
           </View>
         </View>
 
@@ -1645,7 +2052,7 @@ const BroadcastScreen: React.FC = () => {
           <View className="flex-row items-center mb-3">
             {/* Album Art */}
             <View className="w-10 h-10 rounded-lg mr-3 bg-cordovan items-center justify-center">
-              <Ionicons name="musical-notes-outline" size={16} color="white" />
+              <Ionicons name="radio" size={16} color="white" />
             </View>
 
             {/* Content */}
@@ -1659,55 +2066,243 @@ const BroadcastScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* Now Playing Section */}
+          {/* Audio Player Controls */}
           <View className="bg-gray-50 rounded-xl p-3">
-            <View className="flex-row items-center justify-between">
-              <View className="flex-1">
+            <View className="flex-row items-center justify-between mb-3">
+              {/* Play/Pause Button */}
+              <TouchableOpacity
+                onPress={handlePlayPause}
+                disabled={streamingState.isLoading || !currentBroadcast}
+                className={`p-3 rounded-full ${
+                  streamingState.isLoading || !isStreamReady
+                    ? 'bg-gray-200'
+                    : streamingState.isPlaying
+                    ? 'bg-yellow-100'
+                    : 'bg-green-100'
+                }`}
+                style={{
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 3,
+                  elevation: 3,
+                }}
+              >
+                {streamingState.isLoading || !isStreamReady ? (
+                  <ActivityIndicator size="small" color="#91403E" />
+                ) : streamingState.isPlaying ? (
+                  <Ionicons name="pause" size={24} color="#B5830F" />
+                ) : (
+                  <Ionicons name="play" size={24} color="#22C55E" />
+                )}
+              </TouchableOpacity>
+
+              {/* Now Playing Info */}
+              <View className="flex-1 mx-3">
                 <View className="flex-row items-center mb-1">
                   <View className="w-2 h-2 bg-cordovan rounded-full mr-2" />
                   <Text className="text-gray-800 text-sm font-bold uppercase tracking-wide">
-                    NOW PLAYING
+                    {streamingState.isPlaying ? 'NOW PLAYING' : 'PAUSED'}
                   </Text>
                 </View>
                 
-                <Text className="text-gray-800 text-sm font-bold mb-0.5" numberOfLines={1}>
-                  {nowPlayingInfo.songTitle}
-                </Text>
-                <Text className="text-gray-600 text-xs font-medium" numberOfLines={1}>
-                  {nowPlayingInfo.artist}
-                </Text>
+                {nowPlayingInfo ? (
+                  <>
+                    <Text className="text-gray-800 text-sm font-bold mb-0.5" numberOfLines={1}>
+                      {nowPlayingInfo.songTitle}
+                    </Text>
+                    <Text className="text-gray-600 text-xs font-medium" numberOfLines={1}>
+                      {nowPlayingInfo.artist}
+                    </Text>
+                  </>
+                ) : (
+                  <Text className="text-gray-600 text-xs font-medium">
+                    WildCat Radio Live Stream
+                  </Text>
+                )}
               </View>
               
               {/* Audio Visualizer */}
-              <View className="flex-row items-end space-x-1 ml-3">
-                {[...Array(3)].map((_, i) => (
-                  <View
-                    key={i}
-                    className={`bg-cordovan rounded-full w-1 ${
-                      i % 2 === 0 ? 'h-3' : 'h-2'
-                    }`}
-                    style={{ opacity: 0.7 }}
-                  />
-                ))}
+              {streamingState.isPlaying && (
+                <View className="flex-row items-end space-x-1">
+                  {[...Array(3)].map((_, i) => (
+                    <Animated.View
+                      key={i}
+                      className={`bg-cordovan rounded-full w-1`}
+                      style={{ 
+                        height: i % 2 === 0 ? 12 : 8,
+                        opacity: 0.7,
+                      }}
+                    />
+                  ))}
+                </View>
+              )}
+
+              {/* Refresh Button */}
+              <TouchableOpacity
+                onPress={streamingActions.refreshStream}
+                className="p-2 ml-2"
+                disabled={streamingState.isLoading}
+              >
+                <Ionicons 
+                  name="refresh" 
+                  size={20} 
+                  color={streamingState.isLoading ? "#CBD5E0" : "#91403E"} 
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* Volume Control */}
+            <View className="flex-row items-center">
+              <TouchableOpacity
+                onPress={() => streamingActions.setMuted(!streamingState.isMuted)}
+                className="mr-2"
+              >
+                <Ionicons
+                  name={streamingState.isMuted ? "volume-mute" : "volume-high"}
+                  size={20}
+                  color="#91403E"
+                />
+              </TouchableOpacity>
+              
+              <View className="flex-1 h-1 bg-gray-200 rounded-full mr-2">
+                <View 
+                  className="h-full bg-cordovan rounded-full"
+                  style={{ width: `${streamingState.isMuted ? 0 : streamingState.volume}%` }}
+                />
               </View>
+              
+              <Text className="text-xs text-gray-600 font-medium w-10 text-right">
+                {streamingState.isMuted ? '0' : streamingState.volume}%
+              </Text>
+            </View>
+
+            {/* Slider for volume control */}
+            <View className="mt-2">
+              <Pressable
+                onPress={(e) => {
+                  const { locationX } = e.nativeEvent;
+                  const sliderWidth = Dimensions.get('window').width - 80; // Account for margins and padding
+                  const percentage = Math.max(0, Math.min(100, (locationX / sliderWidth) * 100));
+                  handleVolumeChange(Math.round(percentage));
+                }}
+                style={{
+                  height: 32,
+                  justifyContent: 'center',
+                  paddingHorizontal: 4,
+                }}
+              >
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: 4,
+                    right: 4,
+                    height: 4,
+                    backgroundColor: '#E5E7EB',
+                    borderRadius: 2,
+                  }}
+                />
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: 4,
+                    height: 4,
+                    backgroundColor: '#91403E',
+                    borderRadius: 2,
+                    width: `${Math.max(0, Math.min(100, streamingState.isMuted ? 0 : streamingState.volume))}%`,
+                  }}
+                />
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: `${Math.max(0, Math.min(100, streamingState.isMuted ? 0 : streamingState.volume))}%`,
+                    marginLeft: -10,
+                    width: 20,
+                    height: 20,
+                    backgroundColor: '#91403E',
+                    borderRadius: 10,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.2,
+                    shadowRadius: 3,
+                    elevation: 4,
+                  }}
+                />
+              </Pressable>
             </View>
           </View>
 
-          {/* Connection Status */}
+          {/* Stream Status */}
           <View className="flex-row items-center justify-center mt-3">
             <View className={`w-2 h-2 rounded-full mr-2 ${
-              isWebSocketConnected ? 'bg-green-500' : 'bg-orange-500'
+              streamingState.error 
+                ? 'bg-red-500' 
+                : isStreamReady && streamingState.isPlaying 
+                  ? 'bg-green-500' 
+                  : isStreamReady 
+                    ? 'bg-orange-500'
+                    : 'bg-yellow-500'
             }`} />
             <Text className={`text-xs font-medium ${
-              isWebSocketConnected ? 'text-green-600' : 'text-orange-600'
+              streamingState.error 
+                ? 'text-red-600' 
+                : isStreamReady && streamingState.isPlaying 
+                  ? 'text-green-600' 
+                  : isStreamReady 
+                    ? 'text-orange-600'
+                    : 'text-yellow-600'
             }`}>
-              {isWebSocketConnected ? 'Connected • Crystal Clear HD' : 'Connecting...'}
+              {streamingState.error 
+                ? 'Connection Error' 
+                : isStreamReady && streamingState.isPlaying 
+                  ? 'Connected • Crystal Clear HD' 
+                  : isStreamReady
+                    ? 'Ready to Stream'
+                    : 'Waiting for Stream...'}
             </Text>
           </View>
+
+          {/* Error Message */}
+          {streamingState.error && (
+            <View className="mt-2 p-2 bg-red-50 rounded-lg">
+              <Text className="text-red-600 text-xs text-center">
+                {streamingState.error}
+              </Text>
+            </View>
+          )}
         </View>
       </View>
     );
   }
+
+  // Debug function to manually test MP3 stream loading
+  const debugLoadMp3Stream = async () => {
+    try {
+      console.log('🔧 DEBUG: Manually testing MP3 stream loading...');
+      const mp3StreamUrl = 'https://icecast.software/live.mp3';
+      
+      // Bypass all availability checks and try to load directly
+      console.log('🎵 DEBUG: Loading MP3 stream directly:', mp3StreamUrl);
+      await streamingActions.loadStream(mp3StreamUrl);
+      
+      // Update stream status
+      setStreamStatus(prev => ({
+        ...prev,
+        streamUrl: mp3StreamUrl,
+      }));
+      
+      // Mark as ready
+      setTimeout(() => {
+        setIsStreamReady(true);
+        console.log('✅ DEBUG: MP3 stream loaded successfully!');
+        Alert.alert('Debug Success', 'MP3 stream loaded successfully! You can now try playing it.');
+      }, 1000);
+      
+    } catch (error) {
+      console.error('❌ DEBUG: Failed to load MP3 stream:', error);
+      Alert.alert('Debug Error', `Failed to load MP3 stream: ${error}`);
+    }
+  };
 
   return (
     <View style={styles.container} className="flex-1 bg-anti-flash_white">

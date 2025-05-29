@@ -24,7 +24,7 @@ import com.wildcastradio.config.NetworkConfig;
 /**
  * WebSocket handler for streaming audio from DJ's browser to Icecast.
  * Receives binary WebSocket messages containing audio data and pipes them
- * through FFmpeg to Icecast server.
+ * through FFmpeg to Icecast server with dual output (OGG + MP3).
  */
 @Component
 public class IcecastStreamHandler extends BinaryWebSocketHandler {
@@ -54,14 +54,10 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
         String icecastHostname = networkConfig.getIcecastHostname();
         logger.info("Using Icecast hostname for FFmpeg: {}", icecastHostname);
 
-        // Build FFmpeg command for Icecast with improved reliability
+        // Build FFmpeg command for dual streaming (OGG + MP3) to support both web and mobile
         List<String> cmd = new ArrayList<>(Arrays.asList(
                 "ffmpeg",
-                "-f", "webm", "-i", "pipe:0",  // Read WebM from stdin
-                "-c:a", "libvorbis", "-b:a", "128k",  // Convert to Ogg Vorbis
-                "-content_type", "application/ogg",
-                "-ice_name", "WildCats Radio Live",
-                "-ice_description", "Live audio broadcast"
+                "-f", "webm", "-i", "pipe:0"  // Read WebM from stdin
         ));
 
         // Add reconnection settings if enabled
@@ -75,16 +71,34 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
             ));
         }
 
-        cmd.add("-f");
-        cmd.add("ogg");
-
-        // CRITICAL FIX: Build Icecast URL with the actual Icecast server hostname and port
+        // CRITICAL FIX: Build Icecast URLs with the actual Icecast server hostname and port
         // FFmpeg must connect directly to Icecast server on port 8000, not through reverse proxy
-        String icecastUrl = "icecast://source:hackme@" + icecastHostname + ":8000/live.ogg";
-        cmd.add(icecastUrl);
+        String oggIcecastUrl = "icecast://source:hackme@" + icecastHostname + ":8000/live.ogg";
+        String mp3IcecastUrl = "icecast://source:hackme@" + icecastHostname + ":8000/live.mp3";
 
-        logger.info("Starting FFmpeg with command: {}", String.join(" ", cmd));
-        logger.info("Icecast URL: {}", icecastUrl);
+        // Use FFmpeg's tee muxer to output to both OGG and MP3 simultaneously
+        cmd.addAll(Arrays.asList(
+                // Map the input audio stream twice
+                "-map", "0:a", "-map", "0:a",
+                
+                // First output: OGG Vorbis (for web compatibility)
+                "-c:a:0", "libvorbis", "-b:a:0", "128k",
+                "-content_type", "application/ogg",
+                "-ice_name", "WildCats Radio Live (OGG)",
+                "-ice_description", "Live audio broadcast in OGG format",
+                "-f", "ogg", oggIcecastUrl,
+                
+                // Second output: MP3 (for mobile compatibility)
+                "-c:a:1", "libmp3lame", "-b:a:1", "128k",
+                "-content_type", "audio/mpeg", 
+                "-ice_name", "WildCats Radio Live (MP3)",
+                "-ice_description", "Live audio broadcast in MP3 format",
+                "-f", "mp3", mp3IcecastUrl
+        ));
+
+        logger.info("Starting FFmpeg with dual streaming command: {}", String.join(" ", cmd));
+        logger.info("OGG Icecast URL: {}", oggIcecastUrl);
+        logger.info("MP3 Icecast URL: {}", mp3IcecastUrl);
         logger.info("Icecast hostname resolved to: {}", icecastHostname);
         
         // Test Icecast server connectivity before starting FFmpeg
@@ -130,17 +144,28 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
 
                             logger.info("FFmpeg: {}", line);
 
-                            // Check for successful connection indicators
+                            // Check for successful connection indicators (for both streams)
                             if (line.contains("Opening") && line.contains("for writing")) {
                                 connectionSuccessful = true;
                                 isConnected = true;
-                                logger.info("FFmpeg successfully connected to Icecast");
+                                if (line.contains("live.ogg")) {
+                                    logger.info("FFmpeg successfully connected to Icecast OGG stream");
+                                } else if (line.contains("live.mp3")) {
+                                    logger.info("FFmpeg successfully connected to Icecast MP3 stream");
+                                } else {
+                                    logger.info("FFmpeg successfully connected to Icecast");
+                                }
                             }
 
                             // Check for 403 Forbidden error
                             if (line.contains("403") && line.contains("Forbidden")) {
                                 logger.warn("FFmpeg received 403 Forbidden from Icecast (attempt {})", attempts[0]);
                                 logger.warn("This usually means authentication failed or mount point access denied");
+                                if (line.contains("live.ogg")) {
+                                    logger.warn("OGG stream mount point access denied");
+                                } else if (line.contains("live.mp3")) {
+                                    logger.warn("MP3 stream mount point access denied");
+                                }
                                 break;
                             }
                             
@@ -173,14 +198,20 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                                     line.contains("Port missing in uri") ||
                                     line.contains("Protocol not found")) {
                                 logger.error("FFmpeg URL/protocol error (attempt {}): {}", attempts[0], line);
-                                logger.error("Check Icecast URL format: {}", icecastUrl);
+                                logger.error("Check Icecast URL format: {}", oggIcecastUrl);
                                 break;
                             }
                             
                             // ADDED: Check for mount point errors
                             if (line.contains("mount point") && line.contains("not found")) {
                                 logger.error("FFmpeg mount point error: {}", line);
-                                logger.error("Mount point /live.ogg may not exist or be configured on Icecast server");
+                                if (line.contains("live.ogg")) {
+                                    logger.error("Mount point /live.ogg may not exist or be configured on Icecast server");
+                                } else if (line.contains("live.mp3")) {
+                                    logger.error("Mount point /live.mp3 may not exist or be configured on Icecast server");
+                                } else {
+                                    logger.error("Mount point may not exist or be configured on Icecast server");
+                                }
                                 break;
                             }
                             
