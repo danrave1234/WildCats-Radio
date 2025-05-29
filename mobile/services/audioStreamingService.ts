@@ -98,7 +98,7 @@ class AudioStreamingService {
           shouldPlay: false,
           isLooping: false,
           isMuted: await this.getMutedState(),
-          volume: (await this.getVolumeState()) / 100,
+          volume: await this.getVolumeState(),
         },
         this.onPlaybackStatusUpdate.bind(this)
       );

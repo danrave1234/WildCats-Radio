@@ -46,34 +46,19 @@ class ChatService {
     authToken: string
   ): Promise<{ data: ChatMessageDTO } | { error: string }> {
     try {
-      console.log('💬 [DEBUG] ChatService: Starting sendMessage...');
-      console.log('💬 [DEBUG] ChatService: Broadcast ID:', broadcastId);
-      console.log('💬 [DEBUG] ChatService: Message Data:', messageData);
-      console.log('💬 [DEBUG] ChatService: Auth Token exists:', !!authToken);
-      console.log('💬 [DEBUG] ChatService: Auth Token length:', authToken.length);
-      console.log('💬 [DEBUG] ChatService: Auth Token preview:', authToken.substring(0, 30) + '...');
-      
+      console.log('💬 ChatService: Sending message for broadcast:', broadcastId, messageData);
       const result = await sendChatMessage(broadcastId, messageData, authToken);
       
-      console.log('📨 [DEBUG] ChatService: API Response received:', result);
-      console.log('📨 [DEBUG] ChatService: Response type:', typeof result);
-      console.log('📨 [DEBUG] ChatService: Has error property:', 'error' in result);
-      
       if ('error' in result) {
-        console.error('❌ [DEBUG] ChatService: Error in API response:', result.error);
+        console.error('❌ ChatService: Error sending message:', result.error);
         return { error: result.error || 'Failed to send message' };
       }
       
-      console.log('✅ [DEBUG] ChatService: Message sent successfully, ID:', result.id);
-      console.log('✅ [DEBUG] ChatService: Message content:', result.content);
-      console.log('✅ [DEBUG] ChatService: Message sender:', result.sender);
-      console.log('✅ [DEBUG] ChatService: Message created at:', result.createdAt);
-      
+      console.log('✅ ChatService: Message sent successfully:', result.id);
       return { data: result };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      console.error('❌ [DEBUG] ChatService: Exception in sendMessage:', errorMessage);
-      console.error('❌ [DEBUG] ChatService: Full error object:', error);
+      console.error('❌ ChatService: Exception sending message:', errorMessage);
       return { error: errorMessage };
     }
   }
