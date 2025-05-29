@@ -451,7 +451,7 @@ const BroadcastScreen: React.FC = () => {
         } else {
           console.log('✅ User data fetched successfully:', { id: result.id, name: result.name });
           setUserData(result);
-          setCurrentUserId(result.id);
+          setCurrentUserId(result.id ? parseInt(result.id.toString(), 10) : null);
         }
       } catch (error) {
         console.error('❌ Error fetching user data:', error);

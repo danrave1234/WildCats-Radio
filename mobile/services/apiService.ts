@@ -1,5 +1,5 @@
 //const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.autoidleapp.com/api'; // Adjusted base URL
-const API_BASE_URL = 'http://192.168.5.60:8080/api';
+const API_BASE_URL = 'http://192.168.34.212:8080/api';
 //const API_BASE_URL = 'http://10.0.2.2:8080/api'; // For Android emulator, use this if running on localhost
 interface AuthResponse {
   token?: string; // Assuming your API returns a token

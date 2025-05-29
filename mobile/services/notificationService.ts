@@ -222,6 +222,54 @@ class NotificationService {
     }
   }
 
+  async getReadPaginated(
+    authToken: string, 
+    page: number = 0, 
+    pageSize: number = this.PAGE_SIZE
+  ): Promise<PaginatedNotificationResponse | { error: string }> {
+    const cacheKey = `notifications_read_${page}_${pageSize}`;
+    
+    try {
+      return await this.getCachedOrFetch(cacheKey, async () => {
+        console.log(`📥 Fetching paginated read notifications - Page ${page + 1}, Size ${pageSize}`);
+        
+        // Get all notifications and filter for read ones
+        const allNotificationsResult = await getAllNotifications(authToken);
+        
+        if ('error' in allNotificationsResult) {
+          return { error: allNotificationsResult.error };
+        }
+
+        // Filter for read notifications only
+        const readNotifications = allNotificationsResult.filter(notification => notification.read);
+        
+        // Sort by timestamp (newest first)
+        readNotifications.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        
+        const startIndex = page * pageSize;
+        const endIndex = startIndex + pageSize;
+        const paginatedData = readNotifications.slice(startIndex, endIndex);
+        const totalItems = readNotifications.length;
+        const totalPages = Math.ceil(totalItems / pageSize);
+        const hasMore = endIndex < totalItems;
+
+        const response: PaginatedNotificationResponse = {
+          data: paginatedData,
+          hasMore,
+          total: totalItems,
+          currentPage: page,
+          totalPages
+        };
+
+        console.log(`✅ Fetched ${paginatedData.length} read notifications (${startIndex + 1}-${Math.min(endIndex, totalItems)} of ${totalItems})`);
+        return response;
+      });
+    } catch (error) {
+      console.error('❌ Error fetching paginated read notifications:', error);
+      return { error: 'Failed to fetch read notifications' };
+    }
+  }
+
   /**
    * Legacy methods for backward compatibility
    */
@@ -291,7 +339,9 @@ class NotificationService {
       this.clearCache('notifications_unread_count');
       // Clear pagination caches
       const cacheKeys = Array.from(this.cache.keys()).filter(key => 
-        key.startsWith('notifications_all_') || key.startsWith('notifications_unread_')
+        key.startsWith('notifications_all_') || 
+        key.startsWith('notifications_unread_') ||
+        key.startsWith('notifications_read_')
       );
       cacheKeys.forEach(key => this.clearCache(key));
 
@@ -338,7 +388,9 @@ class NotificationService {
               // Clear caches when new notification arrives
               this.clearCache('notifications_unread_count');
               const cacheKeys = Array.from(this.cache.keys()).filter(key => 
-                key.startsWith('notifications_all_') || key.startsWith('notifications_unread_')
+                key.startsWith('notifications_all_') || 
+                key.startsWith('notifications_unread_') ||
+                key.startsWith('notifications_read_')
               );
               cacheKeys.forEach(key => this.clearCache(key));
               
