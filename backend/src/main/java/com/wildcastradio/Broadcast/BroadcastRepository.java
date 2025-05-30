@@ -32,4 +32,10 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
 
     @Query("SELECT b FROM BroadcastEntity b WHERE b.status = :status AND b.schedule.scheduledStart BETWEEN :start AND :end")
     List<BroadcastEntity> findByStatusAndScheduledStartBetween(@Param("status") BroadcastStatus status, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+    
+    // Analytics count methods
+    long countByStatus(BroadcastStatus status);
+    
+    @Query("SELECT COUNT(b) FROM BroadcastEntity b WHERE b.status = :status AND b.schedule.scheduledStart > :date")
+    long countByStatusAndScheduledStartAfter(@Param("status") BroadcastStatus status, @Param("date") LocalDateTime date);
 } 

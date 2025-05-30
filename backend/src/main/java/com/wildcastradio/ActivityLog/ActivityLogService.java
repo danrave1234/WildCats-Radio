@@ -58,4 +58,31 @@ public class ActivityLogService {
                 .map(ActivityLogDTO::fromEntity)
                 .collect(Collectors.toList());
     }
+
+    // Analytics methods for data retrieval
+    public long getTodayActivityCount() {
+        LocalDateTime startOfDay = LocalDateTime.now().withHour(0).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime endOfDay = startOfDay.plusDays(1);
+        return activityLogRepository.countByTimestampBetween(startOfDay, endOfDay);
+    }
+
+    public long getWeekActivityCount() {
+        LocalDateTime startOfWeek = LocalDateTime.now().minusDays(7).withHour(0).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime now = LocalDateTime.now();
+        return activityLogRepository.countByTimestampBetween(startOfWeek, now);
+    }
+
+    public long getMonthActivityCount() {
+        LocalDateTime startOfMonth = LocalDateTime.now().minusDays(30).withHour(0).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime now = LocalDateTime.now();
+        return activityLogRepository.countByTimestampBetween(startOfMonth, now);
+    }
+
+    public List<ActivityLogDTO> getRecentActivities(int limit) {
+        return activityLogRepository.findAll().stream()
+                .sorted((a, b) -> b.getTimestamp().compareTo(a.getTimestamp()))
+                .limit(limit)
+                .map(ActivityLogDTO::fromEntity)
+                .collect(Collectors.toList());
+    }
 } 

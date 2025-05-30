@@ -102,4 +102,15 @@ public class SongRequestService {
         
         return result;
     }
+
+    public double getAverageRequestsPerBroadcast() {
+        long totalRequests = getTotalSongRequestCount();
+        long totalBroadcasts = broadcastRepository.count();
+        
+        if (totalBroadcasts == 0) {
+            return 0.0;
+        }
+        
+        return (double) totalRequests / totalBroadcasts;
+    }
 } 

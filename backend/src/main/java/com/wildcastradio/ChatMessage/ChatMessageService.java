@@ -71,4 +71,20 @@ public class ChatMessageService {
         
         return savedMessage;
     }
+
+    // Analytics methods for data retrieval
+    public long getTotalMessageCount() {
+        return chatMessageRepository.count();
+    }
+
+    public double getAverageMessagesPerBroadcast() {
+        long totalMessages = getTotalMessageCount();
+        long totalBroadcasts = broadcastRepository.count();
+        
+        if (totalBroadcasts == 0) {
+            return 0.0;
+        }
+        
+        return (double) totalMessages / totalBroadcasts;
+    }
 }

@@ -451,17 +451,51 @@ public class BroadcastService {
         if (broadcastOpt.isPresent()) {
             BroadcastEntity broadcast = broadcastOpt.get();
 
-            // Log the activity if the user is authenticated
-            if (user != null) {
-                activityLogService.logActivity(
-                    user,
-                    ActivityLogEntity.ActivityType.BROADCAST_END,
-                    "Left broadcast: " + broadcast.getTitle()
-                );
-            }
-
             // Here you could update listener count analytics
             // This could be stored in a separate table or in-memory
         }
+    }
+
+    // Analytics methods for data retrieval
+    public long getTotalBroadcastCount() {
+        return broadcastRepository.count();
+    }
+
+    public long getLiveBroadcastCount() {
+        return broadcastRepository.countByStatus(BroadcastEntity.BroadcastStatus.LIVE);
+    }
+
+    public long getUpcomingBroadcastCount() {
+        return broadcastRepository.countByStatusAndScheduledStartAfter(
+            BroadcastEntity.BroadcastStatus.SCHEDULED, 
+            LocalDateTime.now()
+        );
+    }
+
+    public long getCompletedBroadcastCount() {
+        return broadcastRepository.countByStatus(BroadcastEntity.BroadcastStatus.ENDED);
+    }
+
+    public double getAverageBroadcastDuration() {
+        List<BroadcastEntity> completedBroadcasts = broadcastRepository.findByStatus(BroadcastEntity.BroadcastStatus.ENDED);
+        
+        if (completedBroadcasts.isEmpty()) {
+            return 0.0;
+        }
+
+        long totalMinutes = completedBroadcasts.stream()
+            .filter(broadcast -> broadcast.getActualStart() != null && broadcast.getActualEnd() != null)
+            .mapToLong(broadcast -> java.time.Duration.between(broadcast.getActualStart(), broadcast.getActualEnd()).toMinutes())
+            .sum();
+
+        return (double) totalMinutes / completedBroadcasts.size();
+    }
+
+    public List<BroadcastEntity> getPopularBroadcasts(int limit) {
+        // For now, return all broadcasts ordered by creation date
+        // In the future, this could be ordered by listener count or other metrics
+        return broadcastRepository.findAll().stream()
+            .limit(limit)
+            .collect(java.util.stream.Collectors.toList());
     }
 } 

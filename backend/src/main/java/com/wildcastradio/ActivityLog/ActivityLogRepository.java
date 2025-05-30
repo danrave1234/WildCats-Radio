@@ -15,4 +15,7 @@ public interface ActivityLogRepository extends JpaRepository<ActivityLogEntity, 
     List<ActivityLogEntity> findByTimestampBetween(LocalDateTime start, LocalDateTime end);
     List<ActivityLogEntity> findByUserAndTimestampBetween(UserEntity user, LocalDateTime start, LocalDateTime end);
     List<ActivityLogEntity> findTop10ByUserOrderByTimestampDesc(UserEntity user);
+    
+    // Analytics count methods
+    long countByTimestampBetween(LocalDateTime start, LocalDateTime end);
 } 

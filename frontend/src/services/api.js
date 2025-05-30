@@ -475,4 +475,15 @@ export const streamService = {
   }
 };
 
+// Services for analytics
+export const analyticsService = {
+  getBroadcastStats: () => api.get('/api/analytics/broadcasts'),
+  getUserStats: () => api.get('/api/analytics/users'),
+  getEngagementStats: () => api.get('/api/analytics/engagement'),
+  getActivityStats: () => api.get('/api/analytics/activity'),
+  getPopularBroadcasts: () => api.get('/api/analytics/popular-broadcasts'),
+  getAnalyticsSummary: () => api.get('/api/analytics/summary'),
+  getHealthStatus: () => api.get('/api/analytics/health'),
+};
+
 export default api;
