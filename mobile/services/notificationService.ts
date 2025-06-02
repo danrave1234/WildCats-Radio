@@ -101,15 +101,83 @@ class NotificationService {
   async testNotificationConnection(authToken: string): Promise<void> {
     try {
       console.log('🔔 Testing notification connection...');
+      console.log('🔗 Testing API connectivity first...');
       const response = await this.getUnreadCount(authToken);
       if ('error' in response) {
         throw new Error(response.error);
       }
-      console.log('✅ Notification connection successful');
+      console.log('✅ API connectivity successful, unread count:', response.data);
+      console.log('✅ Notification connection test completed successfully');
     } catch (error) {
       console.error('❌ Notification connection failed:', error);
       throw error;
     }
+  }
+
+  /**
+   * Comprehensive notification system test
+   */
+  async runNotificationSystemTest(authToken: string): Promise<{
+    apiConnectivity: boolean;
+    webSocketConnectivity: boolean;
+    subscriptionActive: boolean;
+    errors: string[];
+  }> {
+    const results = {
+      apiConnectivity: false,
+      webSocketConnectivity: false,
+      subscriptionActive: false,
+      errors: [] as string[]
+    };
+
+    console.log('🧪 Running comprehensive notification system test...');
+
+    // Test 1: API Connectivity
+    try {
+      console.log('📡 Test 1: API Connectivity...');
+      const unreadResult = await this.getUnreadCount(authToken);
+      if ('error' in unreadResult) {
+        results.errors.push(`API Error: ${unreadResult.error}`);
+      } else {
+        results.apiConnectivity = true;
+        console.log('✅ API connectivity: PASS');
+      }
+    } catch (error) {
+      results.errors.push(`API Exception: ${(error as Error).message}`);
+      console.error('❌ API connectivity: FAIL', error);
+    }
+
+    // Test 2: WebSocket Connectivity
+    try {
+      console.log('🔗 Test 2: WebSocket Connectivity...');
+      const hasActiveConnection = this.hasActiveSubscription();
+      if (hasActiveConnection) {
+        results.webSocketConnectivity = true;
+        results.subscriptionActive = true;
+        console.log('✅ WebSocket connectivity: PASS');
+        console.log('✅ Subscription active: PASS');
+      } else {
+        results.errors.push('No active WebSocket subscription found');
+        console.log('❌ WebSocket connectivity: FAIL - No active subscription');
+      }
+    } catch (error) {
+      results.errors.push(`WebSocket Exception: ${(error as Error).message}`);
+      console.error('❌ WebSocket connectivity: FAIL', error);
+    }
+
+    // Summary
+    console.log('📊 Notification System Test Results:', {
+      apiConnectivity: results.apiConnectivity ? '✅ PASS' : '❌ FAIL',
+      webSocketConnectivity: results.webSocketConnectivity ? '✅ PASS' : '❌ FAIL',
+      subscriptionActive: results.subscriptionActive ? '✅ PASS' : '❌ FAIL',
+      errorCount: results.errors.length
+    });
+
+    if (results.errors.length > 0) {
+      console.log('❌ Errors found:', results.errors);
+    }
+
+    return results;
   }
 
   /**

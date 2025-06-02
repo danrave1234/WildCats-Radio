@@ -65,6 +65,77 @@ const ProfileScreen: React.FC = () => {
 
   const tabKeys: ProfileTabKey[] = useMemo(() => tabDefinitions.map(t => t.key), [tabDefinitions]);
 
+  // Get current tab index for animation
+  const getCurrentTabIndex = (tabKey: ProfileTabKey): number => {
+    return tabKeys.findIndex(key => key === tabKey);
+  };
+
+  // Animate line to new position
+  const animateLineToTab = (newTabKey: ProfileTabKey) => {
+    const newIndex = getCurrentTabIndex(newTabKey);
+    const currentTabLayout = tabLayouts[newTabKey];
+    
+    if (currentTabLayout && currentTabLayout.width > 0) {
+      console.log(`🎬 Profile: Animating line to ${newTabKey} (index: ${newIndex})`);
+      
+      Animated.parallel([
+        Animated.spring(underlinePosition, {
+          toValue: currentTabLayout.x,
+          useNativeDriver: false,
+          tension: 120,
+          friction: 8,
+          velocity: 0,
+        }),
+        Animated.spring(underlineWidth, {
+          toValue: currentTabLayout.width,
+          useNativeDriver: false,
+          tension: 120,
+          friction: 8,
+          velocity: 0,
+        }),
+      ]).start((finished) => {
+        if (finished) {
+          console.log(`✅ Profile: Animation completed for ${newTabKey}`);
+        }
+      });
+    }
+  };
+
+  // Simplified tab change with immediate animation
+  const handleTabPress = (newTab: ProfileTabKey) => {
+    if (newTab === activeTab) return;
+    
+    console.log(`🔄 Profile: Tab change requested: ${activeTab} → ${newTab}`);
+    
+    // Change tab immediately
+    setActiveTab(newTab);
+    
+    // Animate line to new position
+    if (isInitialLayoutDone) {
+      animateLineToTab(newTab);
+    }
+  };
+
+  // Effect to handle initial setup and tab changes
+  useEffect(() => {
+    const currentTabLayout = tabLayouts[activeTab];
+    
+    console.log(`📍 Profile: Tab changed to ${activeTab}, layout:`, currentTabLayout);
+
+    if (currentTabLayout && currentTabLayout.width > 0) {
+      if (!isInitialLayoutDone) {
+        // Set initial position without animation
+        underlinePosition.setValue(currentTabLayout.x);
+        underlineWidth.setValue(currentTabLayout.width);
+        setIsInitialLayoutDone(true);
+        console.log(`🎯 Profile: Initial position set for ${activeTab}`);
+      } else {
+        // Animate to new position
+        animateLineToTab(activeTab);
+      }
+    }
+  }, [activeTab, tabLayouts, isInitialLayoutDone]);
+
   // States for Personal Information Edit Form
   const [isEditingPersonalInfo, setIsEditingPersonalInfo] = useState(false);
   const [fullName, setFullName] = useState('');
@@ -77,47 +148,6 @@ const ProfileScreen: React.FC = () => {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-
-  // Simplified tab change - no content animation
-  const handleTabPress = (newTab: ProfileTabKey) => {
-    setActiveTab(newTab);
-  };
-
-  // Effect to animate underline when activeTab or layouts change
-  useEffect(() => {
-    const currentTabLayout = tabLayouts[activeTab];
-
-    if (currentTabLayout && currentTabLayout.width > 0) {
-      if (!isInitialLayoutDone && activeTab === tabKeys[0]) {
-        // Set initial position and width without animation for the first tab
-        underlinePosition.setValue(currentTabLayout.x);
-        underlineWidth.setValue(currentTabLayout.width);
-        setIsInitialLayoutDone(true);
-      } else if (isInitialLayoutDone) {
-        // Animate for subsequent tab changes
-        Animated.parallel([
-          Animated.timing(underlinePosition, {
-            toValue: currentTabLayout.x,
-            duration: 250,
-            easing: Easing.out(Easing.ease),
-            useNativeDriver: false, 
-          }),
-          Animated.timing(underlineWidth, {
-            toValue: currentTabLayout.width,
-            duration: 250,
-            easing: Easing.out(Easing.ease),
-            useNativeDriver: false,
-          }),
-        ]).start();
-      }
-    } else if (!isInitialLayoutDone && activeTab === tabKeys[0] && tabLayouts[tabKeys[0]] === undefined) {
-      const firstPotentialLayout = Object.values(tabLayouts)[0];
-      if(firstPotentialLayout) { 
-        underlinePosition.setValue(firstPotentialLayout.x);
-        underlineWidth.setValue(firstPotentialLayout.width);
-      }
-    }
-  }, [activeTab, tabLayouts, underlinePosition, underlineWidth, isInitialLayoutDone, tabKeys]);
 
   const fetchUserData = async (showLoading = true) => {
     if (!authToken) {

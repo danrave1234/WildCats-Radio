@@ -58,8 +58,8 @@ class WebSocketManager implements WebSocketService {
     
     try {
       // Use the same base as your API service for consistency
-      //const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.autoidleapp.com'; // Match your apiService.ts Deployed URL
-      const API_BASE_URL = 'http://192.168.5.60:8080'; // Match your apiService.ts Expo
+      const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.autoidleapp.com'; // Match your deployed backend
+      //const API_BASE_URL = 'http://192.168.5.60:8080'; // Match your apiService.ts Expo
       //const API_BASE_URL = 'http://10.0.2.2:8080'; // For Android emulator (localhost)
       const wsUrl = `${API_BASE_URL}/ws-radio`;
       
@@ -139,12 +139,15 @@ class WebSocketManager implements WebSocketService {
         
         // Subscribe to user-specific notifications
         console.log('📢 Subscribing to notification topic:', `/user/queue/notifications`);
+        console.log('🔗 WebSocket URL used:', wsUrl);
+        console.log('🔑 Auth token (first 10 chars):', authToken?.substring(0, 10) + '...');
         this.notificationSubscription = this.stompClient.subscribe(
           `/user/queue/notifications`, 
           (message: any) => {
             try {
-              console.log('📢 Received notification:', message.body);
+              console.log('📢 ✅ NOTIFICATION RECEIVED!', message.body);
               const notificationData = JSON.parse(message.body);
+              console.log('📢 ✅ Parsed notification data:', notificationData);
               this.messageHandlers.forEach(handler => handler({
                 type: 'notification',
                 data: notificationData
@@ -155,6 +158,12 @@ class WebSocketManager implements WebSocketService {
           }
         );
         
+        console.log('✅ All subscriptions set up successfully!');
+        console.log('📊 Active subscriptions:', {
+          chat: !!this.chatSubscription,
+          poll: !!this.pollSubscription,
+          notification: !!this.notificationSubscription
+        });
       }, (error: any) => {
         console.error('❌ STOMP connection error:', error);
         console.error('🔍 Error details:', JSON.stringify(error, null, 2));

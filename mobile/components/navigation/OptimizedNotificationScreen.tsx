@@ -8,12 +8,44 @@ import {
   Dimensions,
   FlatList,
   ActivityIndicator,
+  PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NotificationDTO } from '../../services/apiService';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+// Cordovan Color Palette
+const COLORS = {
+  // Primary Cordovan
+  primary: '#91403E',           // Main cordovan
+  primaryLight: '#A64D4A',      // Lighter cordovan
+  primaryDark: '#7A3635',       // Darker cordovan
+  primaryVeryLight: '#F4E8E7',  // Very light cordovan tint
+  
+  // Secondary Cordovan
+  secondary: '#B85450',         // Accent cordovan
+  secondaryLight: '#D4706C',    // Light accent
+  
+  // Backgrounds
+  background: '#F8F5F4',        // Warm light background
+  cardBackground: '#FFFFFF',    // White cards
+  surface: '#FDF6F5',          // Slight cordovan tint
+  
+  // Text
+  textPrimary: '#2D1B1A',      // Dark cordovan text
+  textSecondary: '#5C3E3C',    // Medium cordovan text
+  textTertiary: '#8B6B69',     // Light cordovan text
+  textInverse: '#FFFFFF',      // White text
+  
+  // States
+  success: '#7A5F3E',          // Cordovan-tinted success
+  warning: '#B8704A',          // Cordovan-tinted warning
+  unread: '#F4E8E7',          // Light cordovan for unread
+  unreadBorder: '#A64D4A',     // Cordovan border for unread
+};
+
+// Dynamic screen dimensions that update on orientation changes
+const getScreenDimensions = () => Dimensions.get('window');
 
 // Format date to "May 28, 2024 at 8:30 AM"
 const formatNotificationDate = (timestamp: string): string => {
@@ -36,6 +68,23 @@ const formatNotificationDate = (timestamp: string): string => {
   }
 };
 
+// Get relative time
+const formatRelativeTime = (timestamp: string): string => {
+  try {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    if (diffInSeconds < 60) return 'Just now';
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
+    return `${Math.floor(diffInSeconds / 604800)}w ago`;
+  } catch {
+    return 'Unknown';
+  }
+};
+
 // Tab data for notification categories
 const TAB_DATA = [
   { key: 'all', label: 'All', icon: 'list-outline' },
@@ -45,103 +94,330 @@ const TAB_DATA = [
 
 type TabKey = typeof TAB_DATA[number]['key'];
 
+// Sort options
+const SORT_OPTIONS = [
+  { key: 'newest', label: 'Newest First', icon: 'arrow-down-outline' },
+  { key: 'oldest', label: 'Oldest First', icon: 'arrow-up-outline' },
+  { key: 'unread', label: 'Unread First', icon: 'radio-button-off-outline' },
+] as const;
+
+// Notification type formatting
+const formatNotificationType = (type: string): string => {
+  return type.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
+};
+
 // Memoized notification item component
 const NotificationItem = React.memo(({ 
   notification, 
   onPress, 
   getNotificationIcon, 
-  getNotificationTitle 
+  getNotificationTitle,
+  screenData,
 }: {
   notification: NotificationDTO;
   onPress: (id: number) => void;
   getNotificationIcon: (type: string) => string;
   getNotificationTitle: (type: string) => string;
+  screenData: { width: number; height: number };
 }) => {
+  // Animation values for swipe gesture
+  const translateX = useRef(new Animated.Value(0)).current;
+  const swipeOpacity = useRef(new Animated.Value(0)).current;
+  const [isSwipeActive, setIsSwipeActive] = useState(false);
+
   // Memoize time formatting
   const formattedTime = useMemo(() => {
     return formatNotificationDate(notification.timestamp);
+  }, [notification.timestamp]);
+
+  const relativeTime = useMemo(() => {
+    return formatRelativeTime(notification.timestamp);
   }, [notification.timestamp]);
 
   const handlePress = useCallback(() => {
     onPress(notification.id);
   }, [notification.id, onPress]);
 
+  // Swipe gesture configuration
+  const SWIPE_THRESHOLD = screenData.width * 0.3; // 30% of screen width
+  const MAX_SWIPE = screenData.width * 0.6; // Maximum swipe distance
+
+  // Pan responder for swipe gestures
+  const panResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: (evt, gestureState) => {
+      // Only capture gestures if it's clearly a horizontal swipe
+      // Require more horizontal movement before capturing
+      const isHorizontal = Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 2;
+      const hasEnoughMovement = Math.abs(gestureState.dx) > 10;
+      return !notification.read && isHorizontal && hasEnoughMovement;
+    },
+    onMoveShouldSetPanResponder: (evt, gestureState) => {
+      // Be more strict about capturing - need clear left swipe intent
+      const isLeftSwipe = gestureState.dx < -15;
+      const isHorizontal = Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 2;
+      const hasEnoughMovement = Math.abs(gestureState.dx) > 15;
+      return !notification.read && isLeftSwipe && isHorizontal && hasEnoughMovement;
+    },
+    onPanResponderGrant: () => {
+      setIsSwipeActive(true);
+      // Start with current values
+      translateX.setOffset(0);
+      translateX.setValue(0);
+      swipeOpacity.setValue(0);
+    },
+    onPanResponderMove: (evt, gestureState) => {
+      if (notification.read) return;
+      
+      // Only allow left swipes (negative dx)
+      const clampedDx = Math.max(Math.min(gestureState.dx, 0), -MAX_SWIPE);
+      translateX.setValue(clampedDx);
+      
+      // Calculate opacity based on swipe progress
+      const progress = Math.abs(clampedDx) / SWIPE_THRESHOLD;
+      swipeOpacity.setValue(Math.min(progress, 1));
+    },
+    onPanResponderRelease: (evt, gestureState) => {
+      setIsSwipeActive(false);
+      translateX.flattenOffset();
+      
+      if (notification.read) return;
+      
+      // Check if swipe threshold was met
+      if (Math.abs(gestureState.dx) > SWIPE_THRESHOLD) {
+        // Complete the swipe animation and mark as read
+        Animated.parallel([
+          Animated.timing(translateX, {
+            toValue: -screenData.width,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(swipeOpacity, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          })
+        ]).start(() => {
+          // Mark as read after animation
+          onPress(notification.id);
+          // Reset position for next time
+          translateX.setValue(0);
+          swipeOpacity.setValue(0);
+        });
+      } else {
+        // Snap back to original position
+        Animated.parallel([
+          Animated.spring(translateX, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 150,
+            friction: 8,
+          }),
+          Animated.timing(swipeOpacity, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          })
+        ]).start();
+      }
+    },
+    onPanResponderTerminate: () => {
+      setIsSwipeActive(false);
+      // Snap back to original position if gesture is terminated
+      Animated.parallel([
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 150,
+          friction: 8,
+        }),
+        Animated.timing(swipeOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        })
+      ]).start();
+    },
+    onShouldBlockNativeResponder: () => false, // Don't block native responders
+  }), [notification.read, notification.id, onPress, SWIPE_THRESHOLD, MAX_SWIPE, screenData.width]);
+
+  // Responsive sizing calculations
+  const itemMargin = Math.max(12, screenData.width * 0.04);
+  const itemPadding = Math.max(12, screenData.width * 0.04);
+  const iconContainerSize = Math.max(36, screenData.width * 0.10);
+  const iconSize = Math.max(18, screenData.width * 0.05);
+  const titleFontSize = Math.min(16, screenData.width * 0.042);
+  const messageFontSize = Math.min(14, screenData.width * 0.037);
+  const timeFontSize = Math.min(12, screenData.width * 0.032);
+  const borderLeftWidth = Math.max(3, screenData.width * 0.01);
+
   return (
-    <TouchableOpacity
-      style={{
-        backgroundColor: notification.read ? 'white' : '#FEF3C7',
-        marginHorizontal: 16,
-        marginVertical: 4,
-        padding: 16,
-        borderRadius: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
-        borderLeftWidth: 4,
-        borderLeftColor: notification.read ? '#E5E7EB' : '#F59E0B',
-      }}
-      activeOpacity={0.7}
-      onPress={handlePress}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-        <View style={{
-          backgroundColor: notification.read ? '#F3F4F6' : '#FBD38D',
-          padding: 8,
-          borderRadius: 20,
-          marginRight: 12,
+    <View style={{
+      marginHorizontal: itemMargin,
+      marginVertical: Math.max(3, screenData.height * 0.005),
+      overflow: 'hidden',
+      borderRadius: 12,
+    }}>
+      {/* Swipe background - shows when swiping */}
+      {!notification.read && (
+        <Animated.View style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: '100%',
+          backgroundColor: COLORS.success,
+          opacity: swipeOpacity,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          paddingRight: itemPadding * 2,
+          borderRadius: 12,
         }}>
-          <Ionicons 
-            name={getNotificationIcon(notification.type) as any} 
-            size={20} 
-            color={notification.read ? '#6B7280' : '#92400E'} 
-          />
-        </View>
-        <View style={{ flex: 1 }}>
-          <View style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
-            marginBottom: 4,
+          <Ionicons name="checkmark-circle" size={Math.max(24, screenData.width * 0.06)} color={COLORS.textInverse} />
+          <Text style={{
+            color: COLORS.textInverse,
+            fontSize: Math.min(14, screenData.width * 0.037),
+            fontWeight: '600',
+            marginLeft: 8,
           }}>
-            <Text style={{
-              fontSize: 16,
-              fontWeight: '600',
-              color: '#1F2937',
-              flex: 1,
+            Mark as Read
+          </Text>
+        </Animated.View>
+      )}
+
+      {/* Main notification content */}
+      <Animated.View
+        style={{
+          transform: [{ translateX: notification.read ? 0 : translateX }],
+        }}
+        {...(notification.read ? {} : panResponder.panHandlers)}
+      >
+        <TouchableOpacity
+          style={{
+            backgroundColor: notification.read ? COLORS.cardBackground : COLORS.unread,
+            padding: itemPadding,
+            borderRadius: 12,
+            shadowColor: COLORS.primary,
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.08,
+            shadowRadius: 4,
+            elevation: 3,
+            borderLeftWidth: borderLeftWidth,
+            borderLeftColor: notification.read ? COLORS.textTertiary : COLORS.unreadBorder,
+            minHeight: Math.max(70, screenData.height * 0.09),
+          }}
+          activeOpacity={0.7}
+          onPress={handlePress}
+          disabled={isSwipeActive}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+            <View style={{
+              backgroundColor: notification.read ? COLORS.surface : COLORS.primaryVeryLight,
+              padding: Math.max(6, screenData.width * 0.02),
+              borderRadius: iconContainerSize / 2,
+              marginRight: Math.max(10, screenData.width * 0.03),
+              width: iconContainerSize,
+              height: iconContainerSize,
+              justifyContent: 'center',
+              alignItems: 'center',
             }}>
-              {getNotificationTitle(notification.type)}
-            </Text>
-            {!notification.read && (
+              <Ionicons 
+                name={getNotificationIcon(notification.type) as any} 
+                size={iconSize} 
+                color={notification.read ? COLORS.textTertiary : COLORS.primary} 
+              />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
               <View style={{
-                width: 8,
-                height: 8,
-                borderRadius: 4,
-                backgroundColor: '#F59E0B',
-                marginLeft: 8,
-                marginTop: 4,
-              }} />
-            )}
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                marginBottom: Math.max(3, screenData.height * 0.005),
+              }}>
+                <View style={{ flex: 1 }}>
+                  <Text 
+                    style={{
+                      fontSize: Math.min(12, screenData.width * 0.032),
+                      fontWeight: '600',
+                      color: COLORS.textTertiary,
+                      marginBottom: 2,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {formatNotificationType(notification.type)}
+                  </Text>
+                  <Text 
+                    style={{
+                      fontSize: titleFontSize,
+                      fontWeight: '600',
+                      color: COLORS.textPrimary,
+                      marginBottom: 4,
+                    }}
+                    numberOfLines={2}
+                  >
+                    {getNotificationTitle(notification.type)}
+                  </Text>
+                </View>
+                {!notification.read && (
+                  <View style={{
+                    width: Math.max(6, screenData.width * 0.02),
+                    height: Math.max(6, screenData.width * 0.02),
+                    borderRadius: Math.max(3, screenData.width * 0.01),
+                    backgroundColor: COLORS.unreadBorder,
+                    marginTop: 2,
+                    marginLeft: 8,
+                    flexShrink: 0,
+                  }} />
+                )}
+              </View>
+              <Text 
+                style={{
+                  fontSize: messageFontSize,
+                  color: COLORS.textSecondary,
+                  lineHeight: messageFontSize * 1.4,
+                  marginBottom: Math.max(6, screenData.height * 0.008),
+                }}
+                numberOfLines={3}
+              >
+                {notification.message}
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{
+                  fontSize: timeFontSize,
+                  color: COLORS.textTertiary,
+                  fontWeight: '500',
+                }}>
+                  {relativeTime}
+                </Text>
+                {!notification.read && (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      handlePress();
+                    }}
+                    style={{
+                      backgroundColor: COLORS.primary,
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderRadius: 12,
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={{
+                      fontSize: Math.min(10, screenData.width * 0.028),
+                      color: COLORS.textInverse,
+                      fontWeight: '600',
+                    }}>
+                      Mark Read
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
           </View>
-          <Text style={{
-            fontSize: 14,
-            color: '#6B7280',
-            lineHeight: 20,
-            marginBottom: 8,
-          }}>
-            {notification.message}
-          </Text>
-          <Text style={{
-            fontSize: 12,
-            color: '#9CA3AF',
-            fontWeight: '500',
-          }}>
-            {formattedTime}
-          </Text>
-        </View>
-      </View>
-    </TouchableOpacity>
+        </TouchableOpacity>
+      </Animated.View>
+    </View>
   );
 });
 
@@ -150,11 +426,65 @@ const NotificationTabBar = React.memo(({
   selectedTab,
   onTabChange,
   notificationCounts,
+  screenData,
 }: {
   selectedTab: string;
   onTabChange: (tab: string) => void;
   notificationCounts: { total: number; unread: number; read: number };
+  screenData: { width: number; height: number };
 }) => {
+  // Animated line position
+  const linePosition = useRef(new Animated.Value(0)).current;
+  const [tabWidth, setTabWidth] = useState(0);
+  const isInitialSetup = useRef(true);
+  
+  // Get current tab index
+  const getCurrentTabIndex = useCallback((tabKey: string) => {
+    return TAB_DATA.findIndex(tab => tab.key === tabKey);
+  }, []);
+
+  // Animate line to new position
+  const animateLineToTab = useCallback((newTabKey: string) => {
+    const newIndex = getCurrentTabIndex(newTabKey);
+    const targetPosition = newIndex * tabWidth;
+    
+    console.log(`🎬 Animating line to ${newTabKey} (index: ${newIndex}, position: ${targetPosition}, tabWidth: ${tabWidth})`);
+    
+    if (tabWidth > 0) {
+      Animated.spring(linePosition, {
+        toValue: targetPosition,
+        useNativeDriver: true,
+        tension: 120,
+        friction: 8,
+        velocity: 0,
+      }).start((finished) => {
+        if (finished) {
+          console.log(`✅ Animation completed for ${newTabKey}`);
+        }
+      });
+    }
+  }, [linePosition, tabWidth, getCurrentTabIndex]);
+
+  // Initialize line position and handle tab changes
+  React.useEffect(() => {
+    console.log(`📍 Tab changed to: ${selectedTab}, tabWidth: ${tabWidth}, isInitial: ${isInitialSetup.current}`);
+    
+    if (tabWidth > 0) {
+      const currentIndex = getCurrentTabIndex(selectedTab);
+      const targetPosition = currentIndex * tabWidth;
+      
+      if (isInitialSetup.current) {
+        // Set initial position immediately
+        linePosition.setValue(targetPosition);
+        isInitialSetup.current = false;
+        console.log(`🎯 Initial position set to ${targetPosition} for ${selectedTab}`);
+      } else {
+        // Animate to new position
+        animateLineToTab(selectedTab);
+      }
+    }
+  }, [selectedTab, tabWidth, animateLineToTab, getCurrentTabIndex]);
+
   const getTabCount = useCallback((tabKey: string) => {
     switch (tabKey) {
       case 'all':
@@ -168,77 +498,112 @@ const NotificationTabBar = React.memo(({
     }
   }, [notificationCounts]);
 
+  // Responsive sizing calculations
+  const tabBarMargin = Math.max(12, screenData.width * 0.04);
+  const iconSize = Math.min(16, screenData.width * 0.042);
+  const fontSize = Math.min(14, screenData.width * 0.037);
+  const countFontSize = Math.min(10, screenData.width * 0.027);
+  const verticalPadding = Math.max(10, screenData.height * 0.015);
+
   return (
-    <View style={{
-      flexDirection: 'row',
-      backgroundColor: 'white',
-      marginHorizontal: 16,
-      marginTop: 16,
-      marginBottom: 8,
-      borderRadius: 12,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 3,
-      overflow: 'hidden',
-    }}>
-      {TAB_DATA.map((tab, index) => {
-        const isSelected = selectedTab === tab.key;
-        const count = getTabCount(tab.key);
-        
-        return (
-          <TouchableOpacity
-            key={tab.key}
-            style={{
-              flex: 1,
-              paddingVertical: 12,
-              paddingHorizontal: 8,
-              backgroundColor: isSelected ? '#91403E' : 'transparent',
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRightWidth: index < TAB_DATA.length - 1 ? 1 : 0,
-              borderRightColor: '#E5E7EB',
-            }}
-            onPress={() => onTabChange(tab.key)}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={tab.icon as any}
-              size={16}
-              color={isSelected ? 'white' : '#6B7280'}
-              style={{ marginRight: 6 }}
-            />
-            <Text style={{
-              fontSize: 14,
-              fontWeight: isSelected ? '600' : '500',
-              color: isSelected ? 'white' : '#6B7280',
-              marginRight: count > 0 ? 4 : 0,
-            }}>
-              {tab.label}
-            </Text>
-            {count > 0 && (
-              <View style={{
-                backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : '#EF4444',
-                paddingHorizontal: 6,
-                paddingVertical: 2,
-                borderRadius: 10,
-                minWidth: 20,
+    <View 
+      style={{
+        backgroundColor: COLORS.cardBackground,
+        marginHorizontal: tabBarMargin,
+        marginTop: tabBarMargin,
+        marginBottom: tabBarMargin * 0.5,
+        borderRadius: 12,
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 4,
+        elevation: 3,
+        overflow: 'hidden',
+        minHeight: Math.max(44, screenData.height * 0.06),
+      }}
+      onLayout={(event) => {
+        const { width } = event.nativeEvent.layout;
+        const calculatedTabWidth = width / TAB_DATA.length;
+        setTabWidth(calculatedTabWidth);
+      }}
+    >
+      {/* Tab buttons container */}
+      <View style={{ flexDirection: 'row', flex: 1 }}>
+        {TAB_DATA.map((tab, index) => {
+          const isSelected = selectedTab === tab.key;
+          const count = getTabCount(tab.key);
+          
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              style={{
+                flex: 1,
+                paddingVertical: verticalPadding,
+                paddingHorizontal: Math.max(6, screenData.width * 0.02),
+                backgroundColor: 'transparent',
+                flexDirection: 'row',
                 alignItems: 'center',
+                justifyContent: 'center',
+                borderRightWidth: index < TAB_DATA.length - 1 ? 1 : 0,
+                borderRightColor: COLORS.surface,
+                minHeight: Math.max(44, screenData.height * 0.06),
+              }}
+              onPress={() => onTabChange(tab.key)}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={tab.icon as any}
+                size={iconSize}
+                color={isSelected ? COLORS.primary : COLORS.textSecondary}
+                style={{ marginRight: Math.max(4, screenData.width * 0.015) }}
+              />
+              <Text style={{
+                fontSize: fontSize,
+                fontWeight: isSelected ? '600' : '500',
+                color: isSelected ? COLORS.primary : COLORS.textSecondary,
+                marginRight: count > 0 ? 4 : 0,
+                flexShrink: 1,
               }}>
-                <Text style={{
-                  color: isSelected ? 'white' : 'white',
-                  fontSize: 10,
-                  fontWeight: 'bold',
+                {tab.label}
+              </Text>
+              {count > 0 && (
+                <View style={{
+                  backgroundColor: isSelected ? COLORS.primary : COLORS.secondary,
+                  paddingHorizontal: Math.max(4, screenData.width * 0.015),
+                  paddingVertical: 2,
+                  borderRadius: 10,
+                  minWidth: Math.max(18, screenData.width * 0.05),
+                  alignItems: 'center',
                 }}>
-                  {count > 99 ? '99+' : count.toString()}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        );
-      })}
+                  <Text style={{
+                    color: COLORS.textInverse,
+                    fontSize: countFontSize,
+                    fontWeight: 'bold',
+                  }}>
+                    {count > 99 ? '99+' : count.toString()}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      
+      {/* Animated bottom line indicator */}
+      <Animated.View
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          height: 3,
+          width: tabWidth > 0 ? tabWidth : 0,
+          backgroundColor: COLORS.primary,
+          transform: [{ translateX: linePosition }],
+          zIndex: 10,
+        }}
+        onLayout={() => {
+          console.log(`📏 Line rendered with width: ${tabWidth}, color: ${COLORS.primary}`);
+        }}
+      />
     </View>
   );
 });
@@ -296,46 +661,180 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
 }) => {
   const insets = useSafeAreaInsets();
   const [isAnimating, setIsAnimating] = useState(false);
+  const [screenData, setScreenData] = useState(getScreenDimensions());
   const flatListRef = useRef<FlatList>(null);
-  
-  // Animation values
-  const notificationTranslateY = useRef(new Animated.Value(-SCREEN_HEIGHT)).current;
+
+  // Animation values with dynamic screen height - use refs that don't change
+  const notificationTranslateY = useRef(new Animated.Value(-screenData.height)).current;
   const notificationOpacity = useRef(new Animated.Value(0)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
-  const listOpacity = useRef(new Animated.Value(1)).current; // For tab switching animation
+  const listOpacity = useRef(new Animated.Value(1)).current;
 
-  // Memoize filtered notifications to prevent unnecessary re-computations
-  const filteredNotifications = useMemo(() => {
-    console.log('🔍 OptimizedNotificationScreen: Filtering notifications', {
-      totalNotifications: notifications.length,
-      selectedTab,
-      isLoading
+  // Track animation state with refs to prevent dependency loops
+  const isAnimatingRef = useRef(false);
+  const hasAnimatedInRef = useRef(false);
+
+  // Dynamic screen dimensions - responsive to orientation changes
+  React.useEffect(() => {
+    const subscription = Dimensions.addEventListener('change', ({ window }) => {
+      setScreenData(window);
     });
     
+    return () => subscription?.remove();
+  }, []);
+
+  // Update animation values when screen dimensions change
+  React.useEffect(() => {
+    if (!visible) {
+      notificationTranslateY.setValue(-screenData.height);
+      hasAnimatedInRef.current = false;
+    }
+  }, [screenData.height, visible]);
+
+  // Enhanced filtered and sorted notifications
+  const filteredAndSortedNotifications = useMemo(() => {
+    let filtered = notifications;
+
+    // Apply tab filter first
     switch (selectedTab) {
       case 'unread':
-        const unreadFiltered = notifications.filter(n => !n.read);
-        console.log('🔍 Unread filtered:', {
-          count: unreadFiltered.length,
-          ids: unreadFiltered.map(n => n.id)
-        });
-        return unreadFiltered;
+        filtered = filtered.filter(n => !n.read);
+        break;
       case 'read':
-        const readFiltered = notifications.filter(n => n.read);
-        console.log('🔍 Read filtered:', {
-          count: readFiltered.length,
-          ids: readFiltered.map(n => n.id).slice(0, 5) // Show first 5 IDs
-        });
-        return readFiltered;
+        filtered = filtered.filter(n => n.read);
+        break;
       default:
-        console.log('🔍 All notifications:', {
-          total: notifications.length,
-          unreadCount: notifications.filter(n => !n.read).length,
-          readCount: notifications.filter(n => n.read).length
-        });
-        return notifications;
+        // 'all' - no additional filtering
+        break;
     }
-  }, [notifications, selectedTab, isLoading]);
+
+    // Apply default sorting (newest first with unread priority)
+    filtered.sort((a, b) => {
+      // First priority: unread notifications come first
+      if (a.read !== b.read) {
+        return a.read ? 1 : -1; // Unread (false) comes before read (true)
+      }
+      
+      // Second priority: within same read status, sort by timestamp (newest first)
+      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+    });
+
+    console.log('🔍 Filtered and sorted notifications:', {
+      originalCount: notifications.length,
+      filteredCount: filtered.length,
+      selectedTab
+    });
+
+    return filtered;
+  }, [notifications, selectedTab]);
+
+  // Animate in function - no dependencies that change
+  const animateIn = () => {
+    if (isAnimatingRef.current || hasAnimatedInRef.current) return;
+    
+    console.log('🎬 Starting notification screen animation IN');
+    isAnimatingRef.current = true;
+    setIsAnimating(true);
+    
+    if (onAnimationStart) {
+      onAnimationStart();
+    }
+    
+    // Reset animation values
+    notificationTranslateY.setValue(-screenData.height);
+    notificationOpacity.setValue(0);
+    overlayOpacity.setValue(0);
+    
+    Animated.parallel([
+      Animated.timing(overlayOpacity, {
+        toValue: 0.5,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(notificationTranslateY, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(notificationOpacity, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      })
+    ]).start((finished) => {
+      if (finished) {
+        console.log('✅ Notification screen animation IN completed');
+        isAnimatingRef.current = false;
+        hasAnimatedInRef.current = true;
+        setIsAnimating(false);
+        if (onAnimationComplete) {
+          onAnimationComplete();
+        }
+      }
+    });
+  };
+
+  const animateOut = () => {
+    if (isAnimatingRef.current) return;
+    
+    console.log('🎬 Starting notification screen animation OUT');
+    isAnimatingRef.current = true;
+    setIsAnimating(true);
+    
+    if (onAnimationStart) {
+      onAnimationStart();
+    }
+    
+    Animated.parallel([
+      Animated.timing(overlayOpacity, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(notificationTranslateY, {
+        toValue: -screenData.height,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(notificationOpacity, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      })
+    ]).start((finished) => {
+      if (finished) {
+        console.log('✅ Notification screen animation OUT completed');
+        isAnimatingRef.current = false;
+        hasAnimatedInRef.current = false;
+        setIsAnimating(false);
+        if (onAnimationComplete) {
+          onAnimationComplete();
+        }
+        onClose();
+      }
+    });
+  };
+
+  // Simple animation trigger - no dependency loops
+  React.useEffect(() => {
+    if (visible && !hasAnimatedInRef.current && !isAnimatingRef.current) {
+      const timeoutId = setTimeout(() => {
+        animateIn();
+      }, 50);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [visible]); // Only depend on visible prop
+
+  // Block background scrolling when notification is visible
+  React.useEffect(() => {
+    if (visible) {
+      // Disable background scrolling
+      return () => {
+        // Re-enable when component unmounts or becomes invisible
+      };
+    }
+  }, [visible]);
 
   // Memoize notification counts to prevent recalculation
   const notificationCounts = useMemo(() => {
@@ -349,7 +848,7 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
   // Memoize tab content string
   const tabContentString = useMemo(() => {
     const { total, unread, read } = notificationCounts;
-    const filteredCount = filteredNotifications.length;
+    const filteredCount = filteredAndSortedNotifications.length;
     
     switch (selectedTab) {
       case 'all':
@@ -365,7 +864,7 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
       default:
         return `${filteredCount} notifications`;
     }
-  }, [selectedTab, notificationCounts, filteredNotifications.length, totalCount]);
+  }, [selectedTab, notificationCounts, filteredAndSortedNotifications.length, totalCount]);
 
   // Get current tab display name
   const currentTabName = useMemo(() => {
@@ -373,93 +872,25 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
     return tab ? tab.label : 'All';
   }, [selectedTab]);
 
-  // Trigger animations based on visibility - with better control
-  React.useEffect(() => {
-    if (visible && !isAnimating) {
-      // Small delay to ensure DOM is ready
-      const timeoutId = setTimeout(() => {
-        // Call animateIn directly to avoid dependency issues
-        console.log('🎬 Starting notification screen animation IN');
-        setIsAnimating(true);
-        
-        if (onAnimationStart) {
-          onAnimationStart();
-        }
-        
-        // Reset values
-        notificationTranslateY.setValue(-SCREEN_HEIGHT);
-        notificationOpacity.setValue(0);
-        overlayOpacity.setValue(0);
-        
-        // Use parallel animations with reduced complexity
-        Animated.parallel([
-          Animated.timing(overlayOpacity, {
-            toValue: 0.5,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-          Animated.timing(notificationTranslateY, {
-            toValue: 0,
-            duration: 250,
-            useNativeDriver: true,
-          }),
-          Animated.timing(notificationOpacity, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          })
-        ]).start((finished) => {
-          if (finished) {
-            console.log('✅ Notification screen animation IN completed');
-            setIsAnimating(false);
-            if (onAnimationComplete) {
-              onAnimationComplete();
-            }
-          }
-        });
-      }, 50);
-      
-      return () => clearTimeout(timeoutId);
-    }
-  }, [visible, onAnimationStart, onAnimationComplete]); // Keep only necessary dependencies
-
-  const animateOut = useCallback(() => {
-    if (isAnimating) return;
-    
-    console.log('🎬 Starting notification screen animation OUT');
-    setIsAnimating(true);
-    
-    if (onAnimationStart) {
-      onAnimationStart();
-    }
-    
-    Animated.parallel([
-      Animated.timing(overlayOpacity, {
-        toValue: 0,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-      Animated.timing(notificationTranslateY, {
-        toValue: -SCREEN_HEIGHT,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(notificationOpacity, {
-        toValue: 0,
-        duration: 150,
-        useNativeDriver: true,
-      })
-    ]).start((finished) => {
-      if (finished) {
-        console.log('✅ Notification screen animation OUT completed');
-        setIsAnimating(false);
-        if (onAnimationComplete) {
-          onAnimationComplete();
-        }
-        onClose();
-      }
-    });
-  }, [onClose, onAnimationStart, onAnimationComplete]); // Add callbacks to dependencies
+  // Loading component with responsive sizing
+  const LoadingComponent = useMemo(() => (
+    <View style={{
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingVertical: screenData.height * 0.1, // 10% of screen height
+    }}>
+      <ActivityIndicator size="large" color={COLORS.primary} />
+      <Text style={{
+        fontSize: Math.min(18, screenData.width * 0.045), // Responsive font size
+        color: COLORS.textSecondary,
+        marginTop: 16,
+        fontWeight: '500',
+      }}>
+        Loading notifications...
+      </Text>
+    </View>
+  ), [screenData]);
 
   // Optimized render item for FlatList
   const renderNotificationItem = useCallback(({ item }: { item: NotificationDTO }) => (
@@ -468,148 +899,153 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
       onPress={onMarkAsRead}
       getNotificationIcon={getNotificationIcon}
       getNotificationTitle={getNotificationTitle}
+      screenData={screenData}
     />
-  ), [onMarkAsRead, getNotificationIcon, getNotificationTitle]);
+  ), [onMarkAsRead, getNotificationIcon, getNotificationTitle, screenData]);
 
   // Optimized keyExtractor
   const keyExtractor = useCallback((item: NotificationDTO) => item.id.toString(), []);
 
-  // Empty state component with tab-specific messaging
+  // Empty state component with tab-specific messaging and responsive design
   const EmptyComponent = useMemo(() => {
     const getEmptyStateConfig = () => {
-      switch (selectedTab) {
-        case 'unread':
+      // Handle filtered results
+      if (selectedTab === 'unread') {
           return {
             icon: 'checkmark-circle-outline',
             title: 'All caught up!',
             message: 'You have no unread notifications. Great job staying on top of things!',
+          showRefresh: false,
           };
-        case 'read':
+      } else if (selectedTab === 'read') {
           return {
             icon: 'archive-outline',
             title: 'No read notifications',
             message: 'Notifications you\'ve read will appear here. Only recent read notifications are kept for easy reference.',
+          showRefresh: false,
           };
-        default:
+      }
+
+      // Default all tab
           return {
             icon: 'notifications-off-outline',
             title: 'No notifications yet',
             message: 'You\'re all caught up! New notifications will appear here when they arrive.',
+        showRefresh: true,
           };
-      }
     };
 
     const config = getEmptyStateConfig();
+
+    // Responsive sizing for empty state
+    const emptyIconSize = Math.max(32, screenData.width * 0.1);
+    const emptyIconContainerSize = Math.max(60, screenData.width * 0.2);
+    const emptyTitleFontSize = Math.min(20, screenData.width * 0.052);
+    const emptyMessageFontSize = Math.min(16, screenData.width * 0.042);
+    const emptyPadding = Math.max(40, screenData.width * 0.1);
 
     return (
       <View style={{
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        paddingVertical: 60,
-        paddingHorizontal: 40,
+        paddingVertical: Math.max(40, screenData.height * 0.08),
+        paddingHorizontal: emptyPadding,
       }}>
         <View style={{
-          width: 80,
-          height: 80,
-          borderRadius: 40,
-          backgroundColor: '#F3F4F6',
+          width: emptyIconContainerSize,
+          height: emptyIconContainerSize,
+          borderRadius: emptyIconContainerSize / 2,
+          backgroundColor: COLORS.surface,
           alignItems: 'center',
           justifyContent: 'center',
-          marginBottom: 20,
+          marginBottom: Math.max(16, screenData.height * 0.025),
+          borderWidth: 2,
+          borderColor: COLORS.primaryVeryLight,
         }}>
-          <Ionicons name={config.icon as any} size={40} color="#6B7280" />
+          <Ionicons 
+            name={config.icon as any} 
+            size={emptyIconSize} 
+            color={COLORS.textSecondary} 
+          />
         </View>
         <Text style={{
-          fontSize: 20,
+          fontSize: emptyTitleFontSize,
           fontWeight: '600',
-          color: '#1F2937',
-          marginBottom: 8,
+          color: COLORS.textPrimary,
+          marginBottom: Math.max(6, screenData.height * 0.01),
           textAlign: 'center',
         }}>
           {config.title}
         </Text>
         <Text style={{
-          fontSize: 16,
-          color: '#6B7280',
+          fontSize: emptyMessageFontSize,
+          color: COLORS.textSecondary,
           textAlign: 'center',
-          lineHeight: 24,
+          lineHeight: emptyMessageFontSize * 1.5,
+          maxWidth: Math.min(300, screenData.width * 0.8),
+          marginBottom: config.showRefresh ? Math.max(16, screenData.height * 0.025) : 0,
         }}>
           {config.message}
         </Text>
-        {selectedTab === 'all' && (
+
+        {/* Refresh button for general empty state */}
+        {config.showRefresh && (
           <TouchableOpacity
             style={{
-              marginTop: 20,
-              paddingHorizontal: 20,
-              paddingVertical: 10,
-              backgroundColor: '#91403E',
+              marginTop: Math.max(16, screenData.height * 0.025),
+              backgroundColor: COLORS.primary,
+              paddingHorizontal: Math.max(20, screenData.width * 0.05),
+              paddingVertical: Math.max(10, screenData.height * 0.015),
               borderRadius: 20,
+              shadowColor: COLORS.primary,
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.2,
+              shadowRadius: 4,
+              elevation: 4,
+              flexDirection: 'row',
+        alignItems: 'center',
             }}
+            activeOpacity={0.8}
             onPress={() => {
-              // Could add a refresh functionality here
-              console.log('Refresh notifications');
+              // Trigger refresh
+              console.log('Refresh notifications tapped');
             }}
-            activeOpacity={0.7}
           >
+            <Ionicons name="refresh-outline" size={16} color={COLORS.textInverse} style={{ marginRight: 6 }} />
             <Text style={{
-              color: 'white',
-              fontSize: 14,
+              color: COLORS.textInverse,
+              fontSize: Math.min(14, screenData.width * 0.037),
               fontWeight: '600',
             }}>
               Refresh
             </Text>
           </TouchableOpacity>
         )}
-      </View>
-    );
-  }, [selectedTab]);
 
-  // Loading component for initial load
-  const LoadingComponent = useMemo(() => {
-    console.log('🔍 OptimizedNotificationScreen: LoadingComponent rendered', {
-      isLoading,
-      notificationsLength: filteredNotifications.length,
-      selectedTab
-    });
-    
-    return (
-      <View style={{
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingVertical: 60,
-      }}>
-        <ActivityIndicator size="large" color="#91403E" />
+        {/* Fun emoji indicator for good mood */}
+        {selectedTab === 'unread' && (
         <Text style={{
-          fontSize: 16,
-          fontWeight: '600',
-          color: '#6B7280',
-          marginTop: 16,
+            fontSize: Math.max(24, screenData.width * 0.06),
+            marginTop: Math.max(16, screenData.height * 0.025),
         }}>
-          Loading notifications...
+            🎵 ✨ 🎵
         </Text>
-        <Text style={{
-          fontSize: 12,
-          color: '#9CA3AF',
-          marginTop: 8,
-        }}>
-          Debug: {filteredNotifications.length} notifications, isLoading: {isLoading.toString()}
-        </Text>
+        )}
       </View>
     );
-  }, [isLoading, filteredNotifications.length, selectedTab]);
+  }, [selectedTab, screenData]);
 
   // Footer component - CONSISTENT FOR ALL TABS WITH SMOOTH ANIMATIONS
   const FooterComponent = useMemo(() => {
     // Get tab-specific pagination state
     const tabState = getTabPaginationState(selectedTab as 'all' | 'unread' | 'read');
     
-    if (isLoading && filteredNotifications.length === 0) {
+    if (isLoading && filteredAndSortedNotifications.length === 0) {
       return null; // Don't show footer during initial load
     }
 
-    if (filteredNotifications.length === 0) {
+    if (filteredAndSortedNotifications.length === 0) {
       return null; // Don't show footer when empty
     }
 
@@ -621,10 +1057,10 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
           alignItems: 'center',
           opacity: 1,
         }}>
-          <ActivityIndicator size="small" color="#91403E" />
+          <ActivityIndicator size="small" color={COLORS.primary} />
           <Text style={{
             fontSize: 14,
-            color: '#6B7280',
+            color: COLORS.textSecondary,
             fontWeight: '500',
             marginTop: 8,
           }}>
@@ -632,7 +1068,7 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
           </Text>
           <Text style={{
             fontSize: 11,
-            color: '#9CA3AF',
+            color: COLORS.textTertiary,
             marginTop: 4,
           }}>
             {selectedTab === 'read' ? 'Finding more read notifications...' : 
@@ -650,14 +1086,14 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
           padding: 20,
           alignItems: 'center',
           borderTopWidth: 1,
-          borderTopColor: '#E5E7EB',
+          borderTopColor: COLORS.surface,
           marginTop: 8,
           opacity: 1,
         }}>
-          <Ionicons name="checkmark-circle-outline" size={24} color="#6B7280" />
+          <Ionicons name="checkmark-circle-outline" size={24} color={COLORS.textSecondary} />
           <Text style={{
             fontSize: 14,
-            color: '#6B7280',
+            color: COLORS.textSecondary,
             fontWeight: '500',
             marginTop: 4,
           }}>
@@ -667,10 +1103,10 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
           </Text>
           <Text style={{
             fontSize: 12,
-            color: '#9CA3AF',
+            color: COLORS.textTertiary,
             marginTop: 2,
           }}>
-            {filteredNotifications.length} {selectedTab === 'all' ? 'total' : selectedTab} notifications
+            {filteredAndSortedNotifications.length} {selectedTab === 'all' ? 'total' : selectedTab} notifications
           </Text>
         </Animated.View>
       );
@@ -678,7 +1114,7 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
 
     // Return null when there are more items (let infinite scroll handle it)
     return null;
-  }, [isLoading, filteredNotifications.length, selectedTab, getTabPaginationState]);
+  }, [isLoading, filteredAndSortedNotifications.length, selectedTab, getTabPaginationState]);
 
   // Handle end reached for infinite scroll - TAB-SPECIFIC SMART LOADING
   const handleEndReached = useCallback(() => {
@@ -696,7 +1132,7 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
       return;
     }
     
-    if (filteredNotifications.length === 0) {
+    if (filteredAndSortedNotifications.length === 0) {
       console.log('⚠️ No notifications loaded yet, ignoring onEndReached');
       return;
     }
@@ -707,19 +1143,19 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
     const loadThreshold = isFilteredTab ? 5 : 10; // Lower threshold for filtered tabs
     
     // Calculate how many items we need to ensure smooth scrolling
-    const itemsFromEnd = filteredNotifications.length % 25; // How many items in current page
+    const itemsFromEnd = filteredAndSortedNotifications.length % 25; // How many items in current page
     const shouldLoadEarly = isFilteredTab && itemsFromEnd < loadThreshold;
     
     if (shouldLoadEarly) {
       console.log(`📱 Smart loading triggered for ${selectedTab} tab:`, {
-        currentCount: filteredNotifications.length,
+        currentCount: filteredAndSortedNotifications.length,
         itemsFromEnd,
         threshold: loadThreshold
       });
     }
     
     console.log(`📱 End reached for ${selectedTab} tab, loading more notifications...`, {
-      currentCount: filteredNotifications.length,
+      currentCount: filteredAndSortedNotifications.length,
       hasMore: tabState.hasMore,
       isLoadingMore: tabState.isLoadingMore,
       selectedTab,
@@ -730,11 +1166,16 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
     
     // Use tab-specific loading function
     onLoadMoreForTab(selectedTab as 'all' | 'unread' | 'read');
-  }, [filteredNotifications.length, onLoadMoreForTab, selectedTab, getTabPaginationState]);
+  }, [filteredAndSortedNotifications.length, onLoadMoreForTab, selectedTab, getTabPaginationState]);
 
-  // Animate tab changes
-  const handleTabChange = useCallback((newTab: string) => {
+  // Animate tab changes - simplified without problematic dependencies
+  const handleTabChange = (newTab: string) => {
     if (newTab === selectedTab) return;
+    
+    console.log(`🔄 Tab change requested: ${selectedTab} → ${newTab}`);
+    
+    // Change tab immediately so line animation can trigger
+    onTabChange(newTab);
     
     // Scroll to top when changing tabs to prevent scroll position issues
     if (flatListRef.current) {
@@ -745,14 +1186,12 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
       }
     }
     
-    // Fade out current list
+    // Fade out and in the list content
     Animated.timing(listOpacity, {
       toValue: 0,
       duration: 150,
       useNativeDriver: true,
     }).start(() => {
-      // Change tab
-      onTabChange(newTab);
       // Fade in new list
       Animated.timing(listOpacity, {
         toValue: 1,
@@ -760,13 +1199,50 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
         useNativeDriver: true,
       }).start();
     });
-  }, [selectedTab, onTabChange, listOpacity]);
+  };
 
   if (!visible) return null;
 
+  // Responsive layout calculations
+  const headerPaddingTop = Platform.OS === 'ios' ? insets.top + 20 : insets.top + 30;
+  const headerFontSize = Math.min(24, screenData.width * 0.06);
+  const containerPadding = Math.max(16, screenData.width * 0.04);
+
+  // Calculate total screen dimensions including any system bars
+  const totalScreenHeight = screenData.height + (Platform.OS === 'android' ? 50 : 0); // Add extra for Android status/nav bars
+  const totalScreenWidth = screenData.width;
+
   return (
     <>
-      {/* Background Overlay */}
+      {/* Background Overlay - Full screen coverage with extra buffer */}
+      <Animated.View
+        style={{
+          position: 'absolute',
+          top: -100, // Start above screen
+          left: -50,  // Start left of screen
+          right: -50, // Extend right of screen
+          bottom: -100, // Extend below screen
+          width: totalScreenWidth + 100,
+          height: totalScreenHeight + 200,
+          backgroundColor: 'rgba(0, 0, 0, 0.8)', // Solid background
+          opacity: overlayOpacity,
+          zIndex: 15,
+        }}
+        pointerEvents="auto" // Capture all touch events
+      >
+        <TouchableOpacity
+          style={{ 
+            flex: 1, 
+            width: '100%', 
+            height: '100%',
+            minHeight: totalScreenHeight + 200, // Ensure full coverage
+          }}
+          activeOpacity={1}
+          onPress={animateOut}
+        />
+      </Animated.View>
+
+      {/* Notification Screen - Full coverage container */}
       <Animated.View
         style={{
           position: 'absolute',
@@ -774,51 +1250,42 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: 'black',
-          opacity: overlayOpacity,
-          zIndex: 15,
-        }}
-        pointerEvents="auto"
-      >
-        <TouchableOpacity
-          style={{ flex: 1 }}
-          activeOpacity={1}
-          onPress={animateOut}
-        />
-      </Animated.View>
-
-      {/* Notification Screen */}
-      <Animated.View
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: SCREEN_HEIGHT,
-          backgroundColor: '#F5F5F7',
+          width: totalScreenWidth,
+          height: totalScreenHeight,
+          backgroundColor: COLORS.background,
           transform: [{ translateY: notificationTranslateY }],
           opacity: notificationOpacity,
           zIndex: 20,
+          minHeight: totalScreenHeight, // Ensure minimum coverage
         }}
+        pointerEvents="auto" // Ensure this captures all touch events
       >
-        {/* Header */}
+        {/* Header - Responsive sizing */}
         <View style={{
-          paddingTop: Platform.OS === 'ios' ? insets.top + 20 : insets.top + 30,
+          paddingTop: headerPaddingTop,
           paddingBottom: 16,
-          paddingHorizontal: 20,
-          backgroundColor: '#91403E',
+          paddingHorizontal: containerPadding,
+          backgroundColor: COLORS.primary,
+          minHeight: headerPaddingTop + 60,
         }}>
           <View style={{
             flexDirection: 'row',
             justifyContent: 'space-between',
             alignItems: 'center',
+            flexWrap: 'wrap',
           }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{ 
+              flexDirection: 'row', 
+              alignItems: 'center',
+              flex: 1,
+              marginRight: 12,
+            }}>
               <Text style={{
-                color: 'white',
-                fontSize: 24,
+                color: COLORS.textInverse,
+                fontSize: headerFontSize,
                 fontWeight: 'bold',
                 marginRight: 12,
+                flexShrink: 1,
               }}>
                 Notifications
               </Text>
@@ -827,13 +1294,18 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
                   onPress={onMarkAllAsRead}
                   style={{
                     backgroundColor: 'rgba(255,255,255,0.2)',
-                    paddingHorizontal: 12,
+                    paddingHorizontal: Math.max(8, screenData.width * 0.03),
                     paddingVertical: 6,
                     borderRadius: 16,
+                    marginRight: 8,
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>
+                  <Text style={{ 
+                    color: COLORS.textInverse, 
+                    fontSize: Math.min(12, screenData.width * 0.03), 
+                    fontWeight: '600' 
+                  }}>
                     Mark all as read
                   </Text>
                 </TouchableOpacity>
@@ -845,17 +1317,21 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
                 padding: 8,
                 backgroundColor: 'rgba(255,255,255,0.2)',
                 borderRadius: 20,
+                minWidth: 40,
+                minHeight: 40,
+                justifyContent: 'center',
+                alignItems: 'center',
               }}
               activeOpacity={0.7}
             >
-              <Ionicons name="close" size={24} color="white" />
+              <Ionicons name="close" size={Math.min(24, screenData.width * 0.06)} color={COLORS.textInverse} />
             </TouchableOpacity>
           </View>
 
           {/* Memoized count display */}
           <Text style={{
             color: 'rgba(255,255,255,0.8)',
-            fontSize: 14,
+            fontSize: Math.min(14, screenData.width * 0.035),
             marginTop: 2,
           }}>
             {tabContentString}
@@ -867,49 +1343,71 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
           selectedTab={selectedTab}
           onTabChange={handleTabChange}
           notificationCounts={notificationCounts}
+          screenData={screenData}
         />
 
-        {/* Virtualized Notification List - OPTIMIZED FOR SMOOTHER SCROLLING */}
+        {/* Virtualized Notification List - Full height container with scroll blocking */}
         <Animated.View 
           style={{ 
             flex: 1,
-            opacity: listOpacity 
+            opacity: listOpacity,
+            minHeight: 0,
+            backgroundColor: COLORS.background,
           }}
+          pointerEvents="auto"
         >
           <FlatList
             ref={flatListRef}
-            data={filteredNotifications}
+            data={filteredAndSortedNotifications}
             renderItem={renderNotificationItem}
             keyExtractor={keyExtractor}
-            ListEmptyComponent={isLoading && filteredNotifications.length === 0 ? LoadingComponent : EmptyComponent}
+            ListEmptyComponent={isLoading && filteredAndSortedNotifications.length === 0 ? LoadingComponent : EmptyComponent}
             ListFooterComponent={FooterComponent}
             contentContainerStyle={{ 
-              paddingBottom: 20,
-              flexGrow: filteredNotifications.length === 0 ? 1 : 0
+              paddingBottom: Math.max(30, insets.bottom + 30),
+              flexGrow: filteredAndSortedNotifications.length === 0 ? 1 : 0,
+              minHeight: filteredAndSortedNotifications.length === 0 ? screenData.height * 0.4 : undefined,
+            }}
+            style={{
+              flex: 1,
+              backgroundColor: COLORS.background,
             }}
             showsVerticalScrollIndicator={false}
-            removeClippedSubviews={false}
-            maxToRenderPerBatch={8}
-            windowSize={12}
-            initialNumToRender={12}
-            updateCellsBatchingPeriod={100}
-            scrollEventThrottle={16}
+            removeClippedSubviews={Platform.OS === 'android'}
+            maxToRenderPerBatch={Platform.OS === 'android' ? 10 : 8}
+            windowSize={Platform.OS === 'android' ? 10 : 12}
+            initialNumToRender={Platform.OS === 'android' ? 10 : 12}
+            updateCellsBatchingPeriod={Platform.OS === 'android' ? 50 : 100}
+            scrollEventThrottle={Platform.OS === 'android' ? 1 : 16}
             onEndReached={handleEndReached}
             onEndReachedThreshold={selectedTab === 'read' ? 0.2 : 0.3}
-            maintainVisibleContentPosition={{
+            maintainVisibleContentPosition={Platform.OS === 'ios' ? {
               minIndexForVisible: 0,
               autoscrollToTopThreshold: 100,
-            }}
-            overScrollMode="never"
-            bounces={true}
+            } : undefined}
+            overScrollMode={Platform.OS === 'android' ? "auto" : "never"}
+            bounces={Platform.OS === 'ios'}
             bouncesZoom={false}
-            decelerationRate={selectedTab === 'read' ? 0.985 : "normal"}
-            disableIntervalMomentum={false}
+            decelerationRate={Platform.OS === 'android' ? "fast" : (selectedTab === 'read' ? 0.985 : "normal")}
+            disableIntervalMomentum={Platform.OS === 'android' ? true : false}
             snapToAlignment="start"
             snapToStart={false}
             snapToEnd={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            scrollEnabled={true}
+            nestedScrollEnabled={true}
+            directionalLockEnabled={false}
+            alwaysBounceVertical={Platform.OS === 'ios'}
+            contentInsetAdjustmentBehavior={Platform.OS === 'ios' ? "automatic" : undefined}
           />
         </Animated.View>
+
+        {/* Bottom safety area to ensure full coverage - also blocks events */}
+        <View style={{
+          height: Math.max(20, insets.bottom),
+          backgroundColor: COLORS.background,
+        }} />
       </Animated.View>
     </>
   );

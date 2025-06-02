@@ -26,6 +26,7 @@ interface NotificationContextType {
   fetchNotificationsWithUnreadPriority: () => Promise<void>;
   manualTestFetch: () => Promise<void>;
   checkStoredData: () => Promise<any>;
+  testNotificationReceive: () => Promise<void>;
   // NEW: Tab-specific pagination methods
   loadMoreNotificationsForTab: (tab: 'all' | 'unread' | 'read') => Promise<void>;
   getTabPaginationState: (tab: 'all' | 'unread' | 'read') => {
@@ -704,49 +705,90 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     }
   }, [authToken, isLoading, isLoggedIn, notifications.length, unreadCount]);
 
-  // Test WebSocket connection manually
-  const testConnection = useCallback(async () => {
-    console.log('🧪 Testing WebSocket connection manually...');
-    
-    if (!wsConnection.current) {
-      console.log('❌ No WebSocket connection available');
+  // Test connection and notification system
+  const testConnection = useCallback(async (): Promise<boolean> => {
+    if (!authToken) {
+      console.log('⚠️ No auth token for connection test');
       return false;
     }
     
-    const isConnected = wsConnection.current.isConnected();
-    console.log('🔍 Connection status:', isConnected);
+    try {
+      console.log('🧪 Testing notification connection...');
+      console.log('🔑 Auth token available:', !!authToken);
+      console.log('🔗 WebSocket connected:', isConnected);
     
-    if (!isConnected && authToken) {
-      console.log('🔄 Attempting to reconnect...');
-      try {
-        // Force a fresh connection
+      // Test API connectivity first
+      const result = await notificationService.testNotificationConnection(authToken);
+      console.log('✅ API connection test passed');
+      
+      // Test WebSocket connection
         if (wsConnection.current) {
-          wsConnection.current.disconnect();
+        const wsStatus = wsConnection.current.isConnected();
+        console.log('🔗 WebSocket status:', wsStatus);
+        setIsConnected(wsStatus);
+        
+        if (wsStatus) {
+          console.log('✅ Notification system is fully operational!');
+          return true;
+        } else {
+          console.log('⚠️ WebSocket not connected, attempting reconnection...');
+          // Try to reconnect
+          await setupWebSocket();
+          return wsConnection.current?.isConnected() || false;
         }
-        
-        const connection = await notificationService.subscribeToNotifications(
-          authToken,
-          (newNotification: NotificationDTO) => {
-            console.log('📨 Test connection - Real-time notification received:', newNotification);
-            if (isMounted.current) {
-              addNotification(newNotification);
-            }
-          }
-        );
-        
-        wsConnection.current = connection;
-        setIsConnected(connection.isConnected());
-        console.log('✅ Reconnection successful');
-        return true;
+      } else {
+        console.log('⚠️ No WebSocket connection, setting up...');
+        await setupWebSocket();
+        return wsConnection.current?.isConnected() || false;
+      }
       } catch (error) {
-        console.error('❌ Reconnection failed:', error);
-        setIsConnected(false);
+      console.error('❌ Connection test failed:', error);
         return false;
       }
+  }, [authToken, isConnected]);
+
+  // Add a manual test notification function for debugging
+  const testNotificationReceive = useCallback(async () => {
+    console.log('🧪 MANUAL TEST: Checking notification system...');
+    console.log('📊 Current state:', {
+      authToken: !!authToken,
+      isConnected,
+      notificationCount: notifications.length,
+      unreadCount,
+      wsConnectionExists: !!wsConnection.current
+    });
+    
+    if (!authToken) {
+      console.log('❌ No auth token - please log in first');
+      return;
     }
     
-    return isConnected;
-  }, [authToken, addNotification]);
+    // Test API connectivity
+    try {
+      console.log('🔍 Testing API connectivity...');
+      const unreadResult = await notificationService.getUnreadCount(authToken);
+      if ('error' in unreadResult) {
+        console.error('❌ API test failed:', unreadResult.error);
+      } else {
+        console.log('✅ API connectivity OK, unread count:', unreadResult.data);
+      }
+    } catch (error) {
+      console.error('❌ API test error:', error);
+    }
+    
+    // Test WebSocket connectivity
+    if (wsConnection.current) {
+      const wsStatus = wsConnection.current.isConnected();
+      console.log('🔗 WebSocket status:', wsStatus);
+      if (wsStatus) {
+        console.log('✅ WebSocket is connected and ready for notifications!');
+      } else {
+        console.log('⚠️ WebSocket not connected - notifications will not work in real-time');
+      }
+    } else {
+      console.log('❌ No WebSocket connection established');
+    }
+  }, [authToken, isConnected, notifications.length, unreadCount]);
 
   // Clear all notifications
   const clearNotifications = useCallback(() => {
@@ -1436,6 +1478,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     fetchNotificationsWithUnreadPriority,
     manualTestFetch,
     checkStoredData,
+    testNotificationReceive,
     // NEW: Tab-specific pagination methods
     loadMoreNotificationsForTab,
     getTabPaginationState,

@@ -801,9 +801,9 @@ const BroadcastScreen: React.FC = () => {
       if (isStreamReady || streamingState.isPlaying) {
         console.log('🎵 Stream ready or playing, toggling...');
         await streamingActions.togglePlayPause();
-        return;
-      }
-
+          return;
+        }
+        
       // If stream not ready and not playing, try to load first
       console.log('🎵 Stream not ready, attempting to load...');
       const mp3StreamUrl = 'https://icecast.software/live.mp3';
