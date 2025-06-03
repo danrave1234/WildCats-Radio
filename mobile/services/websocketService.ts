@@ -23,6 +23,7 @@ class WebSocketManager implements WebSocketService {
   private stompClient: any = null;
   private chatSubscription: StompSubscription | null = null;
   private pollSubscription: StompSubscription | null = null;
+  private broadcastSubscription: StompSubscription | null = null;
   private notificationSubscription: StompSubscription | null = null;
   private messageHandlers: ((message: WebSocketMessage) => void)[] = [];
   private connectHandlers: (() => void)[] = [];
@@ -64,7 +65,7 @@ class WebSocketManager implements WebSocketService {
       const wsUrl = `${API_BASE_URL}/ws-radio`;
       
       console.log('🔗 WebSocket URL:', wsUrl);
-    console.log('🔑 Auth token present:', !!authToken);
+      console.log('🔑 Auth token present:', !!authToken);
     
       // Use SockJS + STOMP like the web implementation
       const socket = new SockJS(wsUrl);
@@ -72,7 +73,10 @@ class WebSocketManager implements WebSocketService {
       
       // Enable debug logging to see what's happening
       this.stompClient.debug = (str: string) => {
-        console.log('📡 STOMP DEBUG:', str);
+        // Only log important STOMP messages to reduce noise
+        if (str.includes('CONNECTED') || str.includes('ERROR') || str.includes('RECEIPT')) {
+          console.log('📡 STOMP DEBUG:', str);
+        }
       };
       
       // Configure heartbeat to keep connection alive (especially important for mobile)
@@ -84,7 +88,7 @@ class WebSocketManager implements WebSocketService {
       console.log('📋 STOMP headers:', headers);
       console.log('💓 Heartbeat configured: incoming=4s, outgoing=4s');
       
-              this.stompClient.connect(headers, (frame: any) => {
+      this.stompClient.connect(headers, (frame: any) => {
         console.log('✅ STOMP connected successfully for broadcast:', broadcastId);
         console.log('📄 Connection frame:', frame);
         this.reconnectAttempts = 0;
@@ -94,7 +98,32 @@ class WebSocketManager implements WebSocketService {
         
         this.connectHandlers.forEach(handler => handler());
         
-        // Only subscribe to broadcast-specific topics if broadcastId is valid (not -1)
+        // Special case for broadcastId 0 - this is a global notification subscription
+        if (broadcastId === 0) {
+          // Subscribe to user-specific notifications
+          console.log('📢 Subscribing to notification topic:', `/user/queue/notifications`);
+          this.notificationSubscription = this.stompClient.subscribe(
+            `/user/queue/notifications`, 
+            (message: any) => {
+              try {
+                console.log('📢 ✅ NOTIFICATION RECEIVED!', message.body);
+                const notificationData = JSON.parse(message.body);
+                console.log('📢 ✅ Parsed notification data:', notificationData);
+                this.messageHandlers.forEach(handler => handler({
+                  type: 'notification',
+                  data: notificationData
+                }));
+              } catch (error) {
+                console.error('❌ Error parsing notification message:', error);
+              }
+            }
+          );
+          
+          console.log('✅ Notification subscription set up successfully!');
+          return;
+        }
+        
+        // Only subscribe to broadcast-specific topics if broadcastId is valid (not 0)
         if (broadcastId > 0) {
           // Subscribe to chat messages for this broadcast
           console.log('📡 Subscribing to chat topic:', `/topic/broadcast/${broadcastId}/chat`);
@@ -133,14 +162,32 @@ class WebSocketManager implements WebSocketService {
               }
             }
           );
+          
+          // Also subscribe to broadcast status updates
+          console.log('🎙️ Subscribing to broadcast updates:', `/topic/broadcast/${broadcastId}`);
+          this.broadcastSubscription = this.stompClient.subscribe(
+            `/topic/broadcast/${broadcastId}`, 
+            (message: any) => {
+              try {
+                console.log('🎙️ Received broadcast update:', message.body);
+                const broadcastData = JSON.parse(message.body);
+                this.messageHandlers.forEach(handler => handler({
+                  type: 'broadcast_update',
+                  data: broadcastData,
+                  broadcastId: broadcastId
+                }));
+              } catch (error) {
+                console.error('❌ Error parsing broadcast update message:', error);
+              }
+            }
+          );
         } else {
           console.log('🔕 Skipping broadcast-specific subscriptions (notification-only connection)');
         }
         
-        // Subscribe to user-specific notifications
+        // Always also subscribe to user-specific notifications regardless of broadcast ID
+        // This ensures notifications work everywhere in the app
         console.log('📢 Subscribing to notification topic:', `/user/queue/notifications`);
-        console.log('🔗 WebSocket URL used:', wsUrl);
-        console.log('🔑 Auth token (first 10 chars):', authToken?.substring(0, 10) + '...');
         this.notificationSubscription = this.stompClient.subscribe(
           `/user/queue/notifications`, 
           (message: any) => {
@@ -162,6 +209,7 @@ class WebSocketManager implements WebSocketService {
         console.log('📊 Active subscriptions:', {
           chat: !!this.chatSubscription,
           poll: !!this.pollSubscription,
+          broadcast: !!this.broadcastSubscription,
           notification: !!this.notificationSubscription
         });
       }, (error: any) => {
@@ -239,6 +287,10 @@ class WebSocketManager implements WebSocketService {
     if (this.pollSubscription) {
       this.pollSubscription.unsubscribe();
       this.pollSubscription = null;
+    }
+    if (this.broadcastSubscription) {
+      this.broadcastSubscription.unsubscribe();
+      this.broadcastSubscription = null;
     }
     if (this.notificationSubscription) {
       this.notificationSubscription.unsubscribe();

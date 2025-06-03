@@ -441,15 +441,17 @@ class NotificationService {
           this.subscriptions.delete('notifications');
         }
         
-        const connection = websocketService.connect(0, authToken); // Use 0 for global notifications
+        // Use broadcast ID 0 for global notifications, consistent with the pattern used in other WebSocket subscriptions
+        const connection = websocketService.connect(0, authToken);
         console.log('🔗 WebSocket connection initiated');
         
+        // Set up message handler with improved notification type detection
         const handleMessage = (message: any) => {
-          console.log('📨 Received notification WebSocket message:', JSON.stringify(message, null, 2));
+          console.log('📨 Received WebSocket message type:', message.type);
           
           // Handle different message types
           if (message && typeof message === 'object') {
-            // Check for notification-specific messages
+            // Primary case: message.type === 'notification'
             if (message.type === 'notification' && message.data) {
               console.log('✅ Processing notification message:', message.data);
               
@@ -463,27 +465,26 @@ class NotificationService {
               cacheKeys.forEach(key => this.clearCache(key));
               
               onNewNotification(message.data);
-              
-            } else if (message.type === 'NEW_NOTIFICATION' && message.notification) {
-              // Handle alternative message format
+            }
+            // Handle alternative formats that might come from the server
+            else if (message.type === 'NEW_NOTIFICATION' && message.notification) {
               console.log('✅ Processing NEW_NOTIFICATION message:', message.notification);
               this.clearCache('notifications_unread_count');
               onNewNotification(message.notification);
-              
-            } else if (message.message && message.message.includes('notification')) {
-              // Handle string-based notification messages
-              console.log('✅ Processing string notification message');
-              // Try to parse if it's a JSON string
-              try {
-                const parsed = JSON.parse(message.message);
-                if (parsed && parsed.id) {
-                  onNewNotification(parsed);
-                }
-              } catch (e) {
-                console.log('ℹ️ Could not parse notification message as JSON');
+            }
+            // For compatibility with the web implementation
+            else if (message.type === 'chat' || message.type === 'poll' || message.type === 'broadcast_update') {
+              // These are handled by other services, ignore in notification service
+              console.log('ℹ️ Ignoring non-notification message type:', message.type);
+            }
+            else {
+              // Try to handle raw notification object if it matches our DTO structure
+              if (message.id && message.message && message.type && message.timestamp !== undefined) {
+                console.log('✅ Processing raw notification object:', message);
+                onNewNotification(message as NotificationDTO);
+              } else {
+                console.log('ℹ️ Unrecognized message format:', message);
               }
-            } else {
-              console.log('ℹ️ Received non-notification message:', message.type || 'unknown type');
             }
           } else {
             console.log('⚠️ Received invalid message format:', typeof message);
@@ -492,6 +493,28 @@ class NotificationService {
 
         const handleConnect = () => {
           console.log('✅ Notification WebSocket connected successfully');
+          
+          // Let the client know we're successfully connected
+          resolve({
+            disconnect: () => {
+              console.log('🔌 Disconnecting notification WebSocket');
+              try {
+                websocketService.disconnect();
+              } catch (error) {
+                console.error('❌ Error during WebSocket disconnect:', error);
+              }
+              this.subscriptions.delete('notifications');
+            },
+            isConnected: () => {
+              try {
+                const connected = websocketService.isConnected();
+                return connected;
+              } catch (error) {
+                console.error('❌ Error checking WebSocket connection:', error);
+                return false;
+              }
+            }
+          });
         };
 
         const handleDisconnect = () => {
@@ -500,6 +523,16 @@ class NotificationService {
 
         const handleError = (error: Event) => {
           console.error('❌ Notification WebSocket error:', error);
+          
+          // Don't reject - instead, resolve with a non-connected status
+          // This matches the web implementation's approach
+          resolve({
+            disconnect: () => {
+              console.log('🔌 Disconnecting failed notification WebSocket');
+              this.subscriptions.delete('notifications');
+            },
+            isConnected: () => false
+          });
         };
 
         // Set up event handlers
@@ -508,6 +541,7 @@ class NotificationService {
         websocketService.onDisconnect(handleDisconnect);
         websocketService.onError(handleError);
 
+        // Store the connection for later reference
         const notificationConnection: NotificationConnection = {
           disconnect: () => {
             console.log('🔌 Disconnecting notification WebSocket');
@@ -521,7 +555,6 @@ class NotificationService {
           isConnected: () => {
             try {
               const connected = websocketService.isConnected();
-              console.log('🔍 WebSocket connection status check:', connected);
               return connected;
             } catch (error) {
               console.error('❌ Error checking WebSocket connection:', error);
@@ -531,19 +564,16 @@ class NotificationService {
         };
 
         this.subscriptions.set('notifications', notificationConnection);
-        
-        // Resolve immediately, connection will be established asynchronously
-        resolve(notificationConnection);
-        
-        // Test connection after a short delay
-        setTimeout(() => {
-          const testStatus = notificationConnection.isConnected();
-          console.log('🧪 Post-setup connection test:', testStatus);
-        }, 1000);
 
       } catch (error) {
         console.error('❌ Error setting up notification subscription:', error);
-        reject(error);
+        // Still resolve with a non-connected status instead of rejecting
+        resolve({
+          disconnect: () => {
+            console.log('🔌 No connection to disconnect');
+          },
+          isConnected: () => false
+        });
       }
     });
   }

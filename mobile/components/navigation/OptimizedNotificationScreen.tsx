@@ -47,6 +47,45 @@ const COLORS = {
 // Dynamic screen dimensions that update on orientation changes
 const getScreenDimensions = () => Dimensions.get('window');
 
+// Format notification message content, especially for broadcast scheduled notifications
+const formatNotificationMessage = (message: string, type: string): string => {
+  // Handle broadcast scheduled notifications that contain raw timestamps
+  if (type === 'BROADCAST_SCHEDULED' || type === 'BROADCAST_STARTING_SOON') {
+    // Look for patterns like "at 2025-06-02T07:53:15.777" in the message
+    const timestampPattern = / at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?)/;
+    const match = message.match(timestampPattern);
+    
+    if (match && match[1]) {
+      try {
+        const timestamp = match[1];
+        const date = new Date(timestamp);
+        
+        if (!isNaN(date.getTime())) {
+          // Format the date in a user-friendly way
+          const options: Intl.DateTimeFormatOptions = {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+          };
+          
+          const formattedDate = date.toLocaleDateString('en-US', options);
+          
+          // Replace "at [timestamp]" with "\n@[formattedDate]"
+          return message.replace(timestampPattern, `\n@${formattedDate}`);
+        }
+      } catch (error) {
+        console.log('Error formatting broadcast timestamp:', error);
+      }
+    }
+  }
+  
+  // For other notification types or if formatting fails, return original message
+  return message;
+};
+
 // Format date to "May 28, 2024 at 8:30 AM"
 const formatNotificationDate = (timestamp: string): string => {
   try {
@@ -139,24 +178,22 @@ const NotificationItem = React.memo(({
   }, [notification.id, onPress]);
 
   // Swipe gesture configuration
-  const SWIPE_THRESHOLD = screenData.width * 0.3; // 30% of screen width
+  const SWIPE_THRESHOLD = screenData.width * 0.25; // 25% of screen width
   const MAX_SWIPE = screenData.width * 0.6; // Maximum swipe distance
 
   // Pan responder for swipe gestures
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: (evt, gestureState) => {
-      // Only capture gestures if it's clearly a horizontal swipe
-      // Require more horizontal movement before capturing
-      const isHorizontal = Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 2;
-      const hasEnoughMovement = Math.abs(gestureState.dx) > 10;
+      // Capture if it's a clear horizontal swipe for unread items
+      const isHorizontal = Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.5; // More lenient
+      const hasEnoughMovement = Math.abs(gestureState.dx) > 5; // Reduced initial movement
       return !notification.read && isHorizontal && hasEnoughMovement;
     },
     onMoveShouldSetPanResponder: (evt, gestureState) => {
-      // Be more strict about capturing - need clear left swipe intent
-      const isLeftSwipe = gestureState.dx < -15;
-      const isHorizontal = Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 2;
-      const hasEnoughMovement = Math.abs(gestureState.dx) > 15;
-      return !notification.read && isLeftSwipe && isHorizontal && hasEnoughMovement;
+      // Capture if it's a clear horizontal swipe for unread items
+      const isHorizontal = Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.5; // More lenient
+      const hasEnoughMovement = Math.abs(gestureState.dx) > 7; // Reduced movement to capture
+      return !notification.read && isHorizontal && hasEnoughMovement;
     },
     onPanResponderGrant: () => {
       setIsSwipeActive(true);
@@ -168,8 +205,8 @@ const NotificationItem = React.memo(({
     onPanResponderMove: (evt, gestureState) => {
       if (notification.read) return;
       
-      // Only allow left swipes (negative dx)
-      const clampedDx = Math.max(Math.min(gestureState.dx, 0), -MAX_SWIPE);
+      // Allow swipe in both directions, clamped to MAX_SWIPE
+      const clampedDx = Math.min(Math.max(gestureState.dx, -MAX_SWIPE), MAX_SWIPE);
       translateX.setValue(clampedDx);
       
       // Calculate opacity based on swipe progress
@@ -182,18 +219,19 @@ const NotificationItem = React.memo(({
       
       if (notification.read) return;
       
-      // Check if swipe threshold was met
+      // Check if swipe threshold was met in either direction
       if (Math.abs(gestureState.dx) > SWIPE_THRESHOLD) {
+        const swipeDirection = gestureState.dx > 0 ? 1 : -1; // 1 for right, -1 for left
         // Complete the swipe animation and mark as read
         Animated.parallel([
           Animated.timing(translateX, {
-            toValue: -screenData.width,
-            duration: 300,
+            toValue: swipeDirection * screenData.width, // Swipe off screen in the direction of swipe
+            duration: 250, // Slightly faster animation
             useNativeDriver: true,
           }),
           Animated.timing(swipeOpacity, {
             toValue: 1,
-            duration: 300,
+            duration: 250, // Slightly faster animation
             useNativeDriver: true,
           })
         ]).start(() => {
@@ -249,6 +287,9 @@ const NotificationItem = React.memo(({
   const messageFontSize = Math.min(14, screenData.width * 0.037);
   const timeFontSize = Math.min(12, screenData.width * 0.032);
   const borderLeftWidth = Math.max(3, screenData.width * 0.01);
+  
+  // Fixed card height for consistency
+  const cardHeight = Math.max(120, screenData.height * 0.14);
 
   return (
     <View style={{
@@ -256,6 +297,7 @@ const NotificationItem = React.memo(({
       marginVertical: Math.max(3, screenData.height * 0.005),
       overflow: 'hidden',
       borderRadius: 12,
+      height: cardHeight, // Fixed height for equal sizes
     }}>
       {/* Swipe background - shows when swiping */}
       {!notification.read && (
@@ -289,6 +331,7 @@ const NotificationItem = React.memo(({
       <Animated.View
         style={{
           transform: [{ translateX: notification.read ? 0 : translateX }],
+          height: '100%', // Fill the entire card height
         }}
         {...(notification.read ? {} : panResponder.panHandlers)}
       >
@@ -304,13 +347,14 @@ const NotificationItem = React.memo(({
             elevation: 3,
             borderLeftWidth: borderLeftWidth,
             borderLeftColor: notification.read ? COLORS.textTertiary : COLORS.unreadBorder,
-            minHeight: Math.max(70, screenData.height * 0.09),
+            height: '100%', // Fill the entire container
+            justifyContent: 'space-between', // Distribute content evenly
           }}
           activeOpacity={0.7}
           onPress={handlePress}
           disabled={isSwipeActive}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', flex: 1 }}>
             <View style={{
               backgroundColor: notification.read ? COLORS.surface : COLORS.primaryVeryLight,
               padding: Math.max(6, screenData.width * 0.02),
@@ -327,91 +371,90 @@ const NotificationItem = React.memo(({
                 color={notification.read ? COLORS.textTertiary : COLORS.primary} 
               />
             </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <View style={{
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                marginBottom: Math.max(3, screenData.height * 0.005),
-              }}>
-                <View style={{ flex: 1 }}>
-                  <Text 
-                    style={{
-                      fontSize: Math.min(12, screenData.width * 0.032),
-                      fontWeight: '600',
-                      color: COLORS.textTertiary,
-                      marginBottom: 2,
-                    }}
-                    numberOfLines={1}
-                  >
-                    {formatNotificationType(notification.type)}
-                  </Text>
-                  <Text 
-                    style={{
-                      fontSize: titleFontSize,
-                      fontWeight: '600',
-                      color: COLORS.textPrimary,
-                      marginBottom: 4,
-                    }}
-                    numberOfLines={2}
-                  >
-                    {getNotificationTitle(notification.type)}
-                  </Text>
+            <View style={{ flex: 1, minWidth: 0, justifyContent: 'space-between', height: '100%', paddingLeft: 2 }}>
+              {/* Top section - Type and Title */}
+              <View style={{ marginBottom: 6 }}>
+                <View style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  marginBottom: 6,
+                }}>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text 
+                      style={{
+                        fontSize: Math.min(11, screenData.width * 0.030),
+                        fontWeight: '600',
+                        color: COLORS.textTertiary,
+                        marginBottom: 4,
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                        lineHeight: Math.min(11, screenData.width * 0.030) * 1.2,
+                      }}
+                      numberOfLines={1}
+                    >
+                      {formatNotificationType(notification.type)}
+                    </Text>
+                    <Text 
+                      style={{
+                        fontSize: titleFontSize,
+                        fontWeight: '600',
+                        color: COLORS.textPrimary,
+                        lineHeight: titleFontSize * 1.3,
+                        marginBottom: 0,
+                      }}
+                      numberOfLines={2}
+                    >
+                      {getNotificationTitle(notification.type)}
+                    </Text>
+                  </View>
+                  {!notification.read && (
+                    <View style={{
+                      width: Math.max(8, screenData.width * 0.022),
+                      height: Math.max(8, screenData.width * 0.022),
+                      borderRadius: Math.max(4, screenData.width * 0.011),
+                      backgroundColor: COLORS.unreadBorder,
+                      marginTop: 4,
+                      marginLeft: 12,
+                      flexShrink: 0,
+                    }} />
+                  )}
                 </View>
-                {!notification.read && (
-                  <View style={{
-                    width: Math.max(6, screenData.width * 0.02),
-                    height: Math.max(6, screenData.width * 0.02),
-                    borderRadius: Math.max(3, screenData.width * 0.01),
-                    backgroundColor: COLORS.unreadBorder,
+                
+                {/* Middle section - Message */}
+                <Text 
+                  style={{
+                    fontSize: messageFontSize,
+                    color: COLORS.textSecondary,
+                    lineHeight: messageFontSize * 1.5,
                     marginTop: 2,
-                    marginLeft: 8,
-                    flexShrink: 0,
-                  }} />
-                )}
+                    paddingRight: 4,
+                  }}
+                  numberOfLines={2} // Fixed to 2 lines for consistency
+                >
+                  {formatNotificationMessage(notification.message, notification.type)}
+                </Text>
               </View>
-              <Text 
-                style={{
-                  fontSize: messageFontSize,
-                  color: COLORS.textSecondary,
-                  lineHeight: messageFontSize * 1.4,
-                  marginBottom: Math.max(6, screenData.height * 0.008),
-                }}
-                numberOfLines={3}
-              >
-                {notification.message}
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              
+              {/* Bottom section - Time and Action */}
+              <View style={{ 
+                flexDirection: 'row', 
+                alignItems: 'center', 
+                justifyContent: 'space-between',
+                marginTop: 4,
+                paddingTop: 8,
+                borderTopWidth: notification.read ? 0 : 0.5,
+                borderTopColor: notification.read ? 'transparent' : COLORS.primaryVeryLight,
+              }}>
                 <Text style={{
                   fontSize: timeFontSize,
                   color: COLORS.textTertiary,
                   fontWeight: '500',
+                  letterSpacing: 0.3,
+                  lineHeight: timeFontSize * 1.2,
                 }}>
                   {relativeTime}
                 </Text>
-                {!notification.read && (
-                  <TouchableOpacity
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      handlePress();
-                    }}
-                    style={{
-                      backgroundColor: COLORS.primary,
-                      paddingHorizontal: 8,
-                      paddingVertical: 4,
-                      borderRadius: 12,
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={{
-                      fontSize: Math.min(10, screenData.width * 0.028),
-                      color: COLORS.textInverse,
-                      fontWeight: '600',
-                    }}>
-                      Mark Read
-                    </Text>
-                  </TouchableOpacity>
-                )}
               </View>
             </View>
           </View>
@@ -539,7 +582,7 @@ const NotificationTabBar = React.memo(({
               style={{
                 flex: 1,
                 paddingVertical: verticalPadding,
-                paddingHorizontal: Math.max(6, screenData.width * 0.02),
+                paddingHorizontal: Math.max(8, screenData.width * 0.025),
                 backgroundColor: 'transparent',
                 flexDirection: 'row',
                 alignItems: 'center',
@@ -555,30 +598,46 @@ const NotificationTabBar = React.memo(({
                 name={tab.icon as any}
                 size={iconSize}
                 color={isSelected ? COLORS.primary : COLORS.textSecondary}
-                style={{ marginRight: Math.max(4, screenData.width * 0.015) }}
+                style={{ 
+                  marginRight: Math.max(6, screenData.width * 0.018),
+                  alignSelf: 'center',
+                }}
               />
               <Text style={{
                 fontSize: fontSize,
                 fontWeight: isSelected ? '600' : '500',
                 color: isSelected ? COLORS.primary : COLORS.textSecondary,
-                marginRight: count > 0 ? 4 : 0,
+                marginRight: count > 0 ? 6 : 0,
                 flexShrink: 1,
+                textAlign: 'center',
+                lineHeight: fontSize * 1.2,
+                letterSpacing: 0.3,
               }}>
                 {tab.label}
               </Text>
               {count > 0 && (
                 <View style={{
                   backgroundColor: isSelected ? COLORS.primary : COLORS.secondary,
-                  paddingHorizontal: Math.max(4, screenData.width * 0.015),
-                  paddingVertical: 2,
-                  borderRadius: 10,
-                  minWidth: Math.max(18, screenData.width * 0.05),
+                  paddingHorizontal: Math.max(6, screenData.width * 0.018),
+                  paddingVertical: 3,
+                  borderRadius: 12,
+                  minWidth: Math.max(20, screenData.width * 0.055),
                   alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: 2,
+                  shadowColor: isSelected ? COLORS.primary : COLORS.secondary,
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.2,
+                  shadowRadius: 2,
+                  elevation: 2,
                 }}>
                   <Text style={{
                     color: COLORS.textInverse,
                     fontSize: countFontSize,
                     fontWeight: 'bold',
+                    textAlign: 'center',
+                    lineHeight: countFontSize * 1.1,
+                    letterSpacing: 0.2,
                   }}>
                     {count > 99 ? '99+' : count.toString()}
                   </Text>
@@ -973,8 +1032,10 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
           fontSize: emptyTitleFontSize,
           fontWeight: '600',
           color: COLORS.textPrimary,
-          marginBottom: Math.max(6, screenData.height * 0.01),
+          marginBottom: Math.max(8, screenData.height * 0.012),
           textAlign: 'center',
+          letterSpacing: 0.5,
+          lineHeight: emptyTitleFontSize * 1.2,
         }}>
           {config.title}
         </Text>
@@ -982,9 +1043,11 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
           fontSize: emptyMessageFontSize,
           color: COLORS.textSecondary,
           textAlign: 'center',
-          lineHeight: emptyMessageFontSize * 1.5,
-          maxWidth: Math.min(300, screenData.width * 0.8),
-          marginBottom: config.showRefresh ? Math.max(16, screenData.height * 0.025) : 0,
+          lineHeight: emptyMessageFontSize * 1.6,
+          maxWidth: Math.min(320, screenData.width * 0.85),
+          marginBottom: config.showRefresh ? Math.max(20, screenData.height * 0.03) : 0,
+          letterSpacing: 0.3,
+          paddingHorizontal: 8,
         }}>
           {config.message}
         </Text>
@@ -993,18 +1056,20 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
         {config.showRefresh && (
           <TouchableOpacity
             style={{
-              marginTop: Math.max(16, screenData.height * 0.025),
+              marginTop: Math.max(20, screenData.height * 0.03),
               backgroundColor: COLORS.primary,
-              paddingHorizontal: Math.max(20, screenData.width * 0.05),
-              paddingVertical: Math.max(10, screenData.height * 0.015),
-              borderRadius: 20,
+              paddingHorizontal: Math.max(24, screenData.width * 0.06),
+              paddingVertical: Math.max(12, screenData.height * 0.018),
+              borderRadius: 24,
               shadowColor: COLORS.primary,
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.2,
-              shadowRadius: 4,
-              elevation: 4,
+              shadowOffset: { width: 0, height: 3 },
+              shadowOpacity: 0.25,
+              shadowRadius: 6,
+              elevation: 6,
               flexDirection: 'row',
-        alignItems: 'center',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: Math.max(120, screenData.width * 0.3),
             }}
             activeOpacity={0.8}
             onPress={() => {
@@ -1012,11 +1077,18 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
               console.log('Refresh notifications tapped');
             }}
           >
-            <Ionicons name="refresh-outline" size={16} color={COLORS.textInverse} style={{ marginRight: 6 }} />
+            <Ionicons 
+              name="refresh-outline" 
+              size={Math.min(18, screenData.width * 0.045)} 
+              color={COLORS.textInverse} 
+              style={{ marginRight: 8 }} 
+            />
             <Text style={{
               color: COLORS.textInverse,
-              fontSize: Math.min(14, screenData.width * 0.037),
+              fontSize: Math.min(15, screenData.width * 0.039),
               fontWeight: '600',
+              letterSpacing: 0.4,
+              lineHeight: Math.min(15, screenData.width * 0.039) * 1.2,
             }}>
               Refresh
             </Text>
@@ -1025,12 +1097,14 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
 
         {/* Fun emoji indicator for good mood */}
         {selectedTab === 'unread' && (
-        <Text style={{
-            fontSize: Math.max(24, screenData.width * 0.06),
-            marginTop: Math.max(16, screenData.height * 0.025),
-        }}>
+          <Text style={{
+            fontSize: Math.max(28, screenData.width * 0.07),
+            marginTop: Math.max(20, screenData.height * 0.03),
+            textAlign: 'center',
+            letterSpacing: 2,
+          }}>
             🎵 ✨ 🎵
-        </Text>
+          </Text>
         )}
       </View>
     );
@@ -1063,6 +1137,9 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
             color: COLORS.textSecondary,
             fontWeight: '500',
             marginTop: 8,
+            textAlign: 'center',
+            letterSpacing: 0.3,
+            lineHeight: 14 * 1.3,
           }}>
             Loading more notifications...
           </Text>
@@ -1070,6 +1147,9 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
             fontSize: 11,
             color: COLORS.textTertiary,
             marginTop: 4,
+            textAlign: 'center',
+            letterSpacing: 0.2,
+            lineHeight: 11 * 1.2,
           }}>
             {selectedTab === 'read' ? 'Finding more read notifications...' : 
              selectedTab === 'unread' ? 'Finding more unread notifications...' : 
@@ -1095,7 +1175,10 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
             fontSize: 14,
             color: COLORS.textSecondary,
             fontWeight: '500',
-            marginTop: 4,
+            marginTop: 6,
+            textAlign: 'center',
+            letterSpacing: 0.3,
+            lineHeight: 14 * 1.3,
           }}>
             {selectedTab === 'read' ? 'All read notifications loaded' :
              selectedTab === 'unread' ? 'All unread notifications loaded' :
@@ -1104,9 +1187,12 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
           <Text style={{
             fontSize: 12,
             color: COLORS.textTertiary,
-            marginTop: 2,
+            marginTop: 4,
+            textAlign: 'center',
+            letterSpacing: 0.2,
+            lineHeight: 12 * 1.2,
           }}>
-            {filteredAndSortedNotifications.length} {selectedTab === 'all' ? 'total' : selectedTab} notifications
+            <Text>{filteredAndSortedNotifications.length}</Text> {selectedTab === 'all' ? 'total' : selectedTab} notifications
           </Text>
         </Animated.View>
       );
@@ -1380,7 +1466,7 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
             updateCellsBatchingPeriod={Platform.OS === 'android' ? 50 : 100}
             scrollEventThrottle={Platform.OS === 'android' ? 1 : 16}
             onEndReached={handleEndReached}
-            onEndReachedThreshold={selectedTab === 'read' ? 0.2 : 0.3}
+            onEndReachedThreshold={0.3}
             maintainVisibleContentPosition={Platform.OS === 'ios' ? {
               minIndexForVisible: 0,
               autoscrollToTopThreshold: 100,
@@ -1388,7 +1474,7 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
             overScrollMode={Platform.OS === 'android' ? "auto" : "never"}
             bounces={Platform.OS === 'ios'}
             bouncesZoom={false}
-            decelerationRate={Platform.OS === 'android' ? "fast" : (selectedTab === 'read' ? 0.985 : "normal")}
+            decelerationRate={Platform.OS === 'android' ? "fast" : "normal"}
             disableIntervalMomentum={Platform.OS === 'android' ? true : false}
             snapToAlignment="start"
             snapToStart={false}

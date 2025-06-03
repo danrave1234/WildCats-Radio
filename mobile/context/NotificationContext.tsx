@@ -3,6 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { notificationService } from '../services/notificationService';
 import { NotificationDTO } from '../services/apiService';
 import { useAuth } from './AuthContext';
+import { Haptics } from 'react-native';
+import { Platform } from 'react-native';
 
 interface NotificationContextType {
   notifications: NotificationDTO[];
@@ -76,14 +78,12 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     }
   });
   
-  // NEW: Track if we've finished loading from AsyncStorage
-  const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState<boolean>(false);
-  
   const { authToken } = useAuth();
   const isLoggedIn = !!authToken;
   const wsConnection = useRef<any>(null);
   const loadingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMounted = useRef(true);
+  const hasInitialized = useRef(false);
 
   // Keys for AsyncStorage
   const STORAGE_KEYS = {
@@ -199,6 +199,104 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     }
   }, [notifications, unreadCount, totalCount, saveNotificationState]);
 
+  // SIMPLIFIED: Initialize notification state - immediately load from storage and fetch fresh data
+  useEffect(() => {
+    const initializeNotifications = async () => {
+      if (!authToken) {
+        console.log('🚪 No auth token, clearing notification state');
+        setNotifications([]);
+        setUnreadCount(0);
+        setTotalCount(0);
+        setCurrentPage(0);
+        setHasMore(true);
+        setIsLoading(false);
+        hasInitialized.current = false;
+        await clearNotificationState();
+        return;
+      }
+
+      // Skip if already initialized for this session
+      if (hasInitialized.current) {
+        console.log('✅ Notifications already initialized for this session');
+        return;
+      }
+
+      console.log('🚀 Initializing notifications...');
+      setIsLoading(true);
+
+      try {
+        // Load from storage first (non-blocking)
+        const cachedData = await loadNotificationState();
+        if (cachedData && cachedData.notifications.length > 0) {
+          console.log('📱 Loading cached data while fetching fresh...');
+          setNotifications(cachedData.notifications);
+          setUnreadCount(cachedData.unreadCount);
+          setTotalCount(cachedData.totalCount);
+        }
+
+        // Always fetch fresh data regardless of cache
+        console.log('🔍 Fetching fresh notifications...');
+        const result = await notificationService.getAllPaginated(authToken, 0, 25);
+        
+        if ('error' in result) {
+          console.error('❌ Failed to fetch notifications:', result.error);
+          // If we have cached data, keep it; otherwise show empty state
+          if (!cachedData || cachedData.notifications.length === 0) {
+            setNotifications([]);
+            setUnreadCount(0);
+            setTotalCount(0);
+          }
+          return;
+        }
+
+        console.log(`✅ Fetched ${result.data.length} fresh notifications`);
+        
+        // Update with fresh data
+        setNotifications(result.data);
+        setHasMore(result.hasMore);
+        setCurrentPage(result.currentPage);
+        setTotalCount(result.total);
+
+        // Get fresh unread count
+        try {
+          const countResult = await notificationService.getUnreadCount(authToken);
+          if (!('error' in countResult)) {
+            setUnreadCount(countResult.data);
+            console.log('📊 Fresh unread count:', countResult.data);
+          } else {
+            // Fallback to local calculation
+            const localCount = result.data.filter(n => !n.read).length;
+            setUnreadCount(localCount);
+            console.log('📊 Using local unread count:', localCount);
+          }
+        } catch (countError) {
+          console.warn('⚠️ Failed to get unread count:', countError);
+          const localCount = result.data.filter(n => !n.read).length;
+          setUnreadCount(localCount);
+        }
+
+        hasInitialized.current = true;
+        console.log('✅ Notification initialization complete');
+
+      } catch (error) {
+        console.error('❌ Notification initialization error:', error);
+        
+        // On error, try to use cached data if available
+        const cachedData = await loadNotificationState();
+        if (cachedData) {
+          console.log('📱 Using cached data due to initialization error');
+          setNotifications(cachedData.notifications);
+          setUnreadCount(cachedData.unreadCount);
+          setTotalCount(cachedData.totalCount);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeNotifications();
+  }, [authToken, loadNotificationState, clearNotificationState]); // Simplified dependencies
+
   // DEBUG: Function to check what's stored in AsyncStorage
   const checkStoredData = useCallback(async () => {
     try {
@@ -223,42 +321,6 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       return null;
     }
   }, []);
-
-  // Load saved state on initialization
-  useEffect(() => {
-    const initializeNotificationState = async () => {
-      if (!authToken) {
-        // Clear state when not logged in
-        setNotifications([]);
-        setUnreadCount(0);
-        setTotalCount(0);
-        setCurrentPage(0);
-        setHasMore(true);
-        setHasLoadedFromStorage(true); // Mark as loaded even when not logged in
-        await clearNotificationState();
-        return;
-      }
-
-      console.log('🚀 Initializing notification state...');
-      const savedState = await loadNotificationState();
-      
-      if (savedState) {
-        console.log('📱 Restoring notification state from storage');
-        setNotifications(savedState.notifications);
-        setUnreadCount(savedState.unreadCount);
-        setTotalCount(savedState.totalCount);
-        setCurrentPage(Math.floor(savedState.notifications.length / 25)); // Estimate current page
-        setHasMore(savedState.notifications.length < savedState.totalCount);
-      } else {
-        console.log('📱 No saved notification state found');
-      }
-      
-      // Mark that we've finished loading from storage (regardless of whether data was found)
-      setHasLoadedFromStorage(true);
-    };
-
-    initializeNotificationState();
-  }, [authToken, loadNotificationState, clearNotificationState]);
 
   // Optimized notification sorting with memoization - PRIORITIZE UNREAD FIRST
   const sortedNotifications = useMemo(() => {
@@ -353,7 +415,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
         if (!('error' in countResult)) {
           console.log('📊 fetchNotifications: Server unread count:', countResult.data);
           setUnreadCount(countResult.data);
-      } else {
+        } else {
           console.error('📊 fetchNotifications: Server unread count error:', countResult.error);
           // Fallback to local calculation only if server fails
           const localUnreadCount = result.data.filter(n => !n.read).length;
@@ -816,20 +878,44 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     // Set up WebSocket connection
     const setupWebSocket = async () => {
       try {
+        // Prevent multiple concurrent connection attempts
+        if (wsConnection.current) {
+          const currentConnectionStatus = wsConnection.current.isConnected();
+          console.log('🔄 Current WebSocket status:', currentConnectionStatus ? 'CONNECTED' : 'DISCONNECTED');
+          
+          // If already connected, don't reconnect
+          if (currentConnectionStatus) {
+            console.log('✅ WebSocket already connected, skipping reconnection');
+            setIsConnected(true);
+            return;
+          }
+          
+          console.log('🧹 Cleaning up existing failed WebSocket connection');
+          wsConnection.current.disconnect();
+          wsConnection.current = null;
+        }
+
         console.log('🔄 Setting up notification WebSocket...');
         console.log('🔑 Auth token available:', !!authToken);
         
-        if (wsConnection.current) {
-          console.log('🧹 Cleaning up existing WebSocket connection');
-          wsConnection.current.disconnect();
-        }
-
+        // Connect to the notification WebSocket - using 0 for broadcast ID since this is for notifications
         const connection = await notificationService.subscribeToNotifications(
           authToken,
           (newNotification: NotificationDTO) => {
             console.log('📨 Real-time notification received:', newNotification);
+            
             if (isMounted.current) {
+              // Play animation/haptic feedback for new notification
+              if (Platform.OS === 'ios') {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              } else {
+                // Android haptics
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              }
+              
+              // Add the notification to the state
               addNotification(newNotification);
+              
               // Force refresh unread count after adding notification
               setTimeout(async () => {
                 try {
@@ -841,7 +927,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
                 } catch (error) {
                   console.error('❌ Error refreshing unread count:', error);
                 }
-              }, 500);
+              }, 300);
             }
           }
         );
@@ -851,16 +937,16 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
         setIsConnected(connectionStatus);
         
         console.log('✅ Notification WebSocket setup complete');
-        console.log('🔗 Connection status:', connectionStatus);
+        console.log('🔗 Connection status:', connectionStatus ? 'CONNECTED' : 'DISCONNECTED');
 
-        // Test the connection after setup
+        // Test the connection after setup (shorter delay for faster feedback)
         setTimeout(() => {
           if (wsConnection.current) {
             const testStatus = wsConnection.current.isConnected();
-            console.log('🧪 WebSocket test status after 2s:', testStatus);
+            console.log('🧪 WebSocket test status after 1s:', testStatus ? 'CONNECTED' : 'DISCONNECTED');
             setIsConnected(testStatus);
           }
-        }, 2000);
+        }, 1000);
 
       } catch (error) {
         console.error('❌ Failed to setup notification WebSocket:', error);
@@ -868,22 +954,31 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       }
     };
 
+    // Initial connection setup
     setupWebSocket();
 
-    // Set up periodic connection health check
+    // Set up more frequent connection health check (every 10 seconds instead of 30)
     const healthCheckInterval = setInterval(() => {
       if (wsConnection.current && isMounted.current) {
-        const isConnected = wsConnection.current.isConnected();
-        console.log('💓 WebSocket health check:', isConnected);
-        setIsConnected(isConnected);
+        const connectionStatus = wsConnection.current.isConnected();
+        
+        // Only log when status changes to reduce noise
+        if (connectionStatus !== isConnected) {
+          console.log('💓 WebSocket connection status changed:', connectionStatus ? 'CONNECTED' : 'DISCONNECTED');
+          setIsConnected(connectionStatus);
+        }
         
         // Reconnect if disconnected
-        if (!isConnected && authToken) {
+        if (!connectionStatus && authToken) {
           console.log('🔄 WebSocket disconnected, attempting reconnection...');
           setupWebSocket();
         }
+      } else if (!wsConnection.current && authToken && isMounted.current) {
+        // No connection at all, try to establish one
+        console.log('🔄 No WebSocket connection found, setting up new connection...');
+        setupWebSocket();
       }
-    }, 30000); // Check every 30 seconds
+    }, 10000); // Check every 10 seconds (more frequent than before)
 
     return () => {
       if (healthCheckInterval) {
@@ -1098,105 +1193,6 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       setIsLoading(false);
     }
   }, [authToken, notifications, unreadCount, totalCount]);
-
-  // Initial fetch when logged in - SIMPLIFIED WEB-INSPIRED APPROACH
-  useEffect(() => {
-    console.log('🔧 DEBUG: Initial fetch useEffect triggered with:', {
-      isLoggedIn,
-      authTokenExists: !!authToken,
-      authTokenLength: authToken?.length || 0,
-      hasLoadedFromStorage,
-      timestamp: new Date().toISOString()
-    });
-
-    // Simple direct implementation to avoid dependency issues
-    if (!isLoggedIn || !authToken) {
-      console.log('🧹 Not logged in, clearing notifications');
-      setNotifications([]);
-      setUnreadCount(0);
-      setCurrentPage(0);
-      setHasMore(true);
-      setTotalCount(0);
-      setIsLoading(false);
-      setHasLoadedFromStorage(false); // Reset the flag when logging out
-      return;
-    }
-
-    // CRITICAL: Wait for AsyncStorage loading to complete before deciding whether to fetch
-    if (!hasLoadedFromStorage) {
-      console.log('⏳ Waiting for AsyncStorage loading to complete...');
-      return;
-    }
-
-    // SIMPLIFIED: Only check once after login and storage loading is complete
-    // If we have data from storage, use it. If not, fetch fresh data.
-    console.log('✅ Storage loading complete. Current notifications in state:', notifications.length);
-    
-    if (notifications.length === 0) {
-      console.log('🚀 No cached data found, fetching fresh notifications...');
-      
-    setIsLoading(true);
-
-    const fetchInitialData = async () => {
-      try {
-        console.log('🔍 Initial fetch: Getting first page of notifications...');
-        const result = await notificationService.getAllPaginated(authToken, 0, 25);
-        
-        if ('error' in result) {
-          console.error('❌ Initial fetch error:', result.error);
-          setIsLoading(false);
-          return;
-        }
-
-        console.log(`✅ Initial fetch: Got ${result.data.length} notifications`);
-        
-        if (isMounted.current) {
-          setNotifications(result.data);
-          setHasMore(result.hasMore);
-          setCurrentPage(result.currentPage);
-          setTotalCount(result.total);
-        }
-
-        // Get accurate unread count from server
-        try {
-          console.log('📊 Initial fetch: Getting server unread count...');
-          const countResult = await notificationService.getUnreadCount(authToken);
-          if (!('error' in countResult) && isMounted.current) {
-            console.log('📊 Initial fetch: Server unread count:', countResult.data);
-            setUnreadCount(countResult.data);
-          } else {
-            console.error('📊 Initial fetch: Server unread count error:', 'error' in countResult ? countResult.error : 'Unknown error');
-            // Fallback to local calculation only if server fails
-            const localUnreadCount = result.data.filter(n => !n.read).length;
-            setUnreadCount(localUnreadCount);
-            console.log('📊 Initial fetch: Using local unread count fallback:', localUnreadCount);
-          }
-        } catch (countError) {
-          console.warn('⚠️ Initial fetch: Failed to get server unread count:', countError);
-          // Fallback to local calculation
-          const localUnreadCount = result.data.filter(n => !n.read).length;
-          setUnreadCount(localUnreadCount);
-          console.log('📊 Initial fetch: Using local unread count fallback:', localUnreadCount);
-        }
-
-        console.log('✅ Initial fetch completed successfully');
-        
-      } catch (error) {
-        console.error('❌ Error in initial fetch:', error);
-        console.log('⚠️ Keeping existing data due to initial fetch error');
-      } finally {
-        console.log('🔄 Initial fetch: Setting isLoading to false');
-        if (isMounted.current) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    fetchInitialData();
-    } else {
-      console.log('ℹ️ Using cached notification data from storage, skipping initial fetch');
-    }
-  }, [isLoggedIn, authToken, hasLoadedFromStorage]); // REMOVED notifications.length - this was causing the infinite loop!
 
   // Manual test fetch for debugging - SIMPLE VERSION
   const manualTestFetch = useCallback(async () => {

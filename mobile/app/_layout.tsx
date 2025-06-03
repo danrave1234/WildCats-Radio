@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { NotificationProvider } from '../context/NotificationContext';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 const InitialLayout = () => {
@@ -30,8 +30,7 @@ const InitialLayout = () => {
     } else {
       // User is not authenticated
       if (!isAuthRoute && currentRoute !== '/') {
-        // If not on an auth route and not on i
-        // nitial splash, redirect to welcome
+        // If not on an auth route and not on initial splash, redirect to welcome
         router.replace('/welcome');
       }
     }

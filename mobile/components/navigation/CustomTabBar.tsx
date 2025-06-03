@@ -162,6 +162,7 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
           
           const { options } = descriptor;
           const label = (typeof options?.title === 'string' ? options.title : route.name) || 'Tab';
+          const tabAccessibilityLabel = options.tabBarAccessibilityLabel || `${label} tab`;
 
           const isFocused = state.index === index;
 
@@ -206,7 +207,7 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
                 key={route.key}
                 accessibilityRole="button"
                 accessibilityState={isFocused ? { selected: true } : {}}
-                accessibilityLabel={options.tabBarAccessibilityLabel}
+                accessibilityLabel={tabAccessibilityLabel}
                 onPress={onPress}
                 onLongPress={onLongPress}
                 style={styles.centerTabButton}
@@ -226,7 +227,7 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
               key={route.key}
               accessibilityRole="button"
               accessibilityState={isFocused ? { selected: true } : {}}
-              accessibilityLabel={options.tabBarAccessibilityLabel}
+              accessibilityLabel={tabAccessibilityLabel}
               onPress={onPress}
               onLongPress={onLongPress}
               style={styles.tabButton}
@@ -238,7 +239,7 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
             >
               <TabBarIcon name={iconName} color={isFocused ? MIKADO_YELLOW : TEXT_COLOR} />
               <Text style={[styles.tabLabel, { color: isFocused ? FOCUSED_TEXT_COLOR : TEXT_COLOR }]}>
-                {label && typeof label === 'string' ? label.charAt(0).toUpperCase() + label.slice(1) : 'Tab'}
+                {typeof label === 'string' ? label.charAt(0).toUpperCase() + label.slice(1) : 'Tab'}
               </Text>
             </TouchableOpacity>
           );

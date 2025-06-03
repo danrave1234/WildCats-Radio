@@ -255,7 +255,7 @@ const HomeScreen: React.FC = () => {
 
           {/* Recent Broadcasts Card */}
           <View className="bg-white p-5 rounded-2xl shadow-lg"> {/* Removed mb-7 from here */}
-            {recentBroadcasts.length > 0 ? 
+            {recentBroadcasts && recentBroadcasts.length > 0 ? 
               recentBroadcasts.map((item, index) => (
                 <React.Fragment key={item.id}>
                   <TouchableOpacity
@@ -271,7 +271,6 @@ const HomeScreen: React.FC = () => {
                         {item.dj?.name || 'Wildcat Radio'} • {renderBroadcastTimeInfo(item)}
                       </Text>
                     </View>
-                    <Ionicons name="chevron-forward-outline" size={22} color="#A0A0A0" />
                   </TouchableOpacity>
                   {index < recentBroadcasts.length - 1 && (
                     <View className="h-px bg-gray-200 my-1 border-0 border-t border-dashed border-gray-300 mx-4" />
