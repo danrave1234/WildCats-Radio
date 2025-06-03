@@ -482,7 +482,7 @@ class NotificationService {
               if (message.id && message.message && message.type && message.timestamp !== undefined) {
                 console.log('✅ Processing raw notification object:', message);
                 onNewNotification(message as NotificationDTO);
-              } else {
+            } else {
                 console.log('ℹ️ Unrecognized message format:', message);
               }
             }

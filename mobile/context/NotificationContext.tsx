@@ -415,7 +415,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
         if (!('error' in countResult)) {
           console.log('📊 fetchNotifications: Server unread count:', countResult.data);
           setUnreadCount(countResult.data);
-        } else {
+      } else {
           console.error('📊 fetchNotifications: Server unread count error:', countResult.error);
           // Fallback to local calculation only if server fails
           const localUnreadCount = result.data.filter(n => !n.read).length;

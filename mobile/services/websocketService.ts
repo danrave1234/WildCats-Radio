@@ -65,7 +65,7 @@ class WebSocketManager implements WebSocketService {
       const wsUrl = `${API_BASE_URL}/ws-radio`;
       
       console.log('🔗 WebSocket URL:', wsUrl);
-      console.log('🔑 Auth token present:', !!authToken);
+    console.log('🔑 Auth token present:', !!authToken);
     
       // Use SockJS + STOMP like the web implementation
       const socket = new SockJS(wsUrl);
@@ -75,7 +75,7 @@ class WebSocketManager implements WebSocketService {
       this.stompClient.debug = (str: string) => {
         // Only log important STOMP messages to reduce noise
         if (str.includes('CONNECTED') || str.includes('ERROR') || str.includes('RECEIPT')) {
-          console.log('📡 STOMP DEBUG:', str);
+        console.log('📡 STOMP DEBUG:', str);
         }
       };
       
@@ -88,7 +88,7 @@ class WebSocketManager implements WebSocketService {
       console.log('📋 STOMP headers:', headers);
       console.log('💓 Heartbeat configured: incoming=4s, outgoing=4s');
       
-      this.stompClient.connect(headers, (frame: any) => {
+              this.stompClient.connect(headers, (frame: any) => {
         console.log('✅ STOMP connected successfully for broadcast:', broadcastId);
         console.log('📄 Connection frame:', frame);
         this.reconnectAttempts = 0;
