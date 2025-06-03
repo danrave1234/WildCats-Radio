@@ -24,7 +24,7 @@ import { Stack, useLocalSearchParams, useNavigation } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import CustomHeader from '../../components/navigation/CustomHeader';
 import { useAuth } from '../../context/AuthContext';
-import { useBroadcastContext, useNotificationContext } from './_layout';
+import { useBroadcastContext } from './_layout';
 import {
   Broadcast,
   ChatMessageDTO,
@@ -447,7 +447,6 @@ const BroadcastScreen: React.FC = () => {
   const authContext = useAuth();
   const navigation = useNavigation();
   const { setIsBroadcastListening } = useBroadcastContext();
-  const { setIsNotificationOpen } = useNotificationContext();
   
   const params = useLocalSearchParams();
   const routeBroadcastId = params.broadcastId ? parseInt(params.broadcastId as string, 10) : null;
@@ -1272,8 +1271,8 @@ const BroadcastScreen: React.FC = () => {
 
   // Notification state change handler for the broadcast screen's CustomHeader
   const handleNotificationStateChange = useCallback((isOpen: boolean) => {
-    setIsNotificationOpen(isOpen);
-  }, [setIsNotificationOpen]);
+    setIsBroadcastListening(isOpen);
+  }, [setIsBroadcastListening]);
 
   // Reset animations when going back to poster (without animation)
   useEffect(() => {
@@ -1291,8 +1290,6 @@ const BroadcastScreen: React.FC = () => {
     return () => {
       // Reset broadcast listening state when component unmounts
       setIsBroadcastListening(false);
-      // Also reset notification state to ensure tab bar is visible
-      setIsNotificationOpen(false);
       // Clean up chat connection
       if (chatConnectionRef.current) {
         chatConnectionRef.current.disconnect();
@@ -1304,7 +1301,7 @@ const BroadcastScreen: React.FC = () => {
         pollConnectionRef.current = null;
       }
     };
-  }, [setIsBroadcastListening, setIsNotificationOpen]);
+  }, [setIsBroadcastListening]);
 
   const loadInitialDataForBroadcastScreen = useCallback(async (isBackgroundUpdate = false) => {
     if (!authToken || !authContext) {

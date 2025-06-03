@@ -14,7 +14,17 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { NotificationDTO } from '../../services/apiService';
+
+// Placeholder interface for design purposes only
+interface NotificationDTO {
+  id: number;
+  message: string;
+  type: string;
+  timestamp: string;
+  read: boolean;
+  userId?: number;
+  error?: string;
+}
 
 // Cordovan Color Palette
 const COLORS = {
@@ -692,20 +702,10 @@ interface OptimizedNotificationScreenProps {
   onMarkAllAsRead: () => void;
   onTabChange: (tab: string) => void;
   onLoadMore: () => void;
-  onLoadMoreForTab: (tab: 'all' | 'unread' | 'read') => void;
-  getTabPaginationState: (tab: 'all' | 'unread' | 'read') => {
-    currentPage: number;
-    hasMore: boolean;
-    isLoadingMore: boolean;
-    totalCount: number;
-  };
   onAnimationStart?: () => void;
   onAnimationComplete?: () => void;
   getNotificationIcon: (type: string) => string;
   getNotificationTitle: (type: string) => string;
-  fetchNotifications?: () => Promise<void>; // For polling fallback
-  websocketUrl?: string; // WebSocket connection URL
-  userId?: string | number; // User ID for WebSocket authentication
 }
 
 const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = ({
@@ -723,31 +723,15 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
   onMarkAllAsRead,
   onTabChange,
   onLoadMore,
-  onLoadMoreForTab,
-  getTabPaginationState,
   onAnimationStart,
   onAnimationComplete,
   getNotificationIcon,
   getNotificationTitle,
-  fetchNotifications,
-  websocketUrl,
-  userId,
 }) => {
   const insets = useSafeAreaInsets();
   const [isAnimating, setIsAnimating] = useState(false);
   const [screenData, setScreenData] = useState(getScreenDimensions());
   const flatListRef = useRef<FlatList>(null);
-  const [isSilentRefreshing, setIsSilentRefreshing] = useState(false);
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const lastFetchTimeRef = useRef<number>(Date.now());
-  const websocketRef = useRef<WebSocket | null>(null);
-  const [wsConnectionState, setWsConnectionState] = useState<ConnectionState>(ConnectionState.DISCONNECTED);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const reconnectAttemptsRef = useRef(0);
-  const appStateRef = useRef(AppState.currentState);
-  const MAX_RECONNECT_ATTEMPTS = 5;
-  const RECONNECT_DELAY = 5000; // 5 seconds
-  const POLLING_INTERVAL = 30000; // 30 seconds
 
   // Animation values with dynamic screen height - use refs that don't change
   const notificationTranslateY = useRef(new Animated.Value(-screenData.height)).current;
@@ -930,192 +914,6 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
     return { total, unread, read };
   }, [notifications]);
 
-  // Function to refresh notifications in the background
-  const refreshNotifications = useCallback(async () => {
-    if (!visible || !isConnected || isLoading || !fetchNotifications) return;
-    
-    // Don't refresh if we've refreshed in the last 10 seconds (throttling)
-    const now = Date.now();
-    if (now - lastFetchTimeRef.current < 10000) return;
-    
-    lastFetchTimeRef.current = now;
-    setIsSilentRefreshing(true);
-    
-    try {
-      await fetchNotifications();
-    } catch (error) {
-      console.error('Failed to auto-refresh notifications:', error);
-    } finally {
-      setIsSilentRefreshing(false);
-    }
-  }, [visible, isConnected, isLoading, fetchNotifications]);
-
-  // WebSocket connection management
-  const connectWebSocket = useCallback(() => {
-    if (!websocketUrl || !userId || !isConnected || !visible) return;
-    
-    // Close existing connection if any
-    if (websocketRef.current) {
-      websocketRef.current.close();
-      websocketRef.current = null;
-    }
-    
-    try {
-      setWsConnectionState(ConnectionState.CONNECTING);
-      console.log('🔌 Connecting to WebSocket...');
-      
-      // Create new WebSocket connection with authentication
-      const wsUrl = `${websocketUrl}?userId=${userId}`;
-      websocketRef.current = new WebSocket(wsUrl);
-      
-      // Connection opened
-      websocketRef.current.onopen = () => {
-        console.log('✅ WebSocket connection established');
-        setWsConnectionState(ConnectionState.CONNECTED);
-        reconnectAttemptsRef.current = 0; // Reset reconnect attempts
-        
-        // Clear any polling as WebSocket is now active
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-        
-        // Initial fetch to ensure we have the latest data
-        refreshNotifications();
-      };
-      
-      // Listen for messages
-      websocketRef.current.onmessage = (event) => {
-        console.log('📨 WebSocket message received:', event.data);
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'NEW_NOTIFICATION' || data.type === 'NOTIFICATION_UPDATE') {
-            // Trigger a refresh to get the latest notifications
-            refreshNotifications();
-          }
-        } catch (error) {
-          console.error('Error processing WebSocket message:', error);
-        }
-      };
-      
-      // Connection closed
-      websocketRef.current.onclose = (event) => {
-        console.log(`🔌 WebSocket closed: ${event.code} ${event.reason}`);
-        setWsConnectionState(ConnectionState.DISCONNECTED);
-        websocketRef.current = null;
-        
-        // Start polling as fallback and try to reconnect
-        startPolling();
-        scheduleReconnect();
-      };
-      
-      // Connection error
-      websocketRef.current.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setWsConnectionState(ConnectionState.ERROR);
-        
-        // Start polling as fallback
-        startPolling();
-      };
-      
-    } catch (error) {
-      console.error('Failed to connect to WebSocket:', error);
-      setWsConnectionState(ConnectionState.ERROR);
-      
-      // Start polling as fallback
-      startPolling();
-    }
-  }, [websocketUrl, userId, isConnected, visible, refreshNotifications]);
-
-  // Schedule WebSocket reconnection
-  const scheduleReconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-    }
-    
-    if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-      console.log('⚠️ Maximum WebSocket reconnect attempts reached, staying with polling');
-      return;
-    }
-    
-    reconnectAttemptsRef.current += 1;
-    const delay = RECONNECT_DELAY * Math.pow(1.5, reconnectAttemptsRef.current - 1); // Exponential backoff
-    
-    console.log(`🔄 Scheduling WebSocket reconnect in ${delay}ms (attempt ${reconnectAttemptsRef.current})`);
-    
-    reconnectTimeoutRef.current = setTimeout(() => {
-      if (isConnected && visible) {
-        connectWebSocket();
-      }
-    }, delay);
-  }, [connectWebSocket, isConnected, visible]);
-
-  // Start polling as fallback
-  const startPolling = useCallback(() => {
-    if (pollingIntervalRef.current || !fetchNotifications) return;
-    
-    console.log('📱 Starting polling as WebSocket fallback');
-    
-    // Initial fetch
-    refreshNotifications();
-    
-    // Set up interval
-    pollingIntervalRef.current = setInterval(() => {
-      refreshNotifications();
-    }, POLLING_INTERVAL);
-  }, [refreshNotifications, fetchNotifications]);
-
-  // Handle app state changes to reconnect WebSocket when app comes to foreground
-  useEffect(() => {
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
-        console.log('App has come to the foreground - reconnecting WebSocket');
-        if (visible && isConnected) {
-          connectWebSocket();
-        }
-      }
-      appStateRef.current = nextAppState;
-    };
-    
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-    
-    return () => {
-      subscription.remove();
-    };
-  }, [connectWebSocket, visible, isConnected]);
-
-  // Connect to WebSocket when component becomes visible
-  useEffect(() => {
-    if (visible && isConnected) {
-      if (websocketUrl && userId) {
-        // Try WebSocket first
-        connectWebSocket();
-      } else {
-        // Fall back to polling if WebSocket not configured
-        console.log('⚠️ WebSocket not configured, using polling only');
-        startPolling();
-      }
-    }
-    
-    return () => {
-      // Clean up on unmount or when becoming invisible
-      if (websocketRef.current) {
-        websocketRef.current.close();
-        websocketRef.current = null;
-      }
-      
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-      
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-    };
-  }, [visible, isConnected, websocketUrl, userId, connectWebSocket, startPolling]);
-
   // Memoize tab content string with connection status
   const tabContentString = useMemo(() => {
     const { total, unread, read } = notificationCounts;
@@ -1141,12 +939,10 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
     }
     
     // Add connection status indicator
-    if (isSilentRefreshing) {
+    if (isAnimating) {
       return `${baseString} • Updating...`;
-    } else if (wsConnectionState === ConnectionState.CONNECTED) {
+    } else if (isConnected) {
       return `${baseString} • Live`;
-    } else if (wsConnectionState === ConnectionState.CONNECTING) {
-      return `${baseString} • Connecting...`;
     } else if (!isConnected) {
       return `${baseString} • Offline`;
     }
@@ -1157,25 +953,18 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
     notificationCounts, 
     filteredAndSortedNotifications.length, 
     totalCount, 
-    isSilentRefreshing, 
-    wsConnectionState,
+    isAnimating,
     isConnected
   ]);
 
   // Get connection status icon
   const getConnectionStatusIcon = useCallback(() => {
-    if (wsConnectionState === ConnectionState.CONNECTED) {
+    if (isConnected) {
       return { name: "flash-outline", color: "#4CAF50" }; // Green flash for WebSocket
-    } else if (wsConnectionState === ConnectionState.CONNECTING) {
-      return { name: "sync-outline", color: "#2196F3" }; // Blue sync for connecting
-    } else if (wsConnectionState === ConnectionState.ERROR || !isConnected) {
+    } else {
       return { name: "cloud-offline-outline", color: "#F44336" }; // Red cloud offline for errors
-    } else if (pollingIntervalRef.current) {
-      return { name: "time-outline", color: "#FF9800" }; // Orange time for polling
     }
-    
-    return { name: "ellipsis-horizontal", color: "#9E9E9E" }; // Gray dots for unknown
-  }, [wsConnectionState, isConnected]);
+  }, [isConnected]);
 
   // Optimized render item for FlatList
   const renderNotificationItem = useCallback(({ item }: { item: NotificationDTO }) => (
@@ -1198,39 +987,28 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
       if (selectedTab === 'unread') {
           return {
             icon: 'checkmark-circle-outline',
-            title: 'All caught up!',
-            message: wsConnectionState === ConnectionState.CONNECTED 
-              ? 'You have no unread notifications. New notifications will appear in real time as they arrive.'
-              : 'You have no unread notifications. Notifications will update automatically in the background.',
-            showRefresh: false,
+            title: 'You\'re all caught up!',
+            message: 'No unread notifications at the moment. When new notifications arrive, they\'ll appear here for you to review.',
           };
       } else if (selectedTab === 'read') {
           return {
             icon: 'archive-outline',
-            title: 'No read notifications',
-            message: 'Notifications you\'ve read will appear here. Only recent read notifications are kept for easy reference.',
-            showRefresh: false,
+            title: 'No read notifications yet',
+            message: 'Once you read notifications, they\'ll be moved here. This helps you keep track of what you\'ve already seen.',
           };
       }
 
       // Default all tab
           return {
             icon: 'notifications-off-outline',
-            title: 'No notifications yet',
-            message: wsConnectionState === ConnectionState.CONNECTED
-              ? 'You\'re all caught up! New notifications will appear in real time as they arrive.'
-              : 'You\'re all caught up! Notifications will update automatically in the background.',
-            showRefresh: true,
+            title: 'No notifications',
+            message: 'You don\'t have any notifications right now. We\'ll notify you when something important happens.',
           };
     };
 
     const config = getEmptyStateConfig();
 
     // Responsive sizing for empty state
-    const emptyIconSize = Math.max(32, screenData.width * 0.1);
-    const emptyIconContainerSize = Math.max(60, screenData.width * 0.2);
-    const emptyTitleFontSize = Math.min(20, screenData.width * 0.052);
-    const emptyMessageFontSize = Math.min(16, screenData.width * 0.042);
     const emptyPadding = Math.max(40, screenData.width * 0.1);
 
     return (
@@ -1241,145 +1019,41 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
         paddingVertical: Math.max(40, screenData.height * 0.08),
         paddingHorizontal: emptyPadding,
       }}>
-        <View style={{
-          width: emptyIconContainerSize,
-          height: emptyIconContainerSize,
-          borderRadius: emptyIconContainerSize / 2,
-          backgroundColor: COLORS.surface,
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: Math.max(16, screenData.height * 0.025),
-          borderWidth: 2,
-          borderColor: COLORS.primaryVeryLight,
-        }}>
-          <Ionicons 
-            name={config.icon as any} 
-            size={emptyIconSize} 
-            color={COLORS.textSecondary} 
-          />
-        </View>
+        <Ionicons 
+          name={config.icon as any} 
+          size={64} 
+          color="#A0A0A0" 
+          style={{ marginBottom: 16 }}
+        />
         <Text style={{
-          fontSize: emptyTitleFontSize,
-          fontWeight: '600',
-          color: COLORS.textPrimary,
-          marginBottom: Math.max(8, screenData.height * 0.012),
+          fontSize: Math.min(24, screenData.width * 0.06),
+          fontWeight: 'bold',
+          color: '#374151',
+          marginBottom: 8,
           textAlign: 'center',
-          letterSpacing: 0.5,
-          lineHeight: emptyTitleFontSize * 1.2,
         }}>
           {config.title}
         </Text>
         <Text style={{
-          fontSize: emptyMessageFontSize,
-          color: COLORS.textSecondary,
+          fontSize: Math.min(16, screenData.width * 0.04),
+          color: '#6B7280',
           textAlign: 'center',
-          lineHeight: emptyMessageFontSize * 1.6,
-          maxWidth: Math.min(320, screenData.width * 0.85),
-          marginBottom: config.showRefresh ? Math.max(20, screenData.height * 0.03) : 0,
-          letterSpacing: 0.3,
-          paddingHorizontal: 8,
+          lineHeight: Math.min(16, screenData.width * 0.04) * 1.5,
+          paddingHorizontal: 16,
         }}>
           {config.message}
         </Text>
-
-        {/* Connection status indicator */}
-        <View style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          marginTop: Math.max(12, screenData.height * 0.02),
-          paddingHorizontal: Math.max(16, screenData.width * 0.04),
-          paddingVertical: Math.max(10, screenData.height * 0.015),
-          backgroundColor: COLORS.surface,
-          borderRadius: 20,
-          borderWidth: 1,
-          borderColor: COLORS.primaryVeryLight,
-        }}>
-          <Ionicons 
-            name={getConnectionStatusIcon().name as any} 
-            size={Math.min(16, screenData.width * 0.04)} 
-            color={getConnectionStatusIcon().color}
-            style={{ marginRight: 8 }}
-          />
-          <Text style={{
-            fontSize: Math.min(13, screenData.width * 0.034),
-            color: COLORS.textSecondary,
-            fontWeight: '500',
-          }}>
-            {wsConnectionState === ConnectionState.CONNECTED
-              ? 'Real-time updates active'
-              : wsConnectionState === ConnectionState.CONNECTING
-                ? 'Connecting to real-time updates...'
-                : pollingIntervalRef.current
-                  ? 'Background updates active'
-                  : isConnected
-                    ? 'Updates paused'
-                    : 'Offline - updates paused'}
-          </Text>
-        </View>
-
-        {/* Refresh button for general empty state */}
-        {config.showRefresh && (
-          <TouchableOpacity
-            style={{
-              marginTop: Math.max(20, screenData.height * 0.03),
-              backgroundColor: COLORS.primary,
-              paddingHorizontal: Math.max(24, screenData.width * 0.06),
-              paddingVertical: Math.max(12, screenData.height * 0.018),
-              borderRadius: 24,
-              shadowColor: COLORS.primary,
-              shadowOffset: { width: 0, height: 3 },
-              shadowOpacity: 0.25,
-              shadowRadius: 6,
-              elevation: 6,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              minWidth: Math.max(120, screenData.width * 0.3),
-            }}
-            activeOpacity={0.8}
-            onPress={refreshNotifications}
-            disabled={isSilentRefreshing || isLoading}
-          >
-            <Ionicons 
-              name={isSilentRefreshing ? "sync" : "refresh-outline"}
-              size={Math.min(18, screenData.width * 0.045)} 
-              color={COLORS.textInverse} 
-              style={{ 
-                marginRight: 8,
-                ...(isSilentRefreshing && { 
-                  transform: [{ rotate: '45deg' }] 
-                })
-              }} 
-            />
-            <Text style={{
-              color: COLORS.textInverse,
-              fontSize: Math.min(15, screenData.width * 0.039),
-              fontWeight: '600',
-              letterSpacing: 0.4,
-              lineHeight: Math.min(15, screenData.width * 0.039) * 1.2,
-            }}>
-              {isSilentRefreshing ? "Refreshing..." : "Refresh Now"}
-            </Text>
-          </TouchableOpacity>
-        )}
       </View>
     );
   }, [
     selectedTab, 
-    screenData, 
-    refreshNotifications, 
-    isSilentRefreshing, 
-    isLoading, 
-    wsConnectionState, 
-    isConnected,
-    getConnectionStatusIcon,
-    pollingIntervalRef
+    screenData
   ]);
 
   // Footer component - CONSISTENT FOR ALL TABS WITH SMOOTH ANIMATIONS
   const FooterComponent = useMemo(() => {
     // Get tab-specific pagination state
-    const tabState = getTabPaginationState(selectedTab as 'all' | 'unread' | 'read');
+    const tabState = { isLoadingMore, hasMore };
     
     if (isLoading && filteredAndSortedNotifications.length === 0) {
       return null; // Don't show footer during initial load
@@ -1466,20 +1140,17 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
 
     // Return null when there are more items (let infinite scroll handle it)
     return null;
-  }, [isLoading, filteredAndSortedNotifications.length, selectedTab, getTabPaginationState]);
+  }, [isLoading, filteredAndSortedNotifications.length, selectedTab, isLoadingMore, hasMore]);
 
   // Handle end reached for infinite scroll - TAB-SPECIFIC SMART LOADING
   const handleEndReached = useCallback(() => {
-    // Get tab-specific pagination state
-    const tabState = getTabPaginationState(selectedTab as 'all' | 'unread' | 'read');
-    
     // Add multiple safety checks to prevent duplicate calls
-    if (tabState.isLoadingMore) {
+    if (isLoadingMore) {
       console.log(`⚠️ Already loading more for ${selectedTab} tab, ignoring onEndReached`);
       return;
     }
     
-    if (!tabState.hasMore) {
+    if (!hasMore) {
       console.log(`⚠️ No more data available for ${selectedTab} tab, ignoring onEndReached`);
       return;
     }
@@ -1508,17 +1179,16 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
     
     console.log(`📱 End reached for ${selectedTab} tab, loading more notifications...`, {
       currentCount: filteredAndSortedNotifications.length,
-      hasMore: tabState.hasMore,
-      isLoadingMore: tabState.isLoadingMore,
+      hasMore: hasMore,
+      isLoadingMore: isLoadingMore,
       selectedTab,
       isFilteredTab,
       shouldLoadEarly,
-      currentPage: tabState.currentPage
     });
     
     // Use tab-specific loading function
-    onLoadMoreForTab(selectedTab as 'all' | 'unread' | 'read');
-  }, [filteredAndSortedNotifications.length, onLoadMoreForTab, selectedTab, getTabPaginationState]);
+    onLoadMore();
+  }, [filteredAndSortedNotifications.length, onLoadMore, selectedTab, isLoadingMore, hasMore]);
 
   // Animate tab changes - simplified without problematic dependencies
   const handleTabChange = (newTab: string) => {
@@ -1662,36 +1332,6 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
                   </Text>
                 </TouchableOpacity>
               )}
-              
-              {/* WebSocket connection status */}
-              <View style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                marginLeft: 8,
-              }}>
-                {wsConnectionState === ConnectionState.CONNECTED && (
-                  <Ionicons 
-                    name="flash-outline" 
-                    size={Math.min(14, screenData.width * 0.035)} 
-                    color="#4CAF50" 
-                    style={{ marginRight: 4 }}
-                  />
-                )}
-                {wsConnectionState === ConnectionState.CONNECTING && (
-                  <ActivityIndicator 
-                    size="small" 
-                    color={COLORS.textInverse} 
-                    style={{ marginRight: 4 }}
-                  />
-                )}
-                {isSilentRefreshing && wsConnectionState !== ConnectionState.CONNECTING && (
-                  <ActivityIndicator 
-                    size="small" 
-                    color={COLORS.textInverse} 
-                    style={{ marginRight: 4 }}
-                  />
-                )}
-              </View>
             </View>
             <TouchableOpacity
               onPress={animateOut}
@@ -1743,7 +1383,7 @@ const OptimizedNotificationScreen: React.FC<OptimizedNotificationScreenProps> = 
             data={filteredAndSortedNotifications}
             renderItem={renderNotificationItem}
             keyExtractor={keyExtractor}
-            ListEmptyComponent={isLoading && filteredAndSortedNotifications.length === 0 ? EmptyComponent : null}
+            ListEmptyComponent={EmptyComponent}
             ListFooterComponent={FooterComponent}
             contentContainerStyle={{ 
               paddingBottom: Math.max(30, insets.bottom + 30),

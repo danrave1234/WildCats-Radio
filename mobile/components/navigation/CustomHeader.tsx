@@ -3,9 +3,6 @@ import { View, TouchableOpacity, Platform, Animated, Easing, Image, Dimensions, 
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useNotifications } from '../../context/NotificationContext';
-import { NotificationDTO } from '../../services/apiService';
-import { formatDistanceToNow } from 'date-fns';
 import OptimizedNotificationScreen from './OptimizedNotificationScreen';
 
 interface CustomHeaderProps {
@@ -35,26 +32,11 @@ const CustomHeader = React.memo(({
   const [showNotificationScreen, setShowNotificationScreen] = useState(false);
   const [isNotificationAnimating, setIsNotificationAnimating] = useState(false);
   
-  // Destructure context with all debug functions
-  const { 
-    notifications, 
-    unreadCount, 
-    isConnected, 
-    isLoading,
-    isLoadingMore,
-    hasMore,
-    totalCount,
-    fetchNotifications, 
-    loadMoreNotifications,
-    markAsRead, 
-    markAllAsRead: markAllAsReadContext, 
-    fetchNotificationsWithUnreadPriority,
-    forceRefresh,
-    debugNotifications,
-    manualTestFetch,
-    loadMoreNotificationsForTab,
-    getTabPaginationState,
-  } = useNotifications();
+  const [selectedTab, setSelectedTab] = useState<NotificationTabKey>('all');
+
+  // Mock data for UI display only
+  const [unreadCount] = useState(0);
+  const [isConnected] = useState(true);
   
   const anim = {
     opacity: useRef(new Animated.Value(0)).current,
@@ -73,107 +55,6 @@ const CustomHeader = React.memo(({
   // Track if we're in the middle of a back animation
   const isAnimatingBack = useRef(false);
   const animationTimer = useRef<NodeJS.Timeout | null>(null);
-
-  const [selectedTab, setSelectedTab] = useState<NotificationTabKey>('all');
-
-  // Ripple effect state for sync button
-  const [ripples, setRipples] = useState<Array<{ id: number; x: number; y: number; scale: Animated.Value; opacity: Animated.Value }>>([]);
-  const rippleIdRef = useRef(0);
-
-  // Create ripple effect for sync button
-  const createRipple = useCallback((event: any) => {
-    const { locationX, locationY } = event.nativeEvent;
-    const rippleId = rippleIdRef.current++;
-    
-    const scale = new Animated.Value(0);
-    const opacity = new Animated.Value(0.6);
-    
-    const newRipple = {
-      id: rippleId,
-      x: locationX,
-      y: locationY,
-      scale,
-      opacity
-    };
-    
-    setRipples(prev => [...prev, newRipple]);
-    
-    // Animate ripple
-    Animated.parallel([
-      Animated.timing(scale, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacity, {
-        toValue: 0,
-        duration: 400,
-        useNativeDriver: true,
-      })
-    ]).start(() => {
-      // Remove ripple after animation
-      setRipples(prev => prev.filter(r => r.id !== rippleId));
-    });
-  }, []);
-
-  // Handle sync button press with ripple
-  const handleSyncPress = useCallback((event: any) => {
-    if (!isLoading) {
-      createRipple(event);
-      fetchNotificationsWithUnreadPriority();
-    }
-  }, [createRipple, fetchNotificationsWithUnreadPriority, isLoading]);
-
-  // Memoized helper functions to prevent recreations
-  const getNotificationIcon = useCallback((type: string) => {
-    switch (type) {
-      case 'BROADCAST_SCHEDULED':
-      case 'BROADCAST_STARTING_SOON':
-      case 'BROADCAST_STARTED':
-      case 'BROADCAST_ENDED':
-      case 'NEW_BROADCAST_POSTED':
-        return 'radio-outline';
-      case 'SONG_REQUEST':
-        return 'musical-notes-outline';
-      case 'POLL_CREATED':
-      case 'POLL_RESULTS':
-        return 'stats-chart-outline';
-      case 'USER_REGISTERED':
-        return 'person-outline';
-      case 'GENERAL':
-      case 'WELCOME':
-        return 'heart-outline';
-      default:
-        return 'notifications-outline';
-    }
-  }, []);
-
-  const getNotificationTitle = useCallback((type: string) => {
-    switch (type) {
-      case 'BROADCAST_SCHEDULED':
-        return 'Broadcast Scheduled';
-      case 'BROADCAST_STARTING_SOON':
-        return 'Show Starting Soon!';
-      case 'BROADCAST_STARTED':
-        return 'Live Now!';
-      case 'BROADCAST_ENDED':
-        return 'Show Ended';
-      case 'NEW_BROADCAST_POSTED':
-        return 'New Show Posted';
-      case 'SONG_REQUEST':
-        return 'Song Request';
-      case 'POLL_CREATED':
-        return 'New Poll';
-      case 'POLL_RESULTS':
-        return 'Poll Results';
-      case 'USER_REGISTERED':
-        return 'Welcome!';
-      case 'GENERAL':
-        return 'Notification';
-      default:
-        return 'Update';
-    }
-  }, []);
 
   // Optimized animation with throttling and reduced complexity
   const animateNotificationIcon = useCallback(() => {
@@ -400,47 +281,6 @@ const CustomHeader = React.memo(({
     setIsNotificationAnimating(false);
   }, []);
 
-  const handleMarkAsRead = useCallback((notificationId: number) => {
-    markAsRead(notificationId);
-  }, [markAsRead]);
-
-  const handleMarkAllAsRead = useCallback(() => {
-    markAllAsReadContext();
-  }, [markAllAsReadContext]);
-
-  // Manual refresh function for debugging real-time issues
-  const handleManualRefresh = useCallback(async () => {
-    console.log('🔄 Manual refresh triggered');
-    try {
-      await fetchNotifications();
-      console.log('✅ Manual refresh completed');
-    } catch (error) {
-      console.error('❌ Manual refresh failed:', error);
-    }
-  }, [fetchNotifications]);
-
-  // Format notification time function
-  const formatNotificationTime = (timestamp: string): string => {
-    try {
-      const date = new Date(timestamp);
-      return formatDistanceToNow(date, { addSuffix: true });
-    } catch (error) {
-      return 'Unknown time';
-    }
-  };
-
-  // Memoized filtered notifications to prevent unnecessary re-computations
-  const filteredNotifications = useMemo(() => {
-    switch (selectedTab) {
-      case 'unread':
-        return notifications.filter(n => !n.read);
-      case 'read':
-        return notifications.filter(n => n.read);
-      default:
-        return notifications;
-    }
-  }, [notifications, selectedTab]);
-
   const conditionalShakeStyle = unreadCount > 0 ? {
     transform: [{
       rotate: shakeAnimation.interpolate({
@@ -524,50 +364,6 @@ const CustomHeader = React.memo(({
         {/* Notification icon on right */}
         {showNotification ? (
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>            
-            {/* Smart Refresh Button (combines priority + refresh) */}
-            <TouchableOpacity 
-              style={{ 
-                padding: 6, 
-                marginRight: 8,
-                backgroundColor: '#8B5CF6',
-                borderRadius: 6,
-                minWidth: 32,
-                minHeight: 20,
-                alignItems: 'center',
-                justifyContent: 'center',
-                position: 'relative',
-                overflow: 'hidden',
-              }} 
-              activeOpacity={0.7}
-              onPress={handleSyncPress}
-              disabled={isLoading}
-            >
-              {/* Ripple effects */}
-              {ripples.map((ripple) => (
-                <Animated.View
-                  key={ripple.id}
-                  style={{
-                    position: 'absolute',
-                    left: ripple.x - 15,
-                    top: ripple.y - 15,
-                    width: 30,
-                    height: 30,
-                    borderRadius: 15,
-                    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                    transform: [{ scale: ripple.scale }],
-                    opacity: ripple.opacity,
-                    pointerEvents: 'none',
-                  }}
-                />
-              ))}
-              
-              {/* Button content - always show the same */}
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Ionicons name="refresh-outline" size={10} color="white" style={{ marginRight: 2 }} />
-              <Text style={{ fontSize: 8, fontWeight: 'bold', color: 'white' }}>SYNC</Text>
-              </View>
-            </TouchableOpacity>
-            
             <TouchableOpacity 
               style={{ padding: 8, marginTop: 6, position: 'relative' }} 
               activeOpacity={0.7}
@@ -677,25 +473,23 @@ const CustomHeader = React.memo(({
       {/* Optimized Notification Screen */}
       <OptimizedNotificationScreen
         visible={showNotificationScreen}
-        notifications={notifications}
+        notifications={[]}
         unreadCount={unreadCount}
         isConnected={isConnected}
         selectedTab={selectedTab}
-        isLoading={isLoading}
-        isLoadingMore={isLoadingMore}
-        hasMore={hasMore}
-        totalCount={totalCount}
+        isLoading={false}
+        isLoadingMore={false}
+        hasMore={false}
+        totalCount={0}
         onClose={handleNotificationClose}
-        onMarkAsRead={handleMarkAsRead}
-        onMarkAllAsRead={handleMarkAllAsRead}
+        onMarkAsRead={() => {}}
+        onMarkAllAsRead={() => {}}
         onTabChange={(tab: string) => setSelectedTab(tab as NotificationTabKey)}
-        onLoadMore={loadMoreNotifications}
-        onLoadMoreForTab={loadMoreNotificationsForTab}
-        getTabPaginationState={getTabPaginationState}
+        onLoadMore={() => {}}
         onAnimationStart={handleAnimationStart}
         onAnimationComplete={handleAnimationComplete}
-        getNotificationIcon={getNotificationIcon}
-        getNotificationTitle={getNotificationTitle}
+        getNotificationIcon={() => 'notifications-outline'}
+        getNotificationTitle={() => 'Notification'}
       />
     </>
   );
