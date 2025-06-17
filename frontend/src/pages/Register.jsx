@@ -88,7 +88,7 @@ export default function Register() {
             <img 
               src={wildcatRadioLogo} 
               alt="WildCat Radio Logo" 
-              className="h-32 w-auto"
+              className="h-40 w-auto"
             />
           </div>
           
@@ -99,7 +99,7 @@ export default function Register() {
             </p>
           </div>
 
-          <Card className="border-0 shadow-2xl bg-white/80 backdrop-blur-xl overflow-hidden rounded-2xl">
+          <Card className="border-0 shadow-2xl bg-white/95 backdrop-blur-xl overflow-hidden rounded-2xl">
             <div className="h-3 bg-gradient-to-r from-wildcats-maroon to-wildcats-maroon/70" />
             <CardHeader className="flex flex-row items-start justify-between px-6 pt-6 pb-3">
               <div>
