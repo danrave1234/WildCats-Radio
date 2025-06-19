@@ -206,7 +206,7 @@ const Header = ({ onMobileMenuToggle }) => {
         <Button
           variant="ghost"
           size="icon"
-          className="relative rounded-full h-10 w-10 flex-shrink-0 text-maroon-600 dark:text-maroon-400 bg-white dark:bg-maroon-800 hover:bg-maroon-100 dark:hover:bg-maroon-700"
+          className="relative rounded-full h-10 w-10 flex-shrink-0 text-maroon-600 dark:text-maroon-400 hover:bg-maroon-100 dark:hover:bg-maroon-800"
         >
           <Bell className="h-5 w-5" />
           {notifications > 0 && (

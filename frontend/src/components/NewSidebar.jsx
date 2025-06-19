@@ -9,6 +9,10 @@ import {
   Settings, 
   Radio, 
   PanelRight,
+  Inbox as InboxIcon,
+  History as HistoryIcon,
+  LogIn as LogInIcon,
+  UserPlus as UserPlusIcon,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -199,13 +203,14 @@ const NewSidebar = ({ userRole }) => {
   return (
     <DesktopSidebar>
       <div className="flex flex-col h-full">
-        {/* Logo section with very light maroon background */}
-        <div className="bg-maroon-50 dark:bg-maroon-900 border-b border-maroon-200 dark:border-maroon-800">
+        {/* Logo section with white background */}
+        <div className="bg-white border-b border-gray-200">
           <div className="relative flex items-center justify-center h-28">
             {/* Show panel-right icon when closed, bigger logo when open */}
             {!open ? (
               <PanelRight 
-                className="w-6 h-6 text-maroon-600 dark:text-maroon-400"
+                className="w-6 h-6"
+                style={{ color: '#800000' }}
               />
             ) : (
               <img 
