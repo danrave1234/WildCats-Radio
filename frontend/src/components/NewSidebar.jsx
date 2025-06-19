@@ -223,8 +223,8 @@ const NewSidebar = ({ userRole }) => {
         </div>
         
         {/* Main content area */}
-        <div className="flex flex-col h-full p-2">
-          <div className="flex-1 mt-6 space-y-1">
+        <div className="flex flex-col h-full">
+          <div className="flex-1 mt-6 space-y-1 p-2">
             {sections.map((section, sectionIndex) => (
               <div key={section.title}>
                 <SectionHeader title={section.title} />
@@ -238,6 +238,151 @@ const NewSidebar = ({ userRole }) => {
                 </div>
               </div>
             ))}
+          </div>
+          
+          {/* Spacer to push footer to bottom */}
+          <div className="flex-grow"></div>
+          
+          {/* Footer */}
+          <div className="p-2 pb-4">
+            {/* Expanded Footer */}
+            <motion.div 
+              className="border-t border-maroon-600/30"
+              initial={false}
+              animate={{
+                opacity: open ? 1 : 0,
+                y: open ? 0 : 25,
+                scale: open ? 1 : 0.92,
+              }}
+              transition={{ 
+                duration: 0.5,
+                ease: [0.25, 0.46, 0.45, 0.94], // Custom cubic-bezier for smooth motion
+                opacity: { 
+                  duration: open ? 0.4 : 0.2,
+                  ease: "easeOut",
+                  delay: open ? 0.1 : 0
+                },
+                y: { 
+                  duration: 0.5,
+                  ease: [0.34, 1.56, 0.64, 1], // Slight bounce for natural feel
+                  delay: open ? 0.05 : 0
+                },
+                scale: { 
+                  duration: 0.4,
+                  ease: "easeOut",
+                  delay: open ? 0.08 : 0
+                }
+              }}
+              style={{ 
+                transformOrigin: "bottom center",
+                display: open ? "block" : "none"
+              }}
+            >
+              <motion.div 
+                className="pt-5 pb-4 px-4"
+                animate={{
+                  y: open ? 0 : 15,
+                  opacity: open ? 1 : 0.7,
+                }}
+                transition={{ 
+                  duration: 0.45,
+                  ease: [0.16, 1, 0.3, 1], // Smooth easing curve
+                  delay: open ? 0.15 : 0,
+                  opacity: {
+                    duration: 0.3,
+                    delay: open ? 0.2 : 0
+                  }
+                }}
+              >
+                {/* Brand Section */}
+                <div className="mb-4">
+                  <h4 className="text-yellow-400 font-semibold text-sm mb-1">
+                    WildCats Radio
+                  </h4>
+                  <p className="text-white/60 text-xs">
+                    © 2024 All Rights Reserved
+                  </p>
+                </div>
+                
+                {/* Links Section */}
+                <div className="space-y-2.5 mb-4">
+                  <a 
+                    href="/privacy-policy" 
+                    className="block text-white/70 hover:text-yellow-300 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
+                  >
+                    Privacy Policy
+                  </a>
+                  <a 
+                    href="/terms-of-service" 
+                    className="block text-white/70 hover:text-yellow-300 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
+                  >
+                    Terms of Service
+                  </a>
+                  <a 
+                    href="/contact" 
+                    className="block text-white/70 hover:text-yellow-300 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
+                  >
+                    Contact
+                  </a>
+                </div>
+                
+                {/* Simple Divider */}
+                <div className="w-full h-px bg-gradient-to-r from-transparent via-yellow-400/30 to-transparent mb-3"></div>
+                
+                {/* Tagline */}
+                <div className="text-center">
+                  <p className="text-white/50 text-xs">
+                    Broadcasting Excellence
+                  </p>
+                </div>
+              </motion.div>
+            </motion.div>
+
+            {/* Minimized Footer - Logo */}
+            <motion.div 
+              className="flex justify-center items-center py-4"
+              initial={false}
+              animate={{
+                opacity: open ? 0 : 1,
+                y: open ? 30 : 0,
+                scale: open ? 0.75 : 1,
+                rotate: open ? -5 : 0,
+              }}
+              transition={{ 
+                duration: 0.5,
+                ease: [0.25, 0.46, 0.45, 0.94], // Matching the expanded footer curve
+                opacity: { 
+                  duration: open ? 0.2 : 0.4,
+                  ease: "easeOut",
+                  delay: open ? 0 : 0.1
+                },
+                y: { 
+                  duration: 0.5,
+                  ease: [0.34, 1.26, 0.64, 1], // Subtle bounce
+                  delay: open ? 0 : 0.08
+                },
+                scale: { 
+                  duration: 0.4,
+                  ease: "easeOut",
+                  delay: open ? 0 : 0.12
+                },
+                rotate: {
+                  duration: 0.4,
+                  ease: "easeOut",
+                  delay: open ? 0 : 0.1
+                }
+              }}
+              style={{ 
+                transformOrigin: "center",
+                display: open ? "none" : "flex"
+              }}
+            >
+              <img 
+                src="/src/assets/wildcat_logo.png" 
+                alt="WildCats Radio Logo" 
+                className="w-12 h-12 object-contain opacity-70 hover:opacity-100 transition-opacity duration-200"
+              />
+            </motion.div>
           </div>
         </div>
       </div>

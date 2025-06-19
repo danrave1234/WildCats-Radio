@@ -64,13 +64,9 @@ export const DesktopSidebar = ({
   return (
     <motion.div
       className={cn(
-        "h-screen hidden md:flex md:flex-col w-[300px] flex-shrink-0 sticky top-0 border-r border-gray-200 shadow-lg",
+        "h-screen hidden md:flex md:flex-col w-[300px] flex-shrink-0 sticky top-0 border-r border-gray-200 bg-maroon-700",
         className
       )}
-      style={{ 
-        borderRightWidth: '0.5px',
-        backgroundColor: '#800000' // Force cordovan color
-      }}
       animate={{
         width: animate ? (open ? "300px" : "60px") : "300px",
       }}
@@ -106,9 +102,8 @@ export const MobileSidebar = ({
     <>
       <div
         className={cn(
-          "h-10 px-4 py-4 flex flex-row md:hidden items-center justify-between w-full"
+          "h-10 px-4 py-4 flex flex-row md:hidden items-center justify-between w-full bg-maroon-700"
         )}
-        style={{ backgroundColor: '#800000' }}
         {...props}>
         <div className="flex justify-end z-20 w-full">
           <Menu
@@ -126,10 +121,9 @@ export const MobileSidebar = ({
                 ease: "easeInOut",
               }}
               className={cn(
-                "fixed h-full w-full inset-0 p-10 z-[100] flex flex-col justify-between",
+                "fixed h-full w-full inset-0 p-10 z-[100] flex flex-col justify-between bg-maroon-700",
                 className
-              )}
-              style={{ backgroundColor: '#800000' }}>
+              )}>
               <div
                 className="absolute right-10 top-10 z-50 text-white cursor-pointer"
                 onClick={() => setOpen(!open)}>
@@ -178,7 +172,7 @@ export const SidebarLink = ({
           <div className={cn(
             "relative flex items-center w-full h-full rounded-lg",
             {
-              "border-2 border-yellow-400 shadow-lg shadow-yellow-400/30 bg-gradient-to-r from-yellow-400/10 to-transparent": isActive,
+              "border-2 border-yellow-400 bg-gradient-to-r from-yellow-400/10 to-transparent": isActive,
             }
           )}>
             <div className="absolute left-2 w-6 h-6 flex items-center justify-center">

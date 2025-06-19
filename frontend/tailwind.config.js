@@ -81,7 +81,11 @@ export default {
         'gold': '0 4px 14px 0 rgba(244, 190, 3, 0.15)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['Kumbh Sans', 'system-ui', 'sans-serif'],
+        montserrat: ['Montserrat', 'sans-serif'],
+        nunito: ['Nunito Sans', 'sans-serif'],
+        poetsen: ['Poetsen One', 'cursive'],
+        kumbh: ['Kumbh Sans', 'sans-serif'],
       },
     },
   },
