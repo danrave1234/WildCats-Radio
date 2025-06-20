@@ -325,7 +325,7 @@ const Header = ({ onMobileMenuToggle }) => {
           <AlertDialogFooter className="gap-3 mt-6">
             <AlertDialogCancel 
               onClick={handleLogoutCancel}
-              className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-800 border-gray-300 transition-colors"
+              className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-800 border-0 outline-none focus:ring-0 focus:outline-none focus-visible:ring-0 transition-colors"
             >
               Cancel
             </AlertDialogCancel>

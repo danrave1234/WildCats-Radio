@@ -182,3 +182,78 @@
     transition-duration: 0s !important;
   }
 }
+
+/* Circular Loader Animations */
+@keyframes circular-progress {
+  0% {
+    stroke-dashoffset: var(--circumference);
+  }
+  50% {
+    stroke-dashoffset: calc(var(--circumference) * 0.2);
+  }
+  100% {
+    stroke-dashoffset: var(--circumference);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes rotate-ring {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes text-fade {
+  0%, 100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Loader component classes */
+.circular-loader {
+  position: relative;
+  display: inline-block;
+}
+
+.loader-progress {
+  animation: circular-progress 2s ease-in-out infinite;
+}
+
+.loader-dot {
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+.loader-ring {
+  animation: rotate-ring 3s linear infinite;
+}
+
+.loader-text {
+  animation: text-fade 2s ease-in-out infinite;
+}
+
+/* Bars Spinner Animation */
+@keyframes spinner {
+  0% { opacity: 1; }
+  10% { opacity: 0.7; }
+  20% { opacity: 0.3; }
+  35% { opacity: 0.2; }
+  50% { opacity: 0.1; }
+  75% { opacity: 0.05; }
+  100% { opacity: 0; }
+}

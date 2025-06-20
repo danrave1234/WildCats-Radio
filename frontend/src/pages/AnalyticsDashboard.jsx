@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAnalytics } from '../context/AnalyticsContext';
 import { useAuth } from '../context/AuthContext';
+import { Spinner } from '../components/ui/spinner';
 import { format, subDays, subWeeks, subMonths, subYears, startOfDay, startOfWeek, startOfMonth, startOfYear, endOfDay, endOfWeek, endOfMonth, endOfYear } from 'date-fns';
 import {
   Chart as ChartJS,
@@ -249,8 +250,10 @@ export default function AnalyticsDashboard() {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-maroon-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Loading real analytics data from database...</p>
+          <div className="flex flex-col items-center gap-4">
+            <Spinner variant="primary" size="lg" />
+            <span className="text-maroon-700 dark:text-maroon-300 font-medium">Loading real analytics data from database...</span>
+          </div>
           <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
             Fetching user statistics, broadcasts, and engagement metrics
           </p>
