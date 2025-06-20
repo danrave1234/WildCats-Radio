@@ -2,15 +2,14 @@ import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { 
   Bell, 
-  Moon, 
-  Sun, 
   Menu, 
   Calendar, 
   User, 
   ChevronDown, 
   LogOut,
   Settings,
-  UserRound
+  UserRound,
+  AlertTriangle
 } from "lucide-react";
 import { Button } from "./ui/button";
 import {
@@ -21,6 +20,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 import { cn } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
 
@@ -29,8 +38,8 @@ const Header = ({ onMobileMenuToggle }) => {
   const [notifications, setNotifications] = useState(3);
   const [currentTime, setCurrentTime] = useState("");
   const [currentDate, setCurrentDate] = useState("");
-  const [isDarkMode, setIsDarkMode] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
 
   useEffect(() => {
     const updateTime = () => {
@@ -53,36 +62,20 @@ const Header = ({ onMobileMenuToggle }) => {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    // Check if dark mode is enabled
-    const isDark = document.documentElement.classList.contains("dark");
-    setIsDarkMode(isDark);
 
-    // Add event listener for theme changes
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (
-          mutation.type === "attributes" &&
-          mutation.attributeName === "class" &&
-          mutation.target === document.documentElement
-        ) {
-          setIsDarkMode(document.documentElement.classList.contains("dark"));
-        }
-      });
-    });
 
-    observer.observe(document.documentElement, { attributes: true });
-
-    return () => observer.disconnect();
-  }, []);
-
-  const toggleDarkMode = () => {
-    document.documentElement.classList.toggle("dark");
-    setIsDarkMode(!isDarkMode);
+  const handleLogoutClick = () => {
+    setIsDropdownOpen(false);
+    setIsLogoutDialogOpen(true);
   };
 
-  const handleLogout = () => {
+  const handleLogoutConfirm = () => {
+    setIsLogoutDialogOpen(false);
     logout();
+  };
+
+  const handleLogoutCancel = () => {
+    setIsLogoutDialogOpen(false);
   };
 
   // Get user initials
@@ -172,14 +165,14 @@ const Header = ({ onMobileMenuToggle }) => {
   };
 
   return (
-    <header className="h-28 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex items-center justify-between px-4 md:px-6 sticky top-0 z-10">
+    <header className="h-28 border-b border-gray-200 bg-white flex items-center justify-between px-4 md:px-6 sticky top-0 z-10">
       <div className="flex items-center">
         {/* Mobile menu button - only visible on small screens */}
         <Button
           variant="ghost"
           size="icon"
           onClick={onMobileMenuToggle}
-          className="md:hidden mr-3 rounded-full h-10 w-10 text-maroon-700 dark:text-maroon-300 hover:bg-maroon-100 dark:hover:bg-maroon-800"
+          className="md:hidden mr-3 rounded-full h-10 w-10 text-maroon-700 hover:bg-maroon-100"
         >
           <Menu className="h-5 w-5" />
           <span className="sr-only">Toggle menu</span>
@@ -193,10 +186,10 @@ const Header = ({ onMobileMenuToggle }) => {
           />
         </div>
 
-        <div className="hidden lg:flex items-center text-maroon-700 dark:text-maroon-300 text-lg whitespace-nowrap bg-white/80 dark:bg-maroon-800/60 px-4 py-2 rounded-full shadow-sm border border-maroon-200 dark:border-maroon-700">
-          <Calendar className="h-5 w-5 mr-2 flex-shrink-0 text-maroon-600 dark:text-maroon-400" />
+        <div className="hidden lg:flex items-center text-maroon-700 text-lg whitespace-nowrap bg-white/80 px-4 py-2 rounded-full shadow-sm border border-maroon-200">
+          <Calendar className="h-5 w-5 mr-2 flex-shrink-0 text-maroon-600" />
           <span className="truncate font-medium">{currentDate}</span>
-          <div className="mx-2 h-4 w-px bg-maroon-300 dark:bg-maroon-600 flex-shrink-0"></div>
+          <div className="mx-2 h-4 w-px bg-maroon-300 flex-shrink-0"></div>
           <span className="truncate">{currentTime}</span>
         </div>
       </div>
@@ -206,7 +199,7 @@ const Header = ({ onMobileMenuToggle }) => {
         <Button
           variant="ghost"
           size="icon"
-          className="relative rounded-full h-10 w-10 flex-shrink-0 text-maroon-600 dark:text-maroon-400 bg-maroon-100 dark:bg-maroon-100 hover:bg-maroon-200 dark:hover:bg-maroon-200"
+          className="relative rounded-full h-10 w-10 flex-shrink-0 text-maroon-600 bg-maroon-100 hover:bg-maroon-200"
         >
           <Bell className="h-5 w-5" />
           {notifications > 0 && (
@@ -217,25 +210,7 @@ const Header = ({ onMobileMenuToggle }) => {
           <span className="sr-only">Notifications</span>
         </Button>
 
-        {/* Dark/Light Mode Toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleDarkMode}
-          className={cn(
-            "relative rounded-full h-10 w-10 flex-shrink-0 transition-all duration-300",
-            isDarkMode
-              ? "bg-maroon-800 hover:bg-maroon-700 text-yellow-400"
-              : "bg-maroon-100 hover:bg-maroon-200 text-maroon-600",
-          )}
-        >
-          {isDarkMode ? (
-            <Sun className="h-5 w-5" />
-          ) : (
-            <Moon className="h-5 w-5" />
-          )}
-          <span className="sr-only">Toggle theme</span>
-        </Button>
+
 
         {/* User Dropdown - only show if authenticated */}
         {isAuthenticated && currentUser && (
@@ -245,11 +220,11 @@ const Header = ({ onMobileMenuToggle }) => {
                 variant="ghost"
                 className={cn(
                   "flex items-center gap-2 md:gap-3 pl-2 pr-3 md:pl-3 md:pr-4 rounded-full transition-all duration-300 flex-shrink-0",
-                  "bg-maroon-100 dark:bg-maroon-800 hover:bg-maroon-200 dark:hover:bg-maroon-700",
+                  "bg-maroon-100 hover:bg-maroon-200",
                   "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 border-0 !outline-none !border-none"
                 )}
               >
-                <div className="h-8 w-8 md:h-9 md:w-9 rounded-full bg-gradient-to-r from-maroon-600 to-maroon-500 flex items-center justify-center text-white shadow-md ring-2 ring-white dark:ring-gray-900 flex-shrink-0">
+                <div className="h-8 w-8 md:h-9 md:w-9 rounded-full bg-gradient-to-r from-maroon-600 to-maroon-500 flex items-center justify-center text-white shadow-md ring-2 ring-white flex-shrink-0">
                   {currentUser.role?.toLowerCase() === 'dj' ? (
                     <span className="text-xs md:text-sm font-bold">DJ</span>
                   ) : currentUser.role?.toLowerCase() === 'admin' ? (
@@ -261,21 +236,21 @@ const Header = ({ onMobileMenuToggle }) => {
                   )}
                 </div>
                 <div className="hidden md:flex flex-col items-start">
-                  <span className="font-medium text-xs md:text-sm text-maroon-800 dark:text-maroon-300 whitespace-nowrap">
+                  <span className="font-medium text-xs md:text-sm text-maroon-800 whitespace-nowrap">
                     {getDisplayName(currentUser)}
                   </span>
-                  <span className="text-[10px] md:text-xs text-maroon-500 dark:text-maroon-400 whitespace-nowrap">
+                  <span className="text-[10px] md:text-xs text-maroon-500 whitespace-nowrap">
                     {formatRole(currentUser.role)}
                   </span>
                 </div>
                 <div className="flex items-center">
-                  <ChevronDown className="h-3 w-3 md:h-4 md:w-4 text-maroon-600 dark:text-maroon-400 ml-0 md:ml-1 flex-shrink-0" />
+                  <ChevronDown className="h-3 w-3 md:h-4 md:w-4 text-maroon-600 ml-0 md:ml-1 flex-shrink-0" />
                 </div>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
-              className="w-56 mt-1 rounded-xl p-2 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-50 shadow-lg"
+              className="w-56 mt-1 rounded-xl p-2 border border-gray-200 bg-gray-50 shadow-lg"
             >
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
@@ -323,7 +298,7 @@ const Header = ({ onMobileMenuToggle }) => {
               <DropdownMenuItem
                 className="cursor-pointer rounded-lg px-3 py-2 text-red-600 hover:bg-red-50 hover:text-red-600 focus:bg-red-100 focus:text-red-600 transition-colors
                            [&:hover]:!text-red-600 [&:focus]:!text-red-600"
-                onClick={handleLogout}
+                onClick={handleLogoutClick}
               >
                 <LogOut className="mr-2 h-4 w-4" />
                 <span>Logout</span>
@@ -332,6 +307,38 @@ const Header = ({ onMobileMenuToggle }) => {
           </DropdownMenu>
         )}
       </div>
+
+      {/* Logout Confirmation Dialog */}
+      <AlertDialog open={isLogoutDialogOpen} onOpenChange={setIsLogoutDialogOpen}>
+        <AlertDialogContent className="max-w-md border-maroon-200 bg-white">
+          <AlertDialogHeader className="space-y-4">
+            <div className="flex items-center justify-center w-12 h-12 mx-auto bg-maroon-100 rounded-full">
+              <AlertTriangle className="w-6 h-6 text-maroon-600" />
+            </div>
+            <AlertDialogTitle className="text-xl font-semibold text-gray-900 text-center">
+              Confirm Logout
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-600 text-center">
+              Are you sure you want to logout? You will be redirected to the login page.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-3 mt-6">
+            <AlertDialogCancel 
+              onClick={handleLogoutCancel}
+              className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-800 border-gray-300 transition-colors"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleLogoutConfirm}
+              className="flex-1 bg-maroon-600 hover:bg-maroon-700 text-white border-maroon-600 hover:border-maroon-700 transition-colors"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </header>
   );
 };

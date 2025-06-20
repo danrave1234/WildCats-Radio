@@ -1,7 +1,7 @@
 "use client";;
 import { cn } from "@/lib/utils";
 import { NavLink } from "react-router-dom";
-import React, { useState, createContext, useContext } from "react";
+import React, { useState, createContext, useContext, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Menu, X } from "lucide-react";
 
@@ -17,14 +17,17 @@ export const useSidebar = () => {
 
 export const SidebarProvider = ({
   children,
+  defaultOpen = false,
   open: openProp,
-  setOpen: setOpenProp,
+  onOpenChange: onOpenChangeProp,
   animate = true
 }) => {
-  const [openState, setOpenState] = useState(false);
+  // Internal state for uncontrolled usage - respects defaultOpen but defaults to false
+  const [openState, setOpenState] = useState(defaultOpen);
 
+  // Use controlled props if provided, otherwise use internal state
   const open = openProp !== undefined ? openProp : openState;
-  const setOpen = setOpenProp !== undefined ? setOpenProp : setOpenState;
+  const setOpen = onOpenChangeProp !== undefined ? onOpenChangeProp : setOpenState;
 
   return (
     <SidebarContext.Provider value={{ open, setOpen, animate }}>
@@ -36,11 +39,11 @@ export const SidebarProvider = ({
 export const Sidebar = ({
   children,
   open,
-  setOpen,
+  onOpenChange,
   animate
 }) => {
   return (
-    <SidebarProvider open={open} setOpen={setOpen} animate={animate}>
+    <SidebarProvider open={open} onOpenChange={onOpenChange} animate={animate}>
       {children}
     </SidebarProvider>
   );
@@ -61,17 +64,50 @@ export const DesktopSidebar = ({
   ...props
 }) => {
   const { open, setOpen, animate } = useSidebar();
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  
+  // Mark as initialized after first render to prevent immediate hover effects
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsInitialized(true);
+    }, 500); // Longer delay to ensure all animations are complete
+    
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Additional check for page load completion  
+  useEffect(() => {
+    const loadTimer = setTimeout(() => {
+      setHasLoaded(true);
+    }, 100); // Reduce delay for smoother experience while still preventing initial flash
+    
+    return () => clearTimeout(loadTimer);
+  }, []);
+  
   return (
     <motion.div
       className={cn(
-        "h-screen hidden md:flex md:flex-col w-[300px] flex-shrink-0 sticky top-0 border-r border-gray-200 bg-maroon-700",
+        "h-screen hidden md:flex md:flex-col flex-shrink-0 sticky top-0 border-r border-gray-200 bg-maroon-700",
+        !hasLoaded && "sidebar-loading sidebar-initial-load", // Add loading classes during initial load
         className
       )}
-      animate={{
-        width: animate ? (open ? "300px" : "60px") : "300px",
+      style={{
+        width: hasLoaded ? undefined : "60px" // Force initial width to 60px until fully loaded
       }}
-      onMouseEnter={() => setOpen(true)}
+      animate={{
+        width: animate ? (open ? "300px" : "60px") : "60px", // Default to 60px instead of 300px
+      }}
+      onMouseEnter={() => {
+        // Only allow hover expansion after full initialization and load
+        if (isInitialized && hasLoaded) {
+          setOpen(true);
+        }
+      }}
       onMouseLeave={(e) => {
+        // Only allow hover collapse after full initialization and load
+        if (!isInitialized || !hasLoaded) return;
+        
         // Check if we're moving to a dropdown menu or if dropdown is open
         const dropdownElement = document.querySelector('[data-radix-popper-content-wrapper]');
         const dropdownTrigger = document.querySelector('[data-radix-dropdown-menu-trigger]');
@@ -144,6 +180,16 @@ export const SidebarLink = ({
   ...props
 }) => {
   const { open, animate } = useSidebar();
+  const [isReady, setIsReady] = useState(false);
+  
+  // Prevent any text visibility during initial load
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsReady(true);
+    }, 100); // Sync with sidebar loading timing
+    
+    return () => clearTimeout(timer);
+  }, []);
   return (
     <NavLink
       to={link.href}
@@ -181,11 +227,17 @@ export const SidebarLink = ({
             
             <motion.span
               animate={{
-                opacity: open ? 1 : 0,
-                x: open ? 0 : -10
+                opacity: (open && isReady) ? 1 : 0,
+                x: (open && isReady) ? 0 : -10
               }}
-              transition={{ duration: 0.2 }}
-              className="font-medium whitespace-pre ml-12 pl-3 relative">
+              transition={{ duration: isReady ? 0.2 : 0 }}
+              className={cn(
+                "font-medium whitespace-pre ml-12 pl-3 relative sidebar-text",
+                !isReady && "opacity-0"
+              )}
+              style={{ 
+                visibility: isReady ? 'visible' : 'hidden' // Force hide until ready
+              }}>
               {link.label}
               
               {/* Hover underline for non-active items */}

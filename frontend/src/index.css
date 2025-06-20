@@ -15,27 +15,29 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Light mode primary (WildCats maroon) */
+    --primary: 2 39% 41%;
+    --primary-foreground: 0 0% 100%;
 
+    /* Light mode secondary */
     --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary-foreground: 2 39% 41%;
 
     --muted: 210 40% 96.1%;
     --muted-foreground: 215.4 16.3% 46.9%;
 
     --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent-foreground: 2 39% 41%;
 
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 100%;
 
     --wildcats-maroon: 2 39% 41%;
     --wildcats-yellow: 46 98% 48%;
 
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --ring: 2 39% 41%;
 
     --radius: 0.5rem;
   }
@@ -76,7 +78,7 @@
     border-color: hsl(var(--border));
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-kumbh;
   }
 }
 
@@ -164,4 +166,19 @@
   max-width: 100%;
   overflow-wrap: break-word;
   word-break: break-word;
+}
+
+/* Sidebar smooth loading - hide text content during initial load */
+.sidebar-loading .sidebar-text {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  transition: none !important;
+}
+
+/* Prevent sidebar text flash on initial load */
+@media (prefers-reduced-motion: no-preference) {
+  .sidebar-initial-load * {
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
+  }
 }

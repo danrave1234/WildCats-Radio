@@ -205,20 +205,104 @@ const NewSidebar = ({ userRole }) => {
       <div className="flex flex-col h-full">
         {/* Logo section with white background */}
         <div className="bg-white border-b border-gray-200">
-          <div className="relative flex items-center justify-center h-28">
-            {/* Show panel-right icon when closed, bigger logo when open */}
-            {!open ? (
+          <div className="relative flex items-center justify-center h-28 overflow-hidden">
+            {/* Show panel-right icon when closed with fade animation */}
+            <motion.div
+              className="absolute inset-0 flex items-center justify-center"
+              initial={false}
+              animate={{
+                opacity: !open ? 1 : 0,
+                x: !open ? 0 : -30,
+                scale: !open ? 1 : 0.8,
+              }}
+              transition={{ 
+                duration: 0.4,
+                ease: [0.25, 0.46, 0.45, 0.94],
+                opacity: { 
+                  duration: 0.3,
+                  ease: "easeOut",
+                  delay: !open ? 0.1 : 0
+                },
+                x: { 
+                  duration: 0.4,
+                  ease: [0.34, 1.26, 0.64, 1],
+                  delay: !open ? 0.05 : 0
+                },
+                scale: { 
+                  duration: 0.3,
+                  ease: "easeOut",
+                  delay: !open ? 0.08 : 0
+                }
+              }}
+              style={{ 
+                pointerEvents: !open ? 'auto' : 'none'
+              }}
+            >
               <PanelRight 
                 className="w-6 h-6"
                 style={{ color: '#800000' }}
               />
-            ) : (
-              <img 
+            </motion.div>
+
+            {/* Show bigger logo when open with fade in from left animation */}
+            <motion.div
+              className="absolute inset-0 flex items-center justify-center"
+              initial={false}
+              animate={{
+                opacity: open ? 1 : 0,
+                x: open ? 0 : -40,
+                scale: open ? 1 : 0.7,
+                rotateY: open ? 0 : -15,
+              }}
+              transition={{ 
+                duration: 0.5,
+                ease: [0.25, 0.46, 0.45, 0.94],
+                opacity: { 
+                  duration: 0.4,
+                  ease: "easeOut",
+                  delay: open ? 0.15 : 0
+                },
+                x: { 
+                  duration: 0.5,
+                  ease: [0.34, 1.26, 0.64, 1], // Smooth bounce effect
+                  delay: open ? 0.1 : 0
+                },
+                scale: { 
+                  duration: 0.4,
+                  ease: "easeOut",
+                  delay: open ? 0.12 : 0
+                },
+                rotateY: {
+                  duration: 0.4,
+                  ease: [0.16, 1, 0.3, 1],
+                  delay: open ? 0.08 : 0
+                }
+              }}
+              style={{ 
+                transformOrigin: "center center",
+                perspective: "1000px",
+                pointerEvents: open ? 'auto' : 'none'
+              }}
+            >
+              <motion.img 
                 src="/src/assets/wildcatradio_logo.png" 
                 alt="WildCats Radio Logo" 
                 className="w-24 h-24 flex-shrink-0"
+                animate={{
+                  y: open ? 0 : 10,
+                  filter: open ? "brightness(1)" : "brightness(0.8)"
+                }}
+                transition={{ 
+                  duration: 0.3,
+                  ease: "easeOut",
+                  delay: open ? 0.2 : 0,
+                  filter: {
+                    duration: 0.3,
+                    delay: open ? 0.15 : 0
+                  }
+                }}
               />
-            )}
+            </motion.div>
           </div>
         </div>
         

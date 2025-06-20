@@ -1,3 +1,4 @@
+import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import NewSidebar from './NewSidebar';
@@ -19,9 +20,16 @@ const MainContent = ({ children }) => {
 
 const Layout = ({ children }) => {
   const { currentUser, isAuthenticated } = useAuth();
+  
+  // Controlled sidebar state - always starts minimized
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <SidebarProvider>
+    <SidebarProvider 
+      defaultOpen={false}
+      open={sidebarOpen} 
+      onOpenChange={setSidebarOpen}
+    >
       <div className="min-h-screen bg-wildcats-background dark:bg-gray-900 flex">
         {isAuthenticated && <NewSidebar userRole={currentUser?.role} />}
         <MainContent>

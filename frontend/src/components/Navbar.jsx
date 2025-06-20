@@ -3,8 +3,6 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   UserCircleIcon,
   ArrowRightOnRectangleIcon,
-  SunIcon,
-  MoonIcon,
   Cog6ToothIcon,
   Bars3Icon,
   XMarkIcon,
@@ -13,105 +11,10 @@ import {
 } from '@heroicons/react/24/outline';
 import NotificationBell from './NotificationBell';
 
-// Cookie helper functions
-const setCookie = (name, value, days = 7) => {
-  const expires = new Date(Date.now() + days * 864e5).toUTCString();
-  document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + expires + '; path=/; SameSite=Strict';
-};
-
-const getCookie = (name) => {
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
-  return null;
-};
-
-const removeCookie = (name) => {
-  document.cookie = name + '=; Max-Age=-99999999; path=/';
-};
-
 const Navbar = ({ userRole }) => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
-  const [userPreference, setUserPreference] = useState(null); // null = follow system, true/false = user preference
   const location = useLocation();
-
-  // Check if system prefers dark mode
-  const systemPrefersDark = () => {
-    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  }
-
-  // Apply dark mode to document
-  const applyDarkMode = (isDark) => {
-    if (isDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }
-
-  // Toggle dark mode
-  const toggleDarkMode = () => {
-    const newDarkMode = !darkMode
-    setDarkMode(newDarkMode)
-    setUserPreference(newDarkMode) // Set user preference
-
-    // Apply dark mode to document
-    applyDarkMode(newDarkMode)
-
-    // Save preference to cookies
-    setCookie("darkMode", newDarkMode)
-    setCookie("userPreference", "true") // Indicate user has set a preference
-  }
-
-  // Check for saved theme preference on component mount and set up system preference listener
-  useEffect(() => {
-    const hasUserPreference = getCookie("userPreference") === "true"
-    const savedDarkMode = getCookie("darkMode") === "true"
-
-    if (hasUserPreference) {
-      // User has set a preference, use it
-      setUserPreference(savedDarkMode)
-      setDarkMode(savedDarkMode)
-      applyDarkMode(savedDarkMode)
-    } else {
-      // No user preference, follow system preference
-      const systemDark = systemPrefersDark()
-      setUserPreference(null)
-      setDarkMode(systemDark)
-      applyDarkMode(systemDark)
-    }
-
-    // Set up listener for system preference changes
-    const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    const handleSystemPreferenceChange = (e) => {
-      // Only update if user hasn't set a preference
-      if (!getCookie("userPreference")) {
-        const systemDark = e.matches
-        setDarkMode(systemDark)
-        applyDarkMode(systemDark)
-      }
-    }
-
-    // Add listener for system preference changes
-    if (darkModeMediaQuery.addEventListener) {
-      darkModeMediaQuery.addEventListener('change', handleSystemPreferenceChange)
-    } else if (darkModeMediaQuery.addListener) {
-      // For older browsers
-      darkModeMediaQuery.addListener(handleSystemPreferenceChange)
-    }
-
-    // Clean up
-    return () => {
-      if (darkModeMediaQuery.removeEventListener) {
-        darkModeMediaQuery.removeEventListener('change', handleSystemPreferenceChange)
-      } else if (darkModeMediaQuery.removeListener) {
-        // For older browsers
-        darkModeMediaQuery.removeListener(handleSystemPreferenceChange)
-      }
-    }
-  }, [])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -227,17 +130,7 @@ const Navbar = ({ userRole }) => {
             <div className="flex items-center space-x-4">
               <NotificationBell />
 
-              {/* Dark mode toggle (desktop only) */}
-              <button
-                  onClick={toggleDarkMode}
-                  className="hidden md:flex p-2 rounded-full text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-300 dark:hover:bg-gray-700 focus:outline-none"
-              >
-                {darkMode ? (
-                    <SunIcon className="h-5 w-5" />
-                ) : (
-                    <MoonIcon className="h-5 w-5" />
-                )}
-              </button>
+
 
               {/* Profile dropdown */}
               <div className="profile-dropdown relative">
@@ -286,20 +179,7 @@ const Navbar = ({ userRole }) => {
                         </div>
                       </Link>
 
-                      <button
-                          onClick={toggleDarkMode}
-                          className="w-full text-left block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 md:hidden"
-                          role="menuitem"
-                      >
-                        <div className="flex items-center">
-                          {darkMode ? (
-                              <SunIcon className="mr-2 h-5 w-5" />
-                          ) : (
-                              <MoonIcon className="mr-2 h-5 w-5" />
-                          )}
-                          {darkMode ? 'Light Mode' : 'Dark Mode'}
-                        </div>
-                      </button>
+
 
                       <div className="border-t border-gray-200 dark:border-gray-700">
                         <Link
