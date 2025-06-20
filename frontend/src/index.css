@@ -168,20 +168,7 @@
   word-break: break-word;
 }
 
-/* Sidebar smooth loading - hide text content during initial load */
-.sidebar-loading .sidebar-text {
-  opacity: 0 !important;
-  visibility: hidden !important;
-  transition: none !important;
-}
 
-/* Prevent sidebar text flash on initial load */
-@media (prefers-reduced-motion: no-preference) {
-  .sidebar-initial-load * {
-    animation-duration: 0s !important;
-    transition-duration: 0s !important;
-  }
-}
 
 /* Circular Loader Animations */
 @keyframes circular-progress {

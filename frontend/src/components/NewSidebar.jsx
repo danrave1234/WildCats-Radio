@@ -156,7 +156,7 @@ const SectionHeader = ({ title }) => {
       >
         {/* Text that fades out when minimizing */}
         <motion.h3
-          className="text-xs font-semibold text-yellow-300 uppercase tracking-wider"
+          className="text-xs font-semibold text-yellow-400 uppercase tracking-wider"
           animate={{
             opacity: open ? 1 : 0,
           }}
@@ -170,7 +170,7 @@ const SectionHeader = ({ title }) => {
         
         {/* Separator that appears when minimized */}
         <motion.div
-          className="h-1 bg-yellow-300 w-full rounded"
+          className="h-1 bg-yellow-400 w-full rounded"
           animate={{
             opacity: open ? 0 : 1,
             scaleX: open ? 0 : 1,
@@ -308,7 +308,13 @@ const NewSidebar = ({ userRole }) => {
         
         {/* Main content area */}
         <div className="flex flex-col h-full">
-          <div className="flex-1 mt-6 space-y-1 p-2">
+          <div className={cn(
+            "flex-1 mt-6 space-y-1 py-2",
+            {
+              "px-0": !open, // No horizontal padding when collapsed (full width highlight)
+              "px-2": open,  // Add horizontal padding when expanded (maroon margins)
+            }
+          )}>
             {sections.map((section, sectionIndex) => (
               <div key={section.title}>
                 <SectionHeader title={section.title} />
@@ -328,7 +334,13 @@ const NewSidebar = ({ userRole }) => {
           <div className="flex-grow"></div>
           
           {/* Footer */}
-          <div className="p-2 pb-4">
+          <div className={cn(
+            "py-2 pb-4",
+            {
+              "px-0": !open, // No horizontal padding when collapsed
+              "px-2": open,  // Add horizontal padding when expanded
+            }
+          )}>
             {/* Expanded Footer */}
             <motion.div 
               className="border-t border-maroon-600/30"
@@ -422,15 +434,14 @@ const NewSidebar = ({ userRole }) => {
               </motion.div>
             </motion.div>
 
-            {/* Minimized Footer - Logo */}
+            {/* Minimized Footer - Version */}
             <motion.div 
-              className="flex justify-center items-center py-4"
+              className="absolute bottom-0 left-0 right-0 flex justify-center items-center"
               initial={false}
               animate={{
                 opacity: open ? 0 : 1,
                 y: open ? 30 : 0,
                 scale: open ? 0.75 : 1,
-                rotate: open ? -5 : 0,
               }}
               transition={{ 
                 duration: 0.5,
@@ -449,11 +460,6 @@ const NewSidebar = ({ userRole }) => {
                   duration: 0.4,
                   ease: "easeOut",
                   delay: open ? 0 : 0.12
-                },
-                rotate: {
-                  duration: 0.4,
-                  ease: "easeOut",
-                  delay: open ? 0 : 0.1
                 }
               }}
               style={{ 
@@ -461,11 +467,20 @@ const NewSidebar = ({ userRole }) => {
                 display: open ? "none" : "flex"
               }}
             >
-              <img 
-                src="/src/assets/wildcat_logo.png" 
-                alt="WildCats Radio Logo" 
-                className="w-12 h-12 object-contain opacity-70 hover:opacity-100 transition-opacity duration-200"
-              />
+              <motion.div
+                className="bg-yellow-400 text-black w-full py-1 text-xs font-bold tracking-tight uppercase select-none shadow-sm hover:bg-yellow-300 hover:shadow-md transition-all duration-200 text-center"
+                whileHover={{ 
+                  scale: 1.02,
+                  y: -1
+                }}
+                transition={{ 
+                  type: "spring", 
+                  stiffness: 300, 
+                  damping: 20 
+                }}
+              >
+                v1.0
+              </motion.div>
             </motion.div>
           </div>
         </div>

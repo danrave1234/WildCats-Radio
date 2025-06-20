@@ -165,45 +165,51 @@ const Header = ({ onMobileMenuToggle }) => {
   };
 
   return (
-    <header className="h-28 border-b border-gray-200 bg-white flex items-center justify-between px-4 md:px-6 sticky top-0 z-10">
-      <div className="flex items-center">
+    <header className="h-16 sm:h-20 md:h-24 lg:h-28 border-b border-gray-200 bg-white flex items-center justify-between px-2 sm:px-4 md:px-6 sticky top-0 z-10 transition-all duration-300">
+      <div className="flex items-center flex-1 min-w-0">
         {/* Mobile menu button - only visible on small screens */}
         <Button
           variant="ghost"
           size="icon"
           onClick={onMobileMenuToggle}
-          className="md:hidden mr-3 rounded-full h-10 w-10 text-maroon-700 hover:bg-maroon-100"
+          className="md:hidden mr-1 sm:mr-2 md:mr-3 rounded-full h-8 w-8 sm:h-9 sm:w-9 md:h-10 md:w-10 text-maroon-700 hover:bg-maroon-100 flex-shrink-0"
         >
-          <Menu className="h-5 w-5" />
+          <Menu className="h-4 w-4 sm:h-5 sm:w-5" />
           <span className="sr-only">Toggle menu</span>
         </Button>
 
-        <div className="relative mr-6 whitespace-nowrap">
+        <div className="relative mr-2 sm:mr-4 md:mr-6 flex-shrink-0">
           <img 
             src="/src/assets/cit-logo.png" 
             alt="CIT Logo" 
-            className="h-20 w-auto object-contain"
+            className="h-12 sm:h-16 md:h-18 lg:h-20 w-auto object-contain transition-all duration-300"
           />
         </div>
 
-        <div className="hidden lg:flex items-center text-maroon-700 text-lg whitespace-nowrap bg-white/80 px-4 py-2 rounded-full shadow-sm border border-maroon-200">
-          <Calendar className="h-5 w-5 mr-2 flex-shrink-0 text-maroon-600" />
-          <span className="truncate font-medium">{currentDate}</span>
-          <div className="mx-2 h-4 w-px bg-maroon-300 flex-shrink-0"></div>
-          <span className="truncate">{currentTime}</span>
+        <div className="hidden sm:hidden md:hidden lg:flex items-center text-maroon-700 text-sm lg:text-base xl:text-lg bg-white/80 px-2 lg:px-3 xl:px-4 py-1.5 lg:py-2 rounded-full shadow-sm border border-maroon-200 flex-shrink-0 min-w-0">
+          <Calendar className="h-4 w-4 lg:h-5 lg:w-5 mr-1 lg:mr-2 flex-shrink-0 text-maroon-600" />
+          <span className="truncate font-medium text-xs lg:text-sm xl:text-base">{currentDate}</span>
+          <div className="mx-1 lg:mx-2 h-3 lg:h-4 w-px bg-maroon-300 flex-shrink-0"></div>
+          <span className="truncate text-xs lg:text-sm xl:text-base">{currentTime}</span>
+        </div>
+
+        {/* Compact time display for medium screens */}
+        <div className="hidden md:flex lg:hidden items-center text-maroon-700 text-sm bg-white/80 px-2 py-1.5 rounded-full shadow-sm border border-maroon-200 flex-shrink-0">
+          <Calendar className="h-4 w-4 mr-1 flex-shrink-0 text-maroon-600" />
+          <span className="truncate font-medium text-xs">{currentTime}</span>
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1 sm:gap-2 md:gap-3 flex-shrink-0">
         {/* Notifications */}
         <Button
           variant="ghost"
           size="icon"
-          className="relative rounded-full h-10 w-10 flex-shrink-0 text-maroon-600 bg-maroon-100 hover:bg-maroon-200"
+          className="relative rounded-full h-8 w-8 sm:h-9 sm:w-9 md:h-10 md:w-10 flex-shrink-0 text-maroon-600 bg-maroon-100 hover:bg-maroon-200 transition-all duration-300"
         >
-          <Bell className="h-5 w-5" />
+          <Bell className="h-4 w-4 sm:h-5 sm:w-5" />
           {notifications > 0 && (
-            <span className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-medium">
+            <span className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 h-4 w-4 sm:h-5 sm:w-5 bg-red-500 text-white text-[10px] sm:text-xs rounded-full flex items-center justify-center font-medium">
               {notifications > 9 ? "9+" : notifications}
             </span>
           )}
@@ -219,60 +225,60 @@ const Header = ({ onMobileMenuToggle }) => {
               <Button
                 variant="ghost"
                 className={cn(
-                  "flex items-center gap-2 md:gap-3 pl-2 pr-3 md:pl-3 md:pr-4 rounded-full transition-all duration-300 flex-shrink-0",
+                  "flex items-center gap-1 sm:gap-2 md:gap-3 pl-1 pr-2 sm:pl-2 sm:pr-3 md:pl-3 md:pr-4 rounded-full transition-all duration-300 flex-shrink-0",
                   "bg-maroon-100 hover:bg-maroon-200",
                   "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 border-0 !outline-none !border-none"
                 )}
               >
-                <div className="h-8 w-8 md:h-9 md:w-9 rounded-full bg-gradient-to-r from-maroon-600 to-maroon-500 flex items-center justify-center text-white shadow-md ring-2 ring-white flex-shrink-0">
+                <div className="h-7 w-7 sm:h-8 sm:w-8 md:h-9 md:w-9 lg:h-10 lg:w-10 rounded-full bg-gradient-to-r from-maroon-600 to-maroon-500 flex items-center justify-center text-white shadow-md ring-1 sm:ring-2 ring-white flex-shrink-0">
                   {currentUser.role?.toLowerCase() === 'dj' ? (
-                    <span className="text-xs md:text-sm font-bold">DJ</span>
+                    <span className="text-[10px] sm:text-xs md:text-sm font-bold">DJ</span>
                   ) : currentUser.role?.toLowerCase() === 'admin' ? (
-                    <UserRound className="h-4 w-4 md:h-5 md:w-5" />
+                    <UserRound className="h-3 w-3 sm:h-4 sm:w-4 md:h-5 md:w-5" />
                   ) : (
-                    <span className="text-xs md:text-sm font-medium">
+                    <span className="text-[10px] sm:text-xs md:text-sm font-medium">
                       {getInitials(currentUser)}
                     </span>
                   )}
                 </div>
-                <div className="hidden md:flex flex-col items-start">
-                  <span className="font-medium text-xs md:text-sm text-maroon-800 whitespace-nowrap">
+                <div className="hidden sm:hidden md:flex flex-col items-start min-w-0 max-w-[120px] lg:max-w-none">
+                  <span className="font-medium text-xs lg:text-sm text-maroon-800 truncate w-full">
                     {getDisplayName(currentUser)}
                   </span>
-                  <span className="text-[10px] md:text-xs text-maroon-500 whitespace-nowrap">
+                  <span className="text-[10px] lg:text-xs text-maroon-500 truncate w-full">
                     {formatRole(currentUser.role)}
                   </span>
                 </div>
-                <div className="flex items-center">
-                  <ChevronDown className="h-3 w-3 md:h-4 md:w-4 text-maroon-600 ml-0 md:ml-1 flex-shrink-0" />
+                <div className="flex items-center flex-shrink-0">
+                  <ChevronDown className="h-3 w-3 sm:h-3 sm:w-3 md:h-4 md:w-4 text-maroon-600 flex-shrink-0" />
                 </div>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
-              className="w-56 mt-1 rounded-xl p-2 border border-gray-200 bg-gray-50 shadow-lg"
+              className="w-48 sm:w-52 md:w-56 mt-1 p-2 border border-gray-200 bg-gray-50 shadow-lg !rounded-none"
             >
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium text-gray-900">
+                  <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">
                     {getDisplayName(currentUser)}
                   </p>
-                  <p className="text-xs text-gray-600">
+                  <p className="text-[10px] sm:text-xs text-gray-600 truncate">
                     {currentUser.email || "user@example.com"}
                   </p>
-                  <p className="text-xs text-gray-600">
-                    Role: <span className="px-1.5 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-800">{formatRole(currentUser.role)}</span>
+                  <p className="text-[10px] sm:text-xs text-gray-600">
+                    Role: <span className="px-1 sm:px-1.5 py-0.5 rounded-full text-[10px] sm:text-xs bg-yellow-100 text-yellow-800">{formatRole(currentUser.role)}</span>
                   </p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-gray-200 my-2" />
               <DropdownMenuItem
-                className="cursor-pointer rounded-lg px-3 py-2 text-gray-900 transition-colors
-                           hover:bg-maroon-100 hover:text-maroon-900
-                           focus:bg-maroon-100 focus:text-maroon-900
-                           [&:hover]:!bg-maroon-100 [&:hover]:!text-maroon-900
-                           [&:focus]:!bg-maroon-100 [&:focus]:!text-maroon-900
-                           [&:hover_svg]:!text-maroon-900 [&:focus_svg]:!text-maroon-900"
+                className="cursor-pointer px-3 py-2 text-gray-900 transition-colors !rounded-none
+                           hover:bg-yellow-100 hover:text-yellow-800
+                           focus:bg-yellow-100 focus:text-yellow-800
+                           [&:hover]:!bg-yellow-100 [&:hover]:!text-yellow-800
+                           [&:focus]:!bg-yellow-100 [&:focus]:!text-yellow-800
+                           [&:hover_svg]:!text-yellow-800 [&:focus_svg]:!text-yellow-800"
                 onClick={() => {
                   window.location.href = '/profile';
                 }}
@@ -281,12 +287,12 @@ const Header = ({ onMobileMenuToggle }) => {
                 <span>Profile</span>
               </DropdownMenuItem>
               <DropdownMenuItem 
-                className="cursor-pointer rounded-lg px-3 py-2 text-gray-900 transition-colors
-                           hover:bg-maroon-100 hover:text-maroon-900
-                           focus:bg-maroon-100 focus:text-maroon-900
-                           [&:hover]:!bg-maroon-100 [&:hover]:!text-maroon-900
-                           [&:focus]:!bg-maroon-100 [&:focus]:!text-maroon-900
-                           [&:hover_svg]:!text-maroon-900 [&:focus_svg]:!text-maroon-900"
+                className="cursor-pointer px-3 py-2 text-gray-900 transition-colors !rounded-none
+                           hover:bg-yellow-100 hover:text-yellow-800
+                           focus:bg-yellow-100 focus:text-yellow-800
+                           [&:hover]:!bg-yellow-100 [&:hover]:!text-yellow-800
+                           [&:focus]:!bg-yellow-100 [&:focus]:!text-yellow-800
+                           [&:hover_svg]:!text-yellow-800 [&:focus_svg]:!text-yellow-800"
                 onClick={() => {
                   window.location.href = '/settings';
                 }}
@@ -296,7 +302,7 @@ const Header = ({ onMobileMenuToggle }) => {
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-gray-200 my-2" />
               <DropdownMenuItem
-                className="cursor-pointer rounded-lg px-3 py-2 text-red-600 hover:bg-red-50 hover:text-red-600 focus:bg-red-100 focus:text-red-600 transition-colors
+                className="cursor-pointer px-3 py-2 text-red-600 hover:bg-red-50 hover:text-red-600 focus:bg-red-100 focus:text-red-600 transition-colors !rounded-none
                            [&:hover]:!text-red-600 [&:focus]:!text-red-600"
                 onClick={handleLogoutClick}
               >

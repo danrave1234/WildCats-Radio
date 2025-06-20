@@ -1,7 +1,7 @@
 "use client";;
 import { cn } from "@/lib/utils";
 import { NavLink } from "react-router-dom";
-import React, { useState, createContext, useContext, useEffect } from "react";
+import React, { useState, createContext, useContext } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Menu, X } from "lucide-react";
 
@@ -64,50 +64,18 @@ export const DesktopSidebar = ({
   ...props
 }) => {
   const { open, setOpen, animate } = useSidebar();
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [hasLoaded, setHasLoaded] = useState(false);
-  
-  // Mark as initialized after first render to prevent immediate hover effects
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsInitialized(true);
-    }, 500); // Longer delay to ensure all animations are complete
-    
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Additional check for page load completion  
-  useEffect(() => {
-    const loadTimer = setTimeout(() => {
-      setHasLoaded(true);
-    }, 100); // Reduce delay for smoother experience while still preventing initial flash
-    
-    return () => clearTimeout(loadTimer);
-  }, []);
   
   return (
     <motion.div
       className={cn(
         "h-screen hidden md:flex md:flex-col flex-shrink-0 sticky top-0 border-r border-gray-200 bg-maroon-700",
-        !hasLoaded && "sidebar-loading sidebar-initial-load", // Add loading classes during initial load
         className
       )}
-      style={{
-        width: hasLoaded ? undefined : "60px" // Force initial width to 60px until fully loaded
-      }}
       animate={{
-        width: animate ? (open ? "300px" : "60px") : "60px", // Default to 60px instead of 300px
+        width: animate ? (open ? "240px" : "48px") : "48px",
       }}
-      onMouseEnter={() => {
-        // Only allow hover expansion after full initialization and load
-        if (isInitialized && hasLoaded) {
-          setOpen(true);
-        }
-      }}
+      onMouseEnter={() => setOpen(true)}
       onMouseLeave={(e) => {
-        // Only allow hover collapse after full initialization and load
-        if (!isInitialized || !hasLoaded) return;
-        
         // Check if we're moving to a dropdown menu or if dropdown is open
         const dropdownElement = document.querySelector('[data-radix-popper-content-wrapper]');
         const dropdownTrigger = document.querySelector('[data-radix-dropdown-menu-trigger]');
@@ -180,75 +148,101 @@ export const SidebarLink = ({
   ...props
 }) => {
   const { open, animate } = useSidebar();
-  const [isReady, setIsReady] = useState(false);
   
-  // Prevent any text visibility during initial load
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsReady(true);
-    }, 100); // Sync with sidebar loading timing
-    
-    return () => clearTimeout(timer);
-  }, []);
   return (
-    <NavLink
-      to={link.href}
-      className={({ isActive }) => cn(
-        "relative flex items-center rounded-lg h-12 group",
-        className,
-        {
-          "text-yellow-400 font-bold": isActive,
-          "text-white hover:bg-white/10": !isActive,
-        }
-      )}
-      {...props}>
+    <motion.div
+      whileHover={{ 
+        scale: 1.02,
+        y: -2,
+      }}
+      transition={{
+        type: "spring",
+        stiffness: 400,
+        damping: 17
+      }}
+    >
+      <NavLink
+        to={link.href}
+        className={({ isActive }) => cn(
+          "relative flex items-center h-12 group",
+          className,
+          {
+            "text-maroon-600 font-bold": isActive && open,
+            "bg-white": isActive, // Show white background when active (both collapsed and expanded)
+            "text-white hover:bg-white/10": !isActive,
+          }
+        )}
+        {...props}>
       {({ isActive }) => (
         <>
-          {/* Left decorative line for active state when expanded */}
-          <motion.div
-            animate={{
-              opacity: isActive && open ? 1 : 0,
-              scaleY: isActive && open ? 1 : 0,
-            }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="absolute left-0 w-1 h-8 bg-gradient-to-b from-yellow-300 to-yellow-500 rounded-r-full"
-          />
+
           
           {/* Main content area with enhanced styling for active state */}
           <div className={cn(
-            "relative flex items-center w-full h-full rounded-lg",
-            {
-              "border-2 border-yellow-400 bg-gradient-to-r from-yellow-400/10 to-transparent": isActive,
-            }
+            "relative flex items-center w-full h-full"
           )}>
-            <div className="absolute left-2 w-6 h-6 flex items-center justify-center">
+            <div className={cn(
+              "absolute left-2.5 w-6 h-6 flex items-center justify-center",
+              {
+                // When active: maroon text
+                "text-maroon-600": isActive,
+                // When not active: white text
+                "text-white": !isActive,
+              }
+            )}>
               {link.icon}
             </div>
             
             <motion.span
               animate={{
-                opacity: (open && isReady) ? 1 : 0,
-                x: (open && isReady) ? 0 : -10
+                opacity: open ? 1 : 0,
+                x: open ? 0 : -10
               }}
-              transition={{ duration: isReady ? 0.2 : 0 }}
-              className={cn(
-                "font-medium whitespace-pre ml-12 pl-3 relative sidebar-text",
-                !isReady && "opacity-0"
-              )}
-              style={{ 
-                visibility: isReady ? 'visible' : 'hidden' // Force hide until ready
-              }}>
+              transition={{ duration: 0.2 }}
+              className="font-medium whitespace-pre ml-12 pl-3 relative">
               {link.label}
               
-              {/* Hover underline for non-active items */}
-              {!isActive && (
+              {/* Active underline with grow animation - only when expanded */}
+              <AnimatePresence>
+                {isActive && open && (
+                  <motion.div
+                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-maroon-600 shadow-sm"
+                    initial={{ scaleX: 0, opacity: 0 }}
+                    animate={{ 
+                      scaleX: 1, 
+                      opacity: 1,
+                    }}
+                    exit={{ 
+                      scaleX: 0, 
+                      opacity: 0,
+                    }}
+                    transition={{ 
+                      duration: 0.4, 
+                      ease: [0.25, 0.46, 0.45, 0.94], // Custom easing for smooth animation
+                      opacity: { duration: 0.2 }
+                    }}
+                    style={{
+                      transformOrigin: "left"
+                    }}
+                  />
+                )}
+              </AnimatePresence>
+              
+              {/* Hover underline for non-active items - only when expanded */}
+              {!isActive && open && (
                 <motion.div
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-yellow-400 origin-center"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/60"
                   initial={{ scaleX: 0 }}
-                  whileHover={{ scaleX: 1 }}
+                  whileHover={{ 
+                    scaleX: 1,
+                    opacity: 1
+                  }}
                   transition={{ 
-                    duration: 0.3, 
-                    ease: "easeInOut" 
+                    duration: 0.25, 
+                    ease: [0.25, 0.46, 0.45, 0.94]
+                  }}
+                  style={{
+                    transformOrigin: "left"
                   }}
                 />
               )}
@@ -261,30 +255,14 @@ export const SidebarLink = ({
                 x: isActive && open ? 0 : 10
               }}
               transition={{ duration: 0.3, delay: 0.1 }}
-              className="absolute right-3 w-2 h-2 bg-yellow-400 rounded-full"
+              className="absolute right-3 w-2 h-2 bg-maroon-600 rounded-full"
             />
           </div>
           
-          {/* Top and bottom accent lines when expanded and active */}
-          <motion.div
-            animate={{
-              opacity: isActive && open ? 0.6 : 0,
-              scaleX: isActive && open ? 1 : 0,
-            }}
-            transition={{ duration: 0.4, ease: "easeInOut" }}
-            className="absolute top-0 left-3 right-3 h-0.5 bg-gradient-to-r from-transparent via-yellow-400 to-transparent"
-          />
-          
-          <motion.div
-            animate={{
-              opacity: isActive && open ? 0.6 : 0,
-              scaleX: isActive && open ? 1 : 0,
-            }}
-            transition={{ duration: 0.4, delay: 0.1, ease: "easeInOut" }}
-            className="absolute bottom-0 left-3 right-3 h-0.5 bg-gradient-to-r from-transparent via-yellow-400 to-transparent"
-          />
+
         </>
       )}
-    </NavLink>
+      </NavLink>
+    </motion.div>
   );
 };
