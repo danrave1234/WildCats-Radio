@@ -173,14 +173,11 @@ const Sidebar = ({ userRole }) => {
     };
   }, [isMobileMenuOpen]);
 
-  const getInitials = (name) => {
-    if (!name) return "JD";
-    return name
-      .split(' ')
-      .map(part => part[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
+  const getInitials = (user) => {
+    if (!user || (!user.firstname && !user.lastname)) return "??";
+    const first = user.firstname ? user.firstname[0] : '';
+    const last = user.lastname ? user.lastname[0] : '';
+    return `${first}${last}`.toUpperCase();
   };
 
   const toggleMobileMenu = () => {
@@ -403,14 +400,14 @@ const Sidebar = ({ userRole }) => {
               className="flex items-center space-x-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             >
               <div className="h-10 w-10 rounded-full bg-gold-500 flex items-center justify-center text-black font-medium flex-shrink-0">
-                {getInitials(currentUser?.name)}
+                {getInitials(currentUser)}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                  {currentUser?.name || 'John Doe'}
+                  {currentUser ? `${currentUser.firstname} ${currentUser.lastname}` : 'Guest User'}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                  {userRole || 'Listener'}
+                  {currentUser?.role || 'Listener'}
                 </p>
               </div>
             </div>

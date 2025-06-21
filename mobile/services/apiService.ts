@@ -12,10 +12,8 @@ interface AuthResponse {
 // Define the expected structure for user data from /api/auth/me
 export interface UserData {
   id?: string; // Assuming id might be part of user data
-  fullName?: string; // Changed from name for consistency with request
-  name?: string; // Keeping this if API actually returns 'name'
-  firstName?: string; // For editing and potentially if API returns it
-  lastName?: string;  // For editing and potentially if API returns it
+  firstname?: string;
+  lastname?: string;
   email?: string;
   role?: string;
   memberSince?: string; // Example for "Listener since May 2025"
@@ -26,7 +24,8 @@ export interface UserData {
 
 // Interface for updating user profile (firstName, lastName, email)
 export interface UpdateUserProfilePayload {
-  fullName?: string;
+  firstname?: string;
+  lastname?: string;
   email?: string;
   // Add any other updatable fields here
 }
