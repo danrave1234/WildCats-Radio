@@ -14,6 +14,10 @@
     # ---------- 2nd stage: runtime ----------
     FROM eclipse-temurin:17-jre-alpine
     WORKDIR /app
+    
+    # Install FFmpeg (required for audio streaming functionality)
+    RUN apk add --no-cache ffmpeg
+    
     COPY --from=builder /workspace/target/*.jar /app/
     
     EXPOSE 8080
