@@ -13,23 +13,49 @@ export function NotificationProvider({ children }) {
   const [isConnected, setIsConnected] = useState(false);
   const { isAuthenticated } = useAuth();
   const wsConnection = useRef(null);
+  const refreshInterval = useRef(null);
 
   // Fetch notifications on mount and when user logs in
   useEffect(() => {
     if (isAuthenticated) {
       fetchNotifications();
       connectToWebSocket();
+      startPeriodicRefresh();
     } else {
       // Clean up when user logs out
       disconnectWebSocket();
+      stopPeriodicRefresh();
       setNotifications([]);
       setUnreadCount(0);
     }
 
     return () => {
       disconnectWebSocket();
+      stopPeriodicRefresh();
     };
   }, [isAuthenticated]);
+
+  const startPeriodicRefresh = () => {
+    // Clear any existing interval
+    if (refreshInterval.current) {
+      clearInterval(refreshInterval.current);
+    }
+
+    // Refresh notifications every 30 seconds
+    refreshInterval.current = setInterval(() => {
+      if (isAuthenticated) {
+        logger.debug('Periodic notification refresh...');
+        fetchNotifications();
+      }
+    }, 30000); // 30 seconds
+  };
+
+  const stopPeriodicRefresh = () => {
+    if (refreshInterval.current) {
+      clearInterval(refreshInterval.current);
+      refreshInterval.current = null;
+    }
+  };
 
   const connectToWebSocket = async () => {
     if (!isAuthenticated || wsConnection.current) {
@@ -67,10 +93,15 @@ export function NotificationProvider({ children }) {
     if (!isAuthenticated) return;
 
     try {
+      logger.debug('Fetching notifications and unread count...');
       const [notificationsResponse, unreadCountResponse] = await Promise.all([
         notificationService.getAll(),
         notificationService.getUnreadCount()
       ]);
+      
+      logger.debug('Fetched notifications:', notificationsResponse.data.length);
+      logger.debug('Fetched unread count:', unreadCountResponse.data);
+      
       setNotifications(notificationsResponse.data);
       setUnreadCount(unreadCountResponse.data);
     } catch (error) {
@@ -85,6 +116,7 @@ export function NotificationProvider({ children }) {
         n.id === notificationId ? { ...n, read: true } : n
       ));
       setUnreadCount(prev => Math.max(0, prev - 1));
+      logger.debug('Marked notification as read:', notificationId);
     } catch (error) {
       logger.error('Error marking notification as read:', error);
     }
@@ -92,22 +124,48 @@ export function NotificationProvider({ children }) {
 
   const markAllAsRead = async () => {
     try {
+      const unreadNotifications = notifications.filter(n => !n.read);
       await Promise.all(
-        notifications.filter(n => !n.read).map(n => 
+        unreadNotifications.map(n => 
           notificationService.markAsRead(n.id)
         )
       );
       setNotifications(notifications.map(n => ({ ...n, read: true })));
       setUnreadCount(0);
+      logger.debug('Marked all notifications as read');
     } catch (error) {
       logger.error('Error marking all notifications as read:', error);
     }
   };
 
   const addNotification = (notification) => {
+    logger.debug('Adding new notification:', notification);
     setNotifications(prev => [notification, ...prev]);
-    setUnreadCount(prev => prev + 1);
+    if (!notification.read) {
+      setUnreadCount(prev => prev + 1);
+    }
   };
+
+  const clearAllNotifications = () => {
+    setNotifications([]);
+    setUnreadCount(0);
+    logger.debug('Cleared all notifications');
+  };
+
+  // Refresh notifications when the component becomes visible (user switches tabs)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && isAuthenticated) {
+        logger.debug('Page became visible, refreshing notifications...');
+        fetchNotifications();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isAuthenticated]);
 
   return (
     <NotificationContext.Provider value={{
@@ -118,6 +176,7 @@ export function NotificationProvider({ children }) {
       markAsRead,
       markAllAsRead,
       addNotification,
+      clearAllNotifications,
       fetchNotifications,
       isConnected,
       connectToWebSocket,
