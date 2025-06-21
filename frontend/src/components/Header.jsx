@@ -11,6 +11,7 @@ import {
   UserRound,
   AlertTriangle
 } from "lucide-react";
+import NotificationBell from "./NotificationBell";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -35,7 +36,6 @@ import { useAuth } from "../context/AuthContext";
 
 const Header = ({ onMobileMenuToggle }) => {
   const { currentUser, isAuthenticated, logout } = useAuth();
-  const [notifications, setNotifications] = useState(3);
   const [currentTime, setCurrentTime] = useState("");
   const [currentDate, setCurrentDate] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -202,19 +202,9 @@ const Header = ({ onMobileMenuToggle }) => {
 
       <div className="flex items-center gap-1 sm:gap-2 md:gap-3 flex-shrink-0">
         {/* Notifications */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative rounded-full h-8 w-8 sm:h-9 sm:w-9 md:h-10 md:w-10 flex-shrink-0 text-maroon-600 bg-maroon-100 hover:bg-maroon-200 transition-all duration-300"
-        >
-          <Bell className="h-4 w-4 sm:h-5 sm:w-5" />
-          {notifications > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 h-4 w-4 sm:h-5 sm:w-5 bg-red-500 text-white text-[10px] sm:text-xs rounded-full flex items-center justify-center font-medium">
-              {notifications > 9 ? "9+" : notifications}
-            </span>
-          )}
-          <span className="sr-only">Notifications</span>
-        </Button>
+        <div className="flex-shrink-0">
+          <NotificationBell />
+        </div>
 
 
 

@@ -109,6 +109,11 @@ export function NotificationProvider({ children }) {
     setUnreadCount(prev => prev + 1);
   };
 
+  const clearAllNotifications = () => {
+    setNotifications([]);
+    setUnreadCount(0);
+  };
+
   return (
     <NotificationContext.Provider value={{
       notifications,
@@ -118,6 +123,7 @@ export function NotificationProvider({ children }) {
       markAsRead,
       markAllAsRead,
       addNotification,
+      clearAllNotifications,
       fetchNotifications,
       isConnected,
       connectToWebSocket,
