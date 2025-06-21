@@ -7,12 +7,12 @@
     <limits>
         <clients>50</clients>
         <sources>5</sources>
-        <queue-size>524288</queue-size>
+        <queue-size>65536</queue-size>
         <client-timeout>30</client-timeout>
         <header-timeout>15</header-timeout>
         <source-timeout>10</source-timeout>
-        <burst-on-connect>1</burst-on-connect>
-        <burst-size>32768</burst-size>
+        <burst-on-connect>0</burst-on-connect>
+        <burst-size>8192</burst-size>
     </limits>
 
     <paths>

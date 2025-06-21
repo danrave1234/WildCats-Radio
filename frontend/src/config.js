@@ -104,7 +104,7 @@ export const config = {
 
   // Audio/Media Configuration
   defaultVolume: 80,
-  audioBufferSize: isLocalEnvironment ? 1024 : 4096,
+  audioBufferSize: isLocalEnvironment ? 1024 : 2048,
 
   // UI Configuration
   notificationTimeout: 5000,
