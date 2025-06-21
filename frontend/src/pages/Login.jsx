@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertCircle, Eye, EyeOff, Loader2, KeyRound } from "lucide-react"
+import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react"
 import wildcatRadioLogo from "../assets/wildcatradio_logo.png"
 import { Separator } from "@/components/ui/separator"
 
@@ -135,17 +135,14 @@ export default function Login() {
             </p>
           </div>
 
-          <Card className="border-0 shadow-2xl bg-white backdrop-blur-xl overflow-hidden !rounded-none">
+          <Card className="border-0 shadow-2xl bg-white backdrop-blur-xl overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out">
             <div className="h-3 bg-gradient-to-r from-wildcats-maroon to-wildcats-maroon/70" />
-            <CardHeader className="flex flex-row items-start justify-between px-6 pt-6 pb-3">
+            <CardHeader className="px-6 pt-6 pb-3">
               <div>
                 <CardTitle className="text-xl font-bold text-gray-800">Sign in to your account</CardTitle>
                 <CardDescription className="text-sm text-gray-500 mt-1">
                   Enter your email below to sign in to your account
                 </CardDescription>
-              </div>
-              <div className="bg-wildcats-maroon/10 p-3 !rounded-none">
-                <KeyRound className="h-6 w-6 text-wildcats-maroon" />
               </div>
             </CardHeader>
             <div className="px-6">
@@ -167,7 +164,7 @@ export default function Login() {
                     value={formData.email}
                     onChange={handleChange}
                     placeholder="Enter your email address"
-                    className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm"
+                    className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                   />
                 </div>
                 
@@ -186,7 +183,7 @@ export default function Login() {
                       value={formData.password}
                       onChange={handleChange}
                       placeholder="Enter your password"
-                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm"
+                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                     />
                     <Button
                       type="button"

@@ -14,7 +14,8 @@ import {
   Mic,
   User,
   Calendar,
-  Volume2
+  Volume2,
+  RefreshCw
 } from 'lucide-react';
 
 const notificationTypeIcons = {
@@ -53,10 +54,17 @@ export default function Notifications() {
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const [selectedNotifications, setSelectedNotifications] = useState([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  useEffect(() => {
-    fetchNotifications();
-  }, []);
+  // Manual refresh function
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchNotifications();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const filteredAndSortedNotifications = useMemo(() => {
     let filtered = notifications;
@@ -140,21 +148,38 @@ export default function Notifications() {
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Notifications</h1>
-                <p className="text-gray-600 dark:text-gray-400">
-                  {unreadCount > 0 ? `${unreadCount} unread notifications` : 'All caught up!'}
+                <p className="text-gray-600 dark:text-gray-400 flex items-center space-x-2">
+                  <span>
+                    {unreadCount > 0 ? `${unreadCount} unread notifications` : 'All caught up!'}
+                  </span>
+                  <div className={`w-2 h-2 rounded-full ${
+                    isConnected ? 'bg-green-500' : 'bg-yellow-500'
+                  }`} title={isConnected ? 'Real-time updates active' : 'Using periodic updates'} />
                 </p>
               </div>
             </div>
             
-            {unreadCount > 0 && (
+            <div className="flex items-center space-x-3">
+              {/* Manual Refresh Button */}
               <button
-                onClick={markAllAsRead}
-                className="flex items-center space-x-2 px-4 py-2 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 transition-colors"
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <CheckCircle className="h-5 w-5" />
-                <span>Mark All Read</span>
+                <RefreshCw className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
               </button>
-            )}
+              
+              {unreadCount > 0 && (
+                <button
+                  onClick={markAllAsRead}
+                  className="flex items-center space-x-2 px-4 py-2 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 transition-colors"
+                >
+                  <CheckCircle className="h-5 w-5" />
+                  <span>Mark All Read</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Search and Filter Bar */}
@@ -324,10 +349,10 @@ export default function Notifications() {
             <div className={`h-2 w-2 rounded-full ${
               isConnected 
                 ? 'bg-green-500 animate-pulse' 
-                : 'bg-red-500'
+                : 'bg-yellow-500'
             }`}></div>
-            <span className={isConnected ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
-              {isConnected ? 'Real-time updates active' : 'Real-time updates disconnected'}
+            <span className={isConnected ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}>
+              {isConnected ? 'Real-time updates active' : 'Using periodic updates (every 30 seconds)'}
             </span>
           </div>
         </div>

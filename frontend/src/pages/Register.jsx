@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertCircle, Eye, EyeOff, Loader2, UserPlus } from "lucide-react"
+import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react"
 import wildcatRadioLogo from "../assets/wildcatradio_logo.png"
 import { Separator } from "@/components/ui/separator"
 
@@ -95,17 +95,14 @@ export default function Register() {
             </p>
           </div>
 
-          <Card className="border-0 shadow-2xl bg-white backdrop-blur-xl overflow-hidden !rounded-none">
+          <Card className="border-0 shadow-2xl bg-white backdrop-blur-xl overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out">
             <div className="h-3 bg-gradient-to-r from-wildcats-maroon to-wildcats-maroon/70" />
-            <CardHeader className="flex flex-row items-start justify-between px-6 pt-6 pb-3">
+            <CardHeader className="px-6 pt-6 pb-3">
               <div>
                 <CardTitle className="text-xl font-bold text-gray-800">Create your account</CardTitle>
                 <CardDescription className="text-sm text-gray-500 mt-1">
                   Enter your information to create an account
                 </CardDescription>
-              </div>
-              <div className="bg-wildcats-maroon/10 p-3 !rounded-none">
-                <UserPlus className="h-6 w-6 text-wildcats-maroon" />
               </div>
             </CardHeader>
             <div className="px-6">
@@ -128,7 +125,7 @@ export default function Register() {
                       value={formData.name}
                       onChange={handleChange}
                       placeholder="First name"
-                      className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm"
+                      className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                     />
                   </div>
                   
@@ -143,7 +140,7 @@ export default function Register() {
                       autoComplete="family-name"
                       required
                       placeholder="Last name"
-                      className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm"
+                      className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                     />
                   </div>
                 </div>
@@ -162,7 +159,7 @@ export default function Register() {
                     value={formData.email}
                     onChange={handleChange}
                     placeholder="your.email@cit.edu"
-                    className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm"
+                    className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                   />
                   <p className="text-xs text-wildcats-maroon flex items-center space-x-1 pt-1">
                     <AlertCircle className="h-3 w-3" />
@@ -185,7 +182,7 @@ export default function Register() {
                       value={formData.password}
                       onChange={handleChange}
                       placeholder="Create a secure password"
-                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm"
+                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                     />
                     <Button
                       type="button"
@@ -219,7 +216,7 @@ export default function Register() {
                       value={formData.confirmPassword}
                       onChange={handleChange}
                       placeholder="Confirm your password"
-                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm"
+                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                     />
                     <Button
                       type="button"

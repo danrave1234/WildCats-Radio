@@ -13,8 +13,7 @@ import { useNotifications } from '../context/NotificationContext';
 import { formatDistanceToNow, format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { Popover, PopoverTrigger, PopoverContent } from './ui/popover';
-import { EnhancedScrollArea } from './ui/enhanced-scroll-area';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 const notificationTypeIcons = {
   BROADCAST_SCHEDULED: Calendar,
@@ -39,11 +38,30 @@ const notificationTypeColors = {
 };
 
 export default function NotificationBell() {
-    const { notifications, unreadCount, markAsRead, markAllAsRead, clearAllNotifications } = useNotifications();
+    const { 
+        notifications, 
+        unreadCount, 
+        markAsRead, 
+        markAllAsRead, 
+        clearAllNotifications, 
+        fetchNotifications,
+        isConnected 
+    } = useNotifications();
     const [isOpen, setIsOpen] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     
     // Get the latest 10 unread notifications
     const latestNotifications = notifications.filter(n => !n.read).slice(0, 10);
+
+    // Refresh notifications when popover is opened
+    useEffect(() => {
+        if (isOpen && !isRefreshing) {
+            setIsRefreshing(true);
+            fetchNotifications().finally(() => {
+                setIsRefreshing(false);
+            });
+        }
+    }, [isOpen, fetchNotifications, isRefreshing]);
 
     const handleNotificationClick = (notification) => {
         if (!notification.read) {
@@ -95,7 +113,7 @@ export default function NotificationBell() {
             <PopoverContent 
                 align="end" 
                 sideOffset={12}
-                className="w-96 p-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden rounded-none"
+                className="w-96 p-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-xl rounded-none"
             >
                 {/* Header */}
                 <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
@@ -122,15 +140,15 @@ export default function NotificationBell() {
                 </div>
 
                 {/* Notifications List */}
-                <EnhancedScrollArea className="max-h-96">
+                <div className={`${latestNotifications.length === 0 ? '' : 'h-96 overflow-y-auto'}`}>
                     {latestNotifications.length === 0 ? (
-                        <div className="h-64 flex flex-col items-center justify-center text-center p-8">
-                            <div className="relative mb-6">
-                                <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-                                    <Bell className="h-8 w-8 text-gray-400 dark:text-gray-600" />
+                        <div className="flex flex-col items-center justify-center text-center p-8 h-96">
+                            <div className="relative mb-4">
+                                <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
+                                    <Bell className="h-6 w-6 text-gray-400 dark:text-gray-600" />
                                 </div>
                             </div>
-                            <h4 className="font-semibold text-gray-900 dark:text-white text-lg mb-2">No notifications</h4>
+                            <h4 className="font-semibold text-gray-900 dark:text-white text-base mb-2">No notifications</h4>
                             <p className="text-sm text-gray-500 dark:text-gray-400 max-w-xs leading-relaxed">
                                 You're all caught up! We'll notify you when something important happens.
                             </p>
@@ -183,7 +201,7 @@ export default function NotificationBell() {
                             </div>
                         ))
                     )}
-                </EnhancedScrollArea>
+                </div>
 
                 {/* Footer */}
                 <div className="p-3 border-t border-maroon-300 dark:border-maroon-600 bg-maroon-600 dark:bg-maroon-700">
