@@ -80,7 +80,6 @@ export default function ListenerDashboard() {
   // UI state
   const [activeTab, setActiveTab] = useState("song");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
-  const [pollLoading, setPollLoading] = useState(false);
   const [_currentSong, _setCurrentSong] = useState(null);
 
   // Local audio state for the dashboard player (separate from streaming context)

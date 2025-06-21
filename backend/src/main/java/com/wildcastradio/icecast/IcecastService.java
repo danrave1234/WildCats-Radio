@@ -15,6 +15,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wildcastradio.config.NetworkConfig;
 
 /**
@@ -185,6 +187,9 @@ public class IcecastService {
      * @return Number of current listeners
      */
     public Integer getCurrentListenerCount() {
+        int icecastListeners = 0;
+        int webSocketListeners = listenerStatusHandler != null ? listenerStatusHandler.getActiveListenersCount() : 0;
+
         try {
             URL url = new URL(getIcecastStreamingUrl() + "/status-json.xsl");
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -192,37 +197,23 @@ public class IcecastService {
             connection.setConnectTimeout(5000);
             connection.setReadTimeout(5000);
 
-            int responseCode = connection.getResponseCode();
-            if (responseCode == 200) {
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-                    StringBuilder response = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        response.append(line);
-                    }
+            if (connection.getResponseCode() == 200) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode rootNode = mapper.readTree(connection.getInputStream());
+                JsonNode icestats = rootNode.path("icestats");
 
-                    String jsonResponse = response.toString();
-
-                    // Simple parsing to extract listener count for our mount point
-                    // Look for pattern: "mount":"/live.ogg" ... "listeners":X
-                    if (jsonResponse.contains("\"mount\":\"" + icecastMount + "\"")) {
-                        int mountIndex = jsonResponse.indexOf("\"mount\":\"" + icecastMount + "\"");
-                        int nextMountIndex = jsonResponse.indexOf("\"mount\":", mountIndex + 1);
-
-                        String mountSection = nextMountIndex > 0 ? 
-                            jsonResponse.substring(mountIndex, nextMountIndex) : 
-                            jsonResponse.substring(mountIndex);
-
-                        int listenersIndex = mountSection.indexOf("\"listeners\":");
-                        if (listenersIndex > 0) {
-                            int startIndex = listenersIndex + 12;
-                            int endIndex = mountSection.indexOf(',', startIndex);
-                            if (endIndex == -1) endIndex = mountSection.indexOf('}', startIndex);
-
-                            if (endIndex > startIndex) {
-                                String listenersStr = mountSection.substring(startIndex, endIndex).trim();
-                                return Integer.parseInt(listenersStr);
+                if (icestats.has("source")) {
+                    JsonNode sourceNode = icestats.path("source");
+                    if (sourceNode.isArray()) {
+                        for (JsonNode source : sourceNode) {
+                            if (icecastMount.equals(source.path("listenurl").asText().substring(source.path("listenurl").asText().lastIndexOf("/")))) {
+                                icecastListeners = source.path("listeners").asInt();
+                                break;
                             }
+                        }
+                    } else {
+                        if (icecastMount.equals(sourceNode.path("listenurl").asText().substring(sourceNode.path("listenurl").asText().lastIndexOf("/")))) {
+                            icecastListeners = sourceNode.path("listeners").asInt();
                         }
                     }
                 }
@@ -231,9 +222,7 @@ public class IcecastService {
             logger.warn("Failed to get listener count from Icecast: {}", e.getMessage());
         }
 
-        // Return 0 if unable to get count from Icecast, but add WebSocket listeners if available
-        int webSocketListeners = listenerStatusHandler != null ? listenerStatusHandler.getActiveListenersCount() : 0;
-        return webSocketListeners;
+        return icecastListeners + webSocketListeners;
     }
 
     /**

@@ -154,6 +154,20 @@ export function StreamingProvider({ children }) {
     }
   };
 
+  const refreshStreamStatus = async () => {
+    try {
+      const response = await streamService.getStatus();
+      if (response.data && response.data.success) {
+        const { listenerCount, isLive } = response.data.data;
+        setListenerCount(listenerCount);
+        setIsLive(isLive);
+        logger.info(`Refreshed stream status: isLive=${isLive}, listeners=${listenerCount}`);
+      }
+    } catch (error) {
+      logger.error('Error refreshing stream status:', error);
+    }
+  };
+
   // Load server configuration
   const loadServerConfig = async () => {
     try {
@@ -1520,124 +1534,68 @@ export function StreamingProvider({ children }) {
   };
 
   // Start listening (for listeners)
-  const startListening = () => {
-    if (!serverConfig?.streamUrl) return;
+  const startListening = async () => {
+    if (isListening || !serverConfig?.streamUrl) return;
+
+    logger.info('Attempting to start listening...');
+    setIsListening(true);
+    setAudioPlaying(true); // Optimistically set to true
+
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.crossOrigin = 'anonymous';
+      audioRef.current.preload = 'auto';
+    }
 
     try {
-      if (!audioRef.current) {
-        audioRef.current = new Audio();
-      }
-
-      // Improve URL handling and add fallback formats
-      let streamUrl = serverConfig.streamUrl;
-
-      // Ensure proper protocol
-      if (!streamUrl.startsWith('http')) {
-        streamUrl = `http://${streamUrl}`;
-      }
-
-      console.log('Attempting to play stream:', streamUrl);
-
-      // Set CORS mode for external streams
-      audioRef.current.crossOrigin = 'anonymous';
-      audioRef.current.preload = 'none';
+      const streamUrl = `${serverConfig.streamUrl}?_=${Date.now()}`;
       audioRef.current.src = streamUrl;
-      audioRef.current.volume = isMuted ? 0 : volume / 100;
-
-      // Add better error handling for unsupported formats
-      audioRef.current.addEventListener('error', (e) => {
-        console.error('Audio error event:', e);
-        const error = audioRef.current.error;
-        if (error) {
-          console.error('Audio error details:', {
-            code: error.code,
-            message: error.message,
-            MEDIA_ERR_ABORTED: error.MEDIA_ERR_ABORTED,
-            MEDIA_ERR_NETWORK: error.MEDIA_ERR_NETWORK,
-            MEDIA_ERR_DECODE: error.MEDIA_ERR_DECODE,
-            MEDIA_ERR_SRC_NOT_SUPPORTED: error.MEDIA_ERR_SRC_NOT_SUPPORTED
-          });
-
-          // Try alternative format if OGG is not supported
-          if (error.code === error.MEDIA_ERR_SRC_NOT_SUPPORTED && streamUrl.includes('.ogg')) {
-            console.log('OGG format not supported, trying MP3 fallback...');
-            const mp3Url = streamUrl.replace('.ogg', '.mp3');
-            audioRef.current.src = mp3Url;
-            audioRef.current.load();
-          }
-        }
-      });
-
-      // Add load event listener for better debugging
-      audioRef.current.addEventListener('loadstart', () => {
-        console.log('Audio loading started for:', streamUrl);
-      });
-
-      audioRef.current.addEventListener('canplay', () => {
-        console.log('Audio can start playing');
-      });
-
-      audioRef.current.play().then(() => {
-        setAudioPlaying(true);
-        console.log('Audio playback started successfully');
-      }).catch(error => {
-        console.error('Error starting audio playback:', error);
-
-        // Try to provide more helpful error messages
-        if (error.name === 'NotSupportedError') {
-          console.warn('Stream format not supported, trying alternative...');
-          // Try with different extension
-          if (streamUrl.includes('.ogg')) {
-            const alternativeUrl = streamUrl.replace('.ogg', '');
-            console.log('Trying stream without .ogg extension:', alternativeUrl);
-            audioRef.current.src = alternativeUrl;
-            audioRef.current.load();
-            audioRef.current.play().catch(fallbackError => {
-              console.error('Fallback also failed:', fallbackError);
-            });
-          }
-        }
-      });
-
+      await audioRef.current.play();
+      logger.info('Audio playback started successfully.');
       connectListenerWebSocket();
+      await refreshStreamStatus();
     } catch (error) {
-      console.error('Error starting listening:', error);
+      logger.error('Failed to start audio playback:', error);
+      setIsListening(false);
+      setAudioPlaying(false);
     }
   };
 
   // Stop listening (for listeners)
   const stopListening = () => {
-    try {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-      }
+    if (!isListening) return;
 
-      if (listenerWebSocketRef.current) {
-        listenerWebSocketRef.current.close(1000, 'User stopped listening');
-        listenerWebSocketRef.current = null;
-      }
+    logger.info('Attempting to stop listening...');
+    setIsListening(false);
+    setAudioPlaying(false);
 
-      if (listenerReconnectTimerRef.current) {
-        clearTimeout(listenerReconnectTimerRef.current);
-        listenerReconnectTimerRef.current = null;
-      }
-
-      setAudioPlaying(false);
-      setIsListening(false);
-
-      console.log('Listening stopped');
-    } catch (error) {
-      console.error('Error stopping listening:', error);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
     }
+
+    disconnectListenerWebSocket();
+    refreshStreamStatus();
   };
 
   // Toggle audio playback for listeners
   const toggleAudio = () => {
     if (audioPlaying) {
-      stopListening();
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setAudioPlaying(false);
+      if (listenerWebSocketRef.current && listenerWebSocketRef.current.readyState === WebSocket.OPEN) {
+        listenerWebSocketRef.current.send(JSON.stringify({ type: 'LISTENER_STATUS', action: 'STOP_LISTENING' }));
+      }
     } else {
-      startListening();
+      if (audioRef.current) {
+        audioRef.current.play().catch(e => logger.error("Error resuming playback:", e));
+      }
+      setAudioPlaying(true);
+      if (listenerWebSocketRef.current && listenerWebSocketRef.current.readyState === WebSocket.OPEN) {
+        listenerWebSocketRef.current.send(JSON.stringify({ type: 'LISTENER_STATUS', action: 'START_LISTENING' }));
+      }
     }
   };
 
@@ -2163,6 +2121,7 @@ export function StreamingProvider({ children }) {
     disconnectAll,
     getStreamUrl,
     getWebSocketUrl,
+    refreshStreamStatus,
 
     // Refs (for direct access when needed)
     djWebSocketRef,
