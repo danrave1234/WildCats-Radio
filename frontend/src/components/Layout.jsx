@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import NewSidebar from './NewSidebar';
+import NewSidebar from './Sidebar';
 import Header from './Header';
 import { SidebarProvider } from './ui/sidebar';
 import { EnhancedScrollArea } from './ui/enhanced-scroll-area';
