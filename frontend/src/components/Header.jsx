@@ -165,42 +165,55 @@ const Header = ({ onMobileMenuToggle }) => {
   };
 
   return (
-    <header className="h-16 sm:h-20 md:h-24 lg:h-28 border-b border-gray-200 bg-white flex items-center justify-between px-2 sm:px-4 md:px-6 sticky top-0 z-10 transition-all duration-300">
+    <header className="h-20 sm:h-24 md:h-28 border-b border-gray-200 bg-white/95 backdrop-blur-sm flex items-center justify-between px-4 sm:px-6 md:px-8 sticky top-0 z-10 transition-all duration-300">
       <div className="flex items-center flex-1 min-w-0">
         {/* Mobile menu button - only visible on small screens */}
         <Button
           variant="ghost"
           size="icon"
           onClick={onMobileMenuToggle}
-          className="md:hidden mr-1 sm:mr-2 md:mr-3 rounded-full h-8 w-8 sm:h-9 sm:w-9 md:h-10 md:w-10 text-maroon-700 hover:bg-maroon-100 flex-shrink-0"
+          className="md:hidden mr-3 sm:mr-4 rounded-lg h-10 w-10 text-maroon-700 hover:bg-maroon-50 transition-colors flex-shrink-0"
         >
           <Menu className="h-4 w-4 sm:h-5 sm:w-5" />
           <span className="sr-only">Toggle menu</span>
         </Button>
 
-        <div className="relative mr-2 sm:mr-4 md:mr-6 flex-shrink-0">
-          <img 
-            src="/src/assets/cit-logo.png" 
-            alt="CIT Logo" 
-            className="h-12 sm:h-16 md:h-18 lg:h-20 w-auto object-contain transition-all duration-300"
-          />
-        </div>
+        {/* Modern Date & Time Display */}
+        <div className="flex items-center flex-1 min-w-0">
+          <div className="flex items-center space-x-4 sm:space-x-6">
+            {/* Date Section */}
+            <div className="flex flex-col">
+              <span className="text-sm sm:text-base text-gray-500 font-medium uppercase tracking-wide">
+                Today
+              </span>
+              <span className="text-xl sm:text-2xl md:text-3xl font-bold text-maroon-800 tracking-tight leading-none">
+                {currentDate}
+              </span>
+            </div>
+            
+            {/* Separator */}
+            <div className="h-12 sm:h-14 w-px bg-gray-300"></div>
+            
+            {/* Time Section */}
+            <div className="flex flex-col">
+              <span className="text-sm sm:text-base text-gray-500 font-medium uppercase tracking-wide">
+                Current Time
+              </span>
+              <span className="text-xl sm:text-2xl md:text-3xl font-bold text-maroon-700 font-mono tracking-tight leading-none">
+                {currentTime}
+              </span>
+            </div>
+            
 
-        <div className="hidden sm:hidden md:hidden lg:flex items-center text-maroon-700 text-sm lg:text-base xl:text-lg bg-white/80 px-2 lg:px-3 xl:px-4 py-1.5 lg:py-2 rounded-full shadow-sm border border-maroon-200 flex-shrink-0 min-w-0">
-          <Calendar className="h-4 w-4 lg:h-5 lg:w-5 mr-1 lg:mr-2 flex-shrink-0 text-maroon-600" />
-          <span className="truncate font-medium text-xs lg:text-sm xl:text-base">{currentDate}</span>
-          <div className="mx-1 lg:mx-2 h-3 lg:h-4 w-px bg-maroon-300 flex-shrink-0"></div>
-          <span className="truncate text-xs lg:text-sm xl:text-base">{currentTime}</span>
-        </div>
-
-        {/* Compact time display for medium screens */}
-        <div className="hidden md:flex lg:hidden items-center text-maroon-700 text-sm bg-white/80 px-2 py-1.5 rounded-full shadow-sm border border-maroon-200 flex-shrink-0">
-          <Calendar className="h-4 w-4 mr-1 flex-shrink-0 text-maroon-600" />
-          <span className="truncate font-medium text-xs">{currentTime}</span>
+          </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-1 sm:gap-2 md:gap-3 flex-shrink-0">
+      <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0 bg-maroon-800 px-6 py-4 rounded-2xl relative mr-4 sm:mr-6">
+        {/* Yellow accent line */}
+        <div className="absolute left-2 top-1/2 -translate-y-1/2 h-10 w-1 bg-yellow-400 rounded-full"></div>
+        {/* Yellow accent dot on right side */}
+        <div className="absolute right-2 top-2 w-2 h-2 bg-yellow-400 rounded-full"></div>
         {/* Notifications */}
         <div className="flex-shrink-0">
           <NotificationBell />
@@ -215,12 +228,14 @@ const Header = ({ onMobileMenuToggle }) => {
               <Button
                 variant="ghost"
                 className={cn(
-                  "flex items-center gap-1 sm:gap-2 md:gap-3 pl-1 pr-2 sm:pl-2 sm:pr-3 md:pl-3 md:pr-4 rounded-full transition-all duration-300 flex-shrink-0",
-                  "bg-maroon-100 hover:bg-maroon-200",
-                  "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 border-0 !outline-none !border-none"
+                  "flex items-center gap-2 sm:gap-3 px-3 py-2 rounded-xl transition-all duration-300 flex-shrink-0",
+                  "bg-white/95 hover:bg-white shadow-sm border border-white/20",
+                  "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0",
+                  "hover:scale-105 hover:-translate-y-1 hover:shadow-lg",
+                  isDropdownOpen && "scale-105 -translate-y-1 shadow-lg"
                 )}
               >
-                <div className="h-7 w-7 sm:h-8 sm:w-8 md:h-9 md:w-9 lg:h-10 lg:w-10 rounded-full bg-gradient-to-r from-maroon-600 to-maroon-500 flex items-center justify-center text-white shadow-md ring-1 sm:ring-2 ring-white flex-shrink-0">
+                <div className="h-7 w-7 sm:h-8 sm:w-8 md:h-9 md:w-9 lg:h-10 lg:w-10 rounded-full bg-maroon-600 flex items-center justify-center text-white shadow-sm border-2 border-white flex-shrink-0">
                   {currentUser.role?.toLowerCase() === 'dj' ? (
                     <span className="text-[10px] sm:text-xs md:text-sm font-bold">DJ</span>
                   ) : currentUser.role?.toLowerCase() === 'admin' ? (

@@ -77,6 +77,53 @@
   * {
     border-color: hsl(var(--border));
   }
+  
+  /* Hide default browser scrollbars */
+  html, body {
+    overflow: hidden;
+    height: 100%;
+  }
+  
+  #root {
+    height: 100vh;
+    overflow: hidden;
+  }
+  
+  /* Hide scrollbars for webkit browsers */
+  ::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Hide scrollbars for Firefox */
+  * {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  
+  /* Enhanced scrollbar cursor tracking */
+  [data-radix-scroll-area-scrollbar] {
+    position: relative;
+    z-index: 10;
+  }
+  
+  [data-radix-scroll-area-thumb] {
+    will-change: transform;
+    transform-origin: center;
+  }
+  
+  [data-radix-scroll-area-thumb]:active {
+    transform: scale(1.1);
+    transition: transform 0.1s ease-out;
+  }
+  
+  /* Smooth cursor following */
+  [data-radix-scroll-area-scrollbar]:active {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+  }
+  
   body {
     @apply bg-background text-foreground font-kumbh;
   }
@@ -130,10 +177,6 @@
   .chat-message {
     @apply break-words break-all whitespace-normal max-w-full overflow-hidden;
   }
-  
-  .chat-messages-container {
-    @apply scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600;
-  }
 }
 
 @media (prefers-color-scheme: light) {
@@ -157,7 +200,6 @@
 
 /* Fix chat container heights */
 .chat-messages-container {
-  scrollbar-width: thin;
   max-height: 100%;
 }
 
@@ -243,4 +285,42 @@
   50% { opacity: 0.1; }
   75% { opacity: 0.05; }
   100% { opacity: 0; }
+}
+
+/* Enhanced ScrollArea auto-hide animations */
+.enhanced-scrollbar {
+  transition: opacity 250ms ease-out, transform 150ms ease-out, width 150ms ease-out;
+  will-change: opacity, transform, width;
+}
+
+.enhanced-scrollbar:hover {
+  transform: scaleX(1.1);
+}
+
+.enhanced-scrollbar.dragging {
+  transform: scale(1.1);
+  opacity: 1 !important;
+}
+
+/* Scrollbar fade-out animation */
+@keyframes fadeInScrollbar {
+  from {
+    opacity: 0;
+    transform: translateX(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeOutScrollbar {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(4px);
+  }
 }

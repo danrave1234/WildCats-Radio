@@ -2,30 +2,30 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNotifications } from '../context/NotificationContext';
 import { formatDistanceToNow, format } from 'date-fns';
 import { 
-  BellIcon, 
-  MagnifyingGlassIcon, 
-  FunnelIcon, 
-  CheckCircleIcon,
-  CheckIcon,
-  TrashIcon,
-  ArchiveBoxIcon,
-  ExclamationTriangleIcon,
-  InformationCircleIcon,
-  MicrophoneIcon,
-  UserIcon,
-  CalendarIcon,
-  SpeakerWaveIcon
-} from '@heroicons/react/24/outline';
+  Bell, 
+  Search, 
+  Filter, 
+  CheckCircle,
+  Check,
+  Trash,
+  Archive,
+  AlertTriangle,
+  Info,
+  Mic,
+  User,
+  Calendar,
+  Volume2
+} from 'lucide-react';
 
 const notificationTypeIcons = {
-  BROADCAST_SCHEDULED: CalendarIcon,
-  BROADCAST_STARTING_SOON: ExclamationTriangleIcon,
-  BROADCAST_STARTED: MicrophoneIcon,
-  BROADCAST_ENDED: SpeakerWaveIcon,
-  NEW_BROADCAST_POSTED: InformationCircleIcon,
-  USER_REGISTERED: UserIcon,
-  GENERAL: InformationCircleIcon,
-  default: BellIcon
+  BROADCAST_SCHEDULED: Calendar,
+  BROADCAST_STARTING_SOON: AlertTriangle,
+  BROADCAST_STARTED: Mic,
+  BROADCAST_ENDED: Volume2,
+  NEW_BROADCAST_POSTED: Info,
+  USER_REGISTERED: User,
+  GENERAL: Info,
+  default: Bell
 };
 
 const notificationTypeColors = {
@@ -136,7 +136,7 @@ export default function Notifications() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-3">
               <div className="p-2 bg-maroon-100 dark:bg-maroon-900/30 rounded-lg">
-                <BellIcon className="h-8 w-8 text-maroon-600 dark:text-maroon-400" />
+                <Bell className="h-8 w-8 text-maroon-600 dark:text-maroon-400" />
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Notifications</h1>
@@ -151,7 +151,7 @@ export default function Notifications() {
                 onClick={markAllAsRead}
                 className="flex items-center space-x-2 px-4 py-2 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 transition-colors"
               >
-                <CheckCircleIcon className="h-5 w-5" />
+                <CheckCircle className="h-5 w-5" />
                 <span>Mark All Read</span>
               </button>
             )}
@@ -161,7 +161,7 @@ export default function Notifications() {
           <div className="flex flex-col sm:flex-row gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
             {/* Search */}
             <div className="flex-1 relative">
-              <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <Search className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search notifications..."
@@ -173,7 +173,7 @@ export default function Notifications() {
 
             {/* Filter */}
             <div className="flex items-center space-x-2">
-              <FunnelIcon className="h-5 w-5 text-gray-400" />
+              <Filter className="h-5 w-5 text-gray-400" />
               <select
                 value={selectedFilter}
                 onChange={(e) => setSelectedFilter(e.target.value)}
@@ -227,7 +227,7 @@ export default function Notifications() {
         <div className="space-y-3">
           {filteredAndSortedNotifications.length === 0 ? (
             <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-              <BellIcon className="h-16 w-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
+              <Bell className="h-16 w-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
               <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
                 {searchTerm || selectedFilter !== 'all' ? 'No matching notifications' : 'No notifications'}
               </h3>
@@ -304,7 +304,7 @@ export default function Notifications() {
                                 className="p-1 text-gray-400 hover:text-maroon-600 dark:hover:text-maroon-400 transition-colors"
                                 title="Mark as read"
                               >
-                                <CheckIcon className="h-5 w-5" />
+                                <Check className="h-5 w-5" />
                               </button>
                             )}
                           </div>

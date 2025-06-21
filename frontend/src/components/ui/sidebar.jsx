@@ -72,7 +72,7 @@ export const DesktopSidebar = ({
         className
       )}
       animate={{
-        width: animate ? (open ? "240px" : "48px") : "48px",
+        width: animate ? (open ? "240px" : "44px") : "44px",
       }}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={(e) => {
@@ -161,18 +161,18 @@ export const SidebarLink = ({
         damping: 17
       }}
     >
-      <NavLink
-        to={link.href}
-        className={({ isActive }) => cn(
-          "relative flex items-center h-12 group",
-          className,
-          {
+    <NavLink
+      to={link.href}
+      className={({ isActive }) => cn(
+        "relative flex items-center h-12 group",
+        className,
+        {
             "text-maroon-600 font-bold": isActive && open,
             "bg-white": isActive, // Show white background when active (both collapsed and expanded)
-            "text-white hover:bg-white/10": !isActive,
-          }
-        )}
-        {...props}>
+          "text-white hover:bg-white/10": !isActive,
+        }
+      )}
+      {...props}>
       {({ isActive }) => (
         <>
 
@@ -262,7 +262,7 @@ export const SidebarLink = ({
 
         </>
       )}
-      </NavLink>
+    </NavLink>
     </motion.div>
   );
 };
