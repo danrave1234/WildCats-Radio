@@ -507,9 +507,10 @@ export const activityLogService = {
 export const songRequestService = {
   getStats: () => api.get('/api/song-requests/stats'),
   getAllRequests: () => api.get('/api/song-requests'),
-  getRequestsByBroadcast: (broadcastId) => api.get(`/api/song-requests/broadcast/${broadcastId}`),
-  getRequests: (broadcastId) => api.get(`/api/song-requests/broadcast/${broadcastId}`), // Alias for compatibility
-  createRequest: (broadcastId, requestData) => api.post('/api/song-requests', { ...requestData, broadcastId }),
+  getRequestsByBroadcast: (broadcastId) => api.get(`/api/broadcasts/${broadcastId}/song-requests`),
+  getRequests: (broadcastId) => api.get(`/api/broadcasts/${broadcastId}/song-requests`), // Alias for compatibility
+  createRequest: (broadcastId, requestData) => api.post(`/api/broadcasts/${broadcastId}/song-requests`, requestData),
+  // FIXME: This endpoint does not seem to exist on the backend
   updateStatus: (requestId, status) => api.put(`/api/song-requests/${requestId}/status?status=${status}`),
 
   // Subscribe to real-time song request updates for a specific broadcast

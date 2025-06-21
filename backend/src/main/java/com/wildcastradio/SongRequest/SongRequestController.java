@@ -3,6 +3,7 @@ package com.wildcastradio.SongRequest;
 import java.util.List;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,6 +47,7 @@ public class SongRequestController {
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<List<SongRequestDTO>> getSongRequests(@PathVariable Long broadcastId) {
         List<SongRequestDTO> songRequests = songRequestService.getSongRequestsForBroadcast(broadcastId);
         return ResponseEntity.ok(songRequests);
