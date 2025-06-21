@@ -80,7 +80,7 @@ public class NetworkConfig {
      * This method determines the Spring Boot application's IP/domain, NOT the Icecast server
      */
     private String detectServerIp() {
-        // Check if an app domain is configured (for production deployments like Heroku)
+        // Check if an app domain is configured (for production deployments)
         if (configuredAppDomain != null && !configuredAppDomain.isEmpty()) {
             logger.info("Using configured app domain: {}", configuredAppDomain);
             return configuredAppDomain;
@@ -321,8 +321,7 @@ public class NetworkConfig {
      */
     private String determineWebSocketProtocol() {
         // Check for specific cloud deployment domains
-        if (serverIp.contains("herokuapp.com") || 
-            serverIp.contains("autoidleapp.com") || 
+        if (serverIp.contains("wildcat-radio.live") || 
             serverIp.contains("onrender.com") ||
             serverIp.contains("railway.app") ||
             serverIp.contains("fly.dev")) {
@@ -344,8 +343,7 @@ public class NetworkConfig {
     private boolean shouldIncludePort() {
         // Don't include port for standard ports or cloud deployments
         return serverPort != 80 && serverPort != 443 && 
-               !serverIp.contains("herokuapp.com") && 
-               !serverIp.contains("autoidleapp.com") &&
+               !serverIp.contains("wildcat-radio.live") &&
                !serverIp.contains("onrender.com") &&
                !serverIp.contains("railway.app") &&
                !serverIp.contains("fly.dev");

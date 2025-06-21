@@ -2,15 +2,45 @@
 
 This is the frontend application for WildCats Radio, built with React and Vite.
 
-## Environment Configuration
+## Configuration System
 
-The application uses environment variables to configure API endpoints and other settings. These are defined in a single `.env` file for all environments.
+The application uses a **centralized configuration system** with automatic environment detection. Configuration is managed in `src/config.js`.
 
-### Available Environment Variables
+### Automatic Environment Detection
 
-- `VITE_API_BASE_URL`: Base URL for API requests
-- `VITE_WS_BASE_URL`: Base URL for WebSocket connections
-- `VITE_ICECAST_URL`: URL for the Icecast audio stream
+The system automatically detects whether you're running locally or in production:
+- **Local**: `localhost`, `127.0.0.1`, or local IP addresses
+- **Deployed**: Any other hostname
+
+### Configuration Override Options
+
+You can override the automatic detection using environment variables:
+
+- `REACT_APP_FORCE_LOCAL=true`: Force local environment
+- `REACT_APP_FORCE_DEPLOYED=true`: Force deployed environment
+- `REACT_APP_API_BASE_URL`: Override API base URL
+- `REACT_APP_WS_BASE_URL`: Override WebSocket base URL
+- `REACT_APP_SOCKJS_BASE_URL`: Override SockJS base URL
+- `REACT_APP_ICECAST_URL`: Override Icecast stream URL
+
+### Changing Backend URLs
+
+To change backend URLs, edit `src/config.js`:
+
+```javascript
+const environments = {
+  local: {
+    apiBaseUrl: 'http://localhost:8080',
+    wsBaseUrl: 'ws://localhost:8080',
+    sockJsBaseUrl: 'http://localhost:8080',
+  },
+  deployed: {
+    apiBaseUrl: 'https://your-backend.example.com',
+    wsBaseUrl: 'wss://your-backend.example.com',
+    sockJsBaseUrl: 'https://your-backend.example.com',
+  }
+};
+```
 
 ## Development
 
@@ -21,7 +51,7 @@ npm install
 npm run dev
 ```
 
-This will use the variables from the `.env` file.
+The system will automatically use local configuration.
 
 ## Production Build
 
@@ -31,13 +61,13 @@ To build the application for production:
 npm run build
 ```
 
-This will use the variables from the `.env` file.
+The system will automatically use deployed configuration when accessed from a production domain.
 
 ## Deployment
 
-When deploying to a new environment, make sure to update the environment variables in the `.env` file to point to the correct backend API and WebSocket endpoints.
+The application automatically detects the deployment environment. No manual configuration is needed for most deployments.
 
-You can also override these variables at runtime by setting them in your deployment environment.
+For custom deployments, you can override URLs using environment variables or by editing `src/config.js`.
 
 ## Original Vite Documentation
 
