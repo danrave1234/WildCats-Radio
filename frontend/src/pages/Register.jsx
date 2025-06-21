@@ -16,7 +16,8 @@ export default function Register() {
   const { register, loading, error: authError } = useAuth()
   const navigate = useNavigate()
   const [formData, setFormData] = useState({
-    name: "",
+    firstname: "",
+    lastname: "",
     email: "",
     password: "",
     confirmPassword: "",
@@ -113,16 +114,16 @@ export default function Register() {
                 {/* Name Fields Row */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="name" className="text-xs font-semibold text-gray-700">
+                    <Label htmlFor="firstname" className="text-xs font-semibold text-gray-700">
                       First Name
                     </Label>
                     <Input
-                      id="name"
-                      name="name"
+                      id="firstname"
+                      name="firstname"
                       type="text"
                       autoComplete="given-name"
                       required
-                      value={formData.name}
+                      value={formData.firstname}
                       onChange={handleChange}
                       placeholder="First name"
                       className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
@@ -139,6 +140,8 @@ export default function Register() {
                       type="text"
                       autoComplete="family-name"
                       required
+                      value={formData.lastname}
+                      onChange={handleChange}
                       placeholder="Last name"
                       className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                     />

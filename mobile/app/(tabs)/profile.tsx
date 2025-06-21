@@ -33,12 +33,12 @@ interface ProfileTabInfo {
   icon: keyof typeof Ionicons.glyphMap;
 }
 
-// Function to generate initials from full name
-const getInitials = (fullName: string = '') => {
-  if (!fullName) return '';
-  const names = fullName.split(' ');
-  const initials = names.map(name => name.charAt(0)).join('');
-  return initials.toUpperCase().slice(0, 2); // Max 2 initials
+// Function to generate initials from user data
+const getInitials = (user: UserData | null) => {
+  if (!user) return '';
+  const firstInitial = user.firstname ? user.firstname.charAt(0) : '';
+  const lastInitial = user.lastname ? user.lastname.charAt(0) : '';
+  return `${firstInitial}${lastInitial}`.toUpperCase();
 };
 
 const ProfileScreen: React.FC = () => {
@@ -138,7 +138,8 @@ const ProfileScreen: React.FC = () => {
 
   // States for Personal Information Edit Form
   const [isEditingPersonalInfo, setIsEditingPersonalInfo] = useState(false);
-  const [fullName, setFullName] = useState('');
+  const [firstname, setFirstname] = useState('');
+  const [lastname, setLastname] = useState('');
   const [email, setEmail] = useState('');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
@@ -165,7 +166,8 @@ const ProfileScreen: React.FC = () => {
       } else {
         setUserData(data);
         // Use the name field from the backend
-        setFullName(data.name || '');
+        setFirstname(data.firstname || '');
+        setLastname(data.lastname || '');
         setEmail(data.email || '');
       }
     } catch (apiError: any) {
@@ -193,9 +195,9 @@ const ProfileScreen: React.FC = () => {
     setIsUpdatingProfile(true);
     setError(null);
     
-    // Send the name directly to match backend's UserDTO structure
     const payload: UpdateUserProfilePayload = { 
-      fullName: fullName.trim() 
+      firstname: firstname.trim(),
+      lastname: lastname.trim()
     };
     
     const response = await updateUserProfile(userData.id, authToken, payload);
@@ -248,182 +250,131 @@ const ProfileScreen: React.FC = () => {
       return (
         <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
             <Text className="text-2xl font-semibold text-cordovan mb-8">Edit Personal Information</Text>
-          <View className={formVerticalSpacing}>
-            <AnimatedTextInput
-              label="Full Name"
-              value={fullName}
-              onChangeText={setFullName}
-              editable={!isUpdatingProfile}
-              autoCapitalize="words"
-            />
-            <AnimatedTextInput
-              label="Email (Cannot be changed)"
-              value={email}
-              editable={false}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              labelColor="#6B7280"
-              activeLabelColor="#6B7280"
-              borderColor="#D1D5DB"
-              activeBorderColor="#D1D5DB"
-              inputStyle={{
-                color: '#6B7280',
-                backgroundColor: '#F9FAFB',
-              }}
-              inputContainerStyle={{
-                backgroundColor: '#F9FAFB',
-                opacity: 0.7,
-              }}
-            />
+            <View className={formVerticalSpacing}>
+              <AnimatedTextInput
+                label="First Name"
+                value={firstname}
+                onChangeText={setFirstname}
+                editable={!isUpdatingProfile}
+                autoCapitalize="words"
+              />
+              <AnimatedTextInput
+                label="Last Name"
+                value={lastname}
+                onChangeText={setLastname}
+                editable={!isUpdatingProfile}
+                autoCapitalize="words"
+              />
+              <AnimatedTextInput
+                label="Email Address"
+                value={email}
+                onChangeText={setEmail}
+                editable={false} 
+                keyboardType="email-address"
+                containerStyle={{ opacity: 0.6 }}
+              />
+            </View>
+            <View className={`flex-row justify-end items-center ${buttonGroupSpacing} space-x-4`}>
+                <TouchableOpacity onPress={() => setIsEditingPersonalInfo(false)} disabled={isUpdatingProfile}>
+                    <Text className="text-gray-600 font-semibold">Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    onPress={handleUpdateProfile}
+                    className="bg-cordovan py-2 px-6 rounded-lg shadow-lg flex-row items-center"
+                    disabled={isUpdatingProfile}
+                >
+                    {isUpdatingProfile && <ActivityIndicator size="small" color="white" className="mr-2" />}
+                    <Text className="text-white font-bold">Save</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+      );
+    }
+    
+    if (activeTab === 'Personal Information') {
+      return (
+        <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
+          <View className="flex-row justify-between items-center mb-6">
+            <Text className="text-2xl font-semibold text-cordovan">Personal Information</Text>
+            <TouchableOpacity onPress={() => setIsEditingPersonalInfo(true)} className="p-2">
+                <MaterialIcons name="edit" size={24} color="#91403E" />
+            </TouchableOpacity>
           </View>
-          <View className={`flex-row justify-end items-center ${buttonGroupSpacing}`}>
-            <Pressable
-              style={({ pressed }) => [
-                {
-                  transform: [{ scale: pressed ? 0.98 : 1 }],
-                  opacity: pressed ? 0.9 : 1,
-                },
-                isUpdatingProfile && { opacity: 0.5 },
-              ]}
-              className={`py-3 px-6 rounded-lg border border-cordovan bg-white shadow-sm transition-all duration-150 ease-in-out ${isUpdatingProfile ? 'cursor-not-allowed' : ''}`}
-              onPress={() => setIsEditingPersonalInfo(false)}
-              disabled={isUpdatingProfile}
-            >
-              <Text className="text-cordovan font-semibold text-base">Cancel</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                {
-                  transform: [{ scale: pressed ? 0.98 : 1 }],
-                  opacity: pressed ? 0.8 : 1,
-                },
-                isUpdatingProfile && { opacity: 0.5 }, 
-              ]}
-              className={`ml-4 bg-mikado_yellow py-3.5 px-7 rounded-lg flex-row items-center justify-center shadow-md transition-all duration-150 ease-in-out ${isUpdatingProfile ? 'cursor-not-allowed' : ''}`}
-              onPress={handleUpdateProfile}
-              disabled={isUpdatingProfile}
-            >
-              {isUpdatingProfile && <ActivityIndicator size="small" color="#000000" className="mr-2" />}
-              <Text className="text-black font-bold text-base">Save Changes</Text>
-            </Pressable>
+          <View className={formVerticalSpacing}>
+            <View>
+              <Text className="text-sm text-cordovan font-medium">FULL NAME</Text>
+              <Text className="text-lg text-gray-800 mt-0.5">{`${firstname} ${lastname}`.trim() || 'N/A'}</Text>
+            </View>
+            <View>
+              <Text className="text-sm text-cordovan font-medium">EMAIL</Text>
+              <Text className="text-lg text-gray-800 mt-0.5">{email || 'N/A'}</Text>
+            </View>
+            <View>
+              <Text className="text-sm text-cordovan font-medium">ROLE</Text>
+              <Text className="text-lg text-gray-800 mt-0.5">{userData?.role || 'N/A'}</Text>
+            </View>
           </View>
         </View>
       );
     }
-
-    switch (activeTab) {
-      case 'Personal Information':
-        return (
-          <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
-            <View className="flex-row justify-between items-center mb-6">
-              <Text className="text-2xl font-semibold text-cordovan">Personal Information</Text>
-              <Pressable 
-                style={({ pressed }) => [
-                  {
-                    transform: [{ scale: pressed ? 0.97 : 1 }],
-                    opacity: pressed ? 0.8 : 1,
-                  },
-                ]}
-                className="flex-row items-center bg-mikado_yellow py-2.5 px-4 rounded-lg shadow transition-all duration-150 ease-in-out"
-                onPress={() => setIsEditingPersonalInfo(true)}
-              >
-                <MaterialIcons name="edit" size={18} color="#000000" />
-                <Text className="text-sm text-black font-semibold ml-1.5">Edit</Text>
-              </Pressable>
-            </View>
-
-            <View className="flex-row items-center py-4 border-b border-gray-200">
-              <Ionicons name="person-outline" size={22} color="#8C1D18" className="mr-4" />
-              <View>
-                <Text className="text-sm text-cordovan font-medium">FULL NAME</Text>
-                <Text className="text-lg text-gray-800 mt-0.5">{fullName || 'N/A'}</Text>
-              </View>
-            </View>
-
-            <View className="flex-row items-center py-4">
-              <Ionicons name="mail-outline" size={22} color="#8C1D18" className="mr-4" />
-              <View>
-                <Text className="text-sm text-cordovan font-medium">EMAIL</Text>
-                <Text className="text-lg text-gray-800 mt-0.5">{userData?.email || email || 'N/A'}</Text>
-              </View>
-            </View>
-          </View>
-        );
-      case 'Security':
-        return (
-          <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
-            <Text className="text-2xl font-semibold text-cordovan mb-8">Change Password</Text>
-            {passwordError && <Text className="text-sm text-red-600 mb-5 -mt-2 text-center font-medium">{passwordError}</Text>}
-            <View className={formVerticalSpacing}>
-                <AnimatedTextInput
+    
+    if (activeTab === 'Security') {
+      return (
+        <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
+          <Text className="text-2xl font-semibold text-cordovan mb-8">Change Password</Text>
+          {passwordError && (
+              <Text className="text-red-500 bg-red-100 p-3 rounded-lg mb-4">{passwordError}</Text>
+          )}
+          <View className={formVerticalSpacing}>
+              <AnimatedTextInput
                   label="Current Password"
                   value={currentPassword}
                   onChangeText={setCurrentPassword}
                   secureTextEntry
                   editable={!isChangingPassword}
-                  autoCapitalize="none"
-                />
-                <AnimatedTextInput
+              />
+              <AnimatedTextInput
                   label="New Password"
                   value={newPassword}
                   onChangeText={setNewPassword}
                   secureTextEntry
                   editable={!isChangingPassword}
-                  autoCapitalize="none"
-                  error={passwordError?.includes('password') && !passwordError?.includes('match')}
-                />
-                <AnimatedTextInput
+              />
+              <AnimatedTextInput
                   label="Confirm New Password"
                   value={confirmNewPassword}
                   onChangeText={setConfirmNewPassword}
                   secureTextEntry
                   editable={!isChangingPassword}
-                  autoCapitalize="none"
-                  error={passwordError?.includes('match')}
-                />
-            </View>
-            <View className={`flex-row justify-end items-center ${buttonGroupSpacing}`}>
-                <Pressable
-                  style={({ pressed }) => [
-                    {
-                      transform: [{ scale: pressed ? 0.98 : 1 }],
-                      opacity: pressed ? 0.9 : 1,
-                    },
-                    isChangingPassword && { opacity: 0.5 },
-                  ]}
-                  className={`py-3 px-6 rounded-lg border border-cordovan bg-white shadow-sm transition-all duration-150 ease-in-out ${isChangingPassword ? 'cursor-not-allowed' : ''}`}
-                  onPress={() => { setCurrentPassword(''); setNewPassword(''); setConfirmNewPassword(''); setPasswordError(null); }}
-                  disabled={isChangingPassword}
-                >
-                  <Text className="text-cordovan font-semibold text-base">Cancel</Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [
-                    {
-                      transform: [{ scale: pressed ? 0.98 : 1 }],
-                      opacity: pressed ? 0.8 : 1,
-                    },
-                    isChangingPassword && { opacity: 0.5 },
-                  ]}
-                  className={`ml-4 bg-mikado_yellow py-3.5 px-7 rounded-lg flex-row items-center justify-center shadow-md transition-all duration-150 ease-in-out ${isChangingPassword ? 'cursor-not-allowed' : ''}`}
+              />
+          </View>
+          <View className={`flex-row justify-end ${buttonGroupSpacing}`}>
+              <TouchableOpacity
                   onPress={handleChangePassword}
+                  className="bg-cordovan py-3 px-6 rounded-lg shadow-lg flex-row items-center"
                   disabled={isChangingPassword}
-                >
-                  {isChangingPassword && <ActivityIndicator size="small" color="#000000" className="mr-2" />}                  
-                  <Text className="text-black font-bold text-base">Update Password</Text>
-                </Pressable>
-            </View>
+              >
+                  {isChangingPassword && <ActivityIndicator size="small" color="white" className="mr-2" />}
+                  <Text className="text-white font-bold">Update Password</Text>
+              </TouchableOpacity>
           </View>
-        );
-      case 'Preferences':
-        return (
-          <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
-            <Text className="text-2xl font-semibold text-gray-900">Preferences</Text>
-            <Text className="text-gray-600 mt-4 text-base">User preferences and app settings will be available here in a future update.</Text>
-          </View>
-        );
-      default: return null;
+        </View>
+      );
     }
+    
+    if (activeTab === 'Preferences') {
+      return (
+        <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
+          <Text className="text-2xl font-semibold text-cordovan mb-8">Preferences</Text>
+          {/* Add preference toggles here, e.g., for dark mode, notifications */}
+          <View>
+            <Text>Theme settings and other user preferences will go here.</Text>
+          </View>
+        </View>
+      );
+    }
+    
+    return null;
   };
 
   if (isLoading && !userData) {
@@ -466,114 +417,71 @@ const ProfileScreen: React.FC = () => {
 
   return (
     <SafeAreaView className="flex-1 bg-gray-100">
-      {/* Fixed Profile Header */}
-      <View className="bg-gray-50 pt-5 pb-3 px-6 items-center border-b border-gray-200 shadow-sm relative">
-        {/* Logout Icon Button */}
-        <Pressable
-          onPress={handleLogout}
-          className="absolute top-2.5 right-2.5 p-2 z-10"
-          android_ripple={{ color: 'rgba(0,0,0,0.1)', borderless: true }}
-        >
-          <Ionicons name="exit-outline" size={24} color="#8C1D18" />
-        </Pressable>
-
-        <View className="w-24 h-24 rounded-full bg-mikado_yellow justify-center items-center mb-2 border-4 border-white shadow-lg">
-          <Text className="text-3xl font-bold text-black">{getInitials(currentDisplayName)}</Text>
-        </View>
-        <Text className="text-xl font-semibold text-gray-900 mb-1">{currentDisplayName}</Text>
-        <Text className="text-sm text-gray-500">{memberSinceText}</Text>
-      </View>
-
-      {/* Tab Navigation - below fixed header, above scrollable content */}
-      <View 
-        className="bg-white border-b border-gray-200 relative shadow-sm"
-        style={{
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.05,
-          shadowRadius: 4,
-          elevation: 3,
-        }}
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 40 }}
+        showsVerticalScrollIndicator={false}
       >
-        <View 
-          className="flex-row py-4 px-2"
-        >
-          {tabDefinitions.map((tabDef, index) => (
-            <View 
-              key={tabDef.key}
-              className="flex-1 px-1"
-              onLayout={(event) => {
-                const { x, width } = event.nativeEvent.layout;
-                // Use actual measured position from the parent container
-                setTabLayouts((prev) => ({
-                  ...prev,
-                  [tabDef.key]: { x: x + 4, width: width - 8 }, // Account for px-1 padding
-                }));
-              }}
-            >
+        {/* Header Section */}
+        <View className="bg-white pt-16 pb-8 px-6 items-center shadow-lg">
+          <View className="w-24 h-24 rounded-full bg-mikado_yellow justify-center items-center mb-2 border-4 border-white shadow-lg">
+            <Text className="text-3xl font-bold text-black">{getInitials(userData)}</Text>
+          </View>
+          <Text className="text-xl font-semibold text-gray-900 mb-1">{`${firstname} ${lastname}`.trim()}</Text>
+          <Text className="text-sm text-gray-500">{userData?.role || 'Role not found'}</Text>
+        </View>
+
+        {/* Tab Navigation */}
+        <View className="bg-white px-2 pt-4">
+          <View className="flex-row">
+            {tabDefinitions.map((tab, index) => (
               <Pressable
-                style={({ pressed }) => [
-                  { 
-                    opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1,
-                  },
-                ]}
-                className={`items-center justify-center py-3 px-2 flex-row rounded-2xl min-h-[44px] ${
-                  activeTab === tabDef.key ? 'bg-cordovan/10' : 'bg-transparent'
-                }`}
-                onPress={() => handleTabPress(tabDef.key)}
-                android_ripple={{ color: 'rgba(0,0,0,0.05)' }}
+                key={tab.key}
+                onLayout={(event) => {
+                  const { x, width } = event.nativeEvent.layout;
+                  setTabLayouts(prev => ({ ...prev, [tab.key]: { x, width } }));
+                }}
+                onPress={() => handleTabPress(tab.key)}
+                className="flex-1 items-center pb-3"
               >
                 <Ionicons
-                  name={tabDef.icon}
-                  size={18}
-                  color={activeTab === tabDef.key ? '#91403E' : '#6B7280'}
+                  name={tab.icon}
+                  size={24}
+                  color={activeTab === tab.key ? "#91403E" : "#6B7280"}
                 />
                 <Text
-                  className={`ml-1.5 text-xs font-semibold ${
-                    activeTab === tabDef.key ? 'text-cordovan' : 'text-gray-600'
+                  className={`mt-1 text-xs font-bold ${
+                    activeTab === tab.key ? 'text-cordovan' : 'text-gray-500'
                   }`}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.8}
                 >
-                  {tabDef.name}
+                  {tab.name}
                 </Text>
               </Pressable>
-            </View>
-          ))}
-        </View>
-        
-        {/* Animated Underline */}
-        <Animated.View
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            height: 4,
-            backgroundColor: '#B5830F',
-            borderTopLeftRadius: 2,
-            borderTopRightRadius: 2,
-            left: underlinePosition,
-            width: underlineWidth,
-          }}
-        />
-      </View>
-      
-      <ScrollView 
-        className="flex-1"
-        contentContainerStyle={{ paddingBottom: Platform.OS === 'ios' ? 40 : 30, paddingTop: 24}}
-        showsVerticalScrollIndicator={true}
-      >
-        <View className="px-4 md:px-6">
-          {renderTabContent()}
+            ))}
+          </View>
+          <Animated.View
+            style={{
+              height: 2,
+              backgroundColor: '#91403E',
+              width: underlineWidth,
+              transform: [{ translateX: underlinePosition }],
+            }}
+          />
         </View>
 
-        <View className="px-6 mt-10 mb-8">
-          {error && (isEditingPersonalInfo || activeTab === 'Security') && (
-            <View className="bg-red-100 p-4 rounded-lg mb-6 flex-row items-center shadow">
-                <Ionicons name="warning-outline" size={22} color="#B91C1C" />
-                <Text className="text-red-800 ml-3 text-sm font-medium flex-1">{error}</Text>
-            </View>
-          )}
+        {/* Tab Content */}
+        <View className="p-4">
+          {renderTabContent()}
+        </View>
+        
+        {/* Logout Button */}
+        <View className="px-4 mt-8">
+            <TouchableOpacity
+                onPress={handleLogout}
+                className="bg-red-500/10 py-3 rounded-lg flex-row items-center justify-center border border-red-500/20"
+            >
+                <Ionicons name="log-out-outline" size={22} color="#EF4444" />
+                <Text className="text-red-500 font-bold ml-2">Sign Out</Text>
+            </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>

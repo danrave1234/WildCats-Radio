@@ -154,6 +154,20 @@ export function StreamingProvider({ children }) {
     }
   };
 
+  const refreshStreamStatus = async () => {
+    try {
+      const response = await streamService.getStatus();
+      if (response.data && response.data.success) {
+        const { listenerCount, isLive } = response.data.data;
+        setListenerCount(listenerCount);
+        setIsLive(isLive);
+        logger.info(`Refreshed stream status: isLive=${isLive}, listeners=${listenerCount}`);
+      }
+    } catch (error) {
+      logger.error('Error refreshing stream status:', error);
+    }
+  };
+
   // Load server configuration
   const loadServerConfig = async () => {
     try {
@@ -286,7 +300,7 @@ export function StreamingProvider({ children }) {
   const getDiagnosticMicrophoneAudioStream = async () => {
     try {
       console.log('🔬 Starting diagnostic microphone audio capture...');
-      
+
       // Step 1: Test basic microphone access
       const micStream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -299,7 +313,7 @@ export function StreamingProvider({ children }) {
       });
 
       console.log('✅ Diagnostic microphone stream obtained');
-      
+
       // Step 2: Test audio levels directly from raw stream
       const testContext = new AudioContext({ sampleRate: 48000 });
       const testSource = testContext.createMediaStreamSource(micStream);
@@ -313,7 +327,7 @@ export function StreamingProvider({ children }) {
       let testCount = 0;
 
       console.log('🔬 Testing raw microphone audio levels for 2 seconds...');
-      
+
       await new Promise((resolve) => {
         const testInterval = setInterval(() => {
           testAnalyser.getByteFrequencyData(testData);
@@ -323,7 +337,7 @@ export function StreamingProvider({ children }) {
           }
           const rms = Math.sqrt(sum / testData.length);
           const dB = rms > 0 ? 20 * Math.log10(rms / 255) : -100;
-          
+
           if (rms > maxLevel) maxLevel = rms;
           testCount++;
 
@@ -354,25 +368,25 @@ export function StreamingProvider({ children }) {
         // Test: return the raw stream directly without any processing
         // This will help identify if the issue is in the processing pipeline
         console.log('⚠️ Using DIRECT STREAM mode (no processing) for testing');
-        
+
         // Set up basic references for audio level monitoring
         const testContext = new AudioContext({ sampleRate: 48000 });
         const testSource = testContext.createMediaStreamSource(micStream);
         const testAnalyser = testContext.createAnalyser();
         testSource.connect(testAnalyser);
-        
+
         analyserRef.current = testAnalyser;
         audioContextRef.current = testContext;
-        
+
         // Start basic monitoring
         startSimplifiedAudioLevelMonitoring();
-        
+
         console.log('✅ Direct stream mode active - no audio processing applied');
         return micStream; // Return raw stream directly
-        
+
       } catch (directError) {
         console.warn('⚠️ Direct stream failed, falling back to processing pipeline:', directError);
-        
+
         // Step 5b: Create processing pipeline as fallback
         const audioContext = new AudioContext({
           sampleRate: 48000,
@@ -381,7 +395,7 @@ export function StreamingProvider({ children }) {
         audioContextRef.current = audioContext;
 
         const processedStream = createSimplifiedAudioProcessingPipeline(micStream, audioContext);
-        
+
         // DON'T stop original stream immediately - let processed stream establish first
         setTimeout(() => {
           console.log('🔧 Stopping original microphone stream after processed stream established');
@@ -402,7 +416,7 @@ export function StreamingProvider({ children }) {
   const getFallbackMicrophoneAudioStream = async () => {
     try {
       console.log('🔄 Attempting fallback microphone capture...');
-      
+
       // Try different audio constraints
       const constraints = [
         // Constraint 1: Minimal settings
@@ -435,39 +449,39 @@ export function StreamingProvider({ children }) {
       for (let i = 0; i < constraints.length; i++) {
         try {
           console.log(`🔄 Trying fallback constraint ${i + 1}:`, constraints[i]);
-          
+
           const stream = await navigator.mediaDevices.getUserMedia(constraints[i]);
-          
+
           // Test this stream briefly
           const testCtx = new AudioContext();
           const testSrc = testCtx.createMediaStreamSource(stream);
           const testAna = testCtx.createAnalyser();
           testSrc.connect(testAna);
-          
+
           // Quick test
           const testArr = new Uint8Array(testAna.frequencyBinCount);
           await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms
           testAna.getByteFrequencyData(testArr);
-          
+
           let sum = 0;
           for (let j = 0; j < testArr.length; j++) {
             sum += testArr[j];
           }
           const avgLevel = sum / testArr.length;
-          
+
           testCtx.close();
-          
+
           console.log(`🔄 Fallback constraint ${i + 1} average level: ${avgLevel.toFixed(2)}`);
-          
+
           if (avgLevel > 0.5 || i === constraints.length - 1) { // Accept if any audio or last attempt
             console.log(`✅ Fallback constraint ${i + 1} accepted, using direct stream`);
-            
+
             // Return the stream directly without complex processing
             return stream;
           } else {
             stream.getTracks().forEach(track => track.stop());
           }
-          
+
         } catch (error) {
           console.warn(`⚠️ Fallback constraint ${i + 1} failed:`, error.message);
         }
@@ -624,7 +638,7 @@ export function StreamingProvider({ children }) {
       };
 
       // 7. Start new recorder immediately
-      newMediaRecorder.start(500);
+      newMediaRecorder.start(250);
 
       // 8. Update references
       mediaRecorderRef.current = newMediaRecorder;
@@ -656,7 +670,7 @@ export function StreamingProvider({ children }) {
           }
         };
 
-        fallbackRecorder.start(500);
+        fallbackRecorder.start(250);
         mediaRecorderRef.current = fallbackRecorder;
         audioStreamRef.current = fallbackStream;
 
@@ -813,7 +827,7 @@ export function StreamingProvider({ children }) {
           }
         };
 
-        mediaRecorder.start(500);
+        mediaRecorder.start(250);
         setIsLive(true);
         console.log('DJ streaming restored successfully');
       }
@@ -1391,7 +1405,7 @@ export function StreamingProvider({ children }) {
       // Set up MediaRecorder when WebSocket connects
       const setupRecording = () => {
         if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
-          
+
           // Helper function to safely send audio data through WebSocket
           const safelySendAudioData = (buffer) => {
             if (djWebSocketRef.current && 
@@ -1520,124 +1534,68 @@ export function StreamingProvider({ children }) {
   };
 
   // Start listening (for listeners)
-  const startListening = () => {
-    if (!serverConfig?.streamUrl) return;
+  const startListening = async () => {
+    if (isListening || !serverConfig?.streamUrl) return;
+
+    logger.info('Attempting to start listening...');
+    setIsListening(true);
+    setAudioPlaying(true); // Optimistically set to true
+
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.crossOrigin = 'anonymous';
+      audioRef.current.preload = 'auto';
+    }
 
     try {
-      if (!audioRef.current) {
-        audioRef.current = new Audio();
-      }
-
-      // Improve URL handling and add fallback formats
-      let streamUrl = serverConfig.streamUrl;
-
-      // Ensure proper protocol
-      if (!streamUrl.startsWith('http')) {
-        streamUrl = `http://${streamUrl}`;
-      }
-
-      console.log('Attempting to play stream:', streamUrl);
-
-      // Set CORS mode for external streams
-      audioRef.current.crossOrigin = 'anonymous';
-      audioRef.current.preload = 'none';
+      const streamUrl = `${serverConfig.streamUrl}?_=${Date.now()}`;
       audioRef.current.src = streamUrl;
-      audioRef.current.volume = isMuted ? 0 : volume / 100;
-
-      // Add better error handling for unsupported formats
-      audioRef.current.addEventListener('error', (e) => {
-        console.error('Audio error event:', e);
-        const error = audioRef.current.error;
-        if (error) {
-          console.error('Audio error details:', {
-            code: error.code,
-            message: error.message,
-            MEDIA_ERR_ABORTED: error.MEDIA_ERR_ABORTED,
-            MEDIA_ERR_NETWORK: error.MEDIA_ERR_NETWORK,
-            MEDIA_ERR_DECODE: error.MEDIA_ERR_DECODE,
-            MEDIA_ERR_SRC_NOT_SUPPORTED: error.MEDIA_ERR_SRC_NOT_SUPPORTED
-          });
-
-          // Try alternative format if OGG is not supported
-          if (error.code === error.MEDIA_ERR_SRC_NOT_SUPPORTED && streamUrl.includes('.ogg')) {
-            console.log('OGG format not supported, trying MP3 fallback...');
-            const mp3Url = streamUrl.replace('.ogg', '.mp3');
-            audioRef.current.src = mp3Url;
-            audioRef.current.load();
-          }
-        }
-      });
-
-      // Add load event listener for better debugging
-      audioRef.current.addEventListener('loadstart', () => {
-        console.log('Audio loading started for:', streamUrl);
-      });
-
-      audioRef.current.addEventListener('canplay', () => {
-        console.log('Audio can start playing');
-      });
-
-      audioRef.current.play().then(() => {
-        setAudioPlaying(true);
-        console.log('Audio playback started successfully');
-      }).catch(error => {
-        console.error('Error starting audio playback:', error);
-
-        // Try to provide more helpful error messages
-        if (error.name === 'NotSupportedError') {
-          console.warn('Stream format not supported, trying alternative...');
-          // Try with different extension
-          if (streamUrl.includes('.ogg')) {
-            const alternativeUrl = streamUrl.replace('.ogg', '');
-            console.log('Trying stream without .ogg extension:', alternativeUrl);
-            audioRef.current.src = alternativeUrl;
-            audioRef.current.load();
-            audioRef.current.play().catch(fallbackError => {
-              console.error('Fallback also failed:', fallbackError);
-            });
-          }
-        }
-      });
-
+      await audioRef.current.play();
+      logger.info('Audio playback started successfully.');
       connectListenerWebSocket();
+      await refreshStreamStatus();
     } catch (error) {
-      console.error('Error starting listening:', error);
+      logger.error('Failed to start audio playback:', error);
+      setIsListening(false);
+      setAudioPlaying(false);
     }
   };
 
   // Stop listening (for listeners)
   const stopListening = () => {
-    try {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-      }
+    if (!isListening) return;
 
-      if (listenerWebSocketRef.current) {
-        listenerWebSocketRef.current.close(1000, 'User stopped listening');
-        listenerWebSocketRef.current = null;
-      }
+    logger.info('Attempting to stop listening...');
+    setIsListening(false);
+    setAudioPlaying(false);
 
-      if (listenerReconnectTimerRef.current) {
-        clearTimeout(listenerReconnectTimerRef.current);
-        listenerReconnectTimerRef.current = null;
-      }
-
-      setAudioPlaying(false);
-      setIsListening(false);
-
-      console.log('Listening stopped');
-    } catch (error) {
-      console.error('Error stopping listening:', error);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
     }
+
+    disconnectListenerWebSocket();
+    refreshStreamStatus();
   };
 
   // Toggle audio playback for listeners
   const toggleAudio = () => {
     if (audioPlaying) {
-      stopListening();
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setAudioPlaying(false);
+      if (listenerWebSocketRef.current && listenerWebSocketRef.current.readyState === WebSocket.OPEN) {
+        listenerWebSocketRef.current.send(JSON.stringify({ type: 'LISTENER_STATUS', action: 'STOP_LISTENING' }));
+      }
     } else {
-      startListening();
+      if (audioRef.current) {
+        audioRef.current.play().catch(e => logger.error("Error resuming playback:", e));
+      }
+      setAudioPlaying(true);
+      if (listenerWebSocketRef.current && listenerWebSocketRef.current.readyState === WebSocket.OPEN) {
+        listenerWebSocketRef.current.send(JSON.stringify({ type: 'LISTENER_STATUS', action: 'START_LISTENING' }));
+      }
     }
   };
 
@@ -1805,7 +1763,7 @@ export function StreamingProvider({ children }) {
   const createAudioProcessingPipeline = (inputStream, audioContext) => {
     try {
       console.log('🎛️ Creating audio processing pipeline...');
-      
+
       // Create audio processing nodes
       const source = audioContext.createMediaStreamSource(inputStream);
       const analyser = audioContext.createAnalyser();
@@ -1828,7 +1786,7 @@ export function StreamingProvider({ children }) {
       micBoostNode.gain.value = microphoneBoost; // Use state value
       noiseGate.gain.value = 1.0; // Will be controlled by noise gate logic  
       masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
-      
+
       console.log('🎛️ Audio pipeline initial settings:', {
         microphoneBoost: micBoostNode.gain.value,
         noiseGateValue: noiseGate.gain.value,
@@ -1861,7 +1819,7 @@ export function StreamingProvider({ children }) {
   const createSimplifiedAudioProcessingPipeline = (inputStream, audioContext) => {
     try {
       console.log('🎛️ Creating simplified audio processing pipeline...');
-      
+
       // Create minimal processing nodes to avoid timing issues
       const source = audioContext.createMediaStreamSource(inputStream);
       const analyser = audioContext.createAnalyser();
@@ -1882,7 +1840,7 @@ export function StreamingProvider({ children }) {
       // Set initial values - simplified gain staging
       micBoostNode.gain.value = microphoneBoost; // Apply microphone boost
       masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
-      
+
       console.log('🎛️ Simplified audio pipeline settings:', {
         microphoneBoost: micBoostNode.gain.value,
         masterGainValue: masterGain.gain.value,
@@ -1899,31 +1857,31 @@ export function StreamingProvider({ children }) {
 
       // DEBUG: Test each stage of the pipeline
       console.log('🔧 Testing audio pipeline stages...');
-      
+
       // Test raw source audio levels
       const sourceAnalyser = audioContext.createAnalyser();
       sourceAnalyser.fftSize = 256;
       source.connect(sourceAnalyser);
-      
+
       // Test final destination audio levels  
       const destAnalyser = audioContext.createAnalyser();
       destAnalyser.fftSize = 256;
       masterGain.connect(destAnalyser);
-      
+
       // Monitor both for 3 seconds
       let debugCount = 0;
       const debugInterval = setInterval(() => {
         const sourceData = new Uint8Array(sourceAnalyser.frequencyBinCount);
         const destData = new Uint8Array(destAnalyser.frequencyBinCount);
-        
+
         sourceAnalyser.getByteFrequencyData(sourceData);
         destAnalyser.getByteFrequencyData(destData);
-        
+
         const sourceRMS = Math.sqrt(sourceData.reduce((sum, val) => sum + val*val, 0) / sourceData.length);
         const destRMS = Math.sqrt(destData.reduce((sum, val) => sum + val*val, 0) / destData.length);
-        
+
         console.log(`🔧 Pipeline debug ${debugCount}: Source RMS=${sourceRMS.toFixed(2)}, Dest RMS=${destRMS.toFixed(2)}, Boost=${micBoostNode.gain.value}x, Master=${masterGain.gain.value}`);
-        
+
         debugCount++;
         if (debugCount >= 30) { // 3 seconds
           clearInterval(debugInterval);
@@ -1946,7 +1904,7 @@ export function StreamingProvider({ children }) {
   const createFallbackAudioProcessingPipeline = (inputStream) => {
     try {
       console.log('🎛️ Creating fallback audio processing pipeline...');
-      
+
       // Create minimal audio context for basic processing
       const audioContext = new AudioContext({
         sampleRate: inputStream.getAudioTracks()[0].getSettings().sampleRate || 44100,
@@ -1964,7 +1922,7 @@ export function StreamingProvider({ children }) {
 
       // Apply basic microphone boost
       micBoostNode.gain.value = microphoneBoost * (isDJMuted ? 0.0 : djAudioGain);
-      
+
       console.log('🎛️ Fallback audio pipeline settings:', {
         microphoneBoost: microphoneBoost,
         isDJMuted,
@@ -2163,6 +2121,7 @@ export function StreamingProvider({ children }) {
     disconnectAll,
     getStreamUrl,
     getWebSocketUrl,
+    refreshStreamStatus,
 
     // Refs (for direct access when needed)
     djWebSocketRef,

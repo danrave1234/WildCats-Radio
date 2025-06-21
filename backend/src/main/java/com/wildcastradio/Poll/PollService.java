@@ -240,7 +240,7 @@ public class PollService {
                 poll.getEndedAt(),
                 poll.isActive(),
                 poll.getCreatedBy().getId(),
-                poll.getCreatedBy().getName(),
+                poll.getCreatedBy().getFirstname() + " " + poll.getCreatedBy().getLastname(),
                 poll.getBroadcast().getId(),
                 optionDTOs,
                 voteRepository.countByPoll(poll)

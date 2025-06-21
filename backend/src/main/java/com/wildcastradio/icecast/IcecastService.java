@@ -15,6 +15,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wildcastradio.config.NetworkConfig;
 
 /**
@@ -47,6 +49,9 @@ public class IcecastService {
     @Value("${icecast.admin.password:hackme}")
     private String icecastAdminPassword;
 
+    @Value("${app.domain:https://api.wildcat-radio.live}")
+    private String appDomain;
+
     private final NetworkConfig networkConfig;
 
     // Track active broadcasting sessions
@@ -71,7 +76,7 @@ public class IcecastService {
     public void notifyBroadcastStarted(String sessionId) {
         logger.info("Broadcast started for session: {}", sessionId);
         activeBroadcasts.put(sessionId, new BroadcastInfo(sessionId, System.currentTimeMillis()));
-        
+
         // Notify listener status handler if available
         if (listenerStatusHandler != null) {
             listenerStatusHandler.triggerStatusUpdate();
@@ -85,7 +90,7 @@ public class IcecastService {
     public void notifyBroadcastEnded(String sessionId) {
         logger.info("Broadcast ended for session: {}", sessionId);
         activeBroadcasts.remove(sessionId);
-        
+
         // Notify listener status handler if available
         if (listenerStatusHandler != null) {
             listenerStatusHandler.triggerStatusUpdate();
@@ -182,6 +187,9 @@ public class IcecastService {
      * @return Number of current listeners
      */
     public Integer getCurrentListenerCount() {
+        int icecastListeners = 0;
+        int webSocketListeners = listenerStatusHandler != null ? listenerStatusHandler.getActiveListenersCount() : 0;
+
         try {
             URL url = new URL(getIcecastStreamingUrl() + "/status-json.xsl");
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -189,37 +197,23 @@ public class IcecastService {
             connection.setConnectTimeout(5000);
             connection.setReadTimeout(5000);
 
-            int responseCode = connection.getResponseCode();
-            if (responseCode == 200) {
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-                    StringBuilder response = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        response.append(line);
-                    }
+            if (connection.getResponseCode() == 200) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode rootNode = mapper.readTree(connection.getInputStream());
+                JsonNode icestats = rootNode.path("icestats");
 
-                    String jsonResponse = response.toString();
-                    
-                    // Simple parsing to extract listener count for our mount point
-                    // Look for pattern: "mount":"/live.ogg" ... "listeners":X
-                    if (jsonResponse.contains("\"mount\":\"" + icecastMount + "\"")) {
-                        int mountIndex = jsonResponse.indexOf("\"mount\":\"" + icecastMount + "\"");
-                        int nextMountIndex = jsonResponse.indexOf("\"mount\":", mountIndex + 1);
-                        
-                        String mountSection = nextMountIndex > 0 ? 
-                            jsonResponse.substring(mountIndex, nextMountIndex) : 
-                            jsonResponse.substring(mountIndex);
-                        
-                        int listenersIndex = mountSection.indexOf("\"listeners\":");
-                        if (listenersIndex > 0) {
-                            int startIndex = listenersIndex + 12;
-                            int endIndex = mountSection.indexOf(',', startIndex);
-                            if (endIndex == -1) endIndex = mountSection.indexOf('}', startIndex);
-                            
-                            if (endIndex > startIndex) {
-                                String listenersStr = mountSection.substring(startIndex, endIndex).trim();
-                                return Integer.parseInt(listenersStr);
+                if (icestats.has("source")) {
+                    JsonNode sourceNode = icestats.path("source");
+                    if (sourceNode.isArray()) {
+                        for (JsonNode source : sourceNode) {
+                            if (icecastMount.equals(source.path("listenurl").asText().substring(source.path("listenurl").asText().lastIndexOf("/")))) {
+                                icecastListeners = source.path("listeners").asInt();
+                                break;
                             }
+                        }
+                    } else {
+                        if (icecastMount.equals(sourceNode.path("listenurl").asText().substring(sourceNode.path("listenurl").asText().lastIndexOf("/")))) {
+                            icecastListeners = sourceNode.path("listeners").asInt();
                         }
                     }
                 }
@@ -227,10 +221,8 @@ public class IcecastService {
         } catch (Exception e) {
             logger.warn("Failed to get listener count from Icecast: {}", e.getMessage());
         }
-        
-        // Return 0 if unable to get count from Icecast, but add WebSocket listeners if available
-        int webSocketListeners = listenerStatusHandler != null ? listenerStatusHandler.getActiveListenersCount() : 0;
-        return webSocketListeners;
+
+        return icecastListeners + webSocketListeners;
     }
 
     /**
@@ -247,10 +239,10 @@ public class IcecastService {
 
             int responseCode = connection.getResponseCode();
             boolean isUp = responseCode == 200;
-            
+
             logger.debug("Icecast server status check: {} (response code: {})", 
                         isUp ? "UP" : "DOWN", responseCode);
-            
+
             return isUp;
         } catch (IOException e) {
             logger.warn("Icecast server is not reachable: {}", e.getMessage());
@@ -314,8 +306,10 @@ public class IcecastService {
         if (networkConfig != null) {
             return networkConfig.getWebSocketUrl();
         }
-        // Fallback - construct from current server context
-        return "ws://localhost:8080/ws/live";
+        // Fallback - use app domain from configuration or default to deployed URL
+        String protocol = appDomain != null && appDomain.startsWith("https://") ? "wss" : "ws";
+        String baseUrl = appDomain != null ? appDomain.replaceFirst("https?://", "") : "api.wildcat-radio.live";
+        return protocol + "://" + baseUrl + "/ws/live";
     }
 
     /**
@@ -326,7 +320,10 @@ public class IcecastService {
         if (networkConfig != null) {
             return networkConfig.getListenerWebSocketUrl();
         }
-        return "ws://localhost:8080/ws/listener";
+        // Fallback - use app domain from configuration or default to deployed URL
+        String protocol = appDomain != null && appDomain.startsWith("https://") ? "wss" : "ws";
+        String baseUrl = appDomain != null ? appDomain.replaceFirst("https?://", "") : "api.wildcat-radio.live";
+        return protocol + "://" + baseUrl + "/ws/listener";
     }
 
     /**
@@ -361,7 +358,7 @@ public class IcecastService {
             int responseCode = connection.getResponseCode();
             if (responseCode == 200) {
                 status.put("serverReachable", true);
-                
+
                 // Read the JSON response
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
                     StringBuilder response = new StringBuilder();
@@ -372,26 +369,26 @@ public class IcecastService {
 
                     String jsonResponse = response.toString();
                     logger.debug("Icecast status JSON: {}", jsonResponse);
-                    
+
                     // Check if our mount point exists in the response
                     if (jsonResponse.contains("\"mount\":\"" + icecastMount + "\"")) {
                         status.put("mountPointExists", true);
-                        
+
                         // Extract mount point section
                         int mountIndex = jsonResponse.indexOf("\"mount\":\"" + icecastMount + "\"");
                         int nextMountIndex = jsonResponse.indexOf("\"mount\":", mountIndex + 1);
-                        
+
                         String mountSection = nextMountIndex > 0 ? 
                             jsonResponse.substring(mountIndex, nextMountIndex) : 
                             jsonResponse.substring(mountIndex);
-                        
+
                         // Check for listeners
                         int listenersIndex = mountSection.indexOf("\"listeners\":");
                         if (listenersIndex > 0) {
                             int startIndex = listenersIndex + 12;
                             int endIndex = mountSection.indexOf(',', startIndex);
                             if (endIndex == -1) endIndex = mountSection.indexOf('}', startIndex);
-                            
+
                             if (endIndex > startIndex) {
                                 String listenersStr = mountSection.substring(startIndex, endIndex).trim();
                                 try {
@@ -402,14 +399,14 @@ public class IcecastService {
                                 }
                             }
                         }
-                        
+
                         // Check if there's an active source (has source_ip)
                         if (mountSection.contains("\"source_ip\"")) {
                             status.put("hasActiveSource", true);
                         } else {
                             status.put("errorMessage", "Mount point exists but no active source connected");
                         }
-                        
+
                     } else {
                         status.put("errorMessage", "Mount point " + icecastMount + " not found in server response");
                         logger.warn("Mount point {} not found in Icecast server response", icecastMount);
@@ -423,8 +420,37 @@ public class IcecastService {
             status.put("errorMessage", "Cannot connect to Icecast server: " + e.getMessage());
             logger.warn("Failed to check Icecast mount point status: {}", e.getMessage());
         }
-        
+
         return status;
+    }
+
+    // Getter methods for Icecast configuration
+    public String getIcecastHost() {
+        return icecastHost;
+    }
+
+    public int getIcecastPort() {
+        return icecastPort;
+    }
+
+    public String getIcecastUsername() {
+        return icecastUsername;
+    }
+
+    public String getIcecastPassword() {
+        return icecastPassword;
+    }
+
+    public String getIcecastMount() {
+        return icecastMount;
+    }
+
+    public String getIcecastAdminUsername() {
+        return icecastAdminUsername;
+    }
+
+    public String getIcecastAdminPassword() {
+        return icecastAdminPassword;
     }
 
     /**

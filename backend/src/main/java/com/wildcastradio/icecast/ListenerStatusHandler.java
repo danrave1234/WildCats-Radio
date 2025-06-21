@@ -64,20 +64,31 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         logger.info("Listener WebSocket connection established: {}", session.getId());
-        
-        // Extract and validate JWT token from URL parameters
-        String username = extractAndValidateToken(session);
-        if (username != null) {
-            sessionToUser.put(session.getId(), username);
-            logger.info("Authenticated user '{}' connected to listener WebSocket: {}", username, session.getId());
-        } else {
-            logger.info("Anonymous user connected to listener WebSocket: {}", session.getId());
-        }
-        
-        listenerSessions.put(session.getId(), session);
 
-        // Send initial status immediately
-        sendStatusToSession(session);
+        try {
+            // Extract and validate JWT token from URL parameters
+            String username = extractAndValidateToken(session);
+            if (username != null) {
+                sessionToUser.put(session.getId(), username);
+                logger.info("Authenticated user '{}' connected to listener WebSocket: {}", username, session.getId());
+            } else {
+                logger.info("Anonymous user connected to listener WebSocket: {}", session.getId());
+            }
+
+            listenerSessions.put(session.getId(), session);
+
+            // Send initial status immediately
+            sendStatusToSession(session);
+        } catch (Exception e) {
+            logger.error("Error during WebSocket connection establishment for session {}: {}", 
+                        session.getId(), e.getMessage(), e);
+            // Clean up any partial session data
+            listenerSessions.remove(session.getId());
+            activeListeners.remove(session.getId());
+            sessionToUser.remove(session.getId());
+            // Rethrow to let Spring WebSocket framework handle the connection failure
+            throw e;
+        }
     }
 
     @Override
@@ -85,7 +96,7 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
         String username = sessionToUser.get(session.getId());
         logger.info("Listener WebSocket connection closed: {} (user: {}) with status: {}", 
                    session.getId(), username != null ? username : "anonymous", status);
-        
+
         listenerSessions.remove(session.getId());
         activeListeners.remove(session.getId());
         sessionToUser.remove(session.getId());
@@ -96,7 +107,7 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
         String username = sessionToUser.get(session.getId());
         logger.error("Transport error in listener WebSocket session: {} (user: {})", 
                     session.getId(), username != null ? username : "anonymous", exception);
-        
+
         listenerSessions.remove(session.getId());
         activeListeners.remove(session.getId());
         sessionToUser.remove(session.getId());
@@ -140,7 +151,7 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
      */
     private void handleListenerAction(WebSocketSession session, String action, JsonNode jsonNode, String username) {
         String sessionId = session.getId();
-        
+
         logger.info("Processing listener action '{}' from session {} (user: {})", action, sessionId, 
                    username != null ? username : "anonymous");
 
@@ -150,13 +161,13 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
                 logger.info("Listener started playing: {} (user: {})", sessionId, 
                            username != null ? username : "anonymous");
                 break;
-                
+
             case "STOP_LISTENING":
                 activeListeners.remove(sessionId);
                 logger.info("Listener stopped playing: {} (user: {})", sessionId, 
                            username != null ? username : "anonymous");
                 break;
-                
+
             case "HEARTBEAT":
                 // Just confirm the listener is still active if they're marked as playing
                 if (activeListeners.containsKey(sessionId)) {
@@ -164,7 +175,7 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
                                 username != null ? username : "anonymous");
                 }
                 break;
-                
+
             default:
                 logger.warn("Unknown listener action '{}' from session: {}", action, sessionId);
                 return;
@@ -207,11 +218,11 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
                             .build()
                             .getQueryParams()
                             .toSingleValueMap();
-                    
+
                     String token = params.get("token");
                     if (token != null && !token.trim().isEmpty()) {
                         logger.debug("Found JWT token in WebSocket URL for session: {}", session.getId());
-                        
+
                         try {
                             String username = jwtUtil.extractUsername(token);
                             if (username != null) {
@@ -221,7 +232,7 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
                                     Authentication auth = new UsernamePasswordAuthenticationToken(
                                             userDetails, null, userDetails.getAuthorities());
                                     SecurityContextHolder.getContext().setAuthentication(auth);
-                                    
+
                                     logger.info("Successfully authenticated WebSocket user: {}", username);
                                     return username;
                                 } else {
@@ -239,7 +250,7 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
         } catch (Exception e) {
             logger.warn("Error extracting token from WebSocket URL for session {}: {}", session.getId(), e.getMessage());
         }
-        
+
         return null; // No valid authentication
     }
 
@@ -269,19 +280,31 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
 
             String jsonMessage = objectMapper.writeValueAsString(message);
 
-            // Send to all connected listener sessions
+            // Send to all connected listener sessions and clean up any closed or error sessions
             listenerSessions.entrySet().removeIf(entry -> {
+                String sessionId = entry.getKey();
                 WebSocketSession session = entry.getValue();
+
                 if (session.isOpen()) {
                     try {
                         session.sendMessage(new TextMessage(jsonMessage));
                         return false; // Keep the session
                     } catch (IOException e) {
-                        logger.warn("Failed to send message to listener session {}: {}", 
-                                  entry.getKey(), e.getMessage());
+                        String username = sessionToUser.get(sessionId);
+                        logger.warn("Failed to send message to listener session {} (user: {}): {}", 
+                                  sessionId, username != null ? username : "anonymous", e.getMessage());
+
+                        // Clean up other maps for this session
+                        activeListeners.remove(sessionId);
+                        sessionToUser.remove(sessionId);
+
                         return true; // Remove the session
                     }
                 } else {
+                    // Clean up other maps for this closed session
+                    activeListeners.remove(sessionId);
+                    sessionToUser.remove(sessionId);
+
                     return true; // Remove closed sessions
                 }
             });
@@ -298,6 +321,12 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
      */
     private void sendStatusToSession(WebSocketSession session) {
         try {
+            // Check if session is still open before attempting to send
+            if (!session.isOpen()) {
+                logger.debug("Not sending status to closed session: {}", session.getId());
+                return;
+            }
+
             Map<String, Object> streamStatus = icecastService.getStreamStatus();
             Integer listenerCount = icecastService.getCurrentListenerCount();
 
@@ -308,8 +337,17 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
             message.put("timestamp", System.currentTimeMillis());
 
             String jsonMessage = objectMapper.writeValueAsString(message);
-            session.sendMessage(new TextMessage(jsonMessage));
 
+            try {
+                session.sendMessage(new TextMessage(jsonMessage));
+            } catch (IOException e) {
+                logger.warn("Failed to send message to listener session {}: {}", 
+                          session.getId(), e.getMessage());
+                // Remove the session from our maps since it's likely broken
+                listenerSessions.remove(session.getId());
+                activeListeners.remove(session.getId());
+                sessionToUser.remove(session.getId());
+            }
         } catch (Exception e) {
             logger.error("Error sending status to session {}: {}", session.getId(), e.getMessage());
         }
