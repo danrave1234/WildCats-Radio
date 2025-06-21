@@ -14,7 +14,7 @@
     # ---------- 2nd stage: runtime ----------
     FROM eclipse-temurin:17-jre-alpine
     WORKDIR /app
-    COPY --from=builder /workspace/target/*.jar app.jar
+    COPY --from=builder /workspace/target/*.jar /app/
     
     EXPOSE 8080
-    ENTRYPOINT ["java","-jar","/app/app.jar"]
+    ENTRYPOINT ["java","-jar","/app/wildcats-radio-backend-0.0.1-SNAPSHOT-exec.jar"]
