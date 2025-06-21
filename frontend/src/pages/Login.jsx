@@ -3,10 +3,15 @@
 import { useState, useEffect } from "react"
 import { useAuth } from "../context/AuthContext"
 import { Link } from "react-router-dom"
-import { XCircleIcon } from "@heroicons/react/24/outline"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { AlertCircle, Eye, EyeOff, Loader2, KeyRound } from "lucide-react"
 import wildcatRadioLogo from "../assets/wildcatradio_logo.png"
-import icHide from "../assets/ic_hide.png"
-import icUnhide from "../assets/ic_unhide.png"
+import { Separator } from "@/components/ui/separator"
+import background from "../assets/background.jpg"
 
 // Cookie helper functions
 const getCookie = (name) => {
@@ -112,126 +117,164 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#E9ECEC] py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full bg-white shadow-xl rounded-lg overflow-hidden">
-        <div className="p-8 flex flex-col items-center">
-          <img 
-            src={wildcatRadioLogo} 
-            alt="WildCat Radio Logo" 
-            className="h-28 mb-6"
-          />
-          
-          <h2 className="text-2xl font-bold text-center text-gray-900 mb-1">
-            Welcome
-          </h2>
-          <p className="text-sm text-gray-600 text-center mb-6">
-            Sign in to continue to WildCats Radio
-          </p>
+    <div 
+      className="min-h-screen w-full bg-cover bg-center"
+      style={{ backgroundImage: `url(${background})` }}
+    >
+      <div className="min-h-screen w-full bg-wildcats-yellow/20 backdrop-blur-sm flex flex-col items-center justify-center p-4 py-8">
+        <div className="w-full max-w-md">
+          {/* Logo Section */}
+          <div className="flex justify-center mb-2">
+            <img 
+              src={wildcatRadioLogo} 
+              alt="WildCat Radio Logo" 
+              className="h-40 w-auto"
+            />
+          </div>
 
-          <form className="w-full" onSubmit={handleSubmit}>
-            <div className="mb-4">
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                Email
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={formData.email}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#91403E] focus:border-[#91403E]"
-                placeholder="Enter your email"
-              />
+          {/* Title Section */}
+          <div className="text-center mb-4 px-4">
+            <p className="text-sm text-black uppercase tracking-wider max-w-sm mx-auto font-semibold">
+              Your radio broadcast platform
+            </p>
+          </div>
+
+          <Card className="border-0 shadow-2xl bg-white/95 backdrop-blur-xl overflow-hidden rounded-2xl">
+            <div className="h-3 bg-gradient-to-r from-wildcats-maroon to-wildcats-maroon/70" />
+            <CardHeader className="flex flex-row items-start justify-between px-6 pt-6 pb-3">
+              <div>
+                <CardTitle className="text-xl font-bold text-gray-800">Sign in to your account</CardTitle>
+                <CardDescription className="text-sm text-gray-500 mt-1">
+                  Enter your email below to sign in to your account
+                </CardDescription>
+              </div>
+              <div className="bg-wildcats-maroon/10 p-3 rounded-full">
+                <KeyRound className="h-6 w-6 text-wildcats-maroon" />
+              </div>
+            </CardHeader>
+            <div className="px-6">
+              <Separator className="bg-gray-200" />
             </div>
-            
-            <div className="mb-4">
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  required
-                  value={formData.password}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#91403E] focus:border-[#91403E]"
-                  placeholder="Enter your password"
-                  style={{
-                    // Hide browser's built-in password reveal button
-                    "&::-ms-reveal, &::-ms-clear": {
-                      display: "none"
-                    },
-                    "-webkit-text-security": showPassword ? "none" : "disc"
-                  }}
-                />
-                <button 
-                  type="button" 
-                  onClick={togglePasswordVisibility}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2"
-                >
-                  <img 
-                    src={showPassword ? icHide : icUnhide} 
-                    alt={showPassword ? "Hide password" : "Show password"} 
-                    className="h-5 w-5 opacity-70"
+            <CardContent className="px-6 py-6 pt-3">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Email Field */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-xs font-semibold text-gray-700">
+                    Email Address
+                  </Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={formData.email}
+                    onChange={handleChange}
+                    placeholder="Enter your email address"
+                    className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 rounded-md shadow-sm"
                   />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center">
-                <input
-                  id="remember-me"
-                  name="remember-me"
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={() => setRememberMe(!rememberMe)}
-                  className="h-4 w-4 text-[#91403E] focus:ring-[#91403E] border-gray-300 rounded"
-                />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700">
-                  Remember me
-                </label>
-              </div>
-
-              <div className="text-sm">
-                <a href="#" className="font-medium text-[#91403E] hover:text-[#91403E]/80">
-                  Forgot password?
-                </a>
-              </div>
-            </div>
-
-            {(error || authError) && (
-              <div className="rounded-md bg-red-50 p-3 mb-4 border border-red-200">
-                <div className="flex">
-                  <div className="flex-shrink-0">
-                    <XCircleIcon className="h-5 w-5 text-red-400" aria-hidden="true" />
-                  </div>
-                  <div className="ml-3">
-                    <p className="text-sm font-medium text-red-800">{error || authError}</p>
+                </div>
+                
+                {/* Password Field */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="password" className="text-xs font-semibold text-gray-700">
+                    Password
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      name="password"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="current-password"
+                      required
+                      value={formData.password}
+                      onChange={handleChange}
+                      placeholder="Enter your password"
+                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 rounded-md shadow-sm"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="group absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 rounded-md focus:outline-none hover:bg-transparent"
+                      onClick={togglePasswordVisibility}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                      )}
+                    </Button>
                   </div>
                 </div>
+
+                {/* Remember Me & Forgot Password */}
+                <div className="flex items-center justify-between pt-1">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="remember-me"
+                      checked={rememberMe}
+                      onCheckedChange={setRememberMe}
+                      className="border-wildcats-maroon data-[state=checked]:bg-wildcats-maroon data-[state=checked]:text-white data-[state=checked]:border-wildcats-maroon focus:outline-none focus-visible:ring-0"
+                    />
+                    <Label 
+                      htmlFor="remember-me" 
+                      className="text-xs text-gray-600 cursor-pointer font-medium"
+                    >
+                      Remember me
+                    </Label>
+                  </div>
+
+                  <Link 
+                    to="#" 
+                    className="text-xs font-semibold text-wildcats-maroon hover:text-wildcats-maroon/80 transition-colors focus:outline-none"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+
+                {/* Error Message */}
+                {(error || authError) && (
+                  <div className="rounded-md bg-red-50 border border-red-200 p-3">
+                    <div className="flex items-center space-x-2">
+                      <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                      <p className="text-xs font-medium text-red-800">{error || authError}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Submit Button */}
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full h-11 bg-gradient-to-r from-wildcats-yellow to-wildcats-yellow/90 hover:from-wildcats-yellow/90 hover:to-wildcats-yellow/80 text-black font-semibold shadow-lg hover:shadow-xl transition-all duration-300 disabled:transform-none disabled:opacity-70 rounded-lg mt-4 focus:outline-none focus-visible:ring-0"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Signing In...
+                    </>
+                  ) : (
+                    'Sign In'
+                  )}
+                </Button>
+              </form>
+
+              {/* Sign Up Link */}
+              <div className="text-center pt-3">
+                <p className="text-sm text-gray-600">
+                  Don't have an account?{' '}
+                  <Link 
+                    to="/register" 
+                    className="font-semibold text-wildcats-maroon hover:text-wildcats-maroon/80 transition-colors focus:outline-none"
+                  >
+                    Create account
+                  </Link>
+                </p>
               </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className={`w-full py-2 px-4 text-white font-medium rounded-md bg-[#F4BE03] hover:bg-[#F4BE03]/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#F4BE03] transition-colors ${
-                loading ? 'opacity-70 cursor-not-allowed' : ''
-              }`}
-            >
-              {loading ? 'Signing In...' : 'Sign In'}
-            </button>
-          </form>
-
-          <p className="mt-6 text-center text-sm text-gray-600">
-            Don't have an account? <Link to="/register" className="font-medium text-[#91403E] hover:text-[#91403E]/80">Sign up</Link>
-          </p>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

@@ -21,12 +21,15 @@ public class WebSocketConfig implements WebSocketConfigurer {
     
     private final IcecastStreamHandler icecastStreamHandler;
     private final ListenerStatusHandler listenerStatusHandler;
+    private final CorsConfig corsConfig;
     
     @Autowired
     public WebSocketConfig(IcecastStreamHandler icecastStreamHandler, 
-                          ListenerStatusHandler listenerStatusHandler) {
+                          ListenerStatusHandler listenerStatusHandler,
+                          CorsConfig corsConfig) {
         this.icecastStreamHandler = icecastStreamHandler;
         this.listenerStatusHandler = listenerStatusHandler;
+        this.corsConfig = corsConfig;
     }
     
     /**
@@ -50,10 +53,10 @@ public class WebSocketConfig implements WebSocketConfigurer {
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         // Audio streaming endpoint for DJs
         registry.addHandler(icecastStreamHandler, "/ws/live")
-                .setAllowedOriginPatterns("*"); // Use patterns instead of origins for CORS compatibility
+                .setAllowedOrigins(corsConfig.getAllowedOrigins().toArray(new String[0]));
         
         // Status updates endpoint for listeners  
         registry.addHandler(listenerStatusHandler, "/ws/listener")
-                .setAllowedOriginPatterns("*");
+                .setAllowedOrigins(corsConfig.getAllowedOrigins().toArray(new String[0]));
     }
 }

@@ -32,7 +32,7 @@ public class NetworkConfig {
     @Value("${icecast.port:8000}")
     private int icecastPort;
 
-    @Value("${icecast.host:#{null}}")
+    @Value("${icecast.host:icecast.software}")
     private String configuredIcecastHost;
 
     @Value("${app.domain:#{null}}")
@@ -80,7 +80,7 @@ public class NetworkConfig {
      * This method determines the Spring Boot application's IP/domain, NOT the Icecast server
      */
     private String detectServerIp() {
-        // Check if an app domain is configured (for production deployments like Heroku)
+        // Check if an app domain is configured (for production deployments)
         if (configuredAppDomain != null && !configuredAppDomain.isEmpty()) {
             logger.info("Using configured app domain: {}", configuredAppDomain);
             return configuredAppDomain;
@@ -277,9 +277,13 @@ public class NetworkConfig {
 
     // URL helpers for various components
     public String getIcecastUrl() {
-        // Use HTTPS for port 443, HTTP for other ports
-        String protocol = (icecastPort == 443) ? "https" : "http";
-        return protocol + "://" + icecastHost + ":" + icecastPort;
+        // For web interface, use HTTPS through reverse proxy
+        return "https://" + icecastHost;
+    }
+
+    public String getIcecastStreamingUrl() {
+        // For FFmpeg streaming, connect directly to Icecast server port
+        return "http://" + icecastHost + ":" + icecastPort;
     }
 
     public String getWebSocketUrl() {
@@ -317,8 +321,7 @@ public class NetworkConfig {
      */
     private String determineWebSocketProtocol() {
         // Check for specific cloud deployment domains
-        if (serverIp.contains("herokuapp.com") || 
-            serverIp.contains("autoidleapp.com") || 
+        if (serverIp.contains("wildcat-radio.live") || 
             serverIp.contains("onrender.com") ||
             serverIp.contains("railway.app") ||
             serverIp.contains("fly.dev")) {
@@ -340,8 +343,7 @@ public class NetworkConfig {
     private boolean shouldIncludePort() {
         // Don't include port for standard ports or cloud deployments
         return serverPort != 80 && serverPort != 443 && 
-               !serverIp.contains("herokuapp.com") && 
-               !serverIp.contains("autoidleapp.com") &&
+               !serverIp.contains("wildcat-radio.live") &&
                !serverIp.contains("onrender.com") &&
                !serverIp.contains("railway.app") &&
                !serverIp.contains("fly.dev");
@@ -350,6 +352,31 @@ public class NetworkConfig {
     public String getStreamUrl() {
         // Stream URL points to Icecast server
         return getIcecastUrl() + "/live.ogg";
+    }
+
+    /**
+     * Get the Icecast hostname without any protocol prefix
+     * This is specifically for FFmpeg connections to Icecast
+     * @return Clean hostname for Icecast server
+     */
+    public String getIcecastHostname() {
+        String host = getIcecastHost();
+
+        // Strip any protocol if present - FFmpeg needs just the hostname
+        if (host.startsWith("https://")) {
+            host = host.substring(8); // Remove "https://"
+        } else if (host.startsWith("http://")) {
+            host = host.substring(7); // Remove "http://"
+        }
+
+        // Also strip any trailing paths if they exist
+        int slashIndex = host.indexOf('/');
+        if (slashIndex != -1) {
+            host = host.substring(0, slashIndex);
+        }
+
+        logger.info("Clean Icecast hostname for FFmpeg: {}", host);
+        return host;
     }
 
     // Getters

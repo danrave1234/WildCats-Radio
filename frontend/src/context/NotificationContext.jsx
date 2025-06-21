@@ -1,7 +1,9 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { notificationService } from '../services/api';
 import { useAuth } from './AuthContext';
+import { createLogger } from '../services/logger';
 
+const logger = createLogger('NotificationContext');
 const NotificationContext = createContext();
 
 export function NotificationProvider({ children }) {
@@ -35,26 +37,26 @@ export function NotificationProvider({ children }) {
     }
 
     try {
-      console.log('Connecting to WebSocket for real-time notifications...');
+      logger.debug('Connecting to WebSocket for real-time notifications...');
       const connection = await notificationService.subscribeToNotifications((notification) => {
-        console.log('Received real-time notification:', notification);
+        logger.debug('Received real-time notification:', notification);
         addNotification(notification);
       });
-      
+
       wsConnection.current = connection;
-      
+
       // Check if connection is actually established
       setIsConnected(connection.isConnected());
-      console.log('WebSocket connection established:', connection.isConnected());
+      logger.debug('WebSocket connection established:', connection.isConnected());
     } catch (error) {
-      console.error('Failed to connect to WebSocket:', error);
+      logger.error('Failed to connect to WebSocket:', error);
       setIsConnected(false);
     }
   };
 
   const disconnectWebSocket = () => {
     if (wsConnection.current) {
-      console.log('Disconnecting from WebSocket...');
+      logger.debug('Disconnecting from WebSocket...');
       wsConnection.current.disconnect();
       wsConnection.current = null;
       setIsConnected(false);
@@ -63,13 +65,16 @@ export function NotificationProvider({ children }) {
 
   const fetchNotifications = async () => {
     if (!isAuthenticated) return;
-    
+
     try {
-      const response = await notificationService.getAll();
-      setNotifications(response.data);
-      setUnreadCount(response.data.filter(n => !n.read).length);
+      const [notificationsResponse, unreadCountResponse] = await Promise.all([
+        notificationService.getAll(),
+        notificationService.getUnreadCount()
+      ]);
+      setNotifications(notificationsResponse.data);
+      setUnreadCount(unreadCountResponse.data);
     } catch (error) {
-      console.error('Error fetching notifications:', error);
+      logger.error('Error fetching notifications:', error);
     }
   };
 
@@ -81,7 +86,7 @@ export function NotificationProvider({ children }) {
       ));
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (error) {
-      console.error('Error marking notification as read:', error);
+      logger.error('Error marking notification as read:', error);
     }
   };
 
@@ -95,7 +100,7 @@ export function NotificationProvider({ children }) {
       setNotifications(notifications.map(n => ({ ...n, read: true })));
       setUnreadCount(0);
     } catch (error) {
-      console.error('Error marking all notifications as read:', error);
+      logger.error('Error marking all notifications as read:', error);
     }
   };
 

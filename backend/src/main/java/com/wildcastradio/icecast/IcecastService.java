@@ -15,18 +15,20 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wildcastradio.config.NetworkConfig;
 
 /**
  * Service to manage Icecast streaming related operations.
- * Updated for Google Cloud deployment.
+ * Updated for icecast.software domain deployment.
  */
 @Service
 public class IcecastService {
     private static final Logger logger = LoggerFactory.getLogger(IcecastService.class);
 
-    // Google Cloud Icecast Configuration
-    @Value("${icecast.host:34.142.131.206}")
+    // Icecast Configuration
+    @Value("${icecast.host:icecast.software}")
     private String icecastHost;
 
     @Value("${icecast.port:8000}")
@@ -47,6 +49,9 @@ public class IcecastService {
     @Value("${icecast.admin.password:hackme}")
     private String icecastAdminPassword;
 
+    @Value("${app.domain:https://api.wildcat-radio.live}")
+    private String appDomain;
+
     private final NetworkConfig networkConfig;
 
     // Track active broadcasting sessions
@@ -60,44 +65,42 @@ public class IcecastService {
         this.networkConfig = networkConfig;
     }
 
-    /**
-     * Set the listener status handler (called by Spring after both beans are created)
-     * Using @Lazy to break circular dependency
-     */
-    @Autowired
-    public void setListenerStatusHandler(@org.springframework.context.annotation.Lazy ListenerStatusHandler listenerStatusHandler) {
-        this.listenerStatusHandler = listenerStatusHandler;
+    public void setListenerStatusHandler(ListenerStatusHandler handler) {
+        this.listenerStatusHandler = handler;
     }
 
     /**
-     * Notify that a broadcast has started
-     * @param sessionId The WebSocket session ID
+     * Notify that a new broadcast has started
+     * @param sessionId The session ID of the broadcast
      */
     public void notifyBroadcastStarted(String sessionId) {
         logger.info("Broadcast started for session: {}", sessionId);
-        BroadcastInfo info = new BroadcastInfo(sessionId, System.currentTimeMillis());
-        activeBroadcasts.put(sessionId, info);
-        // Here you could also update a BroadcastEntity or similar in your database
-    }
+        activeBroadcasts.put(sessionId, new BroadcastInfo(sessionId, System.currentTimeMillis()));
 
-    /**
-     * Notify that a broadcast has ended
-     * @param sessionId The WebSocket session ID
-     */
-    public void notifyBroadcastEnded(String sessionId) {
-        logger.info("Broadcast ended for session: {}", sessionId);
-        BroadcastInfo info = activeBroadcasts.remove(sessionId);
-        if (info != null) {
-            long duration = System.currentTimeMillis() - info.startTime;
-            logger.info("Broadcast lasted {} ms", duration);
-            // Here you could update your database with broadcast end time/duration
+        // Notify listener status handler if available
+        if (listenerStatusHandler != null) {
+            listenerStatusHandler.triggerStatusUpdate();
         }
     }
 
     /**
-     * Notify that a broadcast has failed
-     * @param sessionId The WebSocket session ID
-     * @param reason The failure reason
+     * Notify that a broadcast has ended
+     * @param sessionId The session ID of the broadcast
+     */
+    public void notifyBroadcastEnded(String sessionId) {
+        logger.info("Broadcast ended for session: {}", sessionId);
+        activeBroadcasts.remove(sessionId);
+
+        // Notify listener status handler if available
+        if (listenerStatusHandler != null) {
+            listenerStatusHandler.triggerStatusUpdate();
+        }
+    }
+
+    /**
+     * Notify that a broadcast failed
+     * @param sessionId The session ID of the broadcast
+     * @param reason The reason for failure
      */
     public void notifyBroadcastFailed(String sessionId, String reason) {
         logger.error("Broadcast failed for session: {}, reason: {}", sessionId, reason);
@@ -114,13 +117,21 @@ public class IcecastService {
     }
 
     /**
-     * Get the Google Cloud Icecast URL
-     * @return URL for the Google Cloud Icecast server
+     * Get the Icecast URL for web interface (through reverse proxy)
+     * @return URL for web access to Icecast (admin, status pages)
      */
     public String getIcecastUrl() {
-        // Use HTTPS for port 443, HTTP for other ports
-        String protocol = (icecastPort == 443) ? "https" : "http";
-        return protocol + "://" + icecastHost + ":" + icecastPort;
+        // For web interface, use HTTPS through reverse proxy
+        return "https://" + icecastHost;
+    }
+
+    /**
+     * Get the Icecast URL for FFmpeg streaming (direct connection)
+     * @return URL for FFmpeg to connect directly to Icecast server
+     */
+    public String getIcecastStreamingUrl() {
+        // For FFmpeg streaming, connect directly to Icecast server port
+        return "http://" + icecastHost + ":" + icecastPort;
     }
 
     /**
@@ -142,9 +153,9 @@ public class IcecastService {
             return true;
         }
 
-        // If no active broadcasts, check Google Cloud Icecast server status
+        // If no active broadcasts, check Icecast server status
         try {
-            URL url = new URL(getIcecastUrl() + "/status-json.xsl");
+            URL url = new URL(getIcecastStreamingUrl() + "/status-json.xsl");
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(5000);
@@ -166,136 +177,82 @@ public class IcecastService {
                 }
             }
         } catch (IOException e) {
-            logger.warn("Failed to check Google Cloud Icecast stream status: {}", e.getMessage());
+            logger.warn("Failed to check Icecast stream status: {}", e.getMessage());
         }
         return false;
     }
 
     /**
-     * Get the current listener count from Google Cloud Icecast and active WebSocket listeners
+     * Get the current listener count from Icecast and active WebSocket listeners
      * @return Number of current listeners
      */
     public Integer getCurrentListenerCount() {
-        int activeListeners = 0;
+        int icecastListeners = 0;
+        int webSocketListeners = listenerStatusHandler != null ? listenerStatusHandler.getActiveListenersCount() : 0;
 
-        // Get active listeners from the WebSocket handler if available
-        if (listenerStatusHandler != null) {
-            activeListeners = listenerStatusHandler.getActiveListenersCount();
-            logger.debug("Active listeners from WebSocket: {}", activeListeners);
-        }
-
-        // If we have active listeners, return that count
-        if (activeListeners > 0) {
-            return activeListeners;
-        }
-
-        // Otherwise, try to get the count from Google Cloud Icecast
         try {
-            URL url = new URL(getIcecastUrl() + "/status-json.xsl");
+            URL url = new URL(getIcecastStreamingUrl() + "/status-json.xsl");
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(5000);
             connection.setReadTimeout(5000);
 
-            int responseCode = connection.getResponseCode();
-            if (responseCode == 200) {
-                // Read the JSON response
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-                    StringBuilder response = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        response.append(line);
-                    }
+            if (connection.getResponseCode() == 200) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode rootNode = mapper.readTree(connection.getInputStream());
+                JsonNode icestats = rootNode.path("icestats");
 
-                    String jsonResponse = response.toString();
-
-                    // Parse JSON manually to extract listener count for /live.ogg
-                    if (jsonResponse.contains(icecastMount)) {
-                        // Look for the pattern: "mount":"/live.ogg"..."listeners":number
-                        int mountIndex = jsonResponse.indexOf("\"mount\":\"" + icecastMount + "\"");
-                        if (mountIndex != -1) {
-                            // Find the listeners field after the mount
-                            int listenersIndex = jsonResponse.indexOf("\"listeners\":", mountIndex);
-                            if (listenersIndex != -1) {
-                                // Extract the number after "listeners":
-                                int startIndex = listenersIndex + "\"listeners\":".length();
-                                int endIndex = startIndex;
-
-                                // Find the end of the number (comma, brace, or end of string)
-                                while (endIndex < jsonResponse.length() &&
-                                        Character.isDigit(jsonResponse.charAt(endIndex))) {
-                                    endIndex++;
-                                }
-
-                                if (endIndex > startIndex) {
-                                    String listenersStr = jsonResponse.substring(startIndex, endIndex);
-                                    int icecastListeners = Integer.parseInt(listenersStr);
-                                    logger.debug("Listeners from Google Cloud Icecast: {}", icecastListeners);
-                                    return icecastListeners;
-                                }
+                if (icestats.has("source")) {
+                    JsonNode sourceNode = icestats.path("source");
+                    if (sourceNode.isArray()) {
+                        for (JsonNode source : sourceNode) {
+                            if (icecastMount.equals(source.path("listenurl").asText().substring(source.path("listenurl").asText().lastIndexOf("/")))) {
+                                icecastListeners = source.path("listeners").asInt();
+                                break;
                             }
+                        }
+                    } else {
+                        if (icecastMount.equals(sourceNode.path("listenurl").asText().substring(sourceNode.path("listenurl").asText().lastIndexOf("/")))) {
+                            icecastListeners = sourceNode.path("listeners").asInt();
                         }
                     }
                 }
             }
         } catch (Exception e) {
-            logger.warn("Failed to get current listener count from Google Cloud Icecast: {}", e.getMessage());
+            logger.warn("Failed to get listener count from Icecast: {}", e.getMessage());
         }
 
-        return activeListeners; // Return active listeners count (which might be 0)
+        return icecastListeners + webSocketListeners;
     }
 
     /**
-     * Check if Google Cloud Icecast server is running and reachable
+     * Check if Icecast server is running and reachable
      * @return true if Icecast server is reachable
      */
     public boolean isServerUp() {
-        // Try HTTPS first (as configured in getIcecastUrl)
-        boolean httpsResult = checkServerWithProtocol(getIcecastUrl());
-        if (httpsResult) {
-            return true;
-        }
-
-        // If HTTPS fails, try HTTP as fallback
-        String httpUrl = getIcecastUrl().replace("https://", "http://");
-        boolean httpResult = checkServerWithProtocol(httpUrl);
-
-        // Log which protocol worked
-        if (httpResult) {
-            logger.info("Icecast server is UP using HTTP protocol (HTTPS failed)");
-        } else {
-            logger.warn("Icecast server is DOWN on both HTTPS and HTTP protocols");
-        }
-
-        return httpResult;
-    }
-
-    /**
-     * Helper method to check server with a specific protocol
-     * @param urlString the full URL to check
-     * @return true if server is reachable with the given protocol
-     */
-    private boolean checkServerWithProtocol(String urlString) {
         try {
-            URL url = new URL(urlString);
+            URL url = new URL(getIcecastStreamingUrl() + "/status.xsl");
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
-            connection.setConnectTimeout(5000);
-            connection.setReadTimeout(5000);
+            connection.setConnectTimeout(3000);
+            connection.setReadTimeout(3000);
+
             int responseCode = connection.getResponseCode();
-            boolean isUp = responseCode < 400;
-            logger.debug("Icecast server status check for {}: {} (response code: {})",
-                    urlString, isUp ? "UP" : "DOWN", responseCode);
+            boolean isUp = responseCode == 200;
+
+            logger.debug("Icecast server status check: {} (response code: {})", 
+                        isUp ? "UP" : "DOWN", responseCode);
+
             return isUp;
         } catch (IOException e) {
-            logger.debug("Failed to connect to Icecast server at {}: {}", urlString, e.getMessage());
+            logger.warn("Icecast server is not reachable: {}", e.getMessage());
             return false;
         }
     }
 
     /**
-     * Get information about all active broadcasts and stream status
-     * @return Map of stream info
+     * Get comprehensive stream status information
+     * @return Map containing stream status details
      */
     public Map<String, Object> getStreamStatus() {
         Map<String, Object> status = new HashMap<>();
@@ -349,8 +306,10 @@ public class IcecastService {
         if (networkConfig != null) {
             return networkConfig.getWebSocketUrl();
         }
-        // Fallback - construct from current server context
-        return "ws://localhost:8080/ws/live";
+        // Fallback - use app domain from configuration or default to deployed URL
+        String protocol = appDomain != null && appDomain.startsWith("https://") ? "wss" : "ws";
+        String baseUrl = appDomain != null ? appDomain.replaceFirst("https?://", "") : "api.wildcat-radio.live";
+        return protocol + "://" + baseUrl + "/ws/live";
     }
 
     /**
@@ -361,7 +320,10 @@ public class IcecastService {
         if (networkConfig != null) {
             return networkConfig.getListenerWebSocketUrl();
         }
-        return "ws://localhost:8080/ws/listener";
+        // Fallback - use app domain from configuration or default to deployed URL
+        String protocol = appDomain != null && appDomain.startsWith("https://") ? "wss" : "ws";
+        String baseUrl = appDomain != null ? appDomain.replaceFirst("https?://", "") : "api.wildcat-radio.live";
+        return protocol + "://" + baseUrl + "/ws/listener";
     }
 
     /**
@@ -370,6 +332,125 @@ public class IcecastService {
      */
     public boolean checkIcecastServer() {
         return isServerUp();
+    }
+
+    /**
+     * Check if the /live.ogg mount point is active and streaming
+     * @return Map containing mount point status information
+     */
+    public Map<String, Object> checkMountPointStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("mountPoint", icecastMount);
+        status.put("serverReachable", false);
+        status.put("mountPointExists", false);
+        status.put("hasActiveSource", false);
+        status.put("listenerCount", 0);
+        status.put("errorMessage", null);
+
+        try {
+            // Check if we can reach the Icecast server
+            URL url = new URL(getIcecastStreamingUrl() + "/status-json.xsl");
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(5000);
+            connection.setReadTimeout(5000);
+
+            int responseCode = connection.getResponseCode();
+            if (responseCode == 200) {
+                status.put("serverReachable", true);
+
+                // Read the JSON response
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        response.append(line);
+                    }
+
+                    String jsonResponse = response.toString();
+                    logger.debug("Icecast status JSON: {}", jsonResponse);
+
+                    // Check if our mount point exists in the response
+                    if (jsonResponse.contains("\"mount\":\"" + icecastMount + "\"")) {
+                        status.put("mountPointExists", true);
+
+                        // Extract mount point section
+                        int mountIndex = jsonResponse.indexOf("\"mount\":\"" + icecastMount + "\"");
+                        int nextMountIndex = jsonResponse.indexOf("\"mount\":", mountIndex + 1);
+
+                        String mountSection = nextMountIndex > 0 ? 
+                            jsonResponse.substring(mountIndex, nextMountIndex) : 
+                            jsonResponse.substring(mountIndex);
+
+                        // Check for listeners
+                        int listenersIndex = mountSection.indexOf("\"listeners\":");
+                        if (listenersIndex > 0) {
+                            int startIndex = listenersIndex + 12;
+                            int endIndex = mountSection.indexOf(',', startIndex);
+                            if (endIndex == -1) endIndex = mountSection.indexOf('}', startIndex);
+
+                            if (endIndex > startIndex) {
+                                String listenersStr = mountSection.substring(startIndex, endIndex).trim();
+                                try {
+                                    int listeners = Integer.parseInt(listenersStr);
+                                    status.put("listenerCount", listeners);
+                                } catch (NumberFormatException e) {
+                                    logger.warn("Could not parse listener count: {}", listenersStr);
+                                }
+                            }
+                        }
+
+                        // Check if there's an active source (has source_ip)
+                        if (mountSection.contains("\"source_ip\"")) {
+                            status.put("hasActiveSource", true);
+                        } else {
+                            status.put("errorMessage", "Mount point exists but no active source connected");
+                        }
+
+                    } else {
+                        status.put("errorMessage", "Mount point " + icecastMount + " not found in server response");
+                        logger.warn("Mount point {} not found in Icecast server response", icecastMount);
+                    }
+                }
+            } else {
+                status.put("errorMessage", "Icecast server returned HTTP " + responseCode);
+                logger.warn("Icecast server returned HTTP {}", responseCode);
+            }
+        } catch (IOException e) {
+            status.put("errorMessage", "Cannot connect to Icecast server: " + e.getMessage());
+            logger.warn("Failed to check Icecast mount point status: {}", e.getMessage());
+        }
+
+        return status;
+    }
+
+    // Getter methods for Icecast configuration
+    public String getIcecastHost() {
+        return icecastHost;
+    }
+
+    public int getIcecastPort() {
+        return icecastPort;
+    }
+
+    public String getIcecastUsername() {
+        return icecastUsername;
+    }
+
+    public String getIcecastPassword() {
+        return icecastPassword;
+    }
+
+    public String getIcecastMount() {
+        return icecastMount;
+    }
+
+    public String getIcecastAdminUsername() {
+        return icecastAdminUsername;
+    }
+
+    public String getIcecastAdminPassword() {
+        return icecastAdminPassword;
     }
 
     /**

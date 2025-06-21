@@ -8,8 +8,8 @@ import { useAuth } from "../context/AuthContext"
 export default function Profile() {
   const { currentUser, updateProfile } = useAuth()
   const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
+    firstname: "",
+    lastname: "",
     email: "",
   })
   const [isLoading, setIsLoading] = useState(false)
@@ -19,8 +19,8 @@ export default function Profile() {
   useEffect(() => {
     if (currentUser) {
       setFormData({
-        firstName: currentUser.firstName || "",
-        lastName: currentUser.lastName || "",
+        firstname: currentUser.firstname || "",
+        lastname: currentUser.lastname || "",
         email: currentUser.email || "",
       })
     }
@@ -43,8 +43,8 @@ export default function Profile() {
       // Only update if we have a currentUser and an ID
       if (currentUser && currentUser.id) {
         await updateProfile(currentUser.id, {
-          firstName: formData.firstName,
-          lastName: formData.lastName
+          firstname: formData.firstname,
+          lastname: formData.lastname
         })
         setMessage({ type: 'success', text: 'Profile updated successfully!' })
       } else {
@@ -74,7 +74,7 @@ export default function Profile() {
                 </div>
                 <div className="ml-4">
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                    {formData.firstName} {formData.lastName}
+                    {formData.firstname} {formData.lastname}
                   </h2>
                   <p className="text-gray-600 dark:text-gray-400">{formData.email}</p>
                   {currentUser && (
@@ -119,29 +119,29 @@ export default function Profile() {
                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                   <div>
                     <label
-                      htmlFor="firstName"
+                      htmlFor="firstname"
                       className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                     >
                       First Name
                     </label>
                     <input
                       type="text"
-                      name="firstName"
-                      id="firstName"
-                      value={formData.firstName}
+                      name="firstname"
+                      id="firstname"
+                      value={formData.firstname}
                       onChange={handleInputChange}
                       className="form-input"
                     />
                   </div>
                   <div>
-                    <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <label htmlFor="lastname" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Last Name
                     </label>
                     <input
                       type="text"
-                      name="lastName"
-                      id="lastName"
-                      value={formData.lastName}
+                      name="lastname"
+                      id="lastname"
+                      value={formData.lastname}
                       onChange={handleInputChange}
                       className="form-input"
                     />

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import api, { notificationService } from '../services/api';
+import { useAuth } from './AuthContext';
 
 const BroadcastHistoryContext = createContext();
 
@@ -12,6 +13,7 @@ export const useBroadcastHistory = () => {
 };
 
 export const BroadcastHistoryProvider = ({ children }) => {
+  const { isAuthenticated } = useAuth();
   const [broadcastHistory, setBroadcastHistory] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -137,9 +139,11 @@ export const BroadcastHistoryProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    fetchBroadcastHistory();
-    fetchBroadcastStats();
-  }, []);
+    if (isAuthenticated) {
+      fetchBroadcastHistory();
+      fetchBroadcastStats();
+    }
+  }, [isAuthenticated]);
 
   const value = {
     broadcastHistory,

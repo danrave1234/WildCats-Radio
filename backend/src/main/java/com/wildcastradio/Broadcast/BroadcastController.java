@@ -38,11 +38,12 @@ public class BroadcastController {
 
     @Autowired
     private UserService userService;
-    
+
     @Autowired
     private DateTimeUtil dateTimeUtil;
 
     @PostMapping
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<BroadcastDTO> createBroadcast(
             @Valid @RequestBody CreateBroadcastRequest request,
             Authentication authentication) {
@@ -75,6 +76,7 @@ public class BroadcastController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<BroadcastDTO> updateBroadcast(@PathVariable Long id, 
                                                       @Valid @RequestBody CreateBroadcastRequest request) {
         BroadcastDTO updated = broadcastService.updateBroadcast(id, request);
@@ -82,12 +84,14 @@ public class BroadcastController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<Void> deleteBroadcast(@PathVariable Long id) {
         broadcastService.deleteBroadcast(id);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/schedule")
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<BroadcastDTO> scheduleBroadcast(
             @Valid @RequestBody CreateBroadcastRequest request,
             Authentication authentication) {

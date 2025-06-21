@@ -27,11 +27,14 @@ public class NotificationService {
         NotificationEntity notification = new NotificationEntity(message, type, recipient);
         NotificationEntity savedNotification = notificationRepository.save(notification);
 
+        // Create DTO for the notification
+        NotificationDTO notificationDTO = NotificationDTO.fromEntity(savedNotification);
+        
         // Send real-time notification to the user if they're online
         messagingTemplate.convertAndSendToUser(
                 recipient.getEmail(),
                 "/queue/notifications",
-                NotificationDTO.fromEntity(savedNotification)
+                notificationDTO
         );
 
         return savedNotification;

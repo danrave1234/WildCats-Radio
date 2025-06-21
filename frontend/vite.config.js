@@ -1,17 +1,27 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import path from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // Determine if we're in development mode
+  // Determine if we should use local backend
+  // This will be overridden by the VITE_USE_LOCAL_BACKEND env var at runtime
   const isDevelopment = mode === 'development';
+
+  console.log(`Vite config using ${isDevelopment ? 'LOCAL' : 'DEPLOYED'} backend (default based on mode)`);
+  console.log(`This will be overridden by VITE_USE_LOCAL_BACKEND at runtime`);
 
   return {
     plugins: [react()],
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
+      },
+    },
     server: {
       proxy: {
         '/api': {
-          // Use localhost for local development, production URL for deployed frontend
+          // Use development mode as default, will be overridden by VITE_USE_LOCAL_BACKEND at runtime
           target: isDevelopment 
             ? 'http://localhost:8080'
             : 'https://wildcat-radio-f05d362144e6.autoidleapp.com',
@@ -41,14 +51,17 @@ export default defineConfig(({ mode }) => {
       // Set default environment variables if not provided (NO PROTOCOLS - they will be added by the app)
       // In Vite, environment variables are loaded from .env files at build time
       // These defaults are used if the variables are not defined in .env files
+      'import.meta.env.VITE_USE_LOCAL_BACKEND': JSON.stringify(
+        process.env.VITE_USE_LOCAL_BACKEND || 'false'
+      ),
       'import.meta.env.VITE_API_BASE_URL': JSON.stringify(
-        'wildcat-radio-f05d362144e6.autoidleapp.com/api'
+        'wildcat-radio-f05d362144e6.autoidleapp.com'
       ),
       'import.meta.env.VITE_WS_BASE_URL': JSON.stringify(
         'wildcat-radio-f05d362144e6.autoidleapp.com'
       ),
       'import.meta.env.VITE_ICECAST_URL': JSON.stringify(
-        '34.142.131.206:8000/live.ogg'
+        'https://icecast.software/live.ogg'
       )
     }
   };

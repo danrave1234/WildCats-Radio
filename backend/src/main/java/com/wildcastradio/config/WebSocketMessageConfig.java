@@ -1,5 +1,6 @@
 package com.wildcastradio.config;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
@@ -14,6 +15,9 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @EnableWebSocketMessageBroker
 public class WebSocketMessageConfig implements WebSocketMessageBrokerConfigurer {
 
+    @Autowired
+    private CorsConfig corsConfig;
+
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
         config.enableSimpleBroker("/topic", "/queue");
@@ -23,7 +27,7 @@ public class WebSocketMessageConfig implements WebSocketMessageBrokerConfigurer 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws-radio")
-               .setAllowedOriginPatterns("*")
+               .setAllowedOrigins(corsConfig.getAllowedOrigins().toArray(new String[0]))
                .withSockJS();
     }
 } 

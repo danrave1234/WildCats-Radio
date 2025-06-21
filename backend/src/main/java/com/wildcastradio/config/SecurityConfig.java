@@ -1,5 +1,7 @@
 package com.wildcastradio.config;
 
+import java.util.Arrays;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,10 +19,6 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import com.wildcastradio.config.JwtRequestFilter;
-
-import java.util.Arrays;
-
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
@@ -29,12 +27,17 @@ public class SecurityConfig {
     @Autowired
     private JwtRequestFilter jwtRequestFilter;
 
+    @Autowired
+    private CorsConfig corsConfig;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
+                // Allow OPTIONS requests for CORS preflight
+                .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                 // Public endpoints that don't require authentication
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/user/register").permitAll()
@@ -49,6 +52,9 @@ public class SecurityConfig {
                 .requestMatchers("/ws/listener").permitAll()
                 .requestMatchers("/stream").permitAll()
                 .requestMatchers("/ws-radio/**").permitAll()
+                .requestMatchers("/ws-radio/info/**").permitAll()
+                .requestMatchers("/ws-radio/info").permitAll()
+                .requestMatchers("/api/broadcasts/**").permitAll()
                 // Swagger UI endpoints if you use it
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 // Health check endpoints
@@ -68,25 +74,55 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // For development - specify exact origins instead of using wildcards with credentials
-        configuration.setAllowedOrigins(Arrays.asList(
-            "http://localhost:3000",   // React development server
-            "http://localhost:5173",   // Vite development server
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:5173",
-            "https://wildcat-radio-f05d362144e6.herokuapp.com",
-            "https://wildcat-radio.vercel.app",
-            "https://wildcat-radio-f05d362144e6.autoidleapp.com"
+        // Use dynamic CORS configuration
+        configuration.setAllowedOrigins(corsConfig.getAllowedOrigins());
+
+        // Allow all methods required for REST and WebSocket/SockJS
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "CONNECT"));
+
+        // Allow all headers including those needed for SockJS
+        configuration.setAllowedHeaders(Arrays.asList(
+            "*"
         ));
 
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("*")); // Allow all headers including authorization
-        configuration.setExposedHeaders(Arrays.asList("x-auth-token"));
+        // Expose headers needed for authentication and SockJS
+        configuration.setExposedHeaders(Arrays.asList(
+            "x-auth-token", 
+            "Authorization", 
+            "Content-Type", 
+            "Content-Length",
+            "Access-Control-Allow-Origin",
+            "Access-Control-Allow-Credentials",
+            "X-SockJS-Transport"
+        ));
+
         configuration.setAllowCredentials(true); // Enable credentials for JWT tokens
         configuration.setMaxAge(3600L); // Cache preflight for 1 hour
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
+
+        // Create specific enhanced configuration for SockJS endpoints
+        CorsConfiguration sockJsConfig = new CorsConfiguration();
+        sockJsConfig.setAllowedOrigins(corsConfig.getAllowedOrigins());
+        sockJsConfig.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"));
+        sockJsConfig.setAllowedHeaders(Arrays.asList("*"));
+        sockJsConfig.setExposedHeaders(Arrays.asList(
+            "Content-Type", 
+            "Content-Length",
+            "X-SockJS-Transport",
+            "Access-Control-Allow-Origin",
+            "Access-Control-Allow-Credentials"
+        ));
+        sockJsConfig.setAllowCredentials(true);
+        sockJsConfig.setMaxAge(3600L);
+        
+        // Register specific configurations for SockJS endpoints
+        source.registerCorsConfiguration("/ws-radio/**", sockJsConfig);
+        source.registerCorsConfiguration("/ws-radio/info/**", sockJsConfig);
+        source.registerCorsConfiguration("/ws-radio/info", sockJsConfig);
+        source.registerCorsConfiguration("/ws/**", sockJsConfig);
+
         return source;
     }
 

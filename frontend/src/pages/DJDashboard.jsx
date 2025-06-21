@@ -11,6 +11,8 @@ import {
   PlusIcon,
   CheckIcon,
   ClockIcon,
+  ExclamationTriangleIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/solid"
 import { 
   ChatBubbleLeftRightIcon,
@@ -19,11 +21,16 @@ import {
   PaperAirplaneIcon,
   UserIcon,
   HeartIcon,
-  XMarkIcon,
 } from "@heroicons/react/24/outline"
 import { streamService, broadcastService, authService, chatService, songRequestService, pollService } from "../services/api"
 import { useAuth } from "../context/AuthContext"
+import { useStreaming } from "../context/StreamingContext"
 import { formatDistanceToNow } from 'date-fns'
+import AudioSourceSelector from "../components/AudioSourceSelector"
+import DJAudioControls from "../components/DJAudioControls"
+import { createLogger } from "../services/logger"
+
+const logger = createLogger('DJDashboard');
 
 // Broadcast workflow states
 const WORKFLOW_STATES = {
@@ -35,6 +42,20 @@ const WORKFLOW_STATES = {
 export default function DJDashboard() {
   // Authentication context
   const { currentUser } = useAuth()
+  
+  // Streaming context
+  const { 
+    isLive, 
+    currentBroadcast: streamingBroadcast, 
+    websocketConnected,
+    listenerCount,
+    startBroadcast: startStreamingBroadcast,
+    stopBroadcast: stopStreamingBroadcast,
+    restoreDJStreaming,
+    serverConfig,
+    mediaRecorderRef,
+    audioStreamRef
+  } = useStreaming()
 
   // Core workflow state
   const [workflowState, setWorkflowState] = useState(WORKFLOW_STATES.CREATE_BROADCAST)
@@ -49,21 +70,11 @@ export default function DJDashboard() {
   const [isCreatingBroadcast, setIsCreatingBroadcast] = useState(false)
 
   // Core streaming state
-  const [isLive, setIsLive] = useState(false)
   const [streamError, setStreamError] = useState(null)
-  const [websocketConnected, setWebsocketConnected] = useState(false)
-
-  // Network configuration
-  const [serverConfig, setServerConfig] = useState(null)
-
-  // Listener metrics
-  const [listenerCount, setListenerCount] = useState(0)
-  const [statusWsConnected, setStatusWsConnected] = useState(false)
+  const [isRestoringAudio, setIsRestoringAudio] = useState(false)
 
   // WebSocket and MediaRecorder refs
   const websocketRef = useRef(null)
-  const mediaRecorderRef = useRef(null)
-  const audioStreamRef = useRef(null)
   const statusWsRef = useRef(null)
 
   // Audio preview state
@@ -110,6 +121,34 @@ export default function DJDashboard() {
   const [peakListeners, setPeakListeners] = useState(0)
   const [totalSongRequests, setTotalSongRequests] = useState(0)
   const [totalPolls, setTotalPolls] = useState(0)
+  const [durationTick, setDurationTick] = useState(0)
+  
+  // Chat timestamp update state
+  const [chatTimestampTick, setChatTimestampTick] = useState(0)
+
+  // Update duration display every second when live
+  useEffect(() => {
+    let interval = null
+    if (workflowState === WORKFLOW_STATES.STREAMING_LIVE && broadcastStartTime) {
+      interval = setInterval(() => {
+        // Force re-render by updating a tick counter
+        setDurationTick(prev => prev + 1)
+      }, 1000)
+    } else {
+      setDurationTick(0)
+    }
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [workflowState, broadcastStartTime])
+
+  // Sync local state with streaming context
+  useEffect(() => {
+    if (streamingBroadcast) {
+      setCurrentBroadcast(streamingBroadcast);
+      setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE);
+    }
+  }, [streamingBroadcast]);
 
   // Check for existing active broadcast on component mount
   useEffect(() => {
@@ -119,18 +158,17 @@ export default function DJDashboard() {
         if (activeBroadcast) {
           setCurrentBroadcast(activeBroadcast)
           setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
-          setIsLive(true)
           setBroadcastStartTime(new Date())
         }
       } catch (error) {
-        console.error("Error checking for active broadcast:", error)
+        logger.error("Error checking for active broadcast:", error)
       }
     }
 
-    if (currentUser) {
+    if (currentUser && !streamingBroadcast) {
       checkActiveBroadcast()
     }
-  }, [currentUser])
+  }, [currentUser, streamingBroadcast])
 
   // Track analytics when streaming starts
   useEffect(() => {
@@ -156,148 +194,22 @@ export default function DJDashboard() {
     setTotalSongRequests(songRequests.length)
   }, [songRequests.length])
 
-  // State for forcing duration updates
-  const [durationTick, setDurationTick] = useState(0)
-
-  // Update duration display every second when live
+  // Update chat timestamps every minute
   useEffect(() => {
-    let interval = null
-    if (workflowState === WORKFLOW_STATES.STREAMING_LIVE && broadcastStartTime) {
-      interval = setInterval(() => {
-        // Force re-render by updating a tick counter
-        setDurationTick(prev => prev + 1)
-      }, 1000)
-    } else {
-      setDurationTick(0)
-    }
+    const interval = setInterval(() => {
+      setChatTimestampTick(prev => prev + 1);
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Replace the connectStatusWebSocket useEffect with a simpler version that doesn't create its own WebSocket
+  useEffect(() => {
+    logger.debug('DJ Dashboard: Using global streaming context for WebSocket connections');
     return () => {
-      if (interval) clearInterval(interval)
+      logger.debug('DJ Dashboard: Cleaning up, global streaming context will maintain connections');
     }
-  }, [workflowState, broadcastStartTime])
-
-  // Initialize server configuration
-  useEffect(() => {
-    const fetchServerConfig = async () => {
-      try {
-        const config = await streamService.getConfig()
-        const configData = config.data.data;
-        
-        // Only update if the config has actually changed
-        setServerConfig(prevConfig => {
-          if (!prevConfig || 
-              prevConfig.serverIp !== configData.serverIp || 
-              prevConfig.serverPort !== configData.serverPort) {
-            console.log("Server config loaded:", configData)
-            return configData;
-          }
-          return prevConfig;
-        });
-      } catch (error) {
-        console.error("Error fetching server config:", error)
-        setStreamError("Failed to get server configuration")
-      }
-    }
-
-    fetchServerConfig()
-  }, [])
-
-  // Set up WebSocket connection for listener status updates - runs once
-  useEffect(() => {
-    let reconnectTimer = null;
-    let isConnecting = false;
-    let shouldReconnect = true;
-
-    const connectStatusWebSocket = async () => {
-      if (isConnecting) return;
-      isConnecting = true;
-
-      try {
-        // Clean up any existing connection first
-        if (statusWsRef.current && statusWsRef.current.readyState !== WebSocket.CLOSED) {
-          console.log('DJ Dashboard: Cleaning up existing status WebSocket');
-          statusWsRef.current.close();
-          statusWsRef.current = null;
-        }
-
-        // Simple WebSocket URL construction using environment variable
-        const wsProtocol = 'wss';
-
-        // Always use the environment variable directly
-        const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
-        // Simple clean - just remove any protocol if present
-        const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-        const listenerWsUrl = `${wsProtocol}://${cleanHost}/ws/listener`;
-
-        console.log('DJ Dashboard: Using WebSocket URL:', listenerWsUrl);
-        console.log('DJ Dashboard: Connecting to status WebSocket:', listenerWsUrl)
-
-        statusWsRef.current = new WebSocket(listenerWsUrl)
-
-        statusWsRef.current.onopen = () => {
-          console.log('DJ Dashboard: Status WebSocket connected successfully')
-          setStatusWsConnected(true)
-          isConnecting = false;
-        }
-
-        statusWsRef.current.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data)
-            console.log('DJ Dashboard: Status message received:', data)
-
-            if (data.type === 'STREAM_STATUS') {
-              setListenerCount(data.listenerCount || 0)
-            }
-          } catch (error) {
-            console.error('DJ Dashboard: Error parsing status WebSocket message:', error)
-          }
-        }
-
-        statusWsRef.current.onclose = (event) => {
-          console.log('DJ Dashboard: Status WebSocket closed with code:', event.code, 'reason:', event.reason)
-          setStatusWsConnected(false)
-          isConnecting = false;
-          
-          // Only reconnect if it wasn't a normal close and we should reconnect
-          if (shouldReconnect && event.code !== 1000) {
-            console.log('DJ Dashboard: Scheduling reconnection in 3 seconds...')
-            reconnectTimer = setTimeout(connectStatusWebSocket, 3000)
-          } else {
-            console.log('DJ Dashboard: Not reconnecting - normal close or component unmounting')
-          }
-        }
-
-        statusWsRef.current.onerror = (error) => {
-          console.error('DJ Dashboard: Status WebSocket error:', error)
-          isConnecting = false;
-        }
-      } catch (error) {
-        console.error('DJ Dashboard: Error setting up status WebSocket:', error)
-        isConnecting = false;
-        // Fallback with a delay
-        if (shouldReconnect) {
-          reconnectTimer = setTimeout(connectStatusWebSocket, 5000)
-        }
-      }
-    }
-
-    // Only start if we don't already have a connection
-    if (!statusWsRef.current) {
-      connectStatusWebSocket()
-    }
-
-    return () => {
-      console.log('DJ Dashboard: Cleaning up status WebSocket connection')
-      shouldReconnect = false;
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-      if (statusWsRef.current) {
-        statusWsRef.current.close(1000, 'Component unmounting');
-        statusWsRef.current = null;
-      }
-    }
-  }, []) // Run once on mount
+  }, []);
 
   // Fetch initial data when broadcast becomes available
   useEffect(() => {
@@ -322,7 +234,7 @@ export default function DJDashboard() {
         abortControllerRef.current = new AbortController();
         const signal = abortControllerRef.current.signal;
 
-        console.log('DJ Dashboard: Fetching initial interaction data for broadcast:', currentBroadcast.id);
+        logger.debug('DJ Dashboard: Fetching initial interaction data for broadcast:', currentBroadcast.id);
 
         // Clear old data immediately when switching broadcasts
         setChatMessages([]);
@@ -332,7 +244,7 @@ export default function DJDashboard() {
 
         // Fetch chat messages
         const chatResponse = await chatService.getMessages(currentBroadcast.id);
-        console.log('DJ Dashboard: Loaded initial chat messages:', chatResponse.data?.length || 0);
+        logger.debug('DJ Dashboard: Loaded initial chat messages:', chatResponse.data?.length || 0);
 
         // Double-check response is for current broadcast before setting state
         if (currentBroadcast.id === currentBroadcast.id && !signal.aborted) {
@@ -341,15 +253,15 @@ export default function DJDashboard() {
 
         // Fetch song requests
         const requestsResponse = await songRequestService.getRequests(currentBroadcast.id);
-        console.log('DJ Dashboard: Loaded initial song requests:', requestsResponse.data?.length || 0);
+        logger.debug('DJ Dashboard: Loaded initial song requests:', requestsResponse.data?.length || 0);
 
         if (currentBroadcast.id === currentBroadcast.id && !signal.aborted) {
           setSongRequests(requestsResponse.data || []);
         }
 
         // Fetch polls
-        const pollsResponse = await pollService.getPolls(currentBroadcast.id);
-        console.log('DJ Dashboard: Loaded initial polls:', pollsResponse.data?.length || 0);
+        const pollsResponse = await pollService.getPollsForBroadcast(currentBroadcast.id);
+        logger.debug('DJ Dashboard: Loaded initial polls:', pollsResponse.data?.length || 0);
 
         if (currentBroadcast.id === currentBroadcast.id && !signal.aborted) {
           setPolls(pollsResponse.data || []);
@@ -362,10 +274,10 @@ export default function DJDashboard() {
       } catch (error) {
         // Ignore aborted requests
         if (error.name === 'AbortError') {
-          console.log('DJ Dashboard: Initial data fetch aborted for broadcast:', currentBroadcast.id);
+          logger.debug('DJ Dashboard: Initial data fetch aborted for broadcast:', currentBroadcast.id);
           return;
         }
-        console.error('DJ Dashboard: Error fetching initial interaction data:', error);
+        logger.error('DJ Dashboard: Error fetching initial interaction data:', error);
       }
     };
 
@@ -385,43 +297,43 @@ export default function DJDashboard() {
       return;
     }
 
-    console.log('DJ Dashboard: Setting up WebSocket connections for broadcast:', currentBroadcast.id);
+    logger.debug('DJ Dashboard: Setting up WebSocket connections for broadcast:', currentBroadcast.id);
 
     // Setup Chat WebSocket
     const setupChatWebSocket = async () => {
       try {
         // Clean up any existing connection first
         if (chatWsRef.current) {
-          console.log('DJ Dashboard: Cleaning up existing chat WebSocket');
+          logger.debug('DJ Dashboard: Cleaning up existing chat WebSocket');
           chatWsRef.current.disconnect();
           chatWsRef.current = null;
         }
 
-        console.log('DJ Dashboard: Setting up chat WebSocket for broadcast:', currentBroadcast.id);
+        logger.debug('DJ Dashboard: Setting up chat WebSocket for broadcast:', currentBroadcast.id);
         const connection = await chatService.subscribeToChatMessages(currentBroadcast.id, (newMessage) => {
           // Double-check the message is for the current broadcast
           if (newMessage.broadcastId === currentBroadcast.id) {
-            console.log('DJ Dashboard: Received new chat message:', newMessage);
+            logger.debug('DJ Dashboard: Received new chat message:', newMessage);
             setChatMessages(prev => {
               const exists = prev.some(msg => msg.id === newMessage.id);
               if (exists) {
-                console.log('DJ Dashboard: Message already exists, skipping');
+                logger.debug('DJ Dashboard: Message already exists, skipping');
                 return prev;
               }
               const updated = [...prev, newMessage].sort((a, b) => 
                 new Date(a.createdAt) - new Date(b.createdAt)
               );
-              console.log('DJ Dashboard: Updated chat messages count:', updated.length);
+              logger.debug('DJ Dashboard: Updated chat messages count:', updated.length);
               return updated;
             });
           } else {
-            console.log('DJ Dashboard: Ignoring message for different broadcast:', newMessage.broadcastId);
+            logger.debug('DJ Dashboard: Ignoring message for different broadcast:', newMessage.broadcastId);
           }
         });
         chatWsRef.current = connection;
-        console.log('DJ Dashboard: Chat WebSocket connected successfully');
+        logger.debug('DJ Dashboard: Chat WebSocket connected successfully');
       } catch (error) {
-        console.error('DJ Dashboard: Failed to connect chat WebSocket:', error);
+        logger.error('DJ Dashboard: Failed to connect chat WebSocket:', error);
       }
     };
 
@@ -430,29 +342,29 @@ export default function DJDashboard() {
       try {
         // Clean up any existing connection first
         if (songRequestWsRef.current) {
-          console.log('DJ Dashboard: Cleaning up existing song request WebSocket');
+          logger.debug('DJ Dashboard: Cleaning up existing song request WebSocket');
           songRequestWsRef.current.disconnect();
           songRequestWsRef.current = null;
         }
 
-        console.log('DJ Dashboard: Setting up song request WebSocket for broadcast:', currentBroadcast.id);
+        logger.debug('DJ Dashboard: Setting up song request WebSocket for broadcast:', currentBroadcast.id);
         const connection = await songRequestService.subscribeToSongRequests(currentBroadcast.id, (newRequest) => {
           // Double-check the request is for the current broadcast
           if (newRequest.broadcastId === currentBroadcast.id) {
-            console.log('DJ Dashboard: Received new song request:', newRequest);
+            logger.debug('DJ Dashboard: Received new song request:', newRequest);
             setSongRequests(prev => {
               const exists = prev.some(req => req.id === newRequest.id);
               if (exists) return prev;
               return [newRequest, ...prev];
             });
           } else {
-            console.log('DJ Dashboard: Ignoring song request for different broadcast:', newRequest.broadcastId);
+            logger.debug('DJ Dashboard: Ignoring song request for different broadcast:', newRequest.broadcastId);
           }
         });
         songRequestWsRef.current = connection;
-        console.log('DJ Dashboard: Song request WebSocket connected successfully');
+        logger.debug('DJ Dashboard: Song request WebSocket connected successfully');
       } catch (error) {
-        console.error('DJ Dashboard: Failed to connect song request WebSocket:', error);
+        logger.error('DJ Dashboard: Failed to connect song request WebSocket:', error);
       }
     };
 
@@ -461,38 +373,93 @@ export default function DJDashboard() {
       try {
         // Clean up any existing connection first
         if (pollWsRef.current) {
-          console.log('DJ Dashboard: Cleaning up existing poll WebSocket');
+          logger.debug('DJ Dashboard: Cleaning up existing poll WebSocket');
           pollWsRef.current.disconnect();
           pollWsRef.current = null;
         }
 
-        console.log('DJ Dashboard: Setting up poll WebSocket for broadcast:', currentBroadcast.id);
+        logger.debug('DJ Dashboard: Setting up poll WebSocket for broadcast:', currentBroadcast.id);
         const connection = await pollService.subscribeToPolls(currentBroadcast.id, (pollUpdate) => {
-          console.log('DJ Dashboard: Received poll update:', pollUpdate);
-          if (pollUpdate.type === 'POLL_VOTE') {
-            // Update existing poll with new vote data
-            setPolls(prev => prev.map(poll => 
-              poll.id === pollUpdate.pollId 
-                ? { ...poll, ...pollUpdate.poll }
-                : poll
-            ));
+          logger.debug('DJ Dashboard: Received poll update:', pollUpdate);
+          
+          switch (pollUpdate.type) {
+            case 'POLL_VOTE':
+              logger.debug('DJ Dashboard: Processing poll vote update for poll:', pollUpdate.pollId);
+              // Update existing poll with new vote data
+              setPolls(prev => prev.map(poll => 
+                poll.id === pollUpdate.pollId 
+                  ? { 
+                      ...poll, 
+                      options: pollUpdate.poll?.options || poll.options,
+                      totalVotes: pollUpdate.poll?.totalVotes || poll.totalVotes
+                    }
+                  : poll
+              ));
 
-            // Update active poll if it's the one being voted on
-            setActivePoll(prev => 
-              prev && prev.id === pollUpdate.pollId 
-                ? { ...prev, ...pollUpdate.poll }
-                : prev
-            );
-          } else if (pollUpdate.type === 'NEW_POLL') {
-            // Add new poll to the list
-            setPolls(prev => [pollUpdate.poll, ...prev]);
-            setActivePoll(pollUpdate.poll);
+              // Update active poll if it's the one being voted on
+              setActivePoll(prev => 
+                prev && prev.id === pollUpdate.pollId 
+                  ? { 
+                      ...prev, 
+                      options: pollUpdate.poll?.options || prev.options,
+                      totalVotes: pollUpdate.poll?.totalVotes || prev.totalVotes
+                    }
+                  : prev
+              );
+              break;
+              
+            case 'NEW_POLL':
+              logger.debug('DJ Dashboard: Processing new poll:', pollUpdate.poll);
+              // Add new poll to the list
+              setPolls(prev => {
+                const exists = prev.some(poll => poll.id === pollUpdate.poll.id);
+                if (exists) return prev;
+                return [pollUpdate.poll, ...prev];
+              });
+              setActivePoll(pollUpdate.poll);
+              break;
+              
+            case 'POLL_UPDATED':
+              logger.debug('DJ Dashboard: Processing poll update:', pollUpdate.poll);
+              if (pollUpdate.poll && !pollUpdate.poll.isActive) {
+                // Poll ended
+                setActivePoll(prev => prev?.id === pollUpdate.poll.id ? null : prev);
+              }
+              break;
+              
+            case 'POLL_RESULTS':
+              logger.debug('DJ Dashboard: Processing poll results update:', pollUpdate.results);
+              if (pollUpdate.pollId && pollUpdate.results) {
+                setPolls(prev => prev.map(poll => 
+                  poll.id === pollUpdate.pollId 
+                    ? { 
+                        ...poll, 
+                        options: pollUpdate.results.options,
+                        totalVotes: pollUpdate.results.totalVotes
+                      }
+                    : poll
+                ));
+
+                setActivePoll(prev => 
+                  prev && prev.id === pollUpdate.pollId 
+                    ? { 
+                        ...prev, 
+                        options: pollUpdate.results.options,
+                        totalVotes: pollUpdate.results.totalVotes
+                      }
+                    : prev
+                );
+              }
+              break;
+              
+            default:
+              logger.debug('DJ Dashboard: Unknown poll update type:', pollUpdate.type);
           }
         });
         pollWsRef.current = connection;
-        console.log('DJ Dashboard: Poll WebSocket connected successfully');
+        logger.debug('DJ Dashboard: Poll WebSocket connected successfully');
       } catch (error) {
-        console.error('DJ Dashboard: Failed to connect poll WebSocket:', error);
+        logger.error('DJ Dashboard: Failed to connect poll WebSocket:', error);
       }
     };
 
@@ -502,7 +469,7 @@ export default function DJDashboard() {
     setupPollWebSocket();
 
     return () => {
-      console.log('DJ Dashboard: Cleaning up WebSocket connections for broadcast:', currentBroadcast.id);
+      logger.debug('DJ Dashboard: Cleaning up WebSocket connections for broadcast:', currentBroadcast.id);
       if (chatWsRef.current) {
         chatWsRef.current.disconnect();
         chatWsRef.current = null;
@@ -521,7 +488,9 @@ export default function DJDashboard() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      stopBroadcast()
+      // DON'T automatically stop broadcast on unmount - let it persist for navigation
+      // The global StreamingContext handles broadcast state persistence
+      // Only cleanup component-specific WebSocket connections
       if (statusWsRef.current) {
         statusWsRef.current.close()
       }
@@ -606,7 +575,7 @@ export default function DJDashboard() {
         scheduledEnd: formatLocalTimeAsISO(endTime)
       }
 
-      console.log("DJ Dashboard: Creating broadcast with Philippines local time:", {
+      logger.debug("DJ Dashboard: Creating broadcast with Philippines local time:", {
         currentTime: now.toLocaleString('en-PH'),
         localStart: bufferedStart.toLocaleString('en-PH'),
         localEnd: endTime.toLocaleString('en-PH'),
@@ -626,9 +595,9 @@ export default function DJDashboard() {
         description: ''
       })
 
-      console.log("Broadcast created successfully:", createdBroadcast)
+      logger.debug("Broadcast created successfully:", createdBroadcast)
     } catch (error) {
-      console.error("Error creating broadcast:", error)
+      logger.error("Error creating broadcast:", error)
       setStreamError(error.response?.data?.message || "Failed to create broadcast")
     } finally {
       setIsCreatingBroadcast(false)
@@ -643,140 +612,122 @@ export default function DJDashboard() {
 
     try {
       setStreamError(null)
-
-      // Use regular mode to properly interact with Icecast server
-      await broadcastService.start(currentBroadcast.id)
-
-      // Get microphone access with specific constraints
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-                  audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                  }
-      })
-
-      audioStreamRef.current = stream
-
-      // Create MediaRecorder with explicit settings matching prototype
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: "audio/webm;codecs=opus",
-        audioBitsPerSecond: 128000
-      })
-
-      mediaRecorderRef.current = mediaRecorder
-
-      // Simple WebSocket URL construction using environment variable
-      const wsProtocol = 'wss';
-
-      // Always use the environment variable directly
-      const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
-      // Simple clean - just remove any protocol if present
-      const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-      const wsUrl = `${wsProtocol}://${cleanHost}/ws/live`;
-
-      console.log(`Connecting to WebSocket: ${wsUrl}`)
-
-      // Create WebSocket connection
-      const websocket = new WebSocket(wsUrl)
-      websocket.binaryType = "arraybuffer"
-      websocketRef.current = websocket
-
-      websocket.onopen = () => {
-        console.log("WebSocket connected")
-        setWebsocketConnected(true)
-
-        // Set up MediaRecorder data handler
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0 && websocket.readyState === WebSocket.OPEN) {
-            event.data.arrayBuffer().then(buffer => {
-              if (buffer.byteLength > MAX_MESSAGE_SIZE) {
-                console.warn("Audio chunk too large:", buffer.byteLength, "bytes")
-              }
-              websocket.send(buffer)
-            })
-          }
-        }
-
-        // Use smaller chunk size (250ms) to reduce message size - same as prototype
-        mediaRecorder.start(250)
-        setIsLive(true)
-        setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
-        setBroadcastStartTime(new Date())
-        console.log("Broadcasting started in test mode")
+      
+      // Use the global streaming context to start the broadcast
+      await startStreamingBroadcast({
+        id: currentBroadcast.id,
+        title: currentBroadcast.title,
+        description: currentBroadcast.description
+      });
+      
+      setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE);
+      setBroadcastStartTime(new Date());
+      
+    } catch (error) {
+      logger.error("Error starting broadcast:", error)
+      
+      // Provide user-friendly error messages based on the error type
+      let errorMessage = error.message || "Unknown error occurred";
+      
+      if (errorMessage.includes('Desktop audio capture failed') || errorMessage.includes('NotSupported')) {
+        setStreamError(
+          `Desktop Audio Issue: ${errorMessage}\n\n` +
+          "💡 Suggestions:\n" +
+          "• Switch to 'Microphone Only' mode above\n" +
+          "• Make sure you're using Chrome, Firefox, or Edge\n" +
+          "• Ensure you're on HTTPS (or localhost)\n" +
+          "• When prompted, select a source with audio (like a browser tab playing music)"
+        );
+      } else if (errorMessage.includes('Permission denied') || errorMessage.includes('NotAllowed')) {
+        setStreamError(
+          `Permission Error: ${errorMessage}\n\n` +
+          "💡 Please:\n" +
+          "• Allow microphone/screen sharing access when prompted\n" +
+          "• Check your browser's permission settings\n" +
+          "• Try refreshing the page and allowing permissions"
+        );
+      } else if (errorMessage.includes('Mixed audio setup failed')) {
+        setStreamError(
+          `Mixed Audio Error: ${errorMessage}\n\n` +
+          "💡 Try:\n" +
+          "• Using 'Microphone Only' mode instead\n" +
+          "• Ensuring desktop audio is working in other apps\n" +
+          "• Using a supported browser (Chrome, Firefox, Edge)"
+        );
+      } else {
+        setStreamError(`Error starting broadcast: ${errorMessage}`);
       }
-
-      websocket.onerror = (error) => {
-        console.error("WebSocket error:", error)
-        setStreamError("Failed to connect to streaming server")
-        stopBroadcast()
-      }
-
-      websocket.onclose = (event) => {
-        console.log("WebSocket disconnected:", event.code, event.reason)
-        setWebsocketConnected(false)
-        if (isLive) {
-          stopBroadcast()
-        }
-      }
-
-          } catch (error) {
-      console.error("Error starting broadcast:", error)
-      setStreamError(`Error accessing microphone: ${error.message}`)
-      stopBroadcast()
     }
   }
 
   const stopBroadcast = async () => {
-    console.log("Stopping broadcast")
+    try {
+      logger.debug("Stopping broadcast")
+      
+      // Use the global streaming context to stop the broadcast
+      await stopStreamingBroadcast();
+      
+      // Reset state back to create new broadcast
+      setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
+      
+      // Reset analytics
+      setBroadcastStartTime(null)
+      setTotalInteractions(0)
+      setPeakListeners(0)
+      setTotalSongRequests(0)
+      setTotalPolls(0)
+      setChatMessages([])
+      setSongRequests([])
+      setPolls([])
+      setActivePoll(null)
+      
+    } catch (error) {
+      logger.error("Error stopping broadcast:", error)
+      setStreamError(`Error stopping broadcast: ${error.message}`)
+    }
+  }
+
+  const cancelBroadcast = async () => {
+    if (!currentBroadcast) {
+      setStreamError("No broadcast instance found")
+      return
+    }
 
     try {
-      // End the broadcast in the database first
-      if (currentBroadcast) {
-        await broadcastService.end(currentBroadcast.id)
-        console.log("Broadcast ended in database")
+      setStreamError(null)
+      logger.debug("Canceling broadcast:", currentBroadcast.id)
+      
+      // Delete the broadcast from the backend
+      await broadcastService.delete(currentBroadcast.id)
+      
+      // Reset state back to create new broadcast
+      setCurrentBroadcast(null)
+      setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
+      
+      logger.debug("Broadcast canceled successfully")
+    } catch (error) {
+      logger.error("Error canceling broadcast:", error)
+      setStreamError(error.response?.data?.message || "Failed to cancel broadcast")
+    }
+  }
+
+  const handleRestoreAudio = async () => {
+    setIsRestoringAudio(true);
+    setStreamError(null);
+    
+    try {
+      const success = await restoreDJStreaming();
+      if (success) {
+        logger.debug('Audio streaming restored successfully');
+      } else {
+        setStreamError('Failed to restore audio streaming. Please try again.');
       }
     } catch (error) {
-      console.error("Error ending broadcast in database:", error)
+      logger.error('Error restoring audio streaming:', error);
+      setStreamError(`Error restoring audio: ${error.message}`);
+    } finally {
+      setIsRestoringAudio(false);
     }
-
-    // Stop MediaRecorder
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      mediaRecorderRef.current.stop()
-    }
-
-    // Close WebSocket
-    if (websocketRef.current && websocketRef.current.readyState === WebSocket.OPEN) {
-      websocketRef.current.close()
-    }
-
-    // Stop audio stream
-    if (audioStreamRef.current) {
-      audioStreamRef.current.getTracks().forEach(track => track.stop())
-    }
-
-    // Reset state back to create new broadcast
-    setIsLive(false)
-    setWebsocketConnected(false)
-    setStreamError(null)
-    setCurrentBroadcast(null)
-    setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
-
-    // Reset analytics
-    setBroadcastStartTime(null)
-    setTotalInteractions(0)
-    setPeakListeners(0)
-    setTotalSongRequests(0)
-    setTotalPolls(0)
-    setChatMessages([])
-    setSongRequests([])
-    setPolls([])
-    setActivePoll(null)
-
-    // Clear refs
-    websocketRef.current = null
-    mediaRecorderRef.current = null
-    audioStreamRef.current = null
   }
 
   const togglePreview = async () => {
@@ -795,14 +746,16 @@ export default function DJDashboard() {
         }
         audioPreviewRef.current.src = serverConfig.streamUrl
         audioPreviewRef.current.volume = isMuted ? 0 : volume / 100
-
+        
         try {
           await audioPreviewRef.current.play()
           setPreviewEnabled(true)
-    } catch (error) {
-          console.error("Error starting preview:", error)
-          setStreamError("Could not start audio preview")
+        } catch (error) {
+          logger.error("Error playing audio preview:", error)
+          setStreamError("Could not play audio preview. Please try again.")
         }
+      } else {
+        setStreamError("Stream URL not available")
       }
     }
   }
@@ -839,7 +792,7 @@ export default function DJDashboard() {
       await chatService.sendMessage(currentBroadcast.id, messageData)
       setChatMessage('')
     } catch (error) {
-      console.error('Error sending chat message:', error)
+      logger.error('Error sending chat message:', error)
     }
   }
 
@@ -864,8 +817,14 @@ export default function DJDashboard() {
       const response = await pollService.createPoll(pollData)
       const createdPoll = response.data
 
+      logger.debug('DJ Dashboard: Poll created successfully:', createdPoll);
+
       // Add poll to local state
-      setPolls(prev => [createdPoll, ...prev])
+      setPolls(prev => {
+        const exists = prev.some(poll => poll.id === createdPoll.id);
+        if (exists) return prev;
+        return [createdPoll, ...prev];
+      });
       setActivePoll(createdPoll)
 
       // Track poll creation
@@ -876,7 +835,7 @@ export default function DJDashboard() {
       setShowPollCreation(false)
       alert('Poll created successfully!')
     } catch (error) {
-      console.error('Error creating poll:', error)
+      logger.error('Error creating poll:', error)
       alert('Failed to create poll. Please try again.')
     } finally {
       setIsCreatingPoll(false)
@@ -949,6 +908,12 @@ export default function DJDashboard() {
                         <span>{websocketConnected ? 'Connected' : 'Disconnected'}</span>
                       </div>
                       <div className="flex items-center">
+                        <span className={`h-2 w-2 rounded-full mr-2 ${
+                          mediaRecorderRef.current && audioStreamRef.current && mediaRecorderRef.current.state === 'recording' ? 'bg-green-300' : 'bg-orange-300'
+                        }`}></span>
+                        <span>{mediaRecorderRef.current && audioStreamRef.current && mediaRecorderRef.current.state === 'recording' ? 'Audio Streaming' : 'Audio Disconnected'}</span>
+                      </div>
+                      <div className="flex items-center">
                         <span className="font-semibold mr-1">{listenerCount}</span>
                         <span>listener{listenerCount !== 1 ? 's' : ''}</span>
                       </div>
@@ -956,13 +921,27 @@ export default function DJDashboard() {
                   </div>
                 </div>
 
-                <button
-                  onClick={stopBroadcast}
-                  className="flex items-center px-6 py-3 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-lg transition-all duration-200 font-semibold"
-                >
-                  <StopIcon className="h-5 w-5 mr-2" />
-                  End Broadcast
-                </button>
+                <div className="flex items-center space-x-3">
+                  {/* Audio Restoration Button - Show when audio is not streaming */}
+                  {(!mediaRecorderRef.current || !audioStreamRef.current || mediaRecorderRef.current.state !== 'recording') && (
+                    <button
+                      onClick={handleRestoreAudio}
+                      disabled={isRestoringAudio}
+                      className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black rounded-lg transition-all duration-200 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <MicrophoneIcon className="h-4 w-4 mr-2" />
+                      {isRestoringAudio ? 'Restoring...' : 'Restore Audio'}
+                    </button>
+                  )}
+
+                  <button
+                    onClick={stopBroadcast}
+                    className="flex items-center px-6 py-3 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-lg transition-all duration-200 font-semibold"
+                  >
+                    <StopIcon className="h-5 w-5 mr-2" />
+                    End Broadcast
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1043,9 +1022,31 @@ export default function DJDashboard() {
 
           {/* Error Display */}
           {streamError && (
-          <div className="mb-6 p-4 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md">
-              {streamError}
-                  </div>
+            <div className="mb-6 p-4 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md border border-red-300 dark:border-red-800">
+              <div className="flex items-start space-x-3">
+                <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <h3 className="font-semibold text-red-800 dark:text-red-200 mb-2">Broadcast Error</h3>
+                  <div className="text-sm whitespace-pre-line">{streamError}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Audio Restoration Notice - Show when live but audio not streaming */}
+          {workflowState === WORKFLOW_STATES.STREAMING_LIVE && (!mediaRecorderRef.current || !audioStreamRef.current || mediaRecorderRef.current.state !== 'recording') && (
+            <div className="mb-6 p-4 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 rounded-md border-l-4 border-yellow-500">
+              <div className="flex items-center">
+                <MicrophoneIcon className="h-5 w-5 mr-3 flex-shrink-0" />
+                <div>
+                  <h3 className="font-semibold">Audio Streaming Disconnected</h3>
+                  <p className="text-sm mt-1">
+                    Your broadcast is live, but audio streaming has been disconnected. 
+                    Click "Restore Audio" in the live bar above to reconnect your microphone and resume audio streaming.
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
 
         {/* Live Interactive Dashboard - When streaming live */}
@@ -1088,6 +1089,7 @@ export default function DJDashboard() {
                           messageDate = new Date();
                         }
 
+                        // Format relative time (updated every minute due to chatTimestampTick)
                         const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
                           ? formatDistanceToNow(messageDate, { addSuffix: true }) 
                           : 'Just now';
@@ -1141,8 +1143,11 @@ export default function DJDashboard() {
               </div>
             </div>
 
-            {/* Song Requests & Poll Creation */}
+            {/* Song Requests, DJ Controls & Polls */}
             <div className="col-span-12 lg:col-span-4 space-y-6">
+              {/* DJ Audio Controls */}
+              <DJAudioControls />
+
               {/* Song Requests Section */}
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
                 <div className="bg-yellow-600 text-white px-4 py-3">
@@ -1188,7 +1193,10 @@ export default function DJDashboard() {
                               )}
 
                               <div className="text-xs text-gray-500 dark:text-gray-400">
-                                {request.requestedBy?.firstName || 'Anonymous'} • {formatDistanceToNow(new Date(request.timestamp), { addSuffix: true })}
+                                {request.requestedBy?.firstName && request.requestedBy?.lastName 
+                                  ? `${request.requestedBy.firstName} ${request.requestedBy.lastName}`
+                                  : request.requestedBy?.firstName || request.requestedBy?.name || 'Anonymous'} 
+                                • {formatDistanceToNow(new Date(request.createdAt || request.timestamp), { addSuffix: true })}
                               </div>
                             </div>
                           </div>
@@ -1511,6 +1519,9 @@ export default function DJDashboard() {
                   )}
                 </div>
 
+                {/* Audio Source Selection */}
+                <AudioSourceSelector disabled={isCreatingBroadcast} />
+
                 {/* Info about scheduling */}
                 <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4">
                   <div className="flex">
@@ -1567,8 +1578,21 @@ export default function DJDashboard() {
                 </div>
               </div>
 
-              {/* Go Live Button */}
-              <div className="flex justify-center">
+              {/* Audio Source Selection */}
+              <div className="mb-6">
+                <AudioSourceSelector />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-center space-x-4">
+                <button
+                  onClick={cancelBroadcast}
+                  className="flex items-center px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors font-medium"
+                >
+                  <XMarkIcon className="h-5 w-5 mr-2" />
+                  Cancel Broadcast
+                </button>
+                
                 <button
                   onClick={startBroadcast}
                   disabled={!serverConfig}
@@ -1580,7 +1604,7 @@ export default function DJDashboard() {
               </div>
 
               <p className="text-center text-sm text-gray-600 dark:text-gray-400 mt-4">
-                Make sure to allow microphone access when prompted
+                Make sure to allow audio source access when prompted (microphone and/or screen sharing)
               </p>
             </div>
           </div>

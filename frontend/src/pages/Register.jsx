@@ -1,25 +1,31 @@
 "use client"
 
 import { useState } from "react"
-import { XCircleIcon } from "@heroicons/react/24/outline"
 import { useAuth } from "../context/AuthContext"
 import { Link, useNavigate } from "react-router-dom"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { AlertCircle, Eye, EyeOff, Loader2, UserPlus } from "lucide-react"
 import wildcatRadioLogo from "../assets/wildcatradio_logo.png"
-import icHide from "../assets/ic_hide.png"
-import icUnhide from "../assets/ic_unhide.png"
+import { Separator } from "@/components/ui/separator"
+import background from "../assets/background.jpg"
 
 export default function Register() {
   const { register, loading, error: authError } = useAuth()
   const navigate = useNavigate()
   const [formData, setFormData] = useState({
-    name: "",
+    firstname: "",
+    lastname: "",
     email: "",
     password: "",
     confirmPassword: "",
   })
   const [error, setError] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [showPasswords, setShowPasswords] = useState(false)
+  const [agreedToTerms, setAgreedToTerms] = useState(false)
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -30,13 +36,8 @@ export default function Register() {
   }
 
   // Toggle password visibility
-  const togglePasswordVisibility = () => {
-    setShowPassword(!showPassword)
-  }
-
-  // Toggle confirm password visibility
-  const toggleConfirmPasswordVisibility = () => {
-    setShowConfirmPassword(!showConfirmPassword)
+  const togglePasswordsVisibility = () => {
+    setShowPasswords(!showPasswords)
   }
 
   // Handle form submission with backend integration
@@ -77,180 +78,242 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#E9ECEC] py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full bg-white shadow-xl rounded-lg overflow-hidden">
-        <div className="p-8 flex flex-col items-center">
-          <img 
-            src={wildcatRadioLogo} 
-            alt="WildCat Radio Logo" 
-            className="h-28 mb-6"
-          />
+    <div
+      className="min-h-screen w-full bg-cover bg-center"
+      style={{ backgroundImage: `url(${background})` }}
+    >
+      <div className="min-h-screen w-full bg-wildcats-yellow/20 backdrop-blur-sm flex flex-col items-center justify-center p-4 py-8">
+        <div className="w-full max-w-md">
+          {/* Logo Section */}
+          <div className="flex justify-center mb-2">
+            <img 
+              src={wildcatRadioLogo} 
+              alt="WildCat Radio Logo" 
+              className="h-40 w-auto"
+            />
+          </div>
           
-          <h2 className="text-2xl font-bold text-center text-gray-900 mb-1">
-            Create an Account
-          </h2>
-          <p className="text-sm text-gray-600 text-center mb-6">
-            Join the WildCats Radio community
-          </p>
+          {/* Title Section */}
+          <div className="text-center mb-4 px-4">
+            <p className="text-sm text-black uppercase tracking-wider max-w-sm mx-auto font-semibold">
+              Your radio broadcast platform
+            </p>
+          </div>
 
-          <form className="w-full" onSubmit={handleSubmit}>
-            <div className="mb-4">
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-                First Name
-              </label>
-              <input
-                id="name"
-                name="name"
-                type="text"
-                autoComplete="name"
-                required
-                value={formData.name}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#91403E] focus:border-[#91403E]"
-                placeholder="First name"
-              />
-            </div>
-            
-            <div className="mb-4">
-              <label htmlFor="lastname" className="block text-sm font-medium text-gray-700 mb-1">
-                Last Name
-              </label>
-              <input
-                id="lastname"
-                name="lastname"
-                type="text"
-                autoComplete="family-name"
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#91403E] focus:border-[#91403E]"
-                placeholder="Last name"
-              />
-            </div>
-            
-            <div className="mb-4">
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                Email
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={formData.email}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#91403E] focus:border-[#91403E]"
-                placeholder="Enter your email"
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                Only cit.edu email addresses are allowed
-              </p>
-            </div>
-            
-            <div className="mb-4">
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="new-password"
-                  required
-                  value={formData.password}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#91403E] focus:border-[#91403E]"
-                  placeholder="Create a password"
-                  style={{
-                    // Hide browser's built-in password reveal button
-                    "&::-ms-reveal, &::-ms-clear": {
-                      display: "none"
-                    },
-                    "-webkit-text-security": showPassword ? "none" : "disc"
-                  }}
-                />
-                <button 
-                  type="button" 
-                  onClick={togglePasswordVisibility}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2"
-                >
-                  <img 
-                    src={showPassword ? icHide : icUnhide} 
-                    alt={showPassword ? "Hide password" : "Show password"} 
-                    className="h-5 w-5 opacity-70"
-                  />
-                </button>
+          <Card className="border-0 shadow-2xl bg-white/95 backdrop-blur-xl overflow-hidden rounded-2xl">
+            <div className="h-3 bg-gradient-to-r from-wildcats-maroon to-wildcats-maroon/70" />
+            <CardHeader className="flex flex-row items-start justify-between px-6 pt-6 pb-3">
+              <div>
+                <CardTitle className="text-xl font-bold text-gray-800">Create your account</CardTitle>
+                <CardDescription className="text-sm text-gray-500 mt-1">
+                  Enter your information to create an account
+                </CardDescription>
               </div>
-            </div>
-            
-            <div className="mb-6">
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
-                Confirm Password
-              </label>
-              <div className="relative">
-                <input
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  type={showConfirmPassword ? "text" : "password"}
-                  autoComplete="new-password"
-                  required
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-[#91403E] focus:border-[#91403E]"
-                  placeholder="Confirm your password"
-                  style={{
-                    // Hide browser's built-in password reveal button
-                    "&::-ms-reveal, &::-ms-clear": {
-                      display: "none"
-                    },
-                    "-webkit-text-security": showConfirmPassword ? "none" : "disc"
-                  }}
-                />
-                <button 
-                  type="button" 
-                  onClick={toggleConfirmPasswordVisibility}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2"
-                >
-                  <img 
-                    src={showConfirmPassword ? icHide : icUnhide} 
-                    alt={showConfirmPassword ? "Hide password" : "Show password"} 
-                    className="h-5 w-5 opacity-70"
-                  />
-                </button>
+              <div className="bg-wildcats-maroon/10 p-3 rounded-full">
+                <UserPlus className="h-6 w-6 text-wildcats-maroon" />
               </div>
+            </CardHeader>
+            <div className="px-6">
+              <Separator className="bg-gray-200" />
             </div>
-
-            {(error || authError) && (
-              <div className="rounded-md bg-red-50 p-3 mb-4 border border-red-200">
-                <div className="flex">
-                  <div className="flex-shrink-0">
-                    <XCircleIcon className="h-5 w-5 text-red-400" aria-hidden="true" />
+            <CardContent className="px-6 py-6 pt-3">
+              <form onSubmit={handleSubmit} className="space-y-3">
+                {/* Name Fields Row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="firstname" className="text-xs font-semibold text-gray-700">
+                      First Name
+                    </Label>
+                    <Input
+                      id="firstname"
+                      name="firstname"
+                      type="text"
+                      autoComplete="given-name"
+                      required
+                      value={formData.firstname}
+                      onChange={handleChange}
+                      placeholder="First name"
+                      className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 rounded-md shadow-sm"
+                    />
                   </div>
-                  <div className="ml-3">
-                    <p className="text-sm font-medium text-red-800">{error || authError}</p>
+                  
+                  <div className="space-y-1.5">
+                    <Label htmlFor="lastname" className="text-xs font-semibold text-gray-700">
+                      Last Name
+                    </Label>
+                    <Input
+                      id="lastname"
+                      name="lastname"
+                      type="text"
+                      autoComplete="family-name"
+                      required
+                      value={formData.lastname}
+                      onChange={handleChange}
+                      placeholder="Last name"
+                      className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 rounded-md shadow-sm"
+                    />
                   </div>
                 </div>
+                
+                {/* Email Field */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-xs font-semibold text-gray-700">
+                    Email Address
+                  </Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={formData.email}
+                    onChange={handleChange}
+                    placeholder="your.email@cit.edu"
+                    className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 rounded-md shadow-sm"
+                  />
+                  <p className="text-xs text-wildcats-maroon flex items-center space-x-1 pt-1">
+                    <AlertCircle className="h-3 w-3" />
+                    <span>Only cit.edu email addresses are allowed</span>
+                  </p>
+                </div>
+                
+                {/* Password Field */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="password" className="text-xs font-semibold text-gray-700">
+                    Password
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      name="password"
+                      type={showPasswords ? "text" : "password"}
+                      autoComplete="new-password"
+                      required
+                      value={formData.password}
+                      onChange={handleChange}
+                      placeholder="Create a secure password"
+                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 rounded-md shadow-sm"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="group absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 rounded-md focus:outline-none hover:bg-transparent"
+                      onClick={togglePasswordsVisibility}
+                      tabIndex={-1}
+                    >
+                      {showPasswords ? (
+                        <EyeOff className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                
+                {/* Confirm Password Field */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="confirmPassword" className="text-xs font-semibold text-gray-700">
+                    Confirm Password
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="confirmPassword"
+                      name="confirmPassword"
+                      type={showPasswords ? "text" : "password"}
+                      autoComplete="new-password"
+                      required
+                      value={formData.confirmPassword}
+                      onChange={handleChange}
+                      placeholder="Confirm your password"
+                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 rounded-md shadow-sm"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="group absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 rounded-md focus:outline-none hover:bg-transparent"
+                      onClick={togglePasswordsVisibility}
+                      tabIndex={-1}
+                    >
+                      {showPasswords ? (
+                        <EyeOff className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Error Message */}
+                {(error || authError) && (
+                  <div className="rounded-md bg-red-50 border border-red-200 p-3">
+                    <div className="flex items-center space-x-2">
+                      <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                      <p className="text-xs font-medium text-red-800">{error || authError}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Terms & Conditions Checkbox */}
+                <div className="flex items-start space-x-2.5 pt-1">
+                  <Checkbox
+                    id="terms"
+                    checked={agreedToTerms}
+                    onCheckedChange={setAgreedToTerms}
+                    className="border-wildcats-maroon data-[state=checked]:bg-wildcats-maroon data-[state=checked]:text-white data-[state=checked]:border-wildcats-maroon focus:outline-none focus-visible:ring-0 mt-0.5"
+                  />
+                  <div className="grid gap-1.5 leading-none">
+                    <label
+                      htmlFor="terms"
+                      className="text-xs text-gray-500 peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                      By creating an account, you agree to our{' '}
+                      <Link to="#" className="text-wildcats-maroon hover:text-wildcats-maroon/80 font-medium underline underline-offset-2 focus:outline-none">
+                        Terms of Service
+                      </Link>{' '}
+                      and{' '}
+                      <Link to="#" className="text-wildcats-maroon hover:text-wildcats-maroon/80 font-medium underline underline-offset-2 focus:outline-none">
+                        Privacy Policy
+                      </Link>
+                      .
+                    </label>
+                  </div>
+                </div>
+
+                {/* Submit Button */}
+                <Button
+                  type="submit"
+                  disabled={loading || !agreedToTerms}
+                  className="w-full h-11 bg-gradient-to-r from-wildcats-yellow to-wildcats-yellow/90 hover:from-wildcats-yellow/90 hover:to-wildcats-yellow/80 text-black font-semibold shadow-lg hover:shadow-xl transition-all duration-300 disabled:transform-none disabled:opacity-70 rounded-lg mt-4 focus:outline-none focus-visible:ring-0"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating Account...
+                    </>
+                  ) : (
+                    <>
+                      Create Account
+                    </>
+                  )}
+                </Button>
+              </form>
+
+              {/* Sign In Link */}
+              <div className="text-center pt-3">
+                <p className="text-sm text-gray-600">
+                  Already have an account?{' '}
+                  <Link 
+                    to="/login" 
+                    className="font-semibold text-wildcats-maroon hover:text-wildcats-maroon/80 transition-colors focus:outline-none"
+                  >
+                    Sign in
+                  </Link>
+                </p>
               </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className={`w-full py-2 px-4 text-white font-medium rounded-md bg-[#F4BE03] hover:bg-[#F4BE03]/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#F4BE03] transition-colors ${
-                loading ? 'opacity-70 cursor-not-allowed' : ''
-              }`}
-            >
-              {loading ? 'Creating Account...' : 'Create Account'}
-            </button>
-
-            <p className="mt-6 text-center text-xs text-gray-600">
-              By signing up, you agree to our <a href="#" className="text-[#91403E]">Terms of Service</a> and <a href="#" className="text-[#91403E]">Privacy Policy</a>
-            </p>
-          </form>
-
-          <p className="mt-6 text-center text-sm text-gray-600">
-            Already have an account? <Link to="/login" className="font-medium text-[#91403E] hover:text-[#91403E]/80">Sign in</Link>
-          </p>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

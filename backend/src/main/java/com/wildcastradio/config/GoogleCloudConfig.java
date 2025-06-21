@@ -8,14 +8,14 @@ import org.springframework.context.annotation.Configuration;
 import jakarta.annotation.PostConstruct;
 
 /**
- * Configuration class for Google Cloud specific settings.
+ * Configuration class for Icecast server settings.
  * Handles deployment-specific configurations for Icecast and network settings.
  */
 @Configuration
 public class GoogleCloudConfig {
     private static final Logger logger = LoggerFactory.getLogger(GoogleCloudConfig.class);
 
-    @Value("${icecast.host:34.142.131.206}")
+    @Value("${icecast.host:icecast.software}")
     private String icecastHost;
 
     @Value("${icecast.port:8000}")
@@ -43,19 +43,16 @@ public class GoogleCloudConfig {
     @Value("${spring.profiles.active:default}")
     private String activeProfile;
 
-    @Value("${PORT:#{null}}")
-    private String herokuPort;
 
     @PostConstruct
     public void logConfiguration() {
-        logger.info("=== Google Cloud Icecast Configuration ===");
+        logger.info("=== Icecast Configuration ===");
         logger.info("Icecast Host: {}", icecastHost);
         logger.info("Icecast Port: {}", icecastPort);
         logger.info("Icecast Mount Point: {}", icecastMountPoint);
         logger.info("Server Port: {}", serverPort);
         logger.info("Active Profile: {}", activeProfile);
-        logger.info("Heroku Port Environment: {}", herokuPort != null ? herokuPort : "Not set");
-        logger.info("==========================================");
+        logger.info("==============================");
 
         // Validate configuration
         validateConfiguration();
@@ -81,16 +78,23 @@ public class GoogleCloudConfig {
      * Check if we're running in a cloud environment
      */
     public boolean isCloudDeployment() {
-        return herokuPort != null || "prod".equals(activeProfile) || "cloud".equals(activeProfile);
+        return "prod".equals(activeProfile) || "cloud".equals(activeProfile);
     }
 
     /**
-     * Get the complete Icecast server URL
+     * Get the complete Icecast server URL for web interface (through reverse proxy)
      */
     public String getIcecastServerUrl() {
-        // Use HTTPS for port 443, HTTP for other ports
-        String protocol = (icecastPort == 443) ? "https" : "http";
-        return protocol + "://" + icecastHost + ":" + icecastPort;
+        // For web interface, use HTTPS through reverse proxy
+        return "https://" + icecastHost;
+    }
+
+    /**
+     * Get the complete Icecast server URL for FFmpeg streaming (direct connection)
+     */
+    public String getIcecastStreamingUrl() {
+        // For FFmpeg streaming, connect directly to Icecast server port
+        return "http://" + icecastHost + ":" + icecastPort;
     }
 
     /**
@@ -104,6 +108,7 @@ public class GoogleCloudConfig {
      * Get Icecast source connection string for FFmpeg
      */
     public String getIcecastSourceUrl() {
+        // FFmpeg always connects directly to Icecast server port
         return "icecast://" + icecastUsername + ":" + icecastPassword + 
                "@" + icecastHost + ":" + icecastPort + icecastMountPoint;
     }

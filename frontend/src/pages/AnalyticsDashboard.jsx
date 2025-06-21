@@ -59,18 +59,11 @@ export default function AnalyticsDashboard() {
   const [selectedTimeframe, setSelectedTimeframe] = useState('week');
   const [comparisonPeriod, setComparisonPeriod] = useState('yesterday');
 
-  // Auto-refresh data every 5 minutes 
+  // Initial data load on mount
   useEffect(() => {
-    // Initial data load
+    // Initial data load only
     refreshData();
-    
-    // Set up automatic refresh interval
-    const intervalId = setInterval(() => {
-      refreshData();
-    }, 5 * 60 * 1000);
-    
-    return () => clearInterval(intervalId);
-  }, [refreshData]);
+  }, []); // Empty dependency array - only run once on mount
 
   // Security check: Only allow DJs and Admins to access this feature
   if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
@@ -144,16 +137,6 @@ export default function AnalyticsDashboard() {
         return null;
     }
     
-    // Use actual engagement stats for current period (real database values)
-    const currentMetrics = {
-      messageInteractions: engagementStats.totalChatMessages || 0,
-      songRequests: engagementStats.totalSongRequests || 0, // This now uses real data from database
-      broadcastActivities: broadcastStats.totalBroadcasts || 0,
-      userInteractions: userStats.totalUsers || 0,
-      currentPeriodDate: format(currentPeriodStart, 'MMM d'),
-      currentPeriodEndDate: format(currentPeriodEnd, 'MMM d')
-    };
-    
     // Filter activities for comparison period to get actual historical data  
     const comparisonActivities = activityStats.recentActivities.filter(activity => {
       if (!activity.timestamp) return false;
@@ -163,26 +146,25 @@ export default function AnalyticsDashboard() {
     
     // Calculate comparison metrics from actual historical activities
     const calculateComparisonMetrics = () => {
+      // For a new database, we have no historical data, so return all zeros
+      // Activity logs don't represent actual user/engagement counts from previous periods
+      
+      // Only count actual broadcast activities from historical data
       const broadcastActivities = comparisonActivities.filter(a => 
         a.type && (a.type.includes('BROADCAST') || a.message.toLowerCase().includes('broadcast'))
       ).length;
       
-      const userActivities = comparisonActivities.filter(a => 
-        a.type && (a.type.includes('USER') || a.message.toLowerCase().includes('user') || a.message.toLowerCase().includes('registered'))
-      ).length;
-      
+      // Only count actual chat message activities from historical data  
       const messageActivities = comparisonActivities.filter(a => 
         a.message && (a.message.toLowerCase().includes('message') || a.message.toLowerCase().includes('chat'))
       ).length;
       
-      // For comparison, use proportion of current stats based on actual activity ratio
-      const activityRatio = comparisonActivities.length > 0 ? Math.min(1, comparisonActivities.length / 10) : 0.75;
-      
+      // Return only real historical activity data - no fake metrics
       return {
-        messageInteractions: Math.max(messageActivities, Math.floor(currentMetrics.messageInteractions * activityRatio)),
-        songRequests: Math.floor(currentMetrics.songRequests * activityRatio),
-        broadcastActivities: Math.max(broadcastActivities, Math.floor(currentMetrics.broadcastActivities * activityRatio)),
-        userInteractions: Math.max(userActivities, Math.floor(currentMetrics.userInteractions * 0.95)), // Users grow slowly
+        messageInteractions: messageActivities, // Only actual chat activities
+        songRequests: 0, // No historical song request data available in activity logs
+        broadcastActivities: broadcastActivities, // Only actual broadcast activities
+        userInteractions: 0, // No way to get historical total user counts from activity logs
         comparisonPeriodDate: format(comparisonPeriodStart, 'MMM d'),
         comparisonPeriodEndDate: format(comparisonPeriodEnd, 'MMM d')
       };
@@ -192,18 +174,26 @@ export default function AnalyticsDashboard() {
     
     // Calculate percentage changes
     const calculateChange = (current, comparison) => {
-      if (comparison === 0) return current > 0 ? 100 : 0;
+      // If no historical data exists, don't show percentage change
+      if (comparison === 0) return 0;
       return ((current - comparison) / comparison) * 100;
     };
     
     return {
-      current: currentMetrics,
+      current: {
+        messageInteractions: engagementStats.totalChatMessages || 0,
+        songRequests: engagementStats.totalSongRequests || 0,
+        broadcastActivities: broadcastStats.totalBroadcasts || 0,
+        userInteractions: userStats.totalUsers || 0,
+        currentPeriodDate: format(currentPeriodStart, 'MMM d'),
+        currentPeriodEndDate: format(currentPeriodEnd, 'MMM d')
+      },
       comparison: comparisonMetrics,
       changes: {
-        messageInteractions: calculateChange(currentMetrics.messageInteractions, comparisonMetrics.messageInteractions),
-        songRequests: calculateChange(currentMetrics.songRequests, comparisonMetrics.songRequests),
-        broadcastActivities: calculateChange(currentMetrics.broadcastActivities, comparisonMetrics.broadcastActivities),
-        userInteractions: calculateChange(currentMetrics.userInteractions, comparisonMetrics.userInteractions)
+        messageInteractions: calculateChange(engagementStats.totalChatMessages || 0, comparisonMetrics.messageInteractions),
+        songRequests: calculateChange(engagementStats.totalSongRequests || 0, comparisonMetrics.songRequests),
+        broadcastActivities: calculateChange(broadcastStats.totalBroadcasts || 0, comparisonMetrics.broadcastActivities),
+        userInteractions: calculateChange(userStats.totalUsers || 0, comparisonMetrics.userInteractions)
       }
     };
   }, [activityStats.recentActivities, engagementStats.totalChatMessages, engagementStats.totalSongRequests, broadcastStats.totalBroadcasts, userStats.totalUsers, comparisonPeriod]);
@@ -305,17 +295,25 @@ export default function AnalyticsDashboard() {
                     <>
                       <span className="inline-flex items-center">
                         <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-                        Real-time data • Last updated: {format(new Date(lastUpdated), 'MMM d, yyyy • h:mm a')}
+                        Manual refresh mode • Last updated: {format(new Date(lastUpdated), 'MMM d, yyyy • h:mm a')}
                       </span>
                     </>
-                  ) : 'Loading real analytics data...'}
+                  ) : 'Click "Refresh Data" to load analytics...'}
                 </p>
               </div>
             </div>
-            {/* Real-time data indicator */}
-            <div className="flex items-center px-4 py-2 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-lg">
-              <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
-              <span className="text-sm font-medium">Auto-updating</span>
+            {/* Manual refresh controls */}
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={refreshData}
+                disabled={loading}
+                className="flex items-center px-4 py-2 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ArrowPathIcon className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                <span className="text-sm font-medium">
+                  {loading ? 'Refreshing...' : 'Refresh Data'}
+                </span>
+              </button>
             </div>
           </div>
         </div>
@@ -978,9 +976,15 @@ export default function AnalyticsDashboard() {
                 </div>
               </div>
             ) : (
-              <div className="text-center py-8">
-                <PresentationChartBarIcon className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-                <p className="text-gray-500 dark:text-gray-400">Loading comparison data...</p>
+              <div className="text-center py-12">
+                <PresentationChartBarIcon className="h-16 w-16 mx-auto text-gray-400 mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No Historical Data</h3>
+                <p className="text-gray-500 dark:text-gray-400 mb-4">
+                  Comparison charts will appear once there's historical activity data.
+                </p>
+                <p className="text-sm text-gray-400 dark:text-gray-500">
+                  Current period data is shown in the summary cards above.
+                </p>
               </div>
             )}
           </div>
@@ -1093,65 +1097,7 @@ export default function AnalyticsDashboard() {
             </div>
           </div>
 
-          {/* Admin-only section */}
-          {currentUser.role === 'ADMIN' && (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Admin Analytics</h2>
-                <div className="bg-amber-100 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 text-sm font-medium px-3 py-1 rounded-full">
-                  Admin Only
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-500 dark:text-gray-400">System Health</span>
-                    <div className="p-1 bg-green-100 dark:bg-green-900/30 rounded-full">
-                      <CheckCircleIcon className="h-4 w-4 text-green-600 dark:text-green-400" />
-                    </div>
-                  </div>
-                  <p className="text-xl font-semibold text-gray-900 dark:text-white">98.7%</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Uptime this month</p>
-                </div>
-                
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Average Response</span>
-                    <div className="p-1 bg-blue-100 dark:bg-blue-900/30 rounded-full">
-                      <ArrowTrendingUpIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                    </div>
-                  </div>
-                  <p className="text-xl font-semibold text-gray-900 dark:text-white">245ms</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">-12ms from last week</p>
-                </div>
-                
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Error Rate</span>
-                    <div className="p-1 bg-yellow-100 dark:bg-yellow-900/30 rounded-full">
-                      <ExclamationTriangleIcon className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
-                    </div>
-                  </div>
-                  <p className="text-xl font-semibold text-gray-900 dark:text-white">0.03%</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">+0.01% from last week</p>
-                </div>
-                
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Peak Traffic</span>
-                    <div className="p-1 bg-red-100 dark:bg-red-900/30 rounded-full">
-                      <FireIcon className="h-4 w-4 text-red-600 dark:text-red-400" />
-                    </div>
-                  </div>
-                  <p className="text-xl font-semibold text-gray-900 dark:text-white">238</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Concurrent users</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Connection status indicator - similar to Notifications.jsx */}
+          {/* Connection status indicator */}
           <div className="mt-4 text-center">
             <div className="inline-flex items-center space-x-2 text-sm">
               <div className={`h-2 w-2 rounded-full ${
@@ -1159,9 +1105,14 @@ export default function AnalyticsDashboard() {
               }`}></div>
               <span className={wsConnected ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}>
                 {wsConnected 
-                  ? 'Real-time analytics updates active' 
-                  : 'Using cached data - WebSocket disconnected'}
+                  ? 'WebSocket connected - Live chart updates available' 
+                  : 'WebSocket disconnected - Manual refresh only'}
               </span>
+              {lastUpdated && (
+                <span className="text-gray-500 dark:text-gray-400 ml-2">
+                  • Last refreshed: {format(new Date(lastUpdated), 'h:mm a')}
+                </span>
+              )}
             </div>
           </div>
         </div>

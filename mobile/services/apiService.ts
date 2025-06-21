@@ -1,4 +1,6 @@
-const API_BASE_URL = 'http://192.168.5.60:8080/api'; // Adjusted base URL
+const API_BASE_URL = 'https://api.wildcat-radio.live/api'; // Adjusted base URL
+//const API_BASE_URL = 'http://192.168.5.60:8080/api';
+//const API_BASE_URL = 'http://10.0.2.2:8080/api'; // For Android emulator, use this if running on localhost
 
 interface AuthResponse {
   token?: string; // Assuming your API returns a token
@@ -10,10 +12,8 @@ interface AuthResponse {
 // Define the expected structure for user data from /api/auth/me
 export interface UserData {
   id?: string; // Assuming id might be part of user data
-  fullName?: string; // Changed from name for consistency with request
-  name?: string; // Keeping this if API actually returns 'name'
-  firstName?: string; // For editing and potentially if API returns it
-  lastName?: string;  // For editing and potentially if API returns it
+  firstname?: string;
+  lastname?: string;
   email?: string;
   role?: string;
   memberSince?: string; // Example for "Listener since May 2025"
@@ -24,8 +24,8 @@ export interface UserData {
 
 // Interface for updating user profile (firstName, lastName, email)
 export interface UpdateUserProfilePayload {
-  firstName?: string;
-  lastName?: string;
+  firstname?: string;
+  lastname?: string;
   email?: string;
   // Add any other updatable fields here
 }
@@ -73,7 +73,7 @@ export interface ChatMessageSender { // Based on UserEntity simplified for DTO
 export interface ChatMessageDTO {
   id: number;
   content: string;
-  timestamp: string; // ISO 8601 date-time string
+  createdAt: string; // ISO 8601 date-time string
   sender: ChatMessageSender;
   broadcastId: number;
   error?: string;
@@ -477,6 +477,27 @@ export const createSongRequest = async (broadcastId: number, payload: CreateSong
 };
 
 // +++ Poll API Functions +++
+export const getAllPollsForBroadcast = async (broadcastId: number, token: string): Promise<PollDTO[] | { error: string }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/polls/broadcast/${broadcastId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to fetch polls. Status: ${response.status}` };
+    }
+    return data as PollDTO[];
+  } catch (error) {
+    console.error('GetAllPolls API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
 export const getActivePollsForBroadcast = async (broadcastId: number, token: string): Promise<PollDTO[] | { error: string }> => {
   try {
     const response = await fetch(`${API_BASE_URL}/polls/broadcast/${broadcastId}/active`, {

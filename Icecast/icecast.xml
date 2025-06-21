@@ -1,30 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <icecast>
-    <location>Earth</location>
-    <admin>admin@localhost</admin>
-    <hostname>localhost</hostname>   
+    <location>Google Cloud Singapore (Asia-Southeast1)</location>
+    <admin>admin@wildcatsradio.com</admin>
+    <hostname>icecast.software</hostname>
 
     <limits>
-        <clients>100</clients>
-        <sources>2</sources>
-        <queue-size>1048576</queue-size>
+        <clients>50</clients>
+        <sources>5</sources>
+        <queue-size>65536</queue-size>
         <client-timeout>30</client-timeout>
         <header-timeout>15</header-timeout>
-        <source-timeout>0</source-timeout>
-        <burst-on-connect>1</burst-on-connect>
-        <burst-size>65535</burst-size>
+        <source-timeout>10</source-timeout>
+        <burst-on-connect>0</burst-on-connect>
+        <burst-size>8192</burst-size>
     </limits>
 
     <paths>
-        <basedir>./</basedir>          
-        <logdir>./log</logdir>         
-        <webroot>./web</webroot>       
-        <adminroot>./admin</adminroot> 
-        <pidfile>icecast.pid</pidfile>
-
+        <basedir>/usr/share/icecast2</basedir>
+        <logdir>/var/log/icecast2</logdir>
+        <webroot>/usr/share/icecast2/web</webroot>
+        <adminroot>/usr/share/icecast2/admin</adminroot>
+        <pidfile>/var/run/icecast2/icecast2.pid</pidfile>
         <alias source="/" destination="/status.xsl"/>
-
-        <fileserve>1</fileserve>    
+        <fileserve>1</fileserve>
     </paths>
 
     <authentication>
@@ -39,26 +37,29 @@
         <bind-address>0.0.0.0</bind-address>
     </listen-socket>
 
+
     <http-headers>
         <header name="Access-Control-Allow-Origin" value="*"/>
+        <header name="Access-Control-Allow-Methods" value="GET, POST, OPTIONS"/>
+        <header name="Access-Control-Allow-Headers" value="Origin, X-Requested-With, Content-Type, Accept"/>
+        <header name="Access-Control-Allow-Credentials" value="false"/>
+        <header name="Cache-Control" value="no-cache, no-store"/>
+        <header name="Pragma" value="no-cache"/>
     </http-headers>
 
     <mount>
         <mount-name>/live.ogg</mount-name>
         <username>source</username>
         <password>hackme</password>
-        <max-listeners>100</max-listeners>
-
+        <max-listeners>50</max-listeners>
         <respawn-timeout>5</respawn-timeout>
         <fallback-mount>/silence.ogg</fallback-mount>
         <fallback-override>1</fallback-override>
-
-        <stream-name>WildCats Radio Live</stream-name>
+        <stream-name>WildCats Radio Live - Philippines</stream-name>
         <stream-description>Live audio broadcast from WildCats Radio</stream-description>
-        <stream-url>https://wildcastradio.com</stream-url>
+        <stream-url>https://wildcat-radio.vercel.app</stream-url>
         <genre>Various</genre>
         <public>1</public>
-        
         <no-yp>1</no-yp>
         <charset>UTF-8</charset>
     </mount>
@@ -66,10 +67,16 @@
     <logging>
         <accesslog>access.log</accesslog>
         <errorlog>error.log</errorlog>
-        <loglevel>3</loglevel> 
+        <loglevel>3</loglevel>
+        <logsize>10485760</logsize>
+        <logarchive>1</logarchive>
     </logging>
 
     <security>
         <chroot>0</chroot>
+        <changeowner>
+            <user>icecast2</user>
+            <group>icecast</group>
+        </changeowner>
     </security>
 </icecast>

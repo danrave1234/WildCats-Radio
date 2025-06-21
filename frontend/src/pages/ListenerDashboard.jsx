@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useParams, useLocation, useNavigate } from "react-router-dom";
 import {
   PlayIcon,
   PauseIcon,
@@ -8,21 +9,103 @@ import {
   SpeakerXMarkIcon,
   PaperAirplaneIcon,
   MusicalNoteIcon,
-  ChatBubbleLeftRightIcon,
   ArrowPathIcon,
+  UserPlusIcon,
+  ArrowRightOnRectangleIcon,
+  ExclamationTriangleIcon,
 } from "@heroicons/react/24/solid";
-import AudioVisualizer from "../components/AudioVisualizer";
 import { broadcastService, chatService, songRequestService, pollService, streamService } from "../services/api";
 import { formatDistanceToNow } from 'date-fns';
+import { useAuth } from "../context/AuthContext";
+import { useStreaming } from "../context/StreamingContext";
+import { useLocalBackend, config } from "../config";
+import { createLogger } from "../services/logger";
+
+const logger = createLogger('ListenerDashboard');
 
 export default function ListenerDashboard() {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [volume, setVolume] = useState(80);
-  const [isLive, setIsLive] = useState(false);
+  const { id: broadcastIdParam } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const isSpecificBroadcast = location.pathname.startsWith('/broadcast/');
+
+  // Get streaming context
+  const { 
+    isLive,
+    audioPlaying,
+    volume,
+    isMuted,
+    listenerCount,
+    toggleAudio,
+    updateVolume,
+    toggleMute,
+    serverConfig
+  } = useStreaming();
+
+  // If we're accessing a specific broadcast by ID, set it as the current broadcast
+  const targetBroadcastId = isSpecificBroadcast && broadcastIdParam ? parseInt(broadcastIdParam, 10) : null;
   const [streamError, setStreamError] = useState(null);
-  const [serverConfig, setServerConfig] = useState(null);
-  const [listenerCount, setListenerCount] = useState(0);
+    // Filter function to prevent showing audio playback errors
+    const setFilteredStreamError = (error) => {
+      if (error && typeof error === 'string' && 
+          (error.includes('Audio playback error') || 
+           error.includes('MEDIA_ELEMENT_ERROR') || 
+           error.includes('Empty src attribute'))) {
+        // Don't set the error if it's an audio playback error
+        logger.debug('Suppressing audio playback error message:', error);
+        return;
+      }
+      setStreamError(error);
+    };
+
+  // Original states from ListenerDashboard.jsx
+  const [nextBroadcast, setNextBroadcast] = useState(null);
+  const [currentBroadcastId, setCurrentBroadcastId] = useState(null);
+  const [currentBroadcast, setCurrentBroadcast] = useState(null);
+
+  // Chat state
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatMessage, setChatMessage] = useState('');
+
+  // Song request state
+  const [songRequest, setSongRequest] = useState({ title: '', artist: '' });
+  const [songRequestLoading, setSongRequestLoading] = useState(false);
+  const [requestError, setRequestError] = useState(null);
+
+  // Poll state
+  const [activePoll, setActivePoll] = useState(null);
+  const [userVotes, setUserVotes] = useState({});
+
+  // UI state
+  const [activeTab, setActiveTab] = useState("song");
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [_currentSong, _setCurrentSong] = useState(null);
+
+  // Local audio state for the dashboard player (separate from streaming context)
+  const [localAudioPlaying, setLocalAudioPlaying] = useState(false);
+
+  // Local listener count state (fallback if streaming context doesn't update)
+  const [localListenerCount, setLocalListenerCount] = useState(0);
+
+  // Poll selection state
+  const [selectedPollOption, setSelectedPollOption] = useState(null);
+
+  // Chat timestamp update state
+  const [_chatTimestampTick, _setChatTimestampTick] = useState(0);
+
+  // WebSocket connection status
+  const [wsConnected, setWsConnected] = useState(false);
+
+  // WebSocket references for interactions
+  const chatWsRef = useRef(null);
+  const songRequestWsRef = useRef(null);
+  const pollWsRef = useRef(null);
+  const broadcastWsRef = useRef(null);
+
+  // UI refs
+  const chatContainerRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   // Audio refs from ListenerDashboard2.jsx
   const audioRef = useRef(null);
@@ -31,440 +114,405 @@ export default function ListenerDashboard() {
   const wsConnectingRef = useRef(false);
   const heartbeatInterval = useRef(null);
 
-  // Original states from ListenerDashboard.jsx
-  const [nextBroadcast, setNextBroadcast] = useState(null);
-  const [currentBroadcastId, setCurrentBroadcastId] = useState(null);
-  const [currentBroadcast, setCurrentBroadcast] = useState(null);
+  // Navigation functions
+  const handleLoginRedirect = () => {
+    navigate('/login');
+  };
 
-  // WebSocket references for real-time updates
-  const chatWsRef = useRef(null);
-  const songRequestWsRef = useRef(null);
-  const pollWsRef = useRef(null);
+  const handleRegisterRedirect = () => {
+    navigate('/register');
+  };
 
-  // Add abort controller ref for managing HTTP requests
-  const abortControllerRef = useRef(null);
-
-  // Chat state
-  const [chatMessage, setChatMessage] = useState("");
-  const [chatMessages, setChatMessages] = useState([]);
-
-  // Song request state
-  const [songRequest, setSongRequest] = useState({ song: "", artist: "", dedication: "" });
-
-  // Poll state
-  const [currentPoll, setCurrentPoll] = useState({
-    id: 1,
-    question: "Which song should we play next?",
-    options: [
-      { id: 1, text: "Song Title 1", votes: 10 },
-      { id: 2, text: "Song Title 2", votes: 15 },
-      { id: 3, text: "Song Title 3", votes: 25 }
-    ],
-    totalVotes: 50,
-    userVoted: false
-  });
-  const [userVote, setUserVote] = useState(null);
-  const [pollLoading, setPollLoading] = useState(false);
-
-  // Tabs state for interaction section
-  const [activeTab, setActiveTab] = useState("song");
-
-  // Currently playing song
-  const [currentSong, setCurrentSong] = useState(null);
-
-  const [showScrollBottom, setShowScrollBottom] = useState(false);
-  const chatContainerRef = useRef(null);
-
-  // Send player status to server using useCallback from ListenerDashboard2.jsx
-  const sendPlayerStatus = useCallback((isPlaying) => {
-    try {
-      if (!wsRef.current) {
-        console.warn('WebSocket not initialized, cannot send player status')
-        return
-      }
-
-      if (wsRef.current.readyState !== WebSocket.OPEN) {
-        console.warn(`WebSocket not open (state: ${wsRef.current.readyState}), cannot send player status`)
-        return
-      }
-
-      const message = {
-        type: "PLAYER_STATUS",
-        isPlaying: isPlaying
-      }
-
-      wsRef.current.send(JSON.stringify(message))
-      console.log('Sent player status to server:', isPlaying ? 'playing' : 'paused')
-    } catch (error) {
-      console.error('Error sending player status:', error)
-    }
-  }, [])
-
-  // Initialize server configuration from ListenerDashboard2.jsx
+  // Load current broadcast on component mount
   useEffect(() => {
-    const fetchServerConfig = async () => {
+    const fetchCurrentBroadcast = async () => {
       try {
-        const config = await streamService.getConfig()
-        setServerConfig(config.data.data)
-        console.log("Server config loaded:", config.data.data)
+        // If we're looking at a specific broadcast by ID
+        if (targetBroadcastId) {
+          const response = await broadcastService.getById(targetBroadcastId);
+          setCurrentBroadcast(response.data);
+          setCurrentBroadcastId(targetBroadcastId);
+          return;
+        }
+
+        // Otherwise, get the active broadcast
+        const activeBroadcast = await broadcastService.getActiveBroadcast();
+        if (activeBroadcast) {
+          setCurrentBroadcast(activeBroadcast);
+          setCurrentBroadcastId(activeBroadcast.id);
+          return;
+        }
+
+        // If no active broadcast, get the next scheduled broadcast
+        const upcomingResponse = await broadcastService.getUpcoming();
+        if (upcomingResponse.data && upcomingResponse.data.length > 0) {
+          setNextBroadcast(upcomingResponse.data[0]); // Get the first upcoming broadcast
+        }
       } catch (error) {
-        console.error("Error fetching server config:", error)
-        setStreamError("Failed to get server configuration")
+        logger.error('Error fetching broadcast information:', error);
+        setFilteredStreamError('Failed to load broadcast information');
       }
+    };
+
+    fetchCurrentBroadcast();
+  }, [targetBroadcastId]);
+
+  // Handle play/pause
+  const handlePlayPause = () => {
+    try {
+      toggleAudio();
+    } catch (error) {
+      logger.error('Error toggling audio:', error);
+      setFilteredStreamError('Failed to control audio playback');
     }
+  };
 
-    fetchServerConfig()
+  // Handle volume change
+  const handleVolumeChange = (e) => {
+    const newVolume = parseInt(e.target.value);
+    updateVolume(newVolume);
+  };
 
-    const handleBeforeUnload = (e) => {
-      if (isPlaying) {
-        const message = "Audio is currently playing. Are you sure you want to leave?"
-        e.returnValue = message
-        return message
-      }
+  // Handle mute toggle
+  const handleMuteToggle = () => {
+    toggleMute();
+  };
+
+  // Refresh stream function
+  const refreshStream = () => {
+    if (audioRef.current && serverConfig?.streamUrl) {
+      const wasPlaying = audioPlaying;
+      audioRef.current.pause();
+      audioRef.current.src = '';
+
+      setTimeout(() => {
+        audioRef.current.src = serverConfig.streamUrl;
+        audioRef.current.load();
+
+        if (wasPlaying) {
+          audioRef.current.play().catch(error => {
+            logger.error('Error restarting playback:', error);
+            setFilteredStreamError('Failed to restart playback. Please try again.');
+          });
+        }
+      }, 100);
     }
+  };
 
-    window.addEventListener('beforeunload', handleBeforeUnload)
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-    }
-  }, [isPlaying])
-
-  // Audio element setup from ListenerDashboard2.jsx
+  // Initialize audio element when serverConfig is available
   useEffect(() => {
-    if (!serverConfig) return
+    logger.debug('Audio initialization useEffect called:', {
+      serverConfigExists: !!serverConfig,
+      audioRefCurrentExists: !!audioRef.current,
+      streamUrl: serverConfig?.streamUrl
+    });
 
     if (!audioRef.current) {
-      console.log('Creating new audio element')
-      audioRef.current = new Audio()
+      logger.debug('Initializing audio element');
+      audioRef.current = new Audio();
+      audioRef.current.preload = 'none';
+      audioRef.current.volume = isMuted ? 0 : volume / 100;
 
-      audioRef.current.crossOrigin = "anonymous"
-      audioRef.current.preload = "none"
-      audioRef.current.volume = volume / 100
+      // Always set a valid source - use config.icecastUrl as fallback
+      const streamUrl = serverConfig?.streamUrl || config.icecastUrl;
+      audioRef.current.src = streamUrl;
+      logger.debug('Set initial audio source to:', streamUrl);
 
-      audioRef.current.addEventListener('loadstart', () => {
-        console.log('Stream loading started')
-      })
+      // Add event listeners for audio events
+      audioRef.current.onloadstart = () => logger.debug('Audio loading started');
+      audioRef.current.oncanplay = () => logger.debug('Audio can start playing');
+      audioRef.current.onplay = () => logger.debug('Audio play event fired');
+      audioRef.current.onpause = () => logger.debug('Audio pause event fired');
+      audioRef.current.onerror = (e) => {
+        // Always ignore empty src attribute errors as they're expected
+        const isEmptySrcError = 
+          e.target?.error?.code === 4 && 
+          e.target?.error?.message?.includes('Empty src attribute');
 
-      audioRef.current.addEventListener('canplay', () => {
-        console.log('Stream can start playing')
-        setStreamError(null)
-      })
-
-      audioRef.current.addEventListener('playing', () => {
-        setIsPlaying(true)
-        setStreamError(null)
-        console.log('Stream is playing')
-      })
-
-      audioRef.current.addEventListener('pause', () => {
-        setIsPlaying(false)
-        console.log('Stream is paused')
-      })
-
-      audioRef.current.addEventListener('ended', () => {
-        setIsPlaying(false)
-        console.log('Stream ended')
-        sendPlayerStatus(false)
-      })
-
-      audioRef.current.addEventListener('error', (e) => {
-        e.preventDefault();
-
-        console.error('Audio error:', e)
-        console.error('Audio error details:', {
-          error: audioRef.current?.error,
-          networkState: audioRef.current?.networkState,
-          readyState: audioRef.current?.readyState,
-          src: audioRef.current?.src
-        })
-
-        let errorMessage = 'Error loading stream. '
-        if (audioRef.current?.error) {
-          switch (audioRef.current.error.code) {
-            case 1:
-              errorMessage += 'Stream loading was aborted.'
-              break
-            case 2:
-              errorMessage += 'Network error occurred.'
-              break
-            case 3:
-              errorMessage += 'Stream format not supported.'
-              break
-            case 4:
-              errorMessage += 'Stream source not supported.'
-              break
-            default:
-              errorMessage += 'Unknown error occurred.'
-          }
-        }
-        errorMessage += ' Please try refreshing or check if the stream is live.'
-
-        if (serverConfig && audioRef.current) {
-          const currentSrc = audioRef.current.src
-          if (!currentSrc.startsWith('http') || currentSrc.includes('localhost:5173') || currentSrc.startsWith('blob:')) {
-            console.warn('Audio src changed to invalid URL, resetting to stream URL')
-
-            try {
-              const streamUrl = serverConfig.streamUrl.startsWith('http') 
-                ? serverConfig.streamUrl 
-                : `http://${serverConfig.streamUrl}`
-
-              if (audioRef.current) {
-                console.log('Resetting audio src to:', streamUrl)
-                audioRef.current.src = streamUrl
-                audioRef.current.load()
-              }
-            } catch (urlError) {
-              console.error('Error resetting audio src:', urlError)
-            }
-          }
+        // Ignore MEDIA_ELEMENT_ERROR errors completely
+        if (isEmptySrcError || e.target?.error?.message?.includes('MEDIA_ELEMENT_ERROR')) {
+          logger.debug('Ignoring expected error before playback starts:', e.target?.error?.message);
+          return;
         }
 
-        setStreamError(errorMessage)
-        setIsPlaying(false)
-
-        try {
-          sendPlayerStatus(false)
-        } catch (statusError) {
-          console.error('Error sending player status after audio error:', statusError)
-        }
-      })
-
-      audioRef.current.addEventListener('stalled', () => {
-        console.warn('Stream stalled')
-      })
-
-      audioRef.current.addEventListener('waiting', () => {
-        console.log('Stream buffering')
-      })
-
-      const streamUrl = serverConfig.streamUrl.startsWith('http') 
-        ? serverConfig.streamUrl 
-        : `http://${serverConfig.streamUrl}`
-      audioRef.current.src = streamUrl
-      console.log('Stream URL set:', streamUrl)
+        // Only log and show error for other types of errors
+        logger.error('Audio error:', e);
+        logger.error('Audio error details:', {
+          error: e.target?.error,
+          code: e.target?.error?.code,
+          message: e.target?.error?.message,
+          networkState: e.target?.networkState,
+          readyState: e.target?.readyState,
+          src: e.target?.src
+        });
+        // Don't set stream error message as requested
+      };
     }
-  }, [serverConfig])
 
-  // Cleanup from ListenerDashboard2.jsx
-  useEffect(() => {
+    // Update src if serverConfig changes and audioRef already exists
+    if (serverConfig?.streamUrl && audioRef.current) {
+      audioRef.current.src = serverConfig.streamUrl;
+      logger.debug('Updated audio source to:', serverConfig.streamUrl);
+    }
+
     return () => {
-      console.log('Component unmounting, cleaning up resources')
-
-      try {
-        if (audioRef.current) {
-          console.log('Cleaning up audio element')
-
-          try {
-            audioRef.current.pause()
-            audioRef.current.src = 'about:blank'
-            audioRef.current.load()
-            console.log('Audio element paused and source cleared')
-          } catch (audioError) {
-            console.error('Error cleaning up audio element:', audioError)
-          }
-        }
-      } catch (error) {
-        console.error('Error in audio cleanup:', error)
+      // Cleanup audio element on unmount
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
       }
+    };
+  }, [serverConfig, volume, isMuted]);
 
-      try {
-        if (statusCheckInterval.current) {
-          clearInterval(statusCheckInterval.current)
-          statusCheckInterval.current = null
-          console.log('Status check interval cleared')
-        }
-
-        if (heartbeatInterval.current) {
-          clearInterval(heartbeatInterval.current)
-          heartbeatInterval.current = null
-          console.log('Heartbeat interval cleared')
-        }
-      } catch (timerError) {
-        console.error('Error clearing interval:', timerError)
-      }
-
-      console.log('Component cleanup completed')
-    }
-  }, [])
-
-  // WebSocket connection from ListenerDashboard2.jsx
+  // WebSocket connection for real-time updates
   useEffect(() => {
-    if (!serverConfig) return
+    if (!serverConfig) return;
 
-    let reconnectTimer = null
-    let isReconnecting = false
-    let wsInstance = wsRef.current
+    let reconnectTimer = null;
+    let isReconnecting = false;
+    let wsInstance = null;
+    let wsConnectionAttemptCount = 0;
+    const MAX_CONNECTION_ATTEMPTS = 5;
 
-    const connectWebSocket = async () => {
+    // Function to connect WebSocket with proper error handling
+    const connectWebSocket = () => {
       if (reconnectTimer) {
-        clearTimeout(reconnectTimer)
-        reconnectTimer = null
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
       }
 
-      if (isReconnecting || wsConnectingRef.current) return
-      isReconnecting = true
-      wsConnectingRef.current = true
+      // Prevent duplicate connections
+      if (isReconnecting || wsConnectingRef.current) return;
 
-      // Simple WebSocket URL construction using environment variable
-      const wsProtocol = 'wss';
+      // Increment connection attempt counter
+      wsConnectionAttemptCount++;
 
-      // Always use the environment variable directly
-      const wsBaseUrl = import.meta.env.VITE_WS_BASE_URL;
-      // Simple clean - just remove any protocol if present
-      const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
-      const listenerWsUrl = `${wsProtocol}://${cleanHost}/ws/listener`;
+      // Use a delay to avoid React StrictMode double-mounting issues
+      // Increase delay for subsequent attempts
+      const connectionDelay = Math.min(300 * wsConnectionAttemptCount, 2000);
+      logger.debug(`Delaying WebSocket connection by ${connectionDelay}ms (attempt ${wsConnectionAttemptCount})`);
 
-      console.log('Using WebSocket URL:', listenerWsUrl);
+      reconnectTimer = setTimeout(() => {
+        isReconnecting = true;
+        wsConnectingRef.current = true;
+
+        // Use secure WebSocket protocol (wss) when connecting to a remote server
+        // Use ws only if both frontend and backend are on localhost
+        const wsBaseUrl = config.wsBaseUrl;
+        const cleanHost = wsBaseUrl.replace(/^(https?:\/\/|wss?:\/\/)/, '');
+        const isLocalBackend = cleanHost.includes('localhost') || cleanHost.includes('127.0.0.1');
+        const wsProtocol = isLocalBackend && window.location.hostname === 'localhost' ? 'ws' : 'wss';
+
+      // Get JWT token for authentication
+      const getCookie = (name) => {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
+        return null;
+      };
+
+      const token = getCookie('token');
+      const listenerWsUrl = `${wsProtocol}://${cleanHost}/ws/listener${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+
+      logger.debug('Using WebSocket URL:', listenerWsUrl.replace(/token=[^&]*/, 'token=***'));
 
       try {
-        console.log('Listener Dashboard connecting to WebSocket:', listenerWsUrl)
+          logger.debug('Listener Dashboard connecting to WebSocket with authentication');
 
-        if (wsInstance) {
-          try {
-            if (wsInstance.readyState !== WebSocket.CLOSING && 
-                wsInstance.readyState !== WebSocket.CLOSED) {
-              wsInstance.close()
+          // Close existing connection if any
+          if (wsRef.current) {
+            try {
+              // First remove handlers to prevent reconnection logic from firing
+              wsRef.current.onclose = null;
+              wsRef.current.onerror = null;
+
+              if (wsRef.current.readyState !== WebSocket.CLOSING && 
+                  wsRef.current.readyState !== WebSocket.CLOSED) {
+                wsRef.current.close(1000, "Replacing connection");
             }
           } catch (e) {
-            console.warn('Error closing existing WebSocket:', e)
+              logger.warn('Error closing existing WebSocket:', e);
           }
         }
 
-        wsInstance = new WebSocket(listenerWsUrl)
-        wsRef.current = wsInstance
+          // Create new connection with authentication
+          wsInstance = new WebSocket(listenerWsUrl);
+          wsRef.current = wsInstance;
 
+          // Set up event handlers
         wsInstance.onopen = () => {
-          console.log('WebSocket connected for listener updates')
-          isReconnecting = false
-          wsConnectingRef.current = false
+            logger.info('WebSocket connected for listener updates');
+            isReconnecting = false;
+            wsConnectingRef.current = false;
+            wsConnectionAttemptCount = 0; // Reset counter on successful connection
 
+            // Send initial status
           setTimeout(() => {
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-              const currentlyPlaying = audioRef.current && !audioRef.current.paused
-              sendPlayerStatus(currentlyPlaying)
-              console.log('Sent initial player status on WebSocket connect:', currentlyPlaying)
-            }
-          }, 100)
+                const currentlyPlaying = audioRef.current && !audioRef.current.paused && localAudioPlaying;
+                if (currentlyPlaying) {
+                  const message = {
+                    type: 'LISTENER_STATUS',
+                    action: 'START_LISTENING',
+                    broadcastId: currentBroadcastId,
+                    userId: currentUser?.id || null,
+                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
+                    timestamp: Date.now()
+                  };
+                  wsRef.current.send(JSON.stringify(message));
+                  logger.debug('Sent initial listener status on WebSocket connect: listening', message);
+                } else {
+                  logger.debug('WebSocket connected but not currently listening');
+                }
+              }
+            }, 100);
 
+            // Set up heartbeat
           if (heartbeatInterval.current) {
-            clearInterval(heartbeatInterval.current)
+              clearInterval(heartbeatInterval.current);
           }
 
           heartbeatInterval.current = setInterval(() => {
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && audioRef.current) {
-              const currentlyPlaying = !audioRef.current.paused
+                const currentlyPlaying = !audioRef.current.paused && localAudioPlaying;
               if (currentlyPlaying) {
-                sendPlayerStatus(true)
-                console.log('Heartbeat: Sent player status (playing)')
+                  const message = {
+                    type: 'LISTENER_STATUS',
+                    action: 'HEARTBEAT',
+                    broadcastId: currentBroadcastId,
+                    userId: currentUser?.id || null,
+                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
+                    timestamp: Date.now()
+                  };
+                  wsRef.current.send(JSON.stringify(message));
+                  logger.debug('Heartbeat: Sent listener status (listening)', message);
+                }
               }
-            }
-          }, 15000)
-        }
+            }, 15000);
+          };
 
         wsInstance.onmessage = (event) => {
           try {
-            const data = JSON.parse(event.data)
-            console.log('WebSocket message received:', data)
+              const data = JSON.parse(event.data);
+              logger.debug('WebSocket message received:', data);
 
             if (data.type === 'STREAM_STATUS') {
-              setIsLive(data.isLive)
-              setListenerCount(data.listenerCount || 0)
-              console.log('Stream status updated via WebSocket:', data.isLive)
+                logger.debug('ListenerDashboard: Stream status updated via WebSocket:', data.isLive);
+
+                // Update local listener count if provided
+                if (data.listenerCount !== undefined) {
+                  logger.debug('ListenerDashboard: Updating listener count to:', data.listenerCount);
+                  setLocalListenerCount(data.listenerCount);
+                }
             }
           } catch (error) {
-            console.error('Error parsing WebSocket message:', error)
+              logger.error('Error parsing WebSocket message:', error);
           }
-        }
+          };
 
         wsInstance.onclose = (event) => {
-          console.log(`WebSocket disconnected with code ${event.code}, reason: ${event.reason}`)
-          isReconnecting = false
-          wsConnectingRef.current = false
+            logger.info(`WebSocket disconnected with code ${event.code}, reason: ${event.reason}`);
+            isReconnecting = false;
+            wsConnectingRef.current = false;
 
           if (heartbeatInterval.current) {
-            clearInterval(heartbeatInterval.current)
-            heartbeatInterval.current = null
-          }
+              clearInterval(heartbeatInterval.current);
+              heartbeatInterval.current = null;
+            }
 
-          if (event.code !== 1000) {
-            console.log('Attempting to reconnect WebSocket in 3 seconds...')
-            reconnectTimer = setTimeout(connectWebSocket, 3000)
-          }
-        }
+            // Only reconnect on unexpected close and if we haven't exceeded max attempts
+            if (event.code !== 1000 && event.code !== 1001 && wsConnectionAttemptCount < MAX_CONNECTION_ATTEMPTS) {
+              logger.debug(`Attempting to reconnect WebSocket in ${3000 * wsConnectionAttemptCount}ms (attempt ${wsConnectionAttemptCount})`);
+              reconnectTimer = setTimeout(connectWebSocket, 3000 * wsConnectionAttemptCount);
+            } else if (wsConnectionAttemptCount >= MAX_CONNECTION_ATTEMPTS) {
+              logger.warn(`Maximum connection attempts (${MAX_CONNECTION_ATTEMPTS}) reached. Stopping reconnection attempts.`);
+            }
+          };
 
         wsInstance.onerror = (error) => {
-          console.error('WebSocket error:', error)
-        }
+            logger.error('WebSocket error:', error);
+            // Don't set isReconnecting to false here, let onclose handle it
+          };
       } catch (error) {
-        console.error('Error creating WebSocket:', error)
-        isReconnecting = false
-        wsConnectingRef.current = false
+          logger.error('Error creating WebSocket:', error);
+          isReconnecting = false;
+          wsConnectingRef.current = false;
 
-        reconnectTimer = setTimeout(connectWebSocket, 3000)
-      }
-    }
-
-    connectWebSocket()
-
-    return () => {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer)
-      }
-
-      if (heartbeatInterval.current) {
-        clearInterval(heartbeatInterval.current)
-        heartbeatInterval.current = null
-      }
-
-      if (wsInstance) {
-        try {
-          console.log('Closing WebSocket due to component unmount')
-          wsInstance.close(1000, 'Component unmounting')
-        } catch (e) {
-          console.warn('Error closing WebSocket during cleanup:', e)
+          if (wsConnectionAttemptCount < MAX_CONNECTION_ATTEMPTS) {
+            reconnectTimer = setTimeout(connectWebSocket, 3000 * wsConnectionAttemptCount);
+          }
         }
+      }, connectionDelay); // Delay to avoid React StrictMode issues
+    };
+
+    // Initial connection
+    connectWebSocket();
+
+    // Cleanup function
+    return () => {
+      logger.debug('Listener Dashboard: Cleaning up WebSocket connections for broadcast:', currentBroadcastId);
+
+      // Reset WebSocket connection status
+      setWsConnected(false);
+
+      if (chatWsRef.current) {
+        chatWsRef.current.disconnect();
+        chatWsRef.current = null;
       }
-    }
-  }, [serverConfig])
+      if (songRequestWsRef.current) {
+        songRequestWsRef.current.disconnect();
+        songRequestWsRef.current = null;
+      }
+      if (pollWsRef.current) {
+        pollWsRef.current.disconnect();
+        pollWsRef.current = null;
+      }
+      if (broadcastWsRef.current) {
+        broadcastWsRef.current.disconnect();
+        broadcastWsRef.current = null;
+      }
+    };
+  }, [currentBroadcastId]); // Removed isLive dependency and unnecessary dependencies to prevent unnecessary re-runs
 
   // Send player status when playing state changes
   useEffect(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      sendPlayerStatus(isPlaying)
+      logger.debug('Sent player status to server:', audioPlaying ? 'playing' : 'paused')
     }
-  }, [isPlaying, sendPlayerStatus])
+  }, [audioPlaying])
 
   // Stream status checking from ListenerDashboard2.jsx
   useEffect(() => {
     if (!serverConfig) return
 
     const checkStatus = () => {
+      // Skip polling if WebSocket is connected and working
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        logger.debug('Skipping status poll - WebSocket is active')
+        return
+      }
+
       streamService.getStatus()
         .then(response => {
-          console.log("Backend stream status:", response.data)
+          logger.debug("Backend stream status:", response.data)
 
           if (response.data && response.data.data) {
             const statusData = response.data.data
-            setIsLive(statusData.live || false)
-
-            streamService.getHealth()
-              .then(healthResponse => {
-                console.log("Health status:", healthResponse.data)
-              })
-              .catch(error => {
-                console.log("Health check failed:", error)
-              })
+            logger.debug('Stream status updated via HTTP:', statusData.live)
           }
         })
         .catch(error => {
-          console.error('Error checking status:', error)
+          logger.error('Error checking status:', error)
         })
     }
 
+    // Initial check
     checkStatus()
-    statusCheckInterval.current = setInterval(checkStatus, 5000)
+
+    // Minimal polling since WebSocket handles real-time updates
+    // Only check occasionally for server health when WebSocket isn't available
+    statusCheckInterval.current = setInterval(checkStatus, 120000) // Check every 2 minutes instead of 30s
 
     return () => {
       if (statusCheckInterval.current) {
@@ -478,7 +526,7 @@ export default function ListenerDashboard() {
     if (audioRef.current) {
       const newVolume = isMuted ? 0 : volume / 100
       audioRef.current.volume = newVolume
-      console.log('Volume updated to:', newVolume)
+      logger.debug('Volume updated to:', newVolume)
     }
   }, [volume, isMuted])
 
@@ -515,8 +563,6 @@ export default function ListenerDashboard() {
         // Create new abort controller for this request
         abortControllerRef.current = new AbortController();
 
-        console.log('Listener Dashboard: Fetching initial chat messages for broadcast:', currentBroadcastId);
-
         // Clear old messages immediately when switching broadcasts
         setChatMessages([]);
 
@@ -524,8 +570,6 @@ export default function ListenerDashboard() {
 
         // Double-check that the response is for the current broadcast
         const newMessages = response.data.filter(msg => msg.broadcastId === currentBroadcastId);
-
-        console.log('Listener Dashboard: Loaded initial chat messages:', newMessages.length);
 
         // Check if we're at the bottom before updating messages
         const container = chatContainerRef.current;
@@ -547,32 +591,17 @@ export default function ListenerDashboard() {
       } catch (error) {
         // Ignore aborted requests
         if (error.name === 'AbortError') {
-          console.log('Chat fetch aborted for broadcast:', currentBroadcastId);
           return;
         }
-        console.error("Listener Dashboard: Error fetching chat messages:", error);
+        logger.error("Listener Dashboard: Error fetching chat messages:", error);
       }
     };
 
     fetchChatMessages();
 
-    // Only use polling as fallback if not live
-    if (!isLive) {
-      const interval = setInterval(() => {
-        // Check if broadcast ID is still valid before polling
-        if (currentBroadcastId && currentBroadcastId > 0) {
-          fetchChatMessages();
-        }
-      }, 5000);
-
-      return () => {
-        clearInterval(interval);
-        if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-        }
-        setChatMessages([]);
-      };
-    }
+    // Only use polling as fallback if WebSocket is not available AND not live
+    // Remove polling since WebSocket should handle real-time updates
+    // Keep only for development/debugging if needed
 
     return () => {
       if (abortControllerRef.current) {
@@ -583,46 +612,63 @@ export default function ListenerDashboard() {
   }, [currentBroadcastId, isLive]);
 
   // Setup WebSocket connections for real-time updates after initial data is loaded
+  // This replaces most HTTP polling with real-time WebSocket communication:
+  // - Chat messages: Real-time via WebSocket
+  // - Song requests: Real-time via WebSocket  
+  // - Poll updates: Real-time via WebSocket
+  // - Broadcast status: Real-time via WebSocket
+  // - Listener count: Real-time via WebSocket
   useEffect(() => {
-    // Guard: Only setup WebSockets if we have a valid broadcast ID and are live
-    if (!currentBroadcastId || currentBroadcastId <= 0 || !isLive) {
+    // Guard: Only setup WebSockets if we have a valid broadcast ID
+    // We allow unauthenticated users to connect to WebSockets for listening to chat/polls
+    if (!currentBroadcastId || currentBroadcastId <= 0) {
+      // Cleanup any existing connections when no valid broadcast
+      if (chatWsRef.current) {
+        chatWsRef.current.disconnect();
+        chatWsRef.current = null;
+      }
+      if (songRequestWsRef.current) {
+        songRequestWsRef.current.disconnect();
+        songRequestWsRef.current = null;
+      }
+      if (pollWsRef.current) {
+        pollWsRef.current.disconnect();
+        pollWsRef.current = null;
+      }
+      if (broadcastWsRef.current) {
+        broadcastWsRef.current.disconnect();
+        broadcastWsRef.current = null;
+      }
       return;
     }
 
-    console.log('Listener Dashboard: Setting up WebSocket connections for broadcast:', currentBroadcastId);
+    logger.debug('Listener Dashboard: Setting up WebSocket connections for broadcast:', currentBroadcastId);
 
     // Setup Chat WebSocket
     const setupChatWebSocket = async () => {
       try {
+        // Reset connection status when setting up new connection
+        setWsConnected(false);
+
         // Clean up any existing connection first
         if (chatWsRef.current) {
-          console.log('Listener Dashboard: Cleaning up existing chat WebSocket');
+          logger.debug('Listener Dashboard: Cleaning up existing chat WebSocket');
           chatWsRef.current.disconnect();
           chatWsRef.current = null;
         }
-
-        console.log('Listener Dashboard: Setting up chat WebSocket for broadcast:', currentBroadcastId);
-
-        // Add connection status tracking
-        let wsConnected = false;
-
         const connection = await chatService.subscribeToChatMessages(currentBroadcastId, (newMessage) => {
           // Set connection status to true on first message - this confirms WebSocket is working
           if (!wsConnected) {
-            wsConnected = true;
-            console.log('Listener Dashboard: WebSocket confirmed working');
+            setWsConnected(true);
+            logger.debug('Listener Dashboard: WebSocket confirmed working');
           }
 
           // Double-check the message is for the current broadcast
           if (newMessage.broadcastId === currentBroadcastId) {
-            console.log('Listener Dashboard: Received new chat message:', newMessage);
-
-            // Important: Use functional update with proper immutability
             setChatMessages(prev => {
               // Check if message already exists to avoid duplicates
               const exists = prev.some(msg => msg.id === newMessage.id);
               if (exists) {
-                console.log('Listener Dashboard: Message already exists, skipping');
                 return prev;
               }
 
@@ -637,44 +683,39 @@ export default function ListenerDashboard() {
               if (wasAtBottom) {
                 setTimeout(scrollToBottom, 50);
               }
-
-              // Make this more visible in logs
-              console.log('Listener Dashboard: WEBSOCKET UPDATE - New message count:', updated.length);
               return updated;
             });
-          } else {
-            console.log('Listener Dashboard: Ignoring message for different broadcast:', newMessage.broadcastId);
           }
         });
 
         // Add a connection status check
         setTimeout(() => {
           if (!wsConnected) {
-            console.warn('Listener Dashboard: WebSocket not confirmed working after 3 seconds, refreshing messages');
+            logger.warn('Listener Dashboard: WebSocket not confirmed working after 3 seconds, refreshing messages');
             // Fallback - fetch messages again if WebSocket isn't working
             chatService.getMessages(currentBroadcastId).then(response => {
               setChatMessages(response.data);
             }).catch(error => {
-              console.error('Listener Dashboard: Error fetching messages during fallback:', error);
+              logger.error('Listener Dashboard: Error fetching messages during fallback:', error);
             });
           }
         }, 3000);
 
         chatWsRef.current = connection;
-        console.log('Listener Dashboard: Chat WebSocket connected successfully');
+        logger.debug('Listener Dashboard: Chat WebSocket connected successfully');
       } catch (error) {
-        console.error('Listener Dashboard: Failed to connect chat WebSocket:', error);
+        logger.error('Listener Dashboard: Failed to connect chat WebSocket:', error);
 
         // Important: Fallback to polling on WebSocket failure
         const pollInterval = setInterval(() => {
           if (currentBroadcastId) {
-            console.log('Listener Dashboard: Polling for messages due to WebSocket failure');
+            logger.debug('Listener Dashboard: Polling for messages due to WebSocket failure');
             chatService.getMessages(currentBroadcastId)
                 .then(response => {
                   setChatMessages(response.data);
                 })
                 .catch(error => {
-                  console.error('Listener Dashboard: Error polling messages:', error);
+                  logger.error('Listener Dashboard: Error polling messages:', error);
                 });
           } else {
             clearInterval(pollInterval);
@@ -694,25 +735,21 @@ export default function ListenerDashboard() {
       try {
         // Clean up any existing connection first
         if (songRequestWsRef.current) {
-          console.log('Listener Dashboard: Cleaning up existing song request WebSocket');
+          logger.debug('Listener Dashboard: Cleaning up existing song request WebSocket');
           songRequestWsRef.current.disconnect();
           songRequestWsRef.current = null;
         }
 
-        console.log('Listener Dashboard: Setting up song request WebSocket for broadcast:', currentBroadcastId);
         const connection = await songRequestService.subscribeToSongRequests(currentBroadcastId, (newRequest) => {
           // Double-check the request is for the current broadcast
           if (newRequest.broadcastId === currentBroadcastId) {
-            console.log('Listener Dashboard: New song request received:', newRequest);
             // You can add notification logic here if needed
-          } else {
-            console.log('Listener Dashboard: Ignoring song request for different broadcast:', newRequest.broadcastId);
           }
         });
         songRequestWsRef.current = connection;
-        console.log('Listener Dashboard: Song request WebSocket connected successfully');
+        logger.debug('Listener Dashboard: Song request WebSocket connected successfully');
       } catch (error) {
-        console.error('Listener Dashboard: Failed to connect song request WebSocket:', error);
+        logger.error('Listener Dashboard: Failed to connect song request WebSocket:', error);
       }
     };
 
@@ -721,46 +758,118 @@ export default function ListenerDashboard() {
       try {
         // Clean up any existing connection first
         if (pollWsRef.current) {
-          console.log('Listener Dashboard: Cleaning up existing poll WebSocket');
+          logger.debug('Listener Dashboard: Cleaning up existing poll WebSocket');
           pollWsRef.current.disconnect();
           pollWsRef.current = null;
         }
 
-        console.log('Listener Dashboard: Setting up poll WebSocket for broadcast:', currentBroadcastId);
         const connection = await pollService.subscribeToPolls(currentBroadcastId, (data) => {
-          console.log('Listener Dashboard: Received poll update:', data);
+          logger.debug('Listener Dashboard: Received poll WebSocket message:', data);
           switch (data.type) {
             case 'NEW_POLL':
               if (data.poll && data.poll.isActive) {
-                setCurrentPoll({
+                logger.debug('Listener Dashboard: New poll received:', data.poll);
+                setActivePoll({
                   ...data.poll,
-                  totalVotes: data.poll.options.reduce((sum, option) => sum + option.votes, 0),
+                  totalVotes: data.poll.options.reduce((sum, option) => sum + (option.votes || 0), 0),
                   userVoted: false
                 });
+                // Reset selection for new poll
+                setSelectedPollOption(null);
+              }
+              break;
+
+            case 'POLL_VOTE':
+              // Handle real-time vote updates
+              if (data.pollId === activePoll?.id && data.poll) {
+                logger.debug('Listener Dashboard: Poll vote update received:', data.poll);
+                setActivePoll(prev => prev ? {
+                  ...prev,
+                  options: data.poll.options || prev.options,
+                  totalVotes: data.poll.totalVotes || (data.poll.options ? data.poll.options.reduce((sum, option) => sum + (option.votes || 0), 0) : prev.totalVotes)
+                } : null);
               }
               break;
 
             case 'POLL_UPDATED':
-              if (data.poll && !data.poll.isActive && currentPoll?.id === data.poll.id) {
-                setCurrentPoll(null);
+              if (data.poll && !data.poll.isActive && activePoll?.id === data.poll.id) {
+                logger.debug('Listener Dashboard: Poll ended:', data.poll);
+                setActivePoll(null);
+                setSelectedPollOption(null);
               }
               break;
 
             case 'POLL_RESULTS':
-              if (data.pollId === currentPoll?.id && data.results) {
-                setCurrentPoll(prev => prev ? {
+              if (data.pollId === activePoll?.id && data.results) {
+                logger.debug('Listener Dashboard: Poll results update received:', data.results);
+                setActivePoll(prev => prev ? {
                   ...prev,
                   options: data.results.options,
                   totalVotes: data.results.totalVotes
                 } : null);
               }
               break;
+
+            default:
+              logger.debug('Listener Dashboard: Unknown poll message type:', data.type);
           }
         });
         pollWsRef.current = connection;
-        console.log('Listener Dashboard: Poll WebSocket connected successfully');
+        logger.debug('Listener Dashboard: Poll WebSocket connected successfully');
       } catch (error) {
-        console.error('Listener Dashboard: Failed to connect poll WebSocket:', error);
+        logger.error('Listener Dashboard: Failed to connect poll WebSocket:', error);
+      }
+    };
+
+    // Setup Broadcast WebSocket for broadcast-level updates
+    const setupBroadcastWebSocket = async () => {
+      try {
+        // Clean up any existing connection first
+        if (broadcastWsRef.current) {
+          logger.debug('Listener Dashboard: Cleaning up existing broadcast WebSocket');
+          broadcastWsRef.current.disconnect();
+          broadcastWsRef.current = null;
+        }
+
+        // Use the broadcast service from api.js
+        const connection = await broadcastService.subscribeToBroadcastUpdates(currentBroadcastId, (message) => {
+
+          switch (message.type) {
+            case 'BROADCAST_STARTED':
+              logger.debug('Stream started via WebSocket');
+              break;
+
+            case 'BROADCAST_ENDED':
+              logger.debug('Stream ended via WebSocket');
+              break;
+
+            case 'LISTENER_COUNT_UPDATE':
+              logger.debug('Listener count updated via WebSocket:', message.data?.listenerCount || 0);
+              break;
+
+            case 'BROADCAST_STATUS_UPDATE':
+              logger.debug('Broadcast status updated via WebSocket:', message.broadcast.status === 'LIVE');
+              break;
+
+            case 'LISTENER_JOINED':
+              // Update listener count if provided
+              logger.debug('Listener joined via WebSocket:', message.data?.listenerCount !== undefined ? message.data.listenerCount : 0);
+              break;
+
+            case 'LISTENER_LEFT':
+              // Update listener count if provided
+              logger.debug('Listener left via WebSocket:', message.data?.listenerCount !== undefined ? message.data.listenerCount : 0);
+              break;
+
+            default:
+              // Unknown message type - can be safely ignored
+          }
+        });
+
+        broadcastWsRef.current = connection;
+        logger.debug('Listener Dashboard: Broadcast WebSocket connected successfully');
+      } catch (error) {
+        logger.error('Listener Dashboard: Failed to connect broadcast WebSocket:', error);
       }
     };
 
@@ -768,9 +877,10 @@ export default function ListenerDashboard() {
     setupChatWebSocket();
     setupSongRequestWebSocket();
     setupPollWebSocket();
+    setupBroadcastWebSocket();
 
     return () => {
-      console.log('Listener Dashboard: Cleaning up WebSocket connections for broadcast:', currentBroadcastId);
+      logger.debug('Listener Dashboard: Cleaning up WebSocket connections for broadcast:', currentBroadcastId);
       if (chatWsRef.current) {
         chatWsRef.current.disconnect();
         chatWsRef.current = null;
@@ -783,8 +893,21 @@ export default function ListenerDashboard() {
         pollWsRef.current.disconnect();
         pollWsRef.current = null;
       }
+      if (broadcastWsRef.current) {
+        broadcastWsRef.current.disconnect();
+        broadcastWsRef.current = null;
+      }
     };
-  }, [currentBroadcastId, isLive]); // Removed chatMessages.length and currentPoll?.id dependencies to prevent unnecessary re-runs
+  }, [currentBroadcastId]); // Removed chatMessages.length and activePoll?.id dependencies to prevent unnecessary re-runs
+
+  // Update chat timestamps every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      _setChatTimestampTick(prev => prev + 1);
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Update the scroll event listener
   useEffect(() => {
@@ -802,6 +925,10 @@ export default function ListenerDashboard() {
   // Handle chat submission
   const handleChatSubmit = async (e) => {
     e.preventDefault();
+    if (!currentUser) {
+      handleLoginRedirect();
+      return;
+    }
     if (!chatMessage.trim() || !currentBroadcastId) return;
 
     // Validate message length
@@ -831,7 +958,7 @@ export default function ListenerDashboard() {
       // Always scroll to bottom after sending your own message
       scrollToBottom();
     } catch (error) {
-      console.error("Error sending chat message:", error);
+      logger.error("Error sending chat message:", error);
       if (error.response?.data?.message?.includes("1500 characters")) {
         alert("Message cannot exceed 1500 characters");
       } else {
@@ -844,73 +971,62 @@ export default function ListenerDashboard() {
   // Check if a broadcast is live
   useEffect(() => {
     const checkBroadcastStatus = async () => {
+      // Skip polling if WebSocket is connected and handling broadcast updates
+      if (broadcastWsRef.current?.isConnected && broadcastWsRef.current.isConnected()) {
+        logger.debug('Skipping broadcast status poll - WebSocket is handling updates')
+        return
+      }
+
       try {
+        // If we have a target broadcast ID (from URL), use that
+        if (targetBroadcastId && !isNaN(targetBroadcastId)) {
+          try {
+            // Fetch the specific broadcast
+            const broadcastResponse = await broadcastService.getBroadcast(targetBroadcastId);
+            const targetBroadcast = broadcastResponse.data;
+
+            if (targetBroadcast) {
+              setCurrentBroadcastId(targetBroadcast.id);
+              setCurrentBroadcast(targetBroadcast);
+              logger.debug("Target broadcast loaded:", targetBroadcast);
+              return; // Exit early since we found our target broadcast
+            }
+          } catch (error) {
+            logger.error("Error fetching target broadcast:", error);
+            // Continue to fetch live broadcasts as fallback
+          }
+        }
+
         // Fetch live broadcasts from API
         const response = await broadcastService.getLive();
         const liveBroadcasts = response.data;
 
         // If there are any live broadcasts, set isLive to true
         if (liveBroadcasts && liveBroadcasts.length > 0) {
-          setIsLive(true);
-          // Set the first live broadcast as the current one
-          const currentBroadcast = liveBroadcasts[0];
-          setCurrentBroadcastId(currentBroadcast.id);
-          setCurrentBroadcast(currentBroadcast);
-
-          // Set current song if available
-          if (currentBroadcast.currentSong) {
-            setCurrentSong({
-              title: currentBroadcast.currentSong.title,
-              artist: currentBroadcast.currentSong.artist
-            });
+          logger.debug("Live broadcast:", liveBroadcasts[0]);
           } else {
-            // Fallback to default if no song data
-            setCurrentSong(null);
-          }
-
-          console.log("Live broadcast:", currentBroadcast);
-        } else {
-          setIsLive(false);
-          setCurrentBroadcast(null);
-          setCurrentSong(null);
-          // If no live broadcasts, check for upcoming broadcasts
-          try {
-            const upcomingResponse = await broadcastService.getUpcoming();
-            const upcomingBroadcasts = upcomingResponse.data;
-
-            if (upcomingBroadcasts && upcomingBroadcasts.length > 0) {
-              // Set the next broadcast
-              const next = upcomingBroadcasts[0];
-              setNextBroadcast({
-                title: next.title,
-                date: new Date(next.scheduledStart).toLocaleDateString(),
-                time: new Date(next.scheduledStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              });
-            } else {
-              setNextBroadcast(null);
-            }
-          } catch (error) {
-            console.error("Error fetching upcoming broadcasts:", error);
-          }
+          logger.debug("No live broadcasts found");
         }
       } catch (error) {
-        console.error("Error checking broadcast status:", error);
-        setIsLive(false);
+        logger.error("Error checking broadcast status:", error);
       }
     }
 
+    // Initial check
     checkBroadcastStatus();
-    const interval = setInterval(checkBroadcastStatus, 60000); // Check every minute
+
+    // Very minimal polling since WebSocket handles all real-time broadcast updates
+    // Only check occasionally for fallback scenarios or initial setup
+    const interval = setInterval(checkBroadcastStatus, 600000); // Check every 10 minutes instead of 5 minutes
 
     return () => clearInterval(interval);
-  }, []);
+  }, [targetBroadcastId]); // Add targetBroadcastId as dependency
 
   // Fetch active polls for the current broadcast
   useEffect(() => {
     if (currentBroadcastId && isLive) {
       const fetchActivePolls = async () => {
         try {
-          setPollLoading(true);
           const response = await pollService.getActivePollsForBroadcast(currentBroadcastId);
 
           if (response.data && response.data.length > 0) {
@@ -924,13 +1040,13 @@ export default function ListenerDashboard() {
               if (hasVotedResponse.data) {
                 // User has voted, get their vote
                 const userVoteResponse = await pollService.getUserVote(activePoll.id);
-                setUserVote(userVoteResponse.data);
+                setUserVotes(prev => ({ ...prev, [activePoll.id]: userVoteResponse.data }));
 
                 // Get poll results
                 const resultsResponse = await pollService.getPollResults(activePoll.id);
 
                 // Combine poll data with results
-                setCurrentPoll({
+                setActivePoll({
                   ...activePoll,
                   options: resultsResponse.data.options,
                   totalVotes: resultsResponse.data.totalVotes,
@@ -939,192 +1055,251 @@ export default function ListenerDashboard() {
                 });
               } else {
                 // User hasn't voted
-                setCurrentPoll({
+                setActivePoll({
                   ...activePoll,
                   totalVotes: activePoll.options.reduce((sum, option) => sum + option.votes, 0),
                   userVoted: false
                 });
               }
             } catch (error) {
-              console.error("Error checking user vote:", error);
-              setCurrentPoll({
+              logger.error("Error checking user vote:", error);
+              setActivePoll({
                 ...activePoll,
                 totalVotes: activePoll.options.reduce((sum, option) => sum + option.votes, 0),
                 userVoted: false
               });
             }
           } else {
-            setCurrentPoll(null);
+            setActivePoll(null);
           }
         } catch (error) {
-          console.error("Error fetching active polls:", error);
-        } finally {
-          setPollLoading(false);
+          logger.error("Error fetching active polls:", error);
         }
       };
 
       fetchActivePolls();
 
-      // Set up interval to periodically check for new polls
-      const interval = setInterval(fetchActivePolls, 10000); // Check every 10 seconds
+      // Minimal polling since WebSocket handles all poll updates in real-time
+      // Only check very occasionally as fallback
+      const interval = setInterval(fetchActivePolls, 300000); // Check every 5 minutes instead of 1 minute
 
       return () => clearInterval(interval);
     } else {
       // Reset poll when no broadcast is live
-      setCurrentPoll(null);
+      setActivePoll(null);
     }
   }, [currentBroadcastId, isLive]);
 
   // Toggle play/pause with enhanced logic from ListenerDashboard2.jsx
-  const togglePlay = () => {
-    console.log('Toggle play called, current state:', { isPlaying, wsReadyState: wsRef.current?.readyState })
+  const togglePlay = async () => {
+    logger.debug('Toggle play called, current state:', { 
+      localAudioPlaying, 
+      wsReadyState: wsRef.current?.readyState,
+      audioRefExists: !!audioRef.current,
+      serverConfigExists: !!serverConfig,
+      streamUrl: serverConfig?.streamUrl
+    })
 
     if (!audioRef.current || !serverConfig) {
-      setStreamError("Audio player not ready. Please wait...")
+      logger.error('Audio player not ready:', {
+        audioRefCurrent: !!audioRef.current,
+        serverConfig: !!serverConfig,
+        serverConfigStreamUrl: serverConfig?.streamUrl
+      });
+      setFilteredStreamError("Audio player not ready. Please wait...")
       return
     }
 
     try {
-      if (isPlaying) {
-        console.log('Pausing playback')
+      if (localAudioPlaying) {
+        logger.debug('Pausing playback')
         audioRef.current.pause()
-        setIsPlaying(false)
-        sendPlayerStatus(false)
+        setLocalAudioPlaying(false); // Update local state
+        logger.debug('Stream paused')
+
+        // Notify server that listener stopped playing
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          const message = {
+            type: 'LISTENER_STATUS',
+            action: 'STOP_LISTENING',
+            broadcastId: currentBroadcastId,
+            userId: currentUser?.id || null,
+            userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
+            timestamp: Date.now()
+          };
+          wsRef.current.send(JSON.stringify(message));
+          logger.debug('Sent listener stop message to server:', message);
+        }
       } else {
-        console.log('Starting playback')
-        const currentSrc = audioRef.current.src
-        const expectedSrc = serverConfig.streamUrl.startsWith('http') 
-          ? serverConfig.streamUrl 
-          : `http://${serverConfig.streamUrl}`
+        logger.debug('Starting playback');
 
-        if (!currentSrc || currentSrc !== expectedSrc || currentSrc.includes('localhost:5173') || currentSrc.startsWith('blob:') || currentSrc === 'about:blank') {
-          console.log('Setting new stream URL:', expectedSrc)
-          audioRef.current.src = expectedSrc
-          audioRef.current.load()
+        // Clear any previous errors
+        setFilteredStreamError(null);
+
+        // Improved URL handling with format fallbacks
+        let streamUrl = serverConfig.streamUrl;
+
+        // Ensure proper protocol
+        if (!streamUrl.startsWith('http')) {
+          streamUrl = `http://${streamUrl}`;
         }
 
-        let playPromise
+        logger.debug('Primary stream URL:', streamUrl);
+
+        // Create array of fallback URLs for better browser compatibility
+        const streamUrls = [
+          streamUrl, // Original URL (likely .ogg)
+          streamUrl.replace('.ogg', ''), // Without extension
+          streamUrl.replace('.ogg', '.mp3'), // MP3 fallback
+          streamUrl.replace('.ogg', '.aac'), // AAC fallback
+        ];
+
+        // Remove duplicates
+        const uniqueUrls = [...new Set(streamUrls)];
+        logger.debug('Trying stream URLs in order:', uniqueUrls);
+
+        // Try URLs sequentially
+        const tryStreamUrl = async (urls, index = 0) => {
+          if (index >= urls.length) {
+            throw new Error('All stream formats failed to load');
+          }
+
+          const currentUrl = urls[index];
+          logger.debug(`Trying stream URL ${index + 1}/${urls.length}:`, currentUrl);
+
+          return new Promise((resolve, reject) => {
+            // Set up audio element for this attempt
+            audioRef.current.src = currentUrl;
+            audioRef.current.load();
+
+            // Set up event listeners for this attempt
+            const handleCanPlay = () => {
+              logger.debug('Audio can play with URL:', currentUrl);
+              cleanup();
+              resolve(currentUrl);
+            };
+
+            const handleError = (e) => {
+              logger.debug(`URL ${currentUrl} failed:`, e);
+              cleanup();
+              tryStreamUrl(urls, index + 1).then(resolve).catch(reject);
+            };
+
+            const handleLoadStart = () => {
+              logger.debug('Loading started for:', currentUrl);
+            };
+
+            const cleanup = () => {
+              audioRef.current.removeEventListener('canplay', handleCanPlay);
+              audioRef.current.removeEventListener('error', handleError);
+              audioRef.current.removeEventListener('loadstart', handleLoadStart);
+            };
+
+            // Add event listeners
+            audioRef.current.addEventListener('canplay', handleCanPlay, { once: true });
+            audioRef.current.addEventListener('error', handleError, { once: true });
+            audioRef.current.addEventListener('loadstart', handleLoadStart, { once: true });
+
+            // Set a timeout to try next URL if this one takes too long
+            setTimeout(() => {
+              if (audioRef.current.readyState === 0) { // HAVE_NOTHING
+                logger.debug('URL taking too long, trying next:', currentUrl);
+                cleanup();
+                tryStreamUrl(urls, index + 1).then(resolve).catch(reject);
+              }
+            }, 5000); // 5 second timeout
+          });
+        };
+
         try {
-          playPromise = audioRef.current.play()
-          console.log('Play method called')
-        } catch (playError) {
-          console.error('Error calling play method:', playError)
-          setStreamError(`Error starting playback: ${playError.message}`)
-          return
-        }
+          const workingUrl = await tryStreamUrl(uniqueUrls);
+          logger.debug('Found working stream URL:', workingUrl);
 
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => {
-              console.log('Playback started successfully')
-              setIsPlaying(true)
-              setStreamError(null)
-              sendPlayerStatus(true)
-            })
-            .catch(error => {
-              console.error("Playback failed:", error)
+          // Set final configuration
+          audioRef.current.volume = isMuted ? 0 : volume / 100;
+          audioRef.current.crossOrigin = 'anonymous';
 
-              if (error.name === 'NotAllowedError') {
-                setStreamError("Browser blocked autoplay. Please click play again to start listening.")
-              } else if (error.name === 'NotSupportedError') {
-                setStreamError("Your browser doesn't support this audio format. Try refreshing or use a different browser.")
-              } else if (error.name === 'AbortError') {
-                setStreamError("Playback was interrupted. Please try again.")
-              } else {
-                setStreamError(`Playback failed: ${error.message}. Please check if the stream is live.`)
-              }
-              setIsPlaying(false)
+          // Attempt to play
+          const playPromise = audioRef.current.play();
 
-              if (audioRef.current) {
-                const srcAfterError = audioRef.current.src
-                if (!srcAfterError.startsWith('http') || srcAfterError.includes('localhost:5173') || srcAfterError.startsWith('blob:')) {
-                  console.warn('Audio src changed to invalid URL after error, resetting to stream URL')
-                  audioRef.current.src = expectedSrc
-                  audioRef.current.load()
+          if (playPromise !== undefined) {
+            playPromise
+              .then(() => {
+                logger.debug('Playback started successfully');
+                setLocalAudioPlaying(true);
+                setFilteredStreamError(null);
+
+                // Notify server that listener started playing
+                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                  const message = {
+                    type: 'LISTENER_STATUS',
+                    action: 'START_LISTENING',
+                    broadcastId: currentBroadcastId,
+                    userId: currentUser?.id || null,
+                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
+                    timestamp: Date.now()
+                  };
+                  wsRef.current.send(JSON.stringify(message));
+                  logger.debug('Sent listener start message to server:', message);
                 }
-              }
-            })
-        } else {
-          console.warn('Play promise is undefined, cannot track playback status')
+              })
+              .catch(error => {
+                logger.error("Playback failed:", error);
+
+                if (error.name === 'NotAllowedError') {
+                  setFilteredStreamError("Browser blocked autoplay. Please click play again to start listening.");
+                } else if (error.name === 'NotSupportedError') {
+                  setFilteredStreamError("Your browser doesn't support this audio format. Please try a different browser or check if the stream is live.");
+                } else if (error.name === 'AbortError') {
+                  setFilteredStreamError("Playback was interrupted. Please try again.");
+                } else {
+                  setFilteredStreamError(`Playback failed: ${error.message}. Please check if the stream is live.`);
+                }
+                setLocalAudioPlaying(false);
+                logger.debug('Stream paused due to error');
+
+                // Notify server that listener stopped playing due to error
+                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                  const message = {
+                    type: 'LISTENER_STATUS',
+                    action: 'STOP_LISTENING',
+                    broadcastId: currentBroadcastId,
+                    userId: currentUser?.id || null,
+                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
+                    timestamp: Date.now()
+                  };
+                  wsRef.current.send(JSON.stringify(message));
+                  logger.debug('Sent listener stop message to server (due to error):', message);
+                }
+              });
+          } else {
+            logger.warn('Play promise is undefined, cannot track playback status');
+          }
+        } catch (error) {
+          logger.error('All stream URLs failed:', error);
+          setFilteredStreamError('Unable to load audio stream. The broadcast may not be live or your browser may not support the stream format.');
+          setLocalAudioPlaying(false);
         }
       }
     } catch (error) {
-      console.error("Error toggling playback:", error)
-      setStreamError(`Playback error: ${error.message}. Please try again.`)
-    }
-  }
-
-  // Toggle mute
-  const toggleMute = () => {
-    setIsMuted(!isMuted);
-  }
-
-  // Handle volume change with enhanced logic
-  const handleVolumeChange = (e) => {
-    const newVolume = parseInt(e.target.value, 10);
-    setVolume(newVolume);
-
-    // Handle mute state based on volume
-    if (newVolume === 0) {
-      setIsMuted(true);
-    } else if (isMuted && newVolume > 0) {
-      setIsMuted(false);
-    }
-  }
-
-  // Refresh stream from ListenerDashboard2.jsx
-  const refreshStream = () => {
-    if (audioRef.current && serverConfig) {
-      console.log('Refreshing stream...')
-
-      if (isPlaying) {
-        sendPlayerStatus(false)
-      }
-
-      try {
-        audioRef.current.pause()
-
-        const streamUrl = serverConfig.streamUrl.startsWith('http') 
-          ? serverConfig.streamUrl 
-          : `http://${serverConfig.streamUrl}`
-
-        console.log('Setting new stream URL during refresh:', streamUrl)
-
-        audioRef.current.src = streamUrl
-        audioRef.current.load()
-
-        setStreamError(null)
-        setIsPlaying(false)
-
-        console.log('Stream refreshed successfully')
-      } catch (error) {
-        console.error('Error refreshing stream:', error)
-        setStreamError(`Error refreshing stream: ${error.message}. Please try again.`)
-
-        try {
-          audioRef.current.pause()
-          const streamUrl = serverConfig.streamUrl.startsWith('http') 
-            ? serverConfig.streamUrl 
-            : `http://${serverConfig.streamUrl}`
-          audioRef.current.src = streamUrl
-        } catch (cleanupError) {
-          console.error('Error cleaning up audio element:', cleanupError)
-        }
-      }
-    } else {
-      console.warn('Cannot refresh stream: audio element or server config not available')
+      logger.error("Error toggling playback:", error);
+      setFilteredStreamError(`Playback error: ${error.message}. Please try again.`);
     }
   }
 
   // Handle song request submission
   const handleSongRequestSubmit = async (e) => {
     e.preventDefault();
-    if (!songRequest.song.trim() || !songRequest.artist.trim() || !currentBroadcastId) return;
+    if (!currentUser) {
+      handleLoginRedirect();
+      return;
+    }
+    if (!songRequest.title.trim() || !songRequest.artist.trim() || !currentBroadcastId) return;
 
     try {
       // Create song request object to send to the server
       const requestData = {
-        songTitle: songRequest.song,
+        songTitle: songRequest.title,
         artist: songRequest.artist,
         dedication: songRequest.dedication
       };
@@ -1133,49 +1308,68 @@ export default function ListenerDashboard() {
       await songRequestService.createRequest(currentBroadcastId, requestData);
 
       // Show success message
-      alert(`Song request submitted: "${songRequest.song}" by ${songRequest.artist}`);
+      alert(`Song request submitted: "${songRequest.title}" by ${songRequest.artist}`);
 
       // Reset the form
-      setSongRequest({ song: "", artist: "", dedication: "" });
+      setSongRequest({ title: '', artist: '', dedication: '' });
     } catch (error) {
-      console.error("Error submitting song request:", error);
-      alert("Failed to submit song request. Please try again.");
+      logger.error("Error submitting song request:", error);
+      setRequestError("Failed to submit request. Please try again.");
+    } finally {
+      setSongRequestLoading(false);
     }
   };
 
-  // Handle poll vote
-  const handlePollVote = async (optionId) => {
-    if (!currentPoll || currentPoll.userVoted || !isLive) return;
+  // Handle poll option selection
+  const handlePollOptionSelect = (optionId) => {
+    if (!currentUser) {
+      handleLoginRedirect();
+      return;
+    }
+    if (!activePoll || activePoll.userVoted || !isLive) return;
+    setSelectedPollOption(optionId);
+  };
+
+  // Handle poll vote submission
+  const handlePollVote = async () => {
+    if (!currentUser) {
+      handleLoginRedirect();
+      return;
+    }
+    if (!activePoll || !selectedPollOption || activePoll.userVoted || !isLive) return;
 
     try {
       setPollLoading(true);
 
       // Send vote to backend
       const voteData = {
-        pollId: currentPoll.id,
-        optionId: optionId
+        pollId: activePoll.id,
+        optionId: selectedPollOption
       };
 
-      await pollService.vote(currentPoll.id, voteData);
+      await pollService.vote(activePoll.id, voteData);
 
       // Get updated poll results
-      const resultsResponse = await pollService.getPollResults(currentPoll.id);
+      const resultsResponse = await pollService.getPollResults(activePoll.id);
 
       // Update user vote
-      const userVoteResponse = await pollService.getUserVote(currentPoll.id);
-      setUserVote(userVoteResponse.data);
+      const userVoteResponse = await pollService.getUserVote(activePoll.id);
+      setUserVotes(prev => ({ ...prev, [activePoll.id]: userVoteResponse.data }));
 
       // Update current poll with results
-      setCurrentPoll(prev => ({
+      setActivePoll(prev => ({
         ...prev,
         options: resultsResponse.data.options,
         totalVotes: resultsResponse.data.totalVotes,
         userVoted: true,
-        userVotedFor: optionId
+        userVotedFor: selectedPollOption
       }));
 
+      // Reset selection
+      setSelectedPollOption(null);
+
     } catch (error) {
-      console.error("Error submitting vote:", error);
+      logger.error("Error submitting vote:", error);
       alert("Failed to submit vote. Please try again.");
     } finally {
       setPollLoading(false);
@@ -1194,7 +1388,7 @@ export default function ListenerDashboard() {
           .map((msg) => {
             // Ensure we have valid message data
             if (!msg || !msg.sender) {
-              console.log('Listener Dashboard: Skipping invalid message:', msg);
+              logger.debug('Listener Dashboard: Skipping invalid message:', msg);
               return null;
             }
 
@@ -1208,11 +1402,11 @@ export default function ListenerDashboard() {
             try {
               messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
             } catch (error) {
-              console.error('Listener Dashboard: Error parsing message date:', error);
+              logger.error('Listener Dashboard: Error parsing message date:', error);
               messageDate = new Date();
             }
 
-            // Format relative time
+            // Format relative time (updated every minute due to chatTimestampTick)
             const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
               ? formatDistanceToNow(messageDate, { addSuffix: false }) 
               : 'Just now';
@@ -1238,7 +1432,7 @@ export default function ListenerDashboard() {
                     {isDJ ? 'DJ' : initials}
                   </div>
                   <div className="ml-2">
-                    <span className="font-medium text-sm text-gray-900 dark:text-white">{senderName}</span>
+                    <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{senderName}</span>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
                       {formattedTimeAgo} ago
                     </div>
@@ -1256,50 +1450,82 @@ export default function ListenerDashboard() {
   );
 
   // Render chat input
-  const renderChatInput = () => (
-    <form onSubmit={handleChatSubmit} className="flex items-center">
-      <input
-        type="text"
-        value={chatMessage}
-        onChange={(e) => {
-          // Limit input to 1500 characters
-          if (e.target.value.length <= 1500) {
-            setChatMessage(e.target.value);
-          }
-        }}
-        placeholder="Type your message..."
-        className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 focus:border-transparent"
-        disabled={!isLive}
-        maxLength={1500}
-      />
-      <button
-        type="submit"
-        disabled={!isLive || !chatMessage.trim() || chatMessage.length > 1500}
-        className={`p-2 rounded-r-md ${
-          isLive && chatMessage.trim() && chatMessage.length <= 1500
-            ? "bg-maroon-700 hover:bg-maroon-800 text-white"
-            : "bg-gray-300 text-gray-500 cursor-not-allowed"
-        }`}
-      >
-        <PaperAirplaneIcon className="h-5 w-5" />
-      </button>
-    </form>
-  );
+  const renderChatInput = () => {
+    if (!currentUser) {
+      return (
+        <div className="p-4 bg-gray-50 dark:bg-gray-700 border-t border-gray-200 dark:border-gray-600">
+          <div className="text-center">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+              Join the conversation! Login or create an account to chat with other listeners.
+            </p>
+            <div className="flex space-x-2 justify-center">
+              <button
+                onClick={handleLoginRedirect}
+                className="flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
+              >
+                <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
+                Login
+              </button>
+              <button
+                onClick={handleRegisterRedirect}
+                className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
+              >
+                <UserPlusIcon className="h-4 w-4 mr-2" />
+                Register
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <form onSubmit={handleChatSubmit} className="flex items-center">
+        <input
+          type="text"
+          value={chatMessage}
+          onChange={(e) => {
+            // Limit input to 1500 characters
+            if (e.target.value.length <= 1500) {
+              setChatMessage(e.target.value);
+            }
+          }}
+          placeholder="Type your message..."
+          className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 focus:border-transparent"
+          disabled={!isLive}
+          maxLength={1500}
+        />
+        <button
+          type="submit"
+          disabled={!isLive || !chatMessage.trim() || chatMessage.length > 1500}
+          className={`p-2 rounded-r-md ${
+            isLive && chatMessage.trim() && chatMessage.length <= 1500
+              ? "bg-maroon-700 hover:bg-maroon-800 text-white"
+              : "bg-gray-300 text-gray-500 cursor-not-allowed"
+          }`}
+        >
+          <PaperAirplaneIcon className="h-5 w-5" />
+        </button>
+      </form>
+    );
+  };
 
   return (
-    <div className="container mx-auto px-4 pb-6 bg-gray-100 dark:bg-gray-900">
+    <div className="container mx-auto px-4 mb-8 bg-gray-100 dark:bg-gray-900">
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 pt-6">Broadcast Stream</h2>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main content area - left 2/3 */}
-        <div className="lg:col-span-2 flex flex-col">
-          <div className="bg-maroon-700 rounded-lg overflow-hidden mb-6 h-[200px] flex flex-col justify-center">
+      {/* Desktop: Grid layout */}
+      <div className="hidden lg:grid lg:grid-cols-3 lg:gap-6">
+        {/* Desktop Left Column - Broadcast + Song Request/Poll */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Broadcast Stream Visualizer */}
+          <div className="bg-maroon-700 rounded-lg overflow-hidden h-[200px] flex flex-col justify-center relative">
             {/* Live indicator */}
-            <div className="absolute p-2 px-4">
+            <div className="absolute top-4 left-4 z-10">
               {isLive ? (
                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-600 text-white">
                   <span className="h-2 w-2 rounded-full bg-white mr-1 animate-pulse"></span>
-                  LIVE ({listenerCount} listeners)
+                  LIVE ({Math.max(listenerCount, localListenerCount)} listeners)
                 </span>
               ) : (
                 <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-600 text-white">
@@ -1336,10 +1562,10 @@ export default function ListenerDashboard() {
 
                     <div className="mt-4">
                       <p className="text-xs uppercase opacity-60">NOW PLAYING</p>
-                      {currentSong ? (
+                      {_currentSong ? (
                         <>
-                          <p className="text-sm font-medium">{currentSong.title}</p>
-                          <p className="text-xs opacity-70">{currentSong.artist}</p>
+                          <p className="text-sm font-medium">{_currentSong.title}</p>
+                          <p className="text-xs opacity-70">{_currentSong.artist}</p>
                         </>
                       ) : (
                         <p className="text-sm opacity-70">No track information available</p>
@@ -1355,13 +1581,13 @@ export default function ListenerDashboard() {
                       className={`p-3 rounded-full ${
                         !serverConfig
                           ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                          : isPlaying
+                          : localAudioPlaying
                           ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
                           : 'bg-green-100 text-green-800 hover:bg-green-200'
                       }`}
-                      aria-label={isPlaying ? 'Pause' : 'Play'}
+                      aria-label={localAudioPlaying ? 'Pause' : 'Play'}
                     >
-                      {isPlaying ? (
+                      {localAudioPlaying ? (
                         <PauseIcon className="h-6 w-6" />
                       ) : (
                         <PlayIcon className="h-6 w-6" />
@@ -1380,7 +1606,7 @@ export default function ListenerDashboard() {
 
                 {/* Volume control */}
                 <div className="flex items-center px-4 py-3">
-                  <button onClick={toggleMute} className="text-white mr-2">
+                  <button onClick={handleMuteToggle} className="text-white mr-2">
                     {isMuted ? (
                       <SpeakerXMarkIcon className="h-5 w-5" />
                     ) : (
@@ -1413,7 +1639,7 @@ export default function ListenerDashboard() {
             )}
           </div>
 
-          {/* Interactive section tabs */}
+          {/* Desktop Song Request/Poll section */}
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-grow">
             {/* Tab headers */}
             <div className="flex">
@@ -1458,65 +1684,102 @@ export default function ListenerDashboard() {
               </button>
             </div>
 
-            {/* Tab content */}
+            {/* Desktop Tab content */}
             <div className="bg-white dark:bg-gray-800 flex-grow flex flex-col h-[450px]">
               {/* Song Request Tab */}
               {activeTab === "song" && (
                 <div className="p-6 flex-grow flex flex-col h-full">
                   {isLive ? (
-                    <form onSubmit={handleSongRequestSubmit} className="space-y-5 flex-grow flex flex-col">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Song Title
-                        </label>
-                        <input
-                          type="text"
-                          value={songRequest.song}
-                          onChange={(e) => setSongRequest({ ...songRequest, song: e.target.value })}
-                          placeholder="Enter song title"
-                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          required
-                        />
-                      </div>
+                    <>
+                      {!currentUser ? (
+                        <div className="flex items-center justify-center h-full">
+                          <div className="text-center w-full">
+                            <div className="flex items-center mb-6 justify-center">
+                              <div className="bg-yellow-100 dark:bg-yellow-900/30 rounded-full p-3 mr-4">
+                                <MusicalNoteIcon className="h-6 w-6 text-yellow-600 dark:text-yellow-400" />
+                              </div>
+                              <div>
+                                <h3 className="font-medium text-gray-900 dark:text-white text-lg">Request a Song</h3>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">Let the DJ know what you'd like to hear</p>
+                              </div>
+                            </div>
+                            <p className="text-gray-600 dark:text-gray-400 mb-4">
+                              Login or create an account to request songs during live broadcasts
+                            </p>
+                            <div className="flex space-x-3 justify-center">
+                              <button
+                                onClick={handleLoginRedirect}
+                                className="flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
+                              >
+                                <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
+                                Login
+                              </button>
+                              <button
+                                onClick={handleRegisterRedirect}
+                                className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
+                              >
+                                <UserPlusIcon className="h-4 w-4 mr-2" />
+                                Register
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <form onSubmit={handleSongRequestSubmit} className="space-y-5 flex-grow flex flex-col">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Song Title
+                            </label>
+                            <input
+                              type="text"
+                              value={songRequest.title}
+                              onChange={(e) => setSongRequest({ ...songRequest, title: e.target.value })}
+                              placeholder="Enter song title"
+                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              required
+                            />
+                          </div>
 
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Artist
-                        </label>
-                        <input
-                          type="text"
-                          value={songRequest.artist}
-                          onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
-                          placeholder="Enter artist name"
-                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          required
-                        />
-                      </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Artist
+                            </label>
+                            <input
+                              type="text"
+                              value={songRequest.artist}
+                              onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
+                              placeholder="Enter artist name"
+                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              required
+                            />
+                          </div>
 
-                      <div className="flex-grow">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Dedication (Optional)
-                        </label>
-                        <textarea
-                          value={songRequest.dedication}
-                          onChange={(e) => setSongRequest({ ...songRequest, dedication: e.target.value })}
-                          placeholder="Add a message or dedication"
-                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white h-full min-h-[120px]"
-                        />
-                      </div>
+                          <div className="flex-grow">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Dedication (Optional)
+                            </label>
+                            <textarea
+                              value={songRequest.dedication}
+                              onChange={(e) => setSongRequest({ ...songRequest, dedication: e.target.value })}
+                              placeholder="Add a message or dedication"
+                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white h-full min-h-[120px]"
+                            />
+                          </div>
 
-                      <div className="mt-auto flex justify-between items-center">
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          Song requests are subject to availability and DJ's playlist.
-                        </p>
-                        <button
-                          type="submit"
-                          className="bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-2 px-6 rounded"
-                        >
-                          Submit Request
-                        </button>
-                      </div>
-                    </form>
+                          <div className="mt-auto flex justify-between items-center">
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              Song requests are subject to availability and DJ's playlist.
+                            </p>
+                            <button
+                              type="submit"
+                              className="bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-2 px-6 rounded"
+                            >
+                              Submit Request
+                            </button>
+                          </div>
+                        </form>
+                      )}
+                    </>
                   ) : (
                     <div className="flex items-center justify-center h-full">
                       <div className="text-center w-full">
@@ -1536,32 +1799,100 @@ export default function ListenerDashboard() {
                 </div>
               )}
 
-              {/* Poll Tab */}
+              {/* Desktop Poll Tab */}
               {activeTab === "poll" && (
                 <div className="p-6 flex-grow flex flex-col h-full">
                   {isLive ? (
                     <>
-                      {pollLoading && !currentPoll ? (
+                      {pollLoading && !activePoll ? (
                         <div className="text-center py-8 flex-grow flex items-center justify-center">
                           <p className="text-gray-500 dark:text-gray-400 animate-pulse">Loading polls...</p>
                         </div>
-                      ) : currentPoll ? (
+                      ) : activePoll ? (
                         <div className="flex-grow flex flex-col">
-                          <div className="space-y-6 mb-6 flex-grow">
-                            {currentPoll.options.map((option) => {
-                              const percentage = Math.round((option.votes / currentPoll.totalVotes) * 100) || 0;
+                          {/* Poll Question */}
+                          <div className="mb-4">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                              {activePoll.question || activePoll.title}
+                            </h3>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                              {!currentUser 
+                                ? 'Login to participate in the poll'
+                                : activePoll.userVoted 
+                                  ? 'You have voted' 
+                                  : 'Choose your answer and click Vote'
+                              }
+                            </div>
+                          </div>
+
+                          {/* Poll Options */}
+                          <div className="space-y-3 mb-6 flex-grow">
+                            {activePoll.options.map((option) => {
+                              const percentage = (activePoll.userVoted && currentUser) 
+                                ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 
+                                : 0;
+                              const isSelected = selectedPollOption === option.id;
+                              const isUserChoice = activePoll.userVotedFor === option.id;
+                              const canInteract = currentUser && !activePoll.userVoted;
+
                               return (
                                 <div key={option.id} className="space-y-1">
-                                  <div className="text-sm font-medium mb-2 text-gray-900 dark:text-white">{option.text}</div>
                                   <div 
-                                    className="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md overflow-hidden cursor-pointer"
-                                    onClick={() => !currentPoll.userVoted && handlePollVote(option.id)}
+                                    className={`w-full border-2 rounded-lg overflow-hidden transition-all duration-200 ${
+                                      !currentUser
+                                        ? 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 cursor-not-allowed opacity-75'
+                                        : activePoll.userVoted 
+                                          ? isUserChoice
+                                            ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                                            : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
+                                          : isSelected
+                                            ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20 cursor-pointer'
+                                            : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 hover:border-maroon-300 cursor-pointer'
+                                    }`}
+                                    onClick={() => canInteract && handlePollOptionSelect(option.id)}
                                   >
-                                    <div 
-                                      className="h-8 bg-pink-200 dark:bg-maroon-900/30 flex items-center pl-3 text-xs text-gray-800 dark:text-gray-200"
-                                      style={{ width: `${percentage}%` }}
-                                    >
-                                      {percentage}%
+                                    <div className="p-3">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                          {option.optionText || option.text}
+                                        </span>
+                                        <div className="flex items-center">
+                                          {(activePoll.userVoted && currentUser) && (
+                                            <span className="text-xs text-gray-600 dark:text-gray-400 mr-2">
+                                              {option.votes || 0} votes
+                                            </span>
+                                          )}
+                                          {isSelected && canInteract && (
+                                            <div className="w-4 h-4 bg-maroon-500 rounded-full flex items-center justify-center">
+                                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                                            </div>
+                                          )}
+                                          {isUserChoice && (activePoll.userVoted && currentUser) && (
+                                            <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                                              <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                              </svg>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* Progress bar for voted polls */}
+                                      {(activePoll.userVoted && currentUser) && (
+                                        <div className="mt-2">
+                                          <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                                            <div 
+                                              className={`h-2 rounded-full transition-all duration-300 ${
+                                                isUserChoice ? 'bg-green-500' : 'bg-gray-400'
+                                              }`}
+                                              style={{ width: `${percentage}%` }}
+                                            />
+                                          </div>
+                                          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                                            {percentage}%
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -1569,16 +1900,55 @@ export default function ListenerDashboard() {
                             })}
                           </div>
 
+                          {/* Vote Button */}
                           <div className="mt-auto flex justify-center">
-                            <button
-                              onClick={() => setCurrentPoll({ ...currentPoll, userVoted: true })}
-                              disabled={currentPoll.userVoted}
-                              className={`bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-2 px-12 rounded ${
-                                currentPoll.userVoted ? 'opacity-50 cursor-not-allowed' : ''
-                              }`}
-                            >
-                              Vote
-                            </button>
+                            {!currentUser ? (
+                              <div className="text-center">
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                                  Login to participate in polls
+                                </p>
+                                <div className="flex space-x-2 justify-center">
+                                  <button
+                                    onClick={handleLoginRedirect}
+                                    className="flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
+                                  >
+                                    <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
+                                    Login
+                                  </button>
+                                  <button
+                                    onClick={handleRegisterRedirect}
+                                    className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
+                                  >
+                                    <UserPlusIcon className="h-4 w-4 mr-2" />
+                                    Register
+                                  </button>
+                                </div>
+                              </div>
+                            ) : activePoll.userVoted ? (
+                              <div className="text-center">
+                                <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                                  Total votes: {activePoll.totalVotes || 0}
+                                </div>
+                                <span className="inline-flex items-center px-4 py-2 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 rounded-lg">
+                                  <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                  You have voted
+                                </span>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={handlePollVote}
+                                disabled={!selectedPollOption || pollLoading}
+                                className={`px-8 py-2 rounded-lg font-medium transition-colors ${
+                                  selectedPollOption && !pollLoading
+                                    ? 'bg-yellow-500 hover:bg-yellow-600 text-black' 
+                                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                }`}
+                              >
+                                {pollLoading ? 'Voting...' : 'Vote'}
+                              </button>
+                            )}
                           </div>
                         </div>
                       ) : (
@@ -1607,11 +1977,11 @@ export default function ListenerDashboard() {
           </div>
         </div>
 
-        {/* Live chat section - right 1/3 */}
+        {/* Desktop Right Column - Live Chat */}
         <div className="lg:col-span-1 flex flex-col">
           <div className="bg-maroon-700 text-white p-3 rounded-t-lg">
             <h3 className="font-medium">Live Chat</h3>
-            <p className="text-xs opacity-70">{listenerCount} listeners online</p>
+            <p className="text-xs opacity-70">{Math.max(listenerCount, localListenerCount)} listeners online</p>
           </div>
 
           <div className="bg-white dark:bg-gray-800 border border-t-0 border-gray-200 dark:border-gray-700 rounded-b-lg flex-grow flex flex-col h-[494px]">
@@ -1626,10 +1996,18 @@ export default function ListenerDashboard() {
                     const initials = msg.sender.name.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
 
                     // Parse the createdAt timestamp from the backend
-                    const messageDate = msg.createdAt ? new Date(msg.createdAt + 'Z') : null;
+                    let messageDate;
+                    try {
+                      messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
+                    } catch (error) {
+                      logger.error('Listener Dashboard: Error parsing message date:', error);
+                      messageDate = new Date();
+                    }
 
-                    // Format relative time
-                    const timeAgo = messageDate ? formatDistanceToNow(messageDate, { addSuffix: false }) : 'Invalid Date';
+                    // Format relative time (updated every minute due to chatTimestampTick)
+                    const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
+                      ? formatDistanceToNow(messageDate, { addSuffix: false }) 
+                      : 'Just now';
 
                     // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
                     const formattedTimeAgo = timeAgo
@@ -1681,7 +2059,7 @@ export default function ListenerDashboard() {
                       >
                         <path 
                           fillRule="evenodd" 
-                          d="M16.707 10.293a1 1 0 010 1.414l-6 6a1 1 0 01-1.414 0l-6-6a1 1 0 111.414-1.414L10 15.586l5.293-5.293a1 1 0 011.414 0z" 
+                          d="M16.707 10.293a1 1 0 010 1.414l-6 6a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" 
                           clipRule="evenodd" 
                         />
                       </svg>
@@ -1690,44 +2068,68 @@ export default function ListenerDashboard() {
                 )}
 
                 <div className="p-2 border-t border-gray-200 dark:border-gray-700 mt-auto">
-                  <form onSubmit={handleChatSubmit} className="flex flex-col">
-                    <div className="flex mb-1">
-                      <input
-                        type="text"
-                        value={chatMessage}
-                        onChange={(e) => {
-                          // Limit input to 1500 characters
-                          if (e.target.value.length <= 1500) {
-                            setChatMessage(e.target.value);
-                          }
-                        }}
-                        placeholder="Type your message..."
-                        className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white max-w-full"
-                        maxLength={1500}
-                      />
-                      <button
-                        type="submit"
-                        disabled={!chatMessage.trim() || chatMessage.length > 1500}
-                        className={`${
-                          !chatMessage.trim() || chatMessage.length > 1500
-                            ? 'bg-gray-400 cursor-not-allowed'
-                            : 'bg-maroon-700 hover:bg-maroon-800 dark:bg-maroon-600'
-                        } text-white p-2 rounded-r-md flex-shrink-0`}
-                      >
-                        <PaperAirplaneIcon className="h-5 w-5" />
-                      </button>
+                  {!currentUser ? (
+                    <div className="p-2 text-center">
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                        Join the conversation! Login or create an account to chat.
+                      </p>
+                      <div className="flex space-x-2 justify-center">
+                        <button
+                          onClick={handleLoginRedirect}
+                          className="flex items-center px-3 py-1.5 bg-maroon-600 hover:bg-maroon-700 text-white text-xs font-medium rounded-md transition-colors"
+                        >
+                          <ArrowRightOnRectangleIcon className="h-3 w-3 mr-1" />
+                          Login
+                        </button>
+                        <button
+                          onClick={handleRegisterRedirect}
+                          className="flex items-center px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-black text-xs font-medium rounded-md transition-colors"
+                        >
+                          <UserPlusIcon className="h-3 w-3 mr-1" />
+                          Register
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className={`${
-                        chatMessage.length > 1500 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'
-                      }`}>
-                        {chatMessage.length}/1500 characters
-                      </span>
-                      {chatMessage.length > 1500 && (
-                        <span className="text-red-500">Message too long</span>
-                      )}
-                    </div>
-                  </form>
+                  ) : (
+                    <form onSubmit={handleChatSubmit} className="flex flex-col">
+                      <div className="flex mb-1">
+                        <input
+                          type="text"
+                          value={chatMessage}
+                          onChange={(e) => {
+                            // Limit input to 1500 characters
+                            if (e.target.value.length <= 1500) {
+                              setChatMessage(e.target.value);
+                            }
+                          }}
+                          placeholder="Type your message..."
+                          className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white max-w-full"
+                          maxLength={1500}
+                        />
+                        <button
+                          type="submit"
+                          disabled={!chatMessage.trim() || chatMessage.length > 1500}
+                          className={`${
+                            !chatMessage.trim() || chatMessage.length > 1500
+                              ? 'bg-gray-400 cursor-not-allowed'
+                              : 'bg-maroon-700 hover:bg-maroon-800 dark:bg-maroon-600'
+                          } text-white p-2 rounded-r-md flex-shrink-0`}
+                        >
+                          <PaperAirplaneIcon className="h-5 w-5" />
+                        </button>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className={`${
+                          chatMessage.length > 1500 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'
+                        }`}>
+                          {chatMessage.length}/1500 characters
+                        </span>
+                        {chatMessage.length > 1500 && (
+                          <span className="text-red-500">Message too long</span>
+                        )}
+                      </div>
+                    </form>
+                  )}
                 </div>
               </>
             ) : (
@@ -1737,6 +2139,636 @@ export default function ListenerDashboard() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile: Flex column layout with custom order */}
+      <div className="flex flex-col space-y-6 lg:hidden">
+        {/* Mobile: Broadcast Stream - First */}
+        <div className="order-1">
+          <div className="bg-maroon-700 rounded-lg overflow-hidden h-[200px] flex flex-col justify-center relative">
+            {/* Live indicator */}
+            <div className="absolute top-4 left-4 z-10">
+              {isLive ? (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-600 text-white">
+                  <span className="h-2 w-2 rounded-full bg-white mr-1 animate-pulse"></span>
+                  LIVE ({Math.max(listenerCount, localListenerCount)} listeners)
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-600 text-white">
+                  OFF AIR
+                </span>
+              )}
+            </div>
+
+            {/* Stream Error Display */}
+            {streamError && (
+              <div className="absolute top-12 left-4 right-4 p-2 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md text-xs">
+                {streamError}
+              </div>
+            )}
+
+            {isLive ? (
+              <>
+                <div className="flex p-4">
+                  {/* Album art / Left section */}
+                  <div className="w-24 h-24 bg-maroon-800 flex items-center justify-center text-white text-2xl rounded-lg">
+                    $
+                  </div>
+
+                  {/* Track info */}
+                  <div className="ml-4 text-white">
+                    <h3 className="text-xl font-bold">{currentBroadcast?.title || "Loading..."}</h3>
+                    <p className="text-sm opacity-80">
+                      {currentBroadcast?.host?.name 
+                        ? `Hosted by ${currentBroadcast.host.name}` 
+                        : currentBroadcast?.dj?.name 
+                          ? `Hosted by ${currentBroadcast.dj.name}`
+                          : "Loading..."}
+                    </p>
+
+                    <div className="mt-4">
+                      <p className="text-xs uppercase opacity-60">NOW PLAYING</p>
+                      {_currentSong ? (
+                        <>
+                          <p className="text-sm font-medium">{_currentSong.title}</p>
+                          <p className="text-xs opacity-70">{_currentSong.artist}</p>
+                        </>
+                      ) : (
+                        <p className="text-sm opacity-70">No track information available</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Play/Pause and Refresh Controls */}
+                  <div className="ml-auto flex flex-col items-center justify-center space-y-2">
+                    <button
+                      onClick={togglePlay}
+                      disabled={!serverConfig}
+                      className={`p-3 rounded-full ${
+                        !serverConfig
+                          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                          : localAudioPlaying
+                          ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
+                          : 'bg-green-100 text-green-800 hover:bg-green-200'
+                      }`}
+                      aria-label={localAudioPlaying ? 'Pause' : 'Play'}
+                    >
+                      {localAudioPlaying ? (
+                        <PauseIcon className="h-6 w-6" />
+                      ) : (
+                        <PlayIcon className="h-6 w-6" />
+                      )}
+                    </button>
+
+                    <button
+                      onClick={refreshStream}
+                      className="p-2 text-white hover:text-gray-300"
+                      aria-label="Refresh Stream"
+                    >
+                      <ArrowPathIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Volume control */}
+                <div className="flex items-center px-4 py-3">
+                  <button onClick={handleMuteToggle} className="text-white mr-2">
+                    {isMuted ? (
+                      <SpeakerXMarkIcon className="h-5 w-5" />
+                    ) : (
+                      <SpeakerWaveIcon className="h-5 w-5" />
+                    )}
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={volume}
+                    onChange={handleVolumeChange}
+                    className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  />
+                  <div className="ml-2 text-white text-xs w-7 text-right">{volume}%</div>
+                </div>
+              </>
+            ) : (
+              <div className="text-center text-white">
+                <h2 className="text-2xl font-bold mb-3">WildCats Radio</h2>
+                <p className="mb-2">No broadcast currently active</p>
+                {nextBroadcast ? (
+                  <p className="text-sm opacity-70">
+                    Next broadcast: {nextBroadcast.title} on {nextBroadcast.date} at {nextBroadcast.time}
+                  </p>
+                ) : (
+                  <p className="text-sm opacity-70">No upcoming broadcasts scheduled</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Mobile: Live Chat - Second */}
+        <div className="order-2">
+          <div className="bg-maroon-700 text-white p-3 rounded-t-lg">
+            <h3 className="font-medium">Live Chat</h3>
+            <p className="text-xs opacity-70">{Math.max(listenerCount, localListenerCount)} listeners online</p>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 border border-t-0 border-gray-200 dark:border-gray-700 rounded-b-lg flex-grow flex flex-col h-[400px]">
+            {isLive ? (
+              <>
+                <div 
+                  ref={chatContainerRef}
+                  className="flex-grow overflow-y-auto p-4 space-y-4 chat-messages-container relative"
+                >
+                  {chatMessages.map((msg) => {
+                    const isDJ = msg.sender && msg.sender.name.includes("DJ");
+                    const initials = msg.sender.name.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
+
+                    // Parse the createdAt timestamp from the backend
+                    let messageDate;
+                    try {
+                      messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
+                    } catch (error) {
+                      logger.error('Listener Dashboard: Error parsing message date:', error);
+                      messageDate = new Date();
+                    }
+
+                    // Format relative time (updated every minute due to chatTimestampTick)
+                    const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
+                      ? formatDistanceToNow(messageDate, { addSuffix: false }) 
+                      : 'Just now';
+
+                    // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
+                    const formattedTimeAgo = timeAgo
+                      .replace(' seconds', ' sec')
+                      .replace(' second', ' sec')
+                      .replace(' minutes', ' min')
+                      .replace(' minute', ' min')
+                      .replace(' hours', ' hour')
+                      .replace(' days', ' day')
+                      .replace(' months', ' month')
+                      .replace(' years', ' year');
+
+                    return (
+                      <div key={msg.id} className="mb-4">
+                        <div className="flex items-center mb-1">
+                          <div className={`h-8 w-8 min-w-[2rem] rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
+                            {isDJ ? 'DJ' : initials}
+                          </div>
+                          <div className="ml-2 overflow-hidden">
+                            <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{msg.sender.name}</span>
+                          </div>
+                        </div>
+                        <div className="ml-10 space-y-1">
+                          <div className={`rounded-lg p-3 message-bubble ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
+                            <p className="text-sm text-gray-800 dark:text-gray-200 chat-message" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content}</p>
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 pl-1">
+                            {formattedTimeAgo} ago
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Scroll to bottom button */}
+                {showScrollBottom && (
+                  <div className="absolute bottom-20 right-4">
+                    <button
+                      onClick={scrollToBottom}
+                      className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full p-2.5 shadow-lg transition-all duration-200 ease-in-out flex items-center justify-center"
+                      aria-label="Scroll to bottom"
+                    >
+                      <svg 
+                        xmlns="http://www.w3.org/2000/svg" 
+                        className="h-5 w-5" 
+                        viewBox="0 0 20 20" 
+                        fill="currentColor"
+                      >
+                        <path 
+                          fillRule="evenodd" 
+                          d="M16.707 10.293a1 1 0 010 1.414l-6 6a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" 
+                          clipRule="evenodd" 
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+
+                <div className="p-2 border-t border-gray-200 dark:border-gray-700 mt-auto">
+                  {!currentUser ? (
+                    <div className="p-2 text-center">
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                        Join the conversation! Login or create an account to chat.
+                      </p>
+                      <div className="flex space-x-2 justify-center">
+                        <button
+                          onClick={handleLoginRedirect}
+                          className="flex items-center px-3 py-1.5 bg-maroon-600 hover:bg-maroon-700 text-white text-xs font-medium rounded-md transition-colors"
+                        >
+                          <ArrowRightOnRectangleIcon className="h-3 w-3 mr-1" />
+                          Login
+                        </button>
+                        <button
+                          onClick={handleRegisterRedirect}
+                          className="flex items-center px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-black text-xs font-medium rounded-md transition-colors"
+                        >
+                          <UserPlusIcon className="h-3 w-3 mr-1" />
+                          Register
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleChatSubmit} className="flex flex-col">
+                      <div className="flex mb-1">
+                        <input
+                          type="text"
+                          value={chatMessage}
+                          onChange={(e) => {
+                            // Limit input to 1500 characters
+                            if (e.target.value.length <= 1500) {
+                              setChatMessage(e.target.value);
+                            }
+                          }}
+                          placeholder="Type your message..."
+                          className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white max-w-full"
+                          maxLength={1500}
+                        />
+                        <button
+                          type="submit"
+                          disabled={!chatMessage.trim() || chatMessage.length > 1500}
+                          className={`${
+                            !chatMessage.trim() || chatMessage.length > 1500
+                              ? 'bg-gray-400 cursor-not-allowed'
+                              : 'bg-maroon-700 hover:bg-maroon-800 dark:bg-maroon-600'
+                          } text-white p-2 rounded-r-md flex-shrink-0`}
+                        >
+                          <PaperAirplaneIcon className="h-5 w-5" />
+                        </button>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className={`${
+                          chatMessage.length > 1500 ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'
+                        }`}>
+                          {chatMessage.length}/1500 characters
+                        </span>
+                        {chatMessage.length > 1500 && (
+                          <span className="text-red-500">Message too long</span>
+                        )}
+                      </div>
+                    </form>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <p className="text-gray-500 dark:text-gray-400">Chat is only available during live broadcasts</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Mobile: Song Request/Poll - Third */}
+        <div className="order-3">
+          <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-grow">
+            {/* Tab headers */}
+            <div className="flex">
+              <button
+                onClick={() => setActiveTab("song")}
+                className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
+                  activeTab === "song"
+                    ? "border-b-2 border-maroon-700 text-maroon-700 dark:border-maroon-500 dark:text-maroon-400"
+                    : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 border-b border-gray-200 dark:border-gray-700"
+                }`}
+              >
+                <div className="flex justify-center items-center">
+                  <MusicalNoteIcon className="h-5 w-5 mr-2" />
+                  Song Request
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab("poll")}
+                className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
+                  activeTab === "poll"
+                    ? "border-b-2 border-maroon-700 text-maroon-700 dark:border-maroon-500 dark:text-maroon-400"
+                    : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 border-b border-gray-200 dark:border-gray-700"
+                }`}
+              >
+                <div className="flex justify-center items-center">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-5 w-5 mr-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                    />
+                  </svg>
+                  Poll
+                </div>
+              </button>
+            </div>
+
+            {/* Mobile Tab content */}
+            <div className="bg-white dark:bg-gray-800 flex-grow flex flex-col h-[350px]">
+              {/* Song Request Tab */}
+              {activeTab === "song" && (
+                <div className="p-6 flex-grow flex flex-col h-full">
+                  {isLive ? (
+                    <>
+                      {!currentUser ? (
+                        <div className="flex items-center justify-center h-full">
+                          <div className="text-center w-full">
+                            <div className="flex items-center mb-6 justify-center">
+                              <div className="bg-yellow-100 dark:bg-yellow-900/30 rounded-full p-3 mr-4">
+                                <MusicalNoteIcon className="h-6 w-6 text-yellow-600 dark:text-yellow-400" />
+                              </div>
+                              <div>
+                                <h3 className="font-medium text-gray-900 dark:text-white text-lg">Request a Song</h3>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">Let the DJ know what you'd like to hear</p>
+                              </div>
+                            </div>
+                            <p className="text-gray-600 dark:text-gray-400 mb-4">
+                              Login or create an account to request songs during live broadcasts
+                            </p>
+                            <div className="flex space-x-3 justify-center">
+                              <button
+                                onClick={handleLoginRedirect}
+                                className="flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
+                              >
+                                <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
+                                Login
+                              </button>
+                              <button
+                                onClick={handleRegisterRedirect}
+                                className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
+                              >
+                                <UserPlusIcon className="h-4 w-4 mr-2" />
+                                Register
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <form onSubmit={handleSongRequestSubmit} className="space-y-5 flex-grow flex flex-col">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Song Title
+                            </label>
+                            <input
+                              type="text"
+                              value={songRequest.title}
+                              onChange={(e) => setSongRequest({ ...songRequest, title: e.target.value })}
+                              placeholder="Enter song title"
+                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              required
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Artist
+                            </label>
+                            <input
+                              type="text"
+                              value={songRequest.artist}
+                              onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
+                              placeholder="Enter artist name"
+                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              required
+                            />
+                          </div>
+
+                          <div className="flex-grow">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              Dedication (Optional)
+                            </label>
+                            <textarea
+                              value={songRequest.dedication}
+                              onChange={(e) => setSongRequest({ ...songRequest, dedication: e.target.value })}
+                              placeholder="Add a message or dedication"
+                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white h-full min-h-[120px]"
+                            />
+                          </div>
+
+                          <div className="mt-auto flex justify-between items-center">
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              Song requests are subject to availability and DJ's playlist.
+                            </p>
+                            <button
+                              type="submit"
+                              className="bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-2 px-6 rounded"
+                            >
+                              Submit Request
+                            </button>
+                          </div>
+                        </form>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center w-full">
+                        <div className="flex items-center mb-8 justify-center">
+                          <div className="bg-pink-100 dark:bg-maroon-900/30 rounded-full p-3 mr-4">
+                            <MusicalNoteIcon className="h-6 w-6 text-maroon-600 dark:text-maroon-400" />
+                          </div>
+                          <div>
+                            <h3 className="font-medium text-gray-900 dark:text-white text-lg">Request a Song</h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">Let us know what you'd like to hear next</p>
+                          </div>
+                        </div>
+                        <p className="text-gray-500 dark:text-gray-400">Song requests are only available during live broadcasts</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Mobile Poll Tab */}
+              {activeTab === "poll" && (
+                <div className="p-6 flex-grow flex flex-col h-full">
+                  {isLive ? (
+                    <>
+                      {pollLoading && !activePoll ? (
+                        <div className="text-center py-8 flex-grow flex items-center justify-center">
+                          <p className="text-gray-500 dark:text-gray-400 animate-pulse">Loading polls...</p>
+                        </div>
+                      ) : activePoll ? (
+                        <div className="flex-grow flex flex-col">
+                          {/* Poll Question */}
+                          <div className="mb-4">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                              {activePoll.question || activePoll.title}
+                            </h3>
+                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                              {!currentUser 
+                                ? 'Login to participate in the poll'
+                                : activePoll.userVoted 
+                                  ? 'You have voted' 
+                                  : 'Choose your answer and click Vote'
+                              }
+                            </div>
+                          </div>
+
+                          {/* Poll Options */}
+                          <div className="space-y-3 mb-6 flex-grow">
+                            {activePoll.options.map((option) => {
+                              const percentage = (activePoll.userVoted && currentUser) 
+                                ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 
+                                : 0;
+                              const isSelected = selectedPollOption === option.id;
+                              const isUserChoice = activePoll.userVotedFor === option.id;
+                              const canInteract = currentUser && !activePoll.userVoted;
+
+                              return (
+                                <div key={option.id} className="space-y-1">
+                                  <div 
+                                    className={`w-full border-2 rounded-lg overflow-hidden transition-all duration-200 ${
+                                      !currentUser
+                                        ? 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 cursor-not-allowed opacity-75'
+                                        : activePoll.userVoted 
+                                          ? isUserChoice
+                                            ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                                            : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
+                                          : isSelected
+                                            ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20 cursor-pointer'
+                                            : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 hover:border-maroon-300 cursor-pointer'
+                                    }`}
+                                    onClick={() => canInteract && handlePollOptionSelect(option.id)}
+                                  >
+                                    <div className="p-3">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                          {option.optionText || option.text}
+                                        </span>
+                                        <div className="flex items-center">
+                                          {(activePoll.userVoted && currentUser) && (
+                                            <span className="text-xs text-gray-600 dark:text-gray-400 mr-2">
+                                              {option.votes || 0} votes
+                                            </span>
+                                          )}
+                                          {isSelected && canInteract && (
+                                            <div className="w-4 h-4 bg-maroon-500 rounded-full flex items-center justify-center">
+                                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                                            </div>
+                                          )}
+                                          {isUserChoice && (activePoll.userVoted && currentUser) && (
+                                            <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                                              <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                              </svg>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* Progress bar for voted polls */}
+                                      {(activePoll.userVoted && currentUser) && (
+                                        <div className="mt-2">
+                                          <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                                            <div 
+                                              className={`h-2 rounded-full transition-all duration-300 ${
+                                                isUserChoice ? 'bg-green-500' : 'bg-gray-400'
+                                              }`}
+                                              style={{ width: `${percentage}%` }}
+                                            />
+                                          </div>
+                                          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                                            {percentage}%
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Vote Button */}
+                          <div className="mt-auto flex justify-center">
+                            {!currentUser ? (
+                              <div className="text-center">
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                                  Login to participate in polls
+                                </p>
+                                <div className="flex space-x-2 justify-center">
+                                  <button
+                                    onClick={handleLoginRedirect}
+                                    className="flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
+                                  >
+                                    <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
+                                    Login
+                                  </button>
+                                  <button
+                                    onClick={handleRegisterRedirect}
+                                    className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
+                                  >
+                                    <UserPlusIcon className="h-4 w-4 mr-2" />
+                                    Register
+                                  </button>
+                                </div>
+                              </div>
+                            ) : activePoll.userVoted ? (
+                              <div className="text-center">
+                                <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                                  Total votes: {activePoll.totalVotes || 0}
+                                </div>
+                                <span className="inline-flex items-center px-4 py-2 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 rounded-lg">
+                                  <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                  You have voted
+                                </span>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={handlePollVote}
+                                disabled={!selectedPollOption || pollLoading}
+                                className={`px-8 py-2 rounded-lg font-medium transition-colors ${
+                                  selectedPollOption && !pollLoading
+                                    ? 'bg-yellow-500 hover:bg-yellow-600 text-black' 
+                                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                }`}
+                              >
+                                {pollLoading ? 'Voting...' : 'Vote'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 flex-grow flex items-center justify-center">
+                          <div>
+                            <p className="text-gray-500 dark:text-gray-400 mb-2">No active polls</p>
+                            <p className="text-sm text-gray-400 dark:text-gray-500">Active polls will appear during live broadcasts</p>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center w-full">
+                        <div className="mb-8">
+                          <h3 className="text-xl font-medium text-gray-900 dark:text-white">Vote</h3>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">selects which you prefer the most?</p>
+                        </div>
+                        <p className="text-gray-500 dark:text-gray-400">Polls are only available during live broadcasts</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1771,6 +2803,35 @@ export default function ListenerDashboard() {
               <div className="md:col-span-2">
                 <span className="font-medium text-gray-700 dark:text-gray-300">Stream URL:</span>
                 <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.streamUrl}</code>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {streamError && !streamError.includes('Audio playback error') && (
+        <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-lg">
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400" />
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-red-800 dark:text-red-200">
+                Audio Playback Issue
+              </h3>
+              <div className="mt-1 text-sm text-red-700 dark:text-red-300">
+                <p>{streamError}</p>
+                {streamError.includes('format') && (
+                  <div className="mt-2 space-y-1">
+                    <p className="font-medium">Try these solutions:</p>
+                    <ul className="list-disc list-inside space-y-1 ml-2">
+                      <li>Refresh the page and try again</li>
+                      <li>Use Chrome, Firefox, or Edge browser</li>
+                      <li>Check if the DJ is currently broadcasting</li>
+                      <li>Ensure your internet connection is stable</li>
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
           </div>

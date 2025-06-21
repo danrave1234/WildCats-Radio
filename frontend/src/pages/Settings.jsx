@@ -6,6 +6,9 @@ import {
   XMarkIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../context/AuthContext';
+import { createLogger } from '../services/logger';
+
+const logger = createLogger('Settings');
 
 export default function Settings() {
   const { currentUser, changePassword, loading } = useAuth();
@@ -100,7 +103,7 @@ export default function Settings() {
 
   const handleNotificationsSubmit = (e) => {
     e.preventDefault();
-    console.log('Notification settings submitted:', notifications);
+    logger.info('Notification settings submitted:', notifications);
     // Here you would send the notification settings to your backend
     alert('Notification settings updated successfully!');
   };

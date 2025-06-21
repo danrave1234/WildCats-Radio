@@ -38,8 +38,8 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // Constants for calendar layout
 const HORIZONTAL_PADDING_SCREEN = 20; // Corresponds to px-5 on the ScrollView
-const PADDING_CALENDAR_CARD = 12;    // Corresponds to p-3 on the calendar card View
-const GAP_BETWEEN_CELLS = 4;         // Corresponds to gap-1 in Tailwind (0.25rem = 4px)
+const PADDING_CALENDAR_CARD = 16;    // Adjusted for p-4 on the calendar grid container
+const GAP_BETWEEN_CELLS = 8;         // Increased from 4 to 8 (corresponds to gap-2)
 const NUM_DAYS_IN_WEEK = 7;
 
 const calculateDayCellSize = () => {
@@ -187,7 +187,7 @@ const ScheduleScreen: React.FC = () => {
         style={[
           styles.dayCellTouchable,
           isSelectedDate && {
-            transform: [{ scale: 0.95 }],
+            transform: [{ scale: 0.98 }],
             shadowColor: '#B5830F',
             shadowOffset: { width: 0, height: 4 },
             shadowOpacity: 0.3,
@@ -200,13 +200,17 @@ const ScheduleScreen: React.FC = () => {
       >
         <View 
           className={`
-            w-full h-full items-center justify-center rounded-xl relative overflow-hidden
+            w-full h-full items-center justify-center rounded-lg relative overflow-hidden
             ${isCurrentDisplayMonth ? 'bg-white' : 'bg-gray-100/50'} 
             ${isSelectedDate ? 'bg-mikado_yellow' : isTodayDate ? 'bg-cordovan/15' : ''}
-            border-2 border-transparent
+            border border-transparent
             ${isSelectedDate ? 'border-mikado_yellow' : isTodayDate ? 'border-cordovan/40' : hasBroadcasts ? 'border-cordovan/20' : ''}
           `}
           style={[
+            {
+              width: DAY_CELL_SIZE,
+              height: DAY_CELL_SIZE,
+            },
             isSelectedDate && {
               shadowColor: '#B5830F',
               shadowOffset: { width: 0, height: 2 },
@@ -222,7 +226,7 @@ const ScheduleScreen: React.FC = () => {
           {/* Pulse effect for today */}
           {isTodayDate && !isSelectedDate && (
             <View 
-              className="absolute inset-0 bg-cordovan/10 rounded-xl"
+              className="absolute inset-0 bg-cordovan/10 rounded-lg"
               style={{
                 opacity: 0.6,
               }}
@@ -231,7 +235,7 @@ const ScheduleScreen: React.FC = () => {
           
           <Text
             className={`
-              text-sm font-semibold
+              text-base font-semibold
               ${isSelectedDate ? 'text-black' : isTodayDate ? 'text-cordovan font-bold' : isCurrentDisplayMonth ? 'text-gray-700' : 'text-gray-400'}
             `}
           >
@@ -299,60 +303,25 @@ const ScheduleScreen: React.FC = () => {
 
   if (isLoading) {
     return (
-      <SafeAreaView className="flex-1 justify-center items-center bg-gray-100 p-6">
-        <View className="bg-white rounded-3xl p-12 shadow-2xl items-center">
-          <View className="bg-cordovan/10 p-6 rounded-full mb-6">
-            <Ionicons name="calendar" size={40} color="#91403E" />
-          </View>
-          <ActivityIndicator size="large" color="#91403E" className="mb-4" />
-          <Text className="text-xl font-bold text-cordovan mb-2">Loading Schedule</Text>
-          <Text className="text-gray-600 text-center text-base">
-            Fetching your broadcast schedule...
-          </Text>
-        </View>
+      <SafeAreaView className="flex-1 justify-center items-center bg-anti-flash_white">
+        <ActivityIndicator size="large" color="#91403E" />
+        <Text className="mt-4 text-gray-600 text-lg">Loading Schedule...</Text>
       </SafeAreaView>
     );
   }
 
   if (error) {
     return (
-      <SafeAreaView className="flex-1 justify-center items-center bg-gray-100 p-6">
-        <View 
-          className="bg-white rounded-3xl p-12 shadow-2xl items-center relative overflow-hidden"
-          style={{
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: 0.15,
-            shadowRadius: 20,
-            elevation: 12,
-          }}
+      <SafeAreaView className="flex-1 justify-center items-center bg-anti-flash_white p-6 text-center">
+        <Ionicons name="cloud-offline-outline" size={64} color="#7F1D1D" />
+        <Text className="text-2xl font-semibold text-gray-800 mt-6 mb-2">Unable to Load Schedule</Text>
+        <Text className="text-gray-600 mb-8 text-base leading-relaxed">{error}</Text>
+        <TouchableOpacity
+          className="bg-cordovan py-3 px-8 rounded-lg shadow-md active:opacity-80"
+          onPress={() => fetchUpcomingBroadcasts()}
         >
-          {/* Background Pattern */}
-          <View className="absolute inset-0 opacity-5">
-            <View className="absolute top-4 right-4 w-12 h-12 bg-red-500 rounded-full" />
-            <View className="absolute bottom-8 left-8 w-8 h-8 bg-red-400 rounded-full" />
-          </View>
-          
-          <View className="bg-red-50 p-6 rounded-full mb-6">
-            <Ionicons name="cloud-offline-outline" size={48} color="#DC2626" />
-          </View>
-          <Text className="text-2xl font-bold text-gray-800 mb-3 text-center">Unable to Load Schedule</Text>
-          <Text className="text-gray-600 mb-8 text-base leading-relaxed text-center">{error}</Text>
-          <TouchableOpacity
-            className="bg-cordovan py-4 px-10 rounded-2xl shadow-lg active:scale-95 flex-row items-center"
-            style={{
-              shadowColor: '#91403E',
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.3,
-              shadowRadius: 8,
-              elevation: 6,
-            }}
-            onPress={() => fetchUpcomingBroadcasts()}
-          >
-            <Ionicons name="refresh" size={18} color="white" className="mr-2" />
-            <Text className="text-white font-bold text-base">Try Again</Text>
-          </TouchableOpacity>
-        </View>
+          <Text className="text-white font-semibold text-base">Try Again</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }
@@ -451,10 +420,18 @@ const ScheduleScreen: React.FC = () => {
               backgroundColor: '#91403E',
             }}
           >
-            <View className="flex-row mb-2">
+            <View className="flex-row justify-center gap-2 mb-2">
               {weekdays.map(day => (
-                <View key={day} style={[styles.weekdayCell, {width: DAY_CELL_SIZE}]}>
-                  <Text className="text-sm font-bold text-white/95 tracking-wider">
+                <View 
+                  key={day} 
+                  style={[
+                    styles.weekdayCell, 
+                    {
+                      width: DAY_CELL_SIZE,
+                    }
+                  ]}
+                >
+                  <Text className="text-xs font-bold text-white/95 tracking-wider">
                     {day.toUpperCase()}
                   </Text>
                 </View>
@@ -464,7 +441,7 @@ const ScheduleScreen: React.FC = () => {
           
           {/* Day Cells Grid */}
           <View className="p-4 bg-gray-50/30">
-            <View className="flex-row flex-wrap gap-2 justify-start">
+            <View className="flex-row flex-wrap gap-2 justify-center">
               {daysForCalendarGrid.map(day => renderDayCell(day))}
             </View>
           </View>
@@ -706,6 +683,8 @@ const styles = StyleSheet.create({
   dayCellTouchable: {
     width: DAY_CELL_SIZE,
     height: DAY_CELL_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
     // No margin here, gap on parent will handle it
   },
   weekdayCell: {

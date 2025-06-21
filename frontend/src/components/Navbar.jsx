@@ -8,7 +8,8 @@ import {
   Cog6ToothIcon,
   Bars3Icon,
   XMarkIcon,
-  RadioIcon
+  RadioIcon,
+  ChartBarIcon
 } from '@heroicons/react/24/outline';
 import NotificationBell from './NotificationBell';
 
@@ -205,6 +206,20 @@ const Navbar = ({ userRole }) => {
                 >
                   Schedule
                 </Link>
+                
+                {/* Analytics link for DJ and Admin users */}
+                {(userRole === 'DJ' || userRole === 'ADMIN') && (
+                    <Link
+                        to="/analytics"
+                        className={`${
+                            location.pathname === '/analytics'
+                                ? 'text-maroon-700 dark:text-maroon-400 font-medium'
+                                : 'text-gray-600 dark:text-gray-300 hover:text-maroon-700 dark:hover:text-maroon-400'
+                        } inline-flex items-center px-1 pt-1 text-sm`}
+                    >
+                      Analytics
+                    </Link>
+                )}
               </div>
             </div>
 
@@ -354,6 +369,20 @@ const Navbar = ({ userRole }) => {
             >
               Schedule
             </Link>
+            
+            {/* Analytics link for DJ and Admin users */}
+            {(userRole === 'DJ' || userRole === 'ADMIN') && (
+                <Link
+                    to="/analytics"
+                    className={`${
+                        location.pathname === '/analytics'
+                            ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-700 dark:text-maroon-400'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                    } block px-3 py-2 rounded-md text-base font-medium`}
+                >
+                  Analytics
+                </Link>
+            )}
             <Link
                 to="/profile"
                 className={`${

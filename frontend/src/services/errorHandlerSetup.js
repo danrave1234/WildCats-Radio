@@ -2,6 +2,9 @@
 // This file sets up global error handlers to catch errors that might occur outside of axios requests
 
 import { isSecuritySoftwareBlockedError } from './errorHandler';
+import { createLogger } from './logger';
+
+const logger = createLogger('ErrorHandlerSetup');
 
 // Set up global error handlers
 export const setupGlobalErrorHandlers = () => {
@@ -14,7 +17,7 @@ export const setupGlobalErrorHandlers = () => {
     if (message && typeof message === 'string' && 
         (message.includes('ERR_BLOCKED_BY_CLIENT') && 
          (message.includes('kaspersky-labs.com') || message.includes('kis.v2.scr')))) {
-      console.log('Security software request blocked. This is normal and can be ignored.');
+      logger.info('Security software request blocked. This is normal and can be ignored.');
       return true; // Prevent the error from propagating
     }
 
@@ -31,7 +34,7 @@ export const setupGlobalErrorHandlers = () => {
     if (error && error.message && 
         (error.message.includes('ERR_BLOCKED_BY_CLIENT') && 
          (error.message.includes('kaspersky-labs.com') || error.message.includes('kis.v2.scr')))) {
-      console.log('Security software request blocked in promise. This is normal and can be ignored.');
+      logger.info('Security software request blocked in promise. This is normal and can be ignored.');
       event.preventDefault(); // Prevent the error from propagating
     }
   });
@@ -45,7 +48,7 @@ export const setupGlobalErrorHandlers = () => {
         return originalBeaconSend.apply(this, arguments);
       } catch (error) {
         if (error && error.message && error.message.includes('ERR_BLOCKED_BY_CLIENT')) {
-          console.log('Kaspersky BeaconSend blocked. This is normal and can be ignored.');
+          logger.info('Kaspersky BeaconSend blocked. This is normal and can be ignored.');
           return null; // Return a safe value
         }
         throw error; // Re-throw if it's not the error we're looking for
@@ -58,7 +61,7 @@ export const setupGlobalErrorHandlers = () => {
     // We don't prevent the default behavior, just add error handling
     setTimeout(() => {
       // Check for any errors in the console related to Kaspersky after form submission
-      console.log('Form submitted, any Kaspersky-related errors will be suppressed.');
+      logger.info('Form submitted, any Kaspersky-related errors will be suppressed.');
     }, 0);
   }, true); // Use capture phase to ensure this runs before other handlers
 };

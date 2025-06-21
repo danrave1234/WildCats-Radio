@@ -18,7 +18,6 @@ import com.wildcastradio.Notification.NotificationService;
 import com.wildcastradio.Notification.NotificationType;
 import com.wildcastradio.Schedule.ScheduleEntity;
 import com.wildcastradio.Schedule.ScheduleService;
-import com.wildcastradio.ServerSchedule.ServerScheduleService;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserRepository;
 import com.wildcastradio.icecast.IcecastService;
@@ -37,9 +36,6 @@ public class BroadcastService {
     private IcecastService icecastService;
 
     @Autowired
-    private ServerScheduleService serverScheduleService;
-
-    @Autowired
     private ActivityLogService activityLogService;
 
     @Autowired
@@ -53,7 +49,7 @@ public class BroadcastService {
 
         // Get current user from security context (this will be handled by the controller)
         // For now, we'll assume the user is passed separately or we'll update this later
-        
+
         // First create the schedule
         ScheduleEntity schedule = scheduleService.createSchedule(
             request.getScheduledStart(), 
@@ -202,26 +198,16 @@ public class BroadcastService {
         } else {
             // Check if the Google Cloud Icecast server is accessible
             boolean icecastServerAccessible = icecastService.checkIcecastServer();
-            // Check if the server schedule is running
-            boolean serverScheduleRunning = serverScheduleService.isServerRunning();
 
-            // If either the Google Cloud Icecast server is accessible or the server schedule is running, we can proceed
-            if (icecastServerAccessible || serverScheduleRunning) {
-                logger.info("Google Cloud Icecast server is available (Icecast accessible: {}, Server schedule running: {}), proceeding with broadcast", 
-                        icecastServerAccessible, serverScheduleRunning);
-
-                // If the server is accessible but not tracked in the database, create a record
-                if (icecastServerAccessible && !serverScheduleRunning) {
-                    logger.info("Creating server schedule record for manually started Google Cloud Icecast server");
-                    serverScheduleService.startServerNow(dj);
-                }
+            // If the Google Cloud Icecast server is accessible, we can proceed
+            if (icecastServerAccessible) {
+                logger.info("Google Cloud Icecast server is available, proceeding with broadcast");
 
                 // Set the stream URL from Google Cloud Icecast service
                 broadcast.setStreamUrl(icecastService.getStreamUrl());
             } else {
-                // If neither the Google Cloud Icecast server is accessible nor the server schedule is running, throw an exception
-                logger.error("Failed to start broadcast: Google Cloud Icecast server checks failed. Icecast accessible: {}, Server schedule running: {}", 
-                        icecastServerAccessible, serverScheduleRunning);
+                // If the Google Cloud Icecast server is not accessible, throw an exception
+                logger.error("Failed to start broadcast: Google Cloud Icecast server is not accessible");
                 throw new IllegalStateException("Google Cloud Icecast server is not running or not accessible. Please check the server configuration.");
             }
         }
@@ -243,6 +229,8 @@ public class BroadcastService {
             // Send notification to all users that the broadcast has started
             String notificationMessage = "Broadcast started: " + savedBroadcast.getTitle();
             sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_STARTED);
+
+            // WebSocket status updates are handled by the broadcast WebSocket controller
         }
 
         return savedBroadcast;
@@ -277,6 +265,8 @@ public class BroadcastService {
         String notificationMessage = "Broadcast ended: " + savedBroadcast.getTitle();
         sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_ENDED);
 
+        // WebSocket status updates are handled by the broadcast WebSocket controller
+
         return savedBroadcast;
     }
 
@@ -298,7 +288,7 @@ public class BroadcastService {
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
 
         BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
-        
+
         logger.info("Broadcast ended without user info: {}", savedBroadcast.getTitle());
 
         return savedBroadcast;
@@ -413,5 +403,99 @@ public class BroadcastService {
         // This is a placeholder - in a real implementation, you'd get this from SecurityContext
         // For now, we'll throw an exception to indicate this needs to be handled by the controller
         throw new RuntimeException("User must be passed explicitly to this method");
+    }
+
+    /**
+     * Record a listener joining a broadcast
+     * 
+     * @param broadcastId The ID of the broadcast
+     * @param user The user who joined (can be null for anonymous listeners)
+     */
+    public void recordListenerJoin(Long broadcastId, UserEntity user) {
+        logger.info("Listener joined broadcast {}: {}", 
+                    broadcastId, 
+                    user != null ? user.getEmail() : "Anonymous");
+
+        // Get the broadcast
+        Optional<BroadcastEntity> broadcastOpt = getBroadcastById(broadcastId);
+        if (broadcastOpt.isPresent()) {
+            BroadcastEntity broadcast = broadcastOpt.get();
+
+            // Log the activity if the user is authenticated
+            if (user != null) {
+                activityLogService.logActivity(
+                    user,
+                    ActivityLogEntity.ActivityType.BROADCAST_START,
+                    "Joined broadcast: " + broadcast.getTitle()
+                );
+            }
+
+            // Here you could update listener count analytics
+            // This could be stored in a separate table or in-memory
+        }
+    }
+
+    /**
+     * Record a listener leaving a broadcast
+     * 
+     * @param broadcastId The ID of the broadcast
+     * @param user The user who left (can be null for anonymous listeners)
+     */
+    public void recordListenerLeave(Long broadcastId, UserEntity user) {
+        logger.info("Listener left broadcast {}: {}", 
+                    broadcastId, 
+                    user != null ? user.getEmail() : "Anonymous");
+
+        // Get the broadcast
+        Optional<BroadcastEntity> broadcastOpt = getBroadcastById(broadcastId);
+        if (broadcastOpt.isPresent()) {
+            BroadcastEntity broadcast = broadcastOpt.get();
+
+            // Here you could update listener count analytics
+            // This could be stored in a separate table or in-memory
+        }
+    }
+
+    // Analytics methods for data retrieval
+    public long getTotalBroadcastCount() {
+        return broadcastRepository.count();
+    }
+
+    public long getLiveBroadcastCount() {
+        return broadcastRepository.countByStatus(BroadcastEntity.BroadcastStatus.LIVE);
+    }
+
+    public long getUpcomingBroadcastCount() {
+        return broadcastRepository.countByStatusAndScheduledStartAfter(
+            BroadcastEntity.BroadcastStatus.SCHEDULED, 
+            LocalDateTime.now()
+        );
+    }
+
+    public long getCompletedBroadcastCount() {
+        return broadcastRepository.countByStatus(BroadcastEntity.BroadcastStatus.ENDED);
+    }
+
+    public double getAverageBroadcastDuration() {
+        List<BroadcastEntity> completedBroadcasts = broadcastRepository.findByStatus(BroadcastEntity.BroadcastStatus.ENDED);
+        
+        if (completedBroadcasts.isEmpty()) {
+            return 0.0;
+        }
+
+        long totalMinutes = completedBroadcasts.stream()
+            .filter(broadcast -> broadcast.getActualStart() != null && broadcast.getActualEnd() != null)
+            .mapToLong(broadcast -> java.time.Duration.between(broadcast.getActualStart(), broadcast.getActualEnd()).toMinutes())
+            .sum();
+
+        return (double) totalMinutes / completedBroadcasts.size();
+    }
+
+    public List<BroadcastEntity> getPopularBroadcasts(int limit) {
+        // For now, return all broadcasts ordered by creation date
+        // In the future, this could be ordered by listener count or other metrics
+        return broadcastRepository.findAll().stream()
+            .limit(limit)
+            .collect(java.util.stream.Collectors.toList());
     }
 } 

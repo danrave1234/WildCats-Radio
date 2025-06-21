@@ -947,112 +947,46 @@ const ListScreen: React.FC = () => {
 
   const renderEmptyState = () => {
     const emptyMessages = {
-      all: { icon: 'list-outline', message: 'No broadcasts found', subtitle: 'Check back soon for exciting shows!' },
-      live: { icon: 'radio-outline', message: 'No live broadcasts right now', subtitle: 'Tune in later for live content' },
-      upcoming: { icon: 'time-outline', message: 'No upcoming broadcasts scheduled', subtitle: 'New shows will be added soon' },
-      recent: { icon: 'calendar-outline', message: 'No recent broadcasts', subtitle: 'Recent shows from the past week will appear here' },
+      all: { icon: 'list-outline', message: 'No Broadcasts Found', subtitle: 'Check back soon for exciting shows!' },
+      live: { icon: 'radio-outline', message: 'Currently Off Air', subtitle: 'There are no live broadcasts at the moment. Please check the schedule or try again later.' },
+      upcoming: { icon: 'time-outline', message: 'No Upcoming Shows', subtitle: 'There are no upcoming broadcasts scheduled. New shows will be added soon.' },
+      recent: { icon: 'calendar-outline', message: 'No Recent Shows', subtitle: 'There are no recent broadcasts from the past week. Check back after some shows air.' },
     };
 
     const { icon, message, subtitle } = emptyMessages[activeFilter];
 
     return (
-      <View className="flex-1 items-center justify-center py-20 mx-4">
-        <View 
-          className="bg-white rounded-3xl p-12 shadow-xl items-center relative overflow-hidden"
-          style={{
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: 0.12,
-            shadowRadius: 20,
-            elevation: 10,
-          }}
-        >
-          {/* Background Pattern */}
-          <View className="absolute inset-0 opacity-5">
-            <View className="absolute top-8 left-8 w-16 h-16 bg-cordovan rounded-full" />
-            <View className="absolute bottom-12 right-12 w-12 h-12 bg-mikado_yellow rounded-full" />
-            <View className="absolute top-20 right-20 w-8 h-8 bg-cordovan rounded-full" />
-          </View>
-          
-          <View className="bg-cordovan/10 p-6 rounded-full mb-6">
-            <Ionicons name={icon as any} size={48} color="#91403E" />
-          </View>
-          <Text className="text-2xl font-bold text-cordovan mb-3 text-center">{message}</Text>
-          <Text className="text-gray-600 text-center px-4 text-base leading-relaxed">
-            {subtitle}
-          </Text>
-          {activeFilter === 'live' && (
-            <Text className="text-sm text-gray-500 text-center px-4 mt-4">
-              🎵 Stay tuned for amazing music! 🎵
-            </Text>
-          )}
-        </View>
+      <View className="flex-1 justify-center items-center p-5">
+        <Ionicons name={icon as any} size={64} color="#A0A0A0" className="mb-4" />
+        <Text className="text-2xl font-bold text-gray-700 mb-2 text-center">{message}</Text>
+        <Text className="text-gray-500 text-center text-base leading-relaxed px-4">
+          {subtitle}
+        </Text>
       </View>
     );
   };
 
   if (isLoading && !isRefreshing) {
     return (
-      <SafeAreaView className="flex-1 bg-gray-50">
-        <Stack.Screen options={{ title: 'Broadcasts' }} />
-        <View className="flex-1 justify-center items-center p-6">
-          <View className="bg-white rounded-3xl p-12 shadow-2xl items-center">
-            <View className="bg-cordovan/10 p-6 rounded-full mb-6">
-              <Ionicons name="radio" size={40} color="#91403E" />
-            </View>
-            <ActivityIndicator size="large" color="#91403E" className="mb-4" />
-            <Text className="text-xl font-bold text-cordovan mb-2">Loading Broadcasts</Text>
-            <Text className="text-gray-600 text-center text-base">
-              Fetching your shows and episodes...
-            </Text>
-          </View>
-        </View>
+      <SafeAreaView className="flex-1 justify-center items-center bg-anti-flash_white">
+        <ActivityIndicator size="large" color="#91403E" />
+        <Text className="mt-4 text-gray-600 text-lg">Loading Broadcasts...</Text>
       </SafeAreaView>
     );
   }
 
   if (error && broadcasts.length === 0) {
     return (
-      <SafeAreaView className="flex-1 bg-gray-50">
-        <Stack.Screen options={{ title: 'Broadcasts' }} />
-        <View className="flex-1 justify-center items-center p-6">
-          <View 
-            className="bg-white rounded-3xl p-12 shadow-2xl items-center relative overflow-hidden"
-            style={{
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: 0.15,
-              shadowRadius: 20,
-              elevation: 12,
-            }}
-          >
-            {/* Background Pattern */}
-            <View className="absolute inset-0 opacity-5">
-              <View className="absolute top-4 right-4 w-12 h-12 bg-red-500 rounded-full" />
-              <View className="absolute bottom-8 left-8 w-8 h-8 bg-red-400 rounded-full" />
-            </View>
-            
-            <View className="bg-red-50 p-6 rounded-full mb-6">
-              <Ionicons name="cloud-offline-outline" size={48} color="#DC2626" />
-            </View>
-            <Text className="text-2xl font-bold text-gray-800 mb-3 text-center">Unable to Load Broadcasts</Text>
-            <Text className="text-gray-600 mb-8 text-base leading-relaxed text-center">{error}</Text>
-            <TouchableOpacity
-              className="bg-cordovan py-4 px-10 rounded-2xl shadow-lg active:scale-95 flex-row items-center"
-              style={{
-                shadowColor: '#91403E',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.3,
-                shadowRadius: 8,
-                elevation: 6,
-              }}
-              onPress={() => fetchBroadcasts()}
-            >
-              <Ionicons name="refresh" size={18} color="white" className="mr-2" />
-              <Text className="text-white font-bold text-base">Try Again</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+      <SafeAreaView className="flex-1 justify-center items-center bg-anti-flash_white p-6 text-center">
+        <Ionicons name="cloud-offline-outline" size={64} color="#7F1D1D" />
+        <Text className="text-2xl font-semibold text-gray-800 mt-6 mb-2">Unable to Load Broadcasts</Text>
+        <Text className="text-gray-600 mb-8 text-base leading-relaxed">{error}</Text>
+        <TouchableOpacity
+          className="bg-cordovan py-3 px-8 rounded-lg shadow-md active:opacity-80"
+          onPress={() => fetchBroadcasts()}
+        >
+          <Text className="text-white font-semibold text-base">Try Again</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }
@@ -1158,24 +1092,23 @@ const ListScreen: React.FC = () => {
       </View>
 
       {/* Broadcasts List */}
-      <ScrollView
-        className="flex-1"
-        contentContainerStyle={{ paddingTop: 16, paddingBottom: 100 }}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={onRefresh}
-            colors={['#91403E']}
-            tintColor="#91403E"
-            title="Pull to refresh broadcasts"
-            titleColor="#91403E"
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      >
-        {activeFilter === 'all' ? (
-          // Render categorized sections for "All" tab
-          (() => {
+      {activeFilter === 'all' ? (
+        <ScrollView
+          className="flex-1"
+          contentContainerStyle={{ paddingTop: 16, paddingBottom: 100 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={onRefresh}
+              colors={['#91403E']}
+              tintColor="#91403E"
+              title="Pull to refresh broadcasts"
+              titleColor="#91403E"
+            />
+          }
+          showsVerticalScrollIndicator={false}
+        >
+          {(() => {
             const sections = categorizedBroadcasts as BroadcastSection[];
             return sections.length === 0 ? (
               renderEmptyState()
@@ -1201,19 +1134,100 @@ const ListScreen: React.FC = () => {
                 </View>
               ))
             );
-          })()
-        ) : (
-          // Render simple list for other tabs
-          (() => {
+          })()}
+        </ScrollView>
+      ) : (
+        // Render non-scrollable content for individual tabs
+        <View className="flex-1">
+          {/* Tab Header - Always shown */}
+          {(() => {
             const broadcasts = categorizedBroadcasts as Broadcast[];
-            return broadcasts.length === 0 ? (
-              renderEmptyState()
-            ) : (
-              broadcasts.map((broadcast) => renderBroadcastCard(broadcast, activeFilter))
+            
+            const getTabTitle = (filter: FilterTab) => {
+              switch (filter) {
+                case 'live': return 'Live Shows';
+                case 'upcoming': return 'Upcoming Shows';
+                case 'recent': return 'Recent Shows';
+                default: return 'Shows';
+              }
+            };
+
+            const getTabIcon = (filter: FilterTab) => {
+              switch (filter) {
+                case 'live': return 'radio-outline';
+                case 'upcoming': return 'time-outline';
+                case 'recent': return 'calendar-outline';
+                default: return 'list-outline';
+              }
+            };
+
+            const getIconColor = (filter: FilterTab) => {
+              switch (filter) {
+                case 'live': return '#EF4444';
+                case 'upcoming': return '#3B82F6';
+                case 'recent': return '#F59E0B';
+                default: return '#6B7280';
+              }
+            };
+
+            const getBackgroundColor = (filter: FilterTab) => {
+              switch (filter) {
+                case 'live': return 'bg-red-500/10';
+                case 'upcoming': return 'bg-blue-500/10';
+                case 'recent': return 'bg-amber-500/10';
+                default: return 'bg-gray-500/10';
+              }
+            };
+
+            return (
+              <View className="mx-4 mb-4 mt-4">
+                <View className="flex-row items-center px-1 py-2">
+                  <View className={`${getBackgroundColor(activeFilter)} p-3 rounded-full mr-3`}>
+                    <Ionicons 
+                      name={getTabIcon(activeFilter) as any} 
+                      size={26} 
+                      color={getIconColor(activeFilter)} 
+                    />
+                  </View>
+                  <View>
+                    <Text className="text-2xl font-bold text-gray-900 mb-1">
+                      {getTabTitle(activeFilter)}
+                    </Text>
+                    <Text className="text-sm text-gray-600">
+                      {broadcasts.length} show{broadcasts.length !== 1 ? 's' : ''} available
+                    </Text>
+                  </View>
+                </View>
+              </View>
             );
-          })()
-        )}
-      </ScrollView>
+          })()}
+          
+          <ScrollView
+            className="flex-1"
+            contentContainerStyle={{ paddingBottom: 100 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={onRefresh}
+                colors={['#91403E']}
+                tintColor="#91403E"
+                title="Pull to refresh broadcasts"
+                titleColor="#91403E"
+              />
+            }
+            showsVerticalScrollIndicator={false}
+          >
+            {(() => {
+              const broadcasts = categorizedBroadcasts as Broadcast[];
+              return broadcasts.length === 0 ? (
+                renderEmptyState()
+              ) : (
+                broadcasts.map((broadcast) => renderBroadcastCard(broadcast, activeFilter))
+              );
+            })()}
+          </ScrollView>
+        </View>
+      )}
     </SafeAreaView>
   );
 };

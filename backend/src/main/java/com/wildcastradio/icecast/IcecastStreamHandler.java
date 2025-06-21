@@ -24,7 +24,7 @@ import com.wildcastradio.config.NetworkConfig;
 /**
  * WebSocket handler for streaming audio from DJ's browser to Icecast.
  * Receives binary WebSocket messages containing audio data and pipes them
- * through FFmpeg to Icecast server.
+ * through FFmpeg to Icecast server with dual output (OGG + MP3).
  */
 @Component
 public class IcecastStreamHandler extends BinaryWebSocketHandler {
@@ -49,44 +49,76 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         logger.info("WebSocket connection established with session ID: {}", session.getId());
-        
-        String serverIp = networkConfig.getServerIp();
-        logger.info("Using server IP: {}", serverIp);
 
-        // Build FFmpeg command for Icecast with improved reliability
+        // FIXED: Use the actual Icecast server hostname, not the Spring Boot app domain
+        String icecastHostname = networkConfig.getIcecastHostname();
+        logger.info("Using Icecast hostname for FFmpeg: {}", icecastHostname);
+
+        // Build FFmpeg command for dual streaming (OGG + MP3) to support both web and mobile
         List<String> cmd = new ArrayList<>(Arrays.asList(
                 "ffmpeg",
-                "-f", "webm", "-i", "pipe:0",  // Read WebM from stdin
-                "-c:a", "libvorbis", "-b:a", "128k",  // Convert to Ogg Vorbis
-                "-content_type", "application/ogg",
-                "-ice_name", "WildCats Radio Live",
-                "-ice_description", "Live audio broadcast"
+                "-f", "webm", "-i", "pipe:0"  // Read WebM from stdin
         ));
 
         // Add reconnection settings if enabled
         if (networkConfig.isFfmpegReconnectEnabled()) {
             cmd.addAll(Arrays.asList(
-                "-reconnect", "1",           // Enable reconnection
-                "-reconnect_at_eof", "1",    // Reconnect at end of file
-                "-reconnect_streamed", "1",  // Reconnect for streaming protocols
-                "-reconnect_delay_max", String.valueOf(networkConfig.getFfmpegReconnectDelayMax()), // Max delay between reconnect attempts
-                "-rw_timeout", String.valueOf(networkConfig.getFfmpegRwTimeout())    // Read/write timeout (in microseconds)
+                    "-reconnect", "1",           // Enable reconnection
+                    "-reconnect_at_eof", "1",    // Reconnect at end of file
+                    "-reconnect_streamed", "1",  // Reconnect for streaming protocols
+                    "-reconnect_delay_max", String.valueOf(networkConfig.getFfmpegReconnectDelayMax()), // Max delay between reconnect attempts
+                    "-rw_timeout", String.valueOf(networkConfig.getFfmpegRwTimeout())    // Read/write timeout (in microseconds)
             ));
         }
 
-        cmd.add("-f");
-        cmd.add("ogg");
+        // CRITICAL FIX: Build Icecast URLs with the actual Icecast server hostname and port
+        // FFmpeg must connect directly to Icecast server on port 8000, not through reverse proxy
+        String oggIcecastUrl = "icecast://source:hackme@" + icecastHostname + ":8000/live.ogg";
+        String mp3IcecastUrl = "icecast://source:hackme@" + icecastHostname + ":8000/live.mp3";
 
-        // Add Icecast URL with dynamic IP and source credentials
-        cmd.add("icecast://source:hackme@" + serverIp + ":" + networkConfig.getIcecastPort() + "/live.ogg");
+        // Use FFmpeg's tee muxer to output to both OGG and MP3 simultaneously
+        cmd.addAll(Arrays.asList(
+                // Map the input audio stream twice
+                "-map", "0:a", "-map", "0:a",
+                
+                // First output: OGG Vorbis (for web compatibility)
+                "-c:a:0", "libvorbis", "-b:a:0", "128k",
+                "-content_type", "application/ogg",
+                "-ice_name", "WildCats Radio Live (OGG)",
+                "-ice_description", "Live audio broadcast in OGG format",
+                "-f", "ogg", oggIcecastUrl,
+                
+                // Second output: MP3 (for mobile compatibility)
+                "-c:a:1", "libmp3lame", "-b:a:1", "128k",
+                "-content_type", "audio/mpeg", 
+                "-ice_name", "WildCats Radio Live (MP3)",
+                "-ice_description", "Live audio broadcast in MP3 format",
+                "-f", "mp3", mp3IcecastUrl
+        ));
 
-        logger.info("Starting FFmpeg with command: {}", String.join(" ", cmd));
+        logger.info("Starting FFmpeg with dual streaming command: {}", String.join(" ", cmd));
+        logger.info("OGG Icecast URL: {}", oggIcecastUrl);
+        logger.info("MP3 Icecast URL: {}", mp3IcecastUrl);
+        logger.info("Icecast hostname resolved to: {}", icecastHostname);
+        
+        // Test Icecast server connectivity before starting FFmpeg
+        try {
+            logger.info("Testing connectivity to Icecast server at {}:8000", icecastHostname);
+            java.net.Socket testSocket = new java.net.Socket();
+            testSocket.connect(new java.net.InetSocketAddress(icecastHostname, 8000), 5000);
+            testSocket.close();
+            logger.info("Successfully connected to Icecast server on port 8000");
+        } catch (IOException e) {
+            logger.error("Cannot connect to Icecast server at {}:8000 - {}", icecastHostname, e.getMessage());
+            session.close(new CloseStatus(1011, "Cannot connect to Icecast server: " + e.getMessage()));
+            return;
+        }
 
         // Try to start FFmpeg with retry logic for 403 errors
         boolean started = false;
         final int[] attempts = {0}; // Use array to make it effectively final
         int maxAttempts = networkConfig.getFfmpegRetryAttempts();
-        
+
         while (!started && attempts[0] < maxAttempts) {
             attempts[0]++;
             try {
@@ -103,52 +135,100 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                     try (BufferedReader reader = new BufferedReader(new InputStreamReader(ffmpeg.getInputStream()))) {
                         String line;
                         boolean connectionSuccessful = false;
-                        
+
                         while ((line = reader.readLine()) != null && !shouldStopLogging) {
                             // Break immediately if we should stop logging
                             if (shouldStopLogging) {
                                 break;
                             }
-                            
+
                             logger.info("FFmpeg: {}", line);
-                            
-                            // Check for successful connection indicators
+
+                            // Check for successful connection indicators (for both streams)
                             if (line.contains("Opening") && line.contains("for writing")) {
                                 connectionSuccessful = true;
                                 isConnected = true;
-                                logger.info("FFmpeg successfully connected to Icecast");
+                                if (line.contains("live.ogg")) {
+                                    logger.info("FFmpeg successfully connected to Icecast OGG stream");
+                                } else if (line.contains("live.mp3")) {
+                                    logger.info("FFmpeg successfully connected to Icecast MP3 stream");
+                                } else {
+                                    logger.info("FFmpeg successfully connected to Icecast");
+                                }
                             }
-                            
+
                             // Check for 403 Forbidden error
                             if (line.contains("403") && line.contains("Forbidden")) {
                                 logger.warn("FFmpeg received 403 Forbidden from Icecast (attempt {})", attempts[0]);
+                                logger.warn("This usually means authentication failed or mount point access denied");
+                                if (line.contains("live.ogg")) {
+                                    logger.warn("OGG stream mount point access denied");
+                                } else if (line.contains("live.mp3")) {
+                                    logger.warn("MP3 stream mount point access denied");
+                                }
                                 break;
                             }
                             
+                            // Check for authentication errors
+                            if (line.contains("401") && line.contains("Unauthorized")) {
+                                logger.error("FFmpeg authentication failed - check source credentials");
+                                break;
+                            }
+
                             // Check for connection errors
-                            if (line.contains("Error number -10053") || 
-                                line.contains("Connection aborted") ||
-                                line.contains("WSAECONNABORTED")) {
+                            if (line.contains("Error number -10053") ||
+                                    line.contains("Connection aborted") ||
+                                    line.contains("WSAECONNABORTED")) {
                                 logger.warn("FFmpeg connection aborted (attempt {}): {}", attempts[0], line);
                                 isConnected = false;
                                 break;
                             }
-                            
+
                             // Check for other network errors
-                            if (line.contains("Connection refused") || 
-                                line.contains("Network is unreachable") ||
-                                line.contains("Connection timed out")) {
+                            if (line.contains("Connection refused") ||
+                                    line.contains("Network is unreachable") ||
+                                    line.contains("Connection timed out")) {
                                 logger.warn("FFmpeg network error (attempt {}): {}", attempts[0], line);
+                                logger.warn("Check if Icecast server is running and accessible on port 8000");
+                                break;
+                            }
+
+                            // ADDED: Check for URL/protocol errors (the main issue we're fixing)
+                            if (line.contains("Invalid argument") ||
+                                    line.contains("Port missing in uri") ||
+                                    line.contains("Protocol not found")) {
+                                logger.error("FFmpeg URL/protocol error (attempt {}): {}", attempts[0], line);
+                                logger.error("Check Icecast URL format: {}", oggIcecastUrl);
+                                break;
+                            }
+                            
+                            // ADDED: Check for mount point errors
+                            if (line.contains("mount point") && line.contains("not found")) {
+                                logger.error("FFmpeg mount point error: {}", line);
+                                if (line.contains("live.ogg")) {
+                                    logger.error("Mount point /live.ogg may not exist or be configured on Icecast server");
+                                } else if (line.contains("live.mp3")) {
+                                    logger.error("Mount point /live.mp3 may not exist or be configured on Icecast server");
+                                } else {
+                                    logger.error("Mount point may not exist or be configured on Icecast server");
+                                }
+                                break;
+                            }
+                            
+                            // ADDED: Check for server not running
+                            if (line.contains("No such host") || line.contains("Name resolution failed")) {
+                                logger.error("FFmpeg hostname resolution failed: {}", line);
+                                logger.error("Cannot resolve hostname: {}", icecastHostname);
                                 break;
                             }
                         }
-                        
+
                         if (!connectionSuccessful && !shouldStopLogging) {
                             logger.warn("FFmpeg connection may have failed");
                         }
-                        
+
                         logger.debug("FFmpeg logging thread terminated");
-                        
+
                     } catch (IOException e) {
                         if (!shouldStopLogging) {
                             logger.warn("Error reading FFmpeg output: {}", e.getMessage());
@@ -161,18 +241,18 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
 
                 // Give FFmpeg a moment to establish connection
                 Thread.sleep(1000);
-                
+
                 // Check if process is still alive (not immediately failed)
                 if (ffmpeg.isAlive()) {
                     started = true;
                     logger.info("FFmpeg process started successfully for session: {} (attempt {})", session.getId(), attempts[0]);
-                    
+
                     // Notify service that broadcast started
                     icecastService.notifyBroadcastStarted(session.getId());
-                    
+
                     // Publish event to trigger status update
                     eventPublisher.publishEvent(new StreamStatusChangeEvent(this, true));
-                    
+
                 } else {
                     logger.warn("FFmpeg process failed immediately (attempt {})", attempts[0]);
                     if (attempts[0] < maxAttempts) {
@@ -198,7 +278,7 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                 break;
             }
         }
-        
+
         if (!started) {
             logger.error("Failed to start FFmpeg after {} attempts", maxAttempts);
             session.close(new CloseStatus(1011, "Failed to start streaming process after multiple attempts"));

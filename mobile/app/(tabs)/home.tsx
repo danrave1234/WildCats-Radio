@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, SafeAreaView, ScrollView, ActivityIndicator, TouchableOpacity, Platform, Image, RefreshControl } from 'react-native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { View, Text, SafeAreaView, ScrollView, ActivityIndicator, TouchableOpacity, Platform, Image, RefreshControl, AppState, AppStateStatus } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
@@ -15,11 +15,15 @@ const HomeScreen: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Real-time update refs
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const isLive = liveBroadcasts.length > 0;
   const currentLiveBroadcast = isLive ? liveBroadcasts[0] : null;
 
-  const fetchData = useCallback(async (showRefreshing = false) => {
+  const fetchData = useCallback(async (showRefreshing = false, isBackgroundUpdate = false) => {
     if (!authToken) {
       setError('Authentication token not found. Please log in.');
       setIsLoading(false);
@@ -27,7 +31,7 @@ const HomeScreen: React.FC = () => {
     }
     
     if (showRefreshing) setIsRefreshing(true);
-    else setIsLoading(true);
+    else if (!isBackgroundUpdate) setIsLoading(true);
     setError(null);
     try {
       const [liveRes, recentRes] = await Promise.all([
@@ -54,7 +58,9 @@ const HomeScreen: React.FC = () => {
         setRecentBroadcasts(sortedRecent);
       }
     } catch (apiError: any) {
-      setError(apiError.message || 'An unexpected error occurred while fetching data.');
+      if (!isBackgroundUpdate) {
+        setError(apiError.message || 'An unexpected error occurred while fetching data.');
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -65,9 +71,54 @@ const HomeScreen: React.FC = () => {
     fetchData(true);
   }, [fetchData]);
 
+  // Start polling for live broadcast updates
+  const startPolling = useCallback(() => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+    
+    // Poll every 30 seconds for live broadcast status
+    pollIntervalRef.current = setInterval(() => {
+      fetchData(false, true); // Background update
+    }, 30000);
+  }, [fetchData]);
+
+  // Stop polling
+  const stopPolling = useCallback(() => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  }, []);
+
+  // Handle app state changes
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
+        // App came to foreground, refresh data and start polling
+        fetchData(false, true);
+        startPolling();
+      } else if (nextAppState.match(/inactive|background/)) {
+        // App went to background, stop polling to save battery
+        stopPolling();
+      }
+      appStateRef.current = nextAppState;
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription?.remove();
+  }, [fetchData, startPolling, stopPolling]);
+
+  // Initial data fetch and start polling
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    startPolling();
+    
+    // Cleanup on unmount
+    return () => {
+      stopPolling();
+    };
+  }, [fetchData, startPolling, stopPolling]);
 
   const formatRelativeTime = (dateString: string): string => {
     const date = parseISO(dateString);
@@ -156,7 +207,7 @@ const HomeScreen: React.FC = () => {
             <Text className="text-xl font-bold text-gray-800">Broadcast Status</Text>
             <TouchableOpacity
               className="bg-cordovan py-2.5 px-4 rounded-lg flex-row items-center shadow-md active:opacity-80"
-              onPress={() => router.push('../listen' as any)}
+              onPress={() => router.push('/broadcast' as any)}
             >
               {!!isLive && (
                 <View className="bg-mikado_yellow py-1 px-2.5 rounded mr-2 flex-row items-center self-stretch">
@@ -204,7 +255,7 @@ const HomeScreen: React.FC = () => {
 
           {/* Recent Broadcasts Card */}
           <View className="bg-white p-5 rounded-2xl shadow-lg"> {/* Removed mb-7 from here */}
-            {recentBroadcasts.length > 0 ? 
+            {recentBroadcasts && recentBroadcasts.length > 0 ? 
               recentBroadcasts.map((item, index) => (
                 <React.Fragment key={item.id}>
                   <TouchableOpacity
@@ -220,7 +271,6 @@ const HomeScreen: React.FC = () => {
                         {item.dj?.name || 'Wildcat Radio'} • {renderBroadcastTimeInfo(item)}
                       </Text>
                     </View>
-                    <Ionicons name="chevron-forward-outline" size={22} color="#A0A0A0" />
                   </TouchableOpacity>
                   {index < recentBroadcasts.length - 1 && (
                     <View className="h-px bg-gray-200 my-1 border-0 border-t border-dashed border-gray-300 mx-4" />
