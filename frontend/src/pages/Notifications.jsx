@@ -2,30 +2,31 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNotifications } from '../context/NotificationContext';
 import { formatDistanceToNow, format } from 'date-fns';
 import { 
-  BellIcon, 
-  MagnifyingGlassIcon, 
-  FunnelIcon, 
-  CheckCircleIcon,
-  CheckIcon,
-  TrashIcon,
-  ArchiveBoxIcon,
-  ExclamationTriangleIcon,
-  InformationCircleIcon,
-  MicrophoneIcon,
-  UserIcon,
-  CalendarIcon,
-  SpeakerWaveIcon
-} from '@heroicons/react/24/outline';
+  Bell, 
+  Search, 
+  Filter, 
+  CheckCircle,
+  Check,
+  Trash,
+  Archive,
+  AlertTriangle,
+  Info,
+  Mic,
+  User,
+  Calendar,
+  Volume2,
+  RefreshCw
+} from 'lucide-react';
 
 const notificationTypeIcons = {
-  BROADCAST_SCHEDULED: CalendarIcon,
-  BROADCAST_STARTING_SOON: ExclamationTriangleIcon,
-  BROADCAST_STARTED: MicrophoneIcon,
-  BROADCAST_ENDED: SpeakerWaveIcon,
-  NEW_BROADCAST_POSTED: InformationCircleIcon,
-  USER_REGISTERED: UserIcon,
-  GENERAL: InformationCircleIcon,
-  default: BellIcon
+  BROADCAST_SCHEDULED: Calendar,
+  BROADCAST_STARTING_SOON: AlertTriangle,
+  BROADCAST_STARTED: Mic,
+  BROADCAST_ENDED: Volume2,
+  NEW_BROADCAST_POSTED: Info,
+  USER_REGISTERED: User,
+  GENERAL: Info,
+  default: Bell
 };
 
 const notificationTypeColors = {
@@ -53,10 +54,17 @@ export default function Notifications() {
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const [selectedNotifications, setSelectedNotifications] = useState([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  useEffect(() => {
-    fetchNotifications();
-  }, []);
+  // Manual refresh function
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await fetchNotifications();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const filteredAndSortedNotifications = useMemo(() => {
     let filtered = notifications;
@@ -136,32 +144,49 @@ export default function Notifications() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-3">
               <div className="p-2 bg-maroon-100 dark:bg-maroon-900/30 rounded-lg">
-                <BellIcon className="h-8 w-8 text-maroon-600 dark:text-maroon-400" />
+                <Bell className="h-8 w-8 text-maroon-600 dark:text-maroon-400" />
               </div>
               <div>
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Notifications</h1>
-                <p className="text-gray-600 dark:text-gray-400">
-                  {unreadCount > 0 ? `${unreadCount} unread notifications` : 'All caught up!'}
+                <p className="text-gray-600 dark:text-gray-400 flex items-center space-x-2">
+                  <span>
+                    {unreadCount > 0 ? `${unreadCount} unread notifications` : 'All caught up!'}
+                  </span>
+                  <div className={`w-2 h-2 rounded-full ${
+                    isConnected ? 'bg-green-500' : 'bg-yellow-500'
+                  }`} title={isConnected ? 'Real-time updates active' : 'Using periodic updates'} />
                 </p>
               </div>
             </div>
             
-            {unreadCount > 0 && (
+            <div className="flex items-center space-x-3">
+              {/* Manual Refresh Button */}
               <button
-                onClick={markAllAsRead}
-                className="flex items-center space-x-2 px-4 py-2 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 transition-colors"
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <CheckCircleIcon className="h-5 w-5" />
-                <span>Mark All Read</span>
+                <RefreshCw className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
               </button>
-            )}
+              
+              {unreadCount > 0 && (
+                <button
+                  onClick={markAllAsRead}
+                  className="flex items-center space-x-2 px-4 py-2 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 transition-colors"
+                >
+                  <CheckCircle className="h-5 w-5" />
+                  <span>Mark All Read</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Search and Filter Bar */}
           <div className="flex flex-col sm:flex-row gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
             {/* Search */}
             <div className="flex-1 relative">
-              <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <Search className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search notifications..."
@@ -173,7 +198,7 @@ export default function Notifications() {
 
             {/* Filter */}
             <div className="flex items-center space-x-2">
-              <FunnelIcon className="h-5 w-5 text-gray-400" />
+              <Filter className="h-5 w-5 text-gray-400" />
               <select
                 value={selectedFilter}
                 onChange={(e) => setSelectedFilter(e.target.value)}
@@ -227,7 +252,7 @@ export default function Notifications() {
         <div className="space-y-3">
           {filteredAndSortedNotifications.length === 0 ? (
             <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-              <BellIcon className="h-16 w-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
+              <Bell className="h-16 w-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
               <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
                 {searchTerm || selectedFilter !== 'all' ? 'No matching notifications' : 'No notifications'}
               </h3>
@@ -304,7 +329,7 @@ export default function Notifications() {
                                 className="p-1 text-gray-400 hover:text-maroon-600 dark:hover:text-maroon-400 transition-colors"
                                 title="Mark as read"
                               >
-                                <CheckIcon className="h-5 w-5" />
+                                <Check className="h-5 w-5" />
                               </button>
                             )}
                           </div>
@@ -324,10 +349,10 @@ export default function Notifications() {
             <div className={`h-2 w-2 rounded-full ${
               isConnected 
                 ? 'bg-green-500 animate-pulse' 
-                : 'bg-red-500'
+                : 'bg-yellow-500'
             }`}></div>
-            <span className={isConnected ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
-              {isConnected ? 'Real-time updates active' : 'Real-time updates disconnected'}
+            <span className={isConnected ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}>
+              {isConnected ? 'Real-time updates active' : 'Using periodic updates (every 30 seconds)'}
             </span>
           </div>
         </div>

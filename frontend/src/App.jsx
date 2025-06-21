@@ -22,13 +22,13 @@ import './App.css';
 import './styles/custom-scrollbar.css';
 import {NotificationProvider} from "./context/NotificationContext.jsx";
 
+import { Spinner } from './components/ui/spinner';
+
 // Loading component
 const LoadingFallback = () => (
-  <div className="flex justify-center items-center h-[calc(100vh-64px)]">
-    <div className="animate-pulse flex flex-col items-center">
-      <div className="h-12 w-12 rounded-full bg-maroon-600"></div>
-      <div className="mt-4 text-maroon-600">Loading...</div>
-    </div>
+  <div className="flex flex-col justify-center items-center h-[calc(100vh-64px)] gap-4">
+    <Spinner variant="primary" size="lg" />
+    <span className="text-maroon-700 dark:text-maroon-300 font-medium">Loading dashboard...</span>
   </div>
 );
 

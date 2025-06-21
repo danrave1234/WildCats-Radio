@@ -1,7 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}", "*.{js,ts,jsx,tsx,mdx}"],
-  darkMode: "class",
+  darkMode: ["class", "class"],
   theme: {
     extend: {
       colors: {
@@ -81,7 +81,25 @@ export default {
         'gold': '0 4px 14px 0 rgba(244, 190, 3, 0.15)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['Kumbh Sans', 'system-ui', 'sans-serif'],
+        montserrat: ['Montserrat', 'sans-serif'],
+        nunito: ['Nunito Sans', 'sans-serif'],
+        poetsen: ['Poetsen One', 'cursive'],
+        kumbh: ['Kumbh Sans', 'sans-serif'],
+      },
+      animation: {
+        spinner: 'spinner 1s linear infinite',
+      },
+      keyframes: {
+        spinner: {
+          '0%': { opacity: '1' },
+          '10%': { opacity: '0.7' },
+          '20%': { opacity: '0.3' },
+          '35%': { opacity: '0.2' },
+          '50%': { opacity: '0.1' },
+          '75%': { opacity: '0.05' },
+          '100%': { opacity: '0' },
+        },
       },
     },
   },

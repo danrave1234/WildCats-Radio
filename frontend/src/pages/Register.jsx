@@ -8,10 +8,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertCircle, Eye, EyeOff, Loader2, UserPlus } from "lucide-react"
+import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react"
 import wildcatRadioLogo from "../assets/wildcatradio_logo.png"
 import { Separator } from "@/components/ui/separator"
-import background from "../assets/background.jpg"
 
 export default function Register() {
   const { register, loading, error: authError } = useAuth()
@@ -78,11 +77,8 @@ export default function Register() {
   }
 
   return (
-    <div
-      className="min-h-screen w-full bg-cover bg-center"
-      style={{ backgroundImage: `url(${background})` }}
-    >
-      <div className="min-h-screen w-full bg-wildcats-yellow/20 backdrop-blur-sm flex flex-col items-center justify-center p-4 py-8">
+    <div className="min-h-screen w-full bg-gradient-to-b from-white via-yellow-50 to-yellow-200">
+      <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 py-8 relative">
         <div className="w-full max-w-md">
           {/* Logo Section */}
           <div className="flex justify-center mb-2">
@@ -95,22 +91,19 @@ export default function Register() {
           
           {/* Title Section */}
           <div className="text-center mb-4 px-4">
-            <p className="text-sm text-black uppercase tracking-wider max-w-sm mx-auto font-semibold">
+            <p className="text-sm text-gray-600 uppercase tracking-wider max-w-sm mx-auto font-semibold">
               Your radio broadcast platform
             </p>
           </div>
 
-          <Card className="border-0 shadow-2xl bg-white/95 backdrop-blur-xl overflow-hidden rounded-2xl">
+          <Card className="border-0 shadow-2xl bg-white backdrop-blur-xl overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out">
             <div className="h-3 bg-gradient-to-r from-wildcats-maroon to-wildcats-maroon/70" />
-            <CardHeader className="flex flex-row items-start justify-between px-6 pt-6 pb-3">
+            <CardHeader className="px-6 pt-6 pb-3">
               <div>
                 <CardTitle className="text-xl font-bold text-gray-800">Create your account</CardTitle>
                 <CardDescription className="text-sm text-gray-500 mt-1">
                   Enter your information to create an account
                 </CardDescription>
-              </div>
-              <div className="bg-wildcats-maroon/10 p-3 rounded-full">
-                <UserPlus className="h-6 w-6 text-wildcats-maroon" />
               </div>
             </CardHeader>
             <div className="px-6">
@@ -133,7 +126,7 @@ export default function Register() {
                       value={formData.firstname}
                       onChange={handleChange}
                       placeholder="First name"
-                      className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 rounded-md shadow-sm"
+                      className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                     />
                   </div>
                   
@@ -150,7 +143,7 @@ export default function Register() {
                       value={formData.lastname}
                       onChange={handleChange}
                       placeholder="Last name"
-                      className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 rounded-md shadow-sm"
+                      className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                     />
                   </div>
                 </div>
@@ -169,7 +162,7 @@ export default function Register() {
                     value={formData.email}
                     onChange={handleChange}
                     placeholder="your.email@cit.edu"
-                    className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 rounded-md shadow-sm"
+                    className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                   />
                   <p className="text-xs text-wildcats-maroon flex items-center space-x-1 pt-1">
                     <AlertCircle className="h-3 w-3" />
@@ -192,13 +185,13 @@ export default function Register() {
                       value={formData.password}
                       onChange={handleChange}
                       placeholder="Create a secure password"
-                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 rounded-md shadow-sm"
+                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="group absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 rounded-md focus:outline-none hover:bg-transparent"
+                      className="group absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 !rounded-none focus:outline-none hover:bg-transparent"
                       onClick={togglePasswordsVisibility}
                       tabIndex={-1}
                     >
@@ -226,13 +219,13 @@ export default function Register() {
                       value={formData.confirmPassword}
                       onChange={handleChange}
                       placeholder="Confirm your password"
-                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 rounded-md shadow-sm"
+                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="group absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 rounded-md focus:outline-none hover:bg-transparent"
+                      className="group absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 !rounded-none focus:outline-none hover:bg-transparent"
                       onClick={togglePasswordsVisibility}
                       tabIndex={-1}
                     >
@@ -247,7 +240,7 @@ export default function Register() {
 
                 {/* Error Message */}
                 {(error || authError) && (
-                  <div className="rounded-md bg-red-50 border border-red-200 p-3">
+                  <div className="!rounded-none bg-red-50 border border-red-200 p-3">
                     <div className="flex items-center space-x-2">
                       <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
                       <p className="text-xs font-medium text-red-800">{error || authError}</p>
@@ -261,7 +254,7 @@ export default function Register() {
                     id="terms"
                     checked={agreedToTerms}
                     onCheckedChange={setAgreedToTerms}
-                    className="border-wildcats-maroon data-[state=checked]:bg-wildcats-maroon data-[state=checked]:text-white data-[state=checked]:border-wildcats-maroon focus:outline-none focus-visible:ring-0 mt-0.5"
+                    className="border-wildcats-maroon data-[state=checked]:bg-wildcats-maroon data-[state=checked]:text-white data-[state=checked]:border-wildcats-maroon focus:outline-none focus-visible:ring-0 mt-0.5 !rounded-none h-4 w-4 data-[state=unchecked]:hover:bg-wildcats-maroon/10 data-[state=unchecked]:hover:before:content-['✓'] data-[state=unchecked]:hover:before:absolute data-[state=unchecked]:hover:before:text-wildcats-maroon data-[state=unchecked]:hover:before:opacity-30 data-[state=unchecked]:hover:before:text-xs data-[state=unchecked]:hover:before:flex data-[state=unchecked]:hover:before:items-center data-[state=unchecked]:hover:before:justify-center data-[state=unchecked]:hover:before:inset-0 relative"
                   />
                   <div className="grid gap-1.5 leading-none">
                     <label
@@ -285,7 +278,7 @@ export default function Register() {
                 <Button
                   type="submit"
                   disabled={loading || !agreedToTerms}
-                  className="w-full h-11 bg-gradient-to-r from-wildcats-yellow to-wildcats-yellow/90 hover:from-wildcats-yellow/90 hover:to-wildcats-yellow/80 text-black font-semibold shadow-lg hover:shadow-xl transition-all duration-300 disabled:transform-none disabled:opacity-70 rounded-lg mt-4 focus:outline-none focus-visible:ring-0"
+                  className="w-full h-11 bg-gradient-to-r from-wildcats-yellow to-wildcats-yellow/90 hover:from-wildcats-yellow/90 hover:to-wildcats-yellow/80 text-black font-semibold shadow-lg hover:shadow-xl transition-all duration-300 disabled:transform-none disabled:opacity-70 !rounded-none mt-4 focus:outline-none focus-visible:ring-0"
                 >
                   {loading ? (
                     <>

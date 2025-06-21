@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Kumbh+Sans:wght@100..900&family=Montserrat:ital,wght@0,100..900;1,100..900&family=Nunito+Sans:ital,opsz,wght@0,6..12,200..1000;1,6..12,200..1000&family=Poetsen+One&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -13,27 +15,29 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Light mode primary (WildCats maroon) */
+    --primary: 2 39% 41%;
+    --primary-foreground: 0 0% 100%;
 
+    /* Light mode secondary */
     --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary-foreground: 2 39% 41%;
 
     --muted: 210 40% 96.1%;
     --muted-foreground: 215.4 16.3% 46.9%;
 
     --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent-foreground: 2 39% 41%;
 
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 100%;
 
     --wildcats-maroon: 2 39% 41%;
     --wildcats-yellow: 46 98% 48%;
 
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --ring: 2 39% 41%;
 
     --radius: 0.5rem;
   }
@@ -71,10 +75,57 @@
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
+  
+  /* Hide default browser scrollbars */
+  html, body {
+    overflow: hidden;
+    height: 100%;
+  }
+  
+  #root {
+    height: 100vh;
+    overflow: hidden;
+  }
+  
+  /* Hide scrollbars for webkit browsers */
+  ::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Hide scrollbars for Firefox */
+  * {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  
+  /* Enhanced scrollbar cursor tracking */
+  [data-radix-scroll-area-scrollbar] {
+    position: relative;
+    z-index: 10;
+  }
+  
+  [data-radix-scroll-area-thumb] {
+    will-change: transform;
+    transform-origin: center;
+  }
+  
+  [data-radix-scroll-area-thumb]:active {
+    transform: scale(1.1);
+    transition: transform 0.1s ease-out;
+  }
+  
+  /* Smooth cursor following */
+  [data-radix-scroll-area-scrollbar]:active {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+  }
+  
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-kumbh;
   }
 }
 
@@ -126,10 +177,6 @@
   .chat-message {
     @apply break-words break-all whitespace-normal max-w-full overflow-hidden;
   }
-  
-  .chat-messages-container {
-    @apply scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600;
-  }
 }
 
 @media (prefers-color-scheme: light) {
@@ -153,7 +200,6 @@
 
 /* Fix chat container heights */
 .chat-messages-container {
-  scrollbar-width: thin;
   max-height: 100%;
 }
 
@@ -162,4 +208,119 @@
   max-width: 100%;
   overflow-wrap: break-word;
   word-break: break-word;
+}
+
+
+
+/* Circular Loader Animations */
+@keyframes circular-progress {
+  0% {
+    stroke-dashoffset: var(--circumference);
+  }
+  50% {
+    stroke-dashoffset: calc(var(--circumference) * 0.2);
+  }
+  100% {
+    stroke-dashoffset: var(--circumference);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes rotate-ring {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes text-fade {
+  0%, 100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Loader component classes */
+.circular-loader {
+  position: relative;
+  display: inline-block;
+}
+
+.loader-progress {
+  animation: circular-progress 2s ease-in-out infinite;
+}
+
+.loader-dot {
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+.loader-ring {
+  animation: rotate-ring 3s linear infinite;
+}
+
+.loader-text {
+  animation: text-fade 2s ease-in-out infinite;
+}
+
+/* Bars Spinner Animation */
+@keyframes spinner {
+  0% { opacity: 1; }
+  10% { opacity: 0.7; }
+  20% { opacity: 0.3; }
+  35% { opacity: 0.2; }
+  50% { opacity: 0.1; }
+  75% { opacity: 0.05; }
+  100% { opacity: 0; }
+}
+
+/* Enhanced ScrollArea auto-hide animations */
+.enhanced-scrollbar {
+  transition: opacity 250ms ease-out, transform 150ms ease-out, width 150ms ease-out;
+  will-change: opacity, transform, width;
+}
+
+.enhanced-scrollbar:hover {
+  transform: scaleX(1.1);
+}
+
+.enhanced-scrollbar.dragging {
+  transform: scale(1.1);
+  opacity: 1 !important;
+}
+
+/* Scrollbar fade-out animation */
+@keyframes fadeInScrollbar {
+  from {
+    opacity: 0;
+    transform: translateX(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeOutScrollbar {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(4px);
+  }
 }

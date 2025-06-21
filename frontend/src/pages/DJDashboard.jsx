@@ -28,6 +28,7 @@ import { useStreaming } from "../context/StreamingContext"
 import { formatDistanceToNow } from 'date-fns'
 import AudioSourceSelector from "../components/AudioSourceSelector"
 import DJAudioControls from "../components/DJAudioControls"
+import { EnhancedScrollArea } from "../components/ui/enhanced-scroll-area"
 import { createLogger } from "../services/logger"
 
 const logger = createLogger('DJDashboard');
@@ -1161,8 +1162,8 @@ export default function DJDashboard() {
                     </span>
                   </div>
                 </div>
-                <div className="h-72 overflow-y-auto p-4 custom-scrollbar">
-                  <div className="space-y-3">
+                <EnhancedScrollArea className="h-72">
+                  <div className="p-4 space-y-3">
                     {songRequests.length === 0 ? (
                       <div className="text-center text-gray-500 dark:text-gray-400 py-8">
                         No requests yet
@@ -1204,7 +1205,7 @@ export default function DJDashboard() {
                       ))
                     )}
                   </div>
-                </div>
+                </EnhancedScrollArea>
               </div>
 
               {/* Polls Results Section */}
@@ -1302,7 +1303,7 @@ export default function DJDashboard() {
                   </div>
                 )}
 
-                <div className="h-72 overflow-y-auto custom-scrollbar">
+                <EnhancedScrollArea className="h-72">
                   {polls.length === 0 ? (
                     <div className="p-4 text-center text-gray-500 dark:text-gray-400">
                       No polls created yet
@@ -1357,7 +1358,7 @@ export default function DJDashboard() {
                       })}
                     </div>
                   )}
-                </div>
+                </EnhancedScrollArea>
               </div>
             </div>
 
