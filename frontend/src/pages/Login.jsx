@@ -116,9 +116,9 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-b from-white via-yellow-50 to-yellow-200">
-      <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 py-8 relative">
-        <div className="w-full max-w-md">
+    <div className="min-h-screen w-full bg-gradient-to-b from-white via-yellow-50 to-yellow-200 overflow-y-auto">
+      <div className="w-full flex flex-col items-center justify-start min-h-screen p-4 py-8 relative">
+        <div className="w-full max-w-md my-auto">
           {/* Logo Section */}
           <div className="flex justify-center mb-2">
             <img 
