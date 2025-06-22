@@ -65,6 +65,10 @@ const DJAudioControls = () => {
         errorMessage = `Desktop audio switching failed: Could not access desktop audio.\n\n` +
           `Your broadcast is still running with microphone audio.\n` +
           `Make sure to select a source with audio (like a browser tab with music) when prompted.`;
+      } else if (errorMsg.includes('WebSocket connection timeout')) {
+        errorMessage = `Audio source switching failed: Connection timeout during pipeline reset.\n\n` +
+          `Your broadcast is still running with the previous audio source.\n` +
+          `This can happen due to network issues. Please try again or refresh the page.`;
       } else if (errorMsg.includes('stream became inactive') || errorMsg.includes('tracks have ended') || errorMsg.includes('screen sharing is cancelled')) {
         errorMessage = `Audio source switching failed: The audio stream was disconnected during the switch.\n\n` +
           `Your broadcast is still running with the previous audio source.\n` +
@@ -77,6 +81,10 @@ const DJAudioControls = () => {
         errorMessage = `Desktop audio switching failed: No audio found in the selected source.\n\n` +
           `Your broadcast is still running with the previous audio source.\n` +
           `Please select a source that has audio (like a browser tab playing music) or choose "System Audio" when prompted.`;
+      } else if (errorMsg.includes('pipeline restoration failed')) {
+        errorMessage = `Audio source switching failed: Complete pipeline restoration failed.\n\n` +
+          `Your broadcast may have been interrupted. Please refresh the page and restart your broadcast.\n` +
+          `This is a rare issue that can occur with complex audio source switches.`;
       } else {
         // Generic fallback message
         errorMessage = `Audio source switching failed, but your broadcast continues running.\n\n` +
@@ -266,7 +274,10 @@ const DJAudioControls = () => {
                 <div className="text-xs text-amber-600 dark:text-amber-400 text-center space-y-1">
                   <p>Switching audio source...</p>
                   <p className="text-gray-500 dark:text-gray-400">
-                    Brief pause expected (~1 second)
+                    Full pipeline reset (~5-8 seconds)
+                  </p>
+                  <p className="text-gray-400 dark:text-gray-500 text-xs">
+                    Prevents server conflicts & ensures clean audio
                   </p>
                 </div>
               )}

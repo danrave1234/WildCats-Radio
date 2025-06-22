@@ -61,6 +61,31 @@ export function StreamingProvider({ children }) {
   const listenerReconnectTimerRef = useRef(null);
   const statusReconnectTimerRef = useRef(null);
 
+  // Flag to prevent auto-reconnection during pipeline resets
+  const pipelineResetInProgressRef = useRef(false);
+  
+  // Industry-standard connection stability management
+  const djConnectionStateRef = useRef('disconnected'); // 'disconnected', 'connecting', 'connected', 'reconnecting'
+  const djReconnectAttemptsRef = useRef(0);
+  const djLastConnectTimeRef = useRef(0);
+  const stabilityWindowTimeoutRef = useRef(null);
+  
+  // Application-level ping/pong for connection health monitoring
+  const djPingTimeoutRef = useRef(null);
+  const djPongTimeoutRef = useRef(null);
+  const djMissedPingsRef = useRef(0);
+  
+  // Constants for connection management
+  const PING_INTERVAL = 30000; // 30 seconds
+  const PONG_TIMEOUT = 5000; // 5 seconds to wait for pong
+  const MAX_MISSED_PINGS = 2; // Number of missed pings before forcing reconnect
+  const STABILITY_WINDOW = 8000; // 8 seconds stability window after successful connection
+  const MAX_RECONNECT_ATTEMPTS = 5;
+  const BASE_RECONNECT_DELAY = 1000; // 1 second base delay for exponential backoff
+
+  // WebSocket message size limits (based on backend configuration)
+  const MAX_MESSAGE_SIZE = 60000; // 60KB - safety margin below the 64KB server buffer for low latency
+
   // Add new audio source state
   const [audioSource, setAudioSource] = useState('microphone'); // 'microphone', 'desktop', 'both'
   const desktopStreamRef = useRef(null);
@@ -83,6 +108,9 @@ export function StreamingProvider({ children }) {
   // Add microphone boost control state
   const [microphoneBoost, setMicrophoneBoost] = useState(3.0); // Default 3x boost (~9.5dB)
   const microphoneBoostRef = useRef(null);
+
+  // Audio source switching control
+  const isAudioSourceSwitching = useRef(false);
 
   // Load persisted state on startup
   useEffect(() => {
@@ -777,224 +805,282 @@ export function StreamingProvider({ children }) {
     }
   };
 
-  // Seamless function to switch audio source during broadcast without disconnecting
+  // Enhanced function to switch audio source during broadcast with industry-standard stability patterns
   const switchAudioSourceLive = async (newSource) => {
-    if (!isLive || !mediaRecorderRef.current) {
-      logger.warn('Cannot switch audio source: not live or no media recorder');
-      setAudioSource(newSource);
+    if (!isLive || !currentBroadcast) {
+      logger.warn('Cannot switch audio source: not currently live or no active broadcast');
+      throw new Error('Cannot switch audio source when not live');
+    }
+
+    if (isAudioSourceSwitching.current) {
+      logger.warn('Audio source switch already in progress, ignoring new request');
       return;
     }
 
+    isAudioSourceSwitching.current = true;
+    logger.info(`🔄 Starting COMPLETE PIPELINE RESET: ${audioSource} → ${newSource}`);
+    
+    // CRITICAL TIMING MARKER 1: Pipeline reset start
+    const pipelineResetStartTime = Date.now();
+    logger.info(`⏱️ PIPELINE RESET START TIME: ${new Date(pipelineResetStartTime).toISOString()}`);
+
     try {
-      logger.info('Switching audio source from', audioSource, 'to', newSource);
-
-      // Step 1: Prepare new audio stream first (fail fast if this doesn't work)
-      logger.debug('Step 1: Preparing new audio stream...');
-      const newStream = await getAudioStreamForSwitching(newSource);
-      
-      // Step 1.5: Initial validation of the new stream
-      logger.debug('Step 1.5: Initial stream validation...');
-      await validateAndPrepareStream(newStream, newSource);
-
-      // Step 2: Stop current audio level monitoring to prevent conflicts
-      logger.debug('Step 2: Stopping audio level monitoring...');
+      // Step 1: Stop audio level monitoring immediately
+      logger.info('📊 Step 1/14: Stopping audio level monitoring');
       stopAudioLevelMonitoring();
 
-      // Step 3: Gracefully stop current MediaRecorder
-      logger.debug('Step 3: Stopping current MediaRecorder...');
-      const currentMediaRecorder = mediaRecorderRef.current;
-      
-      if (currentMediaRecorder.state === 'recording') {
-        // Stop the recorder gracefully
-        currentMediaRecorder.stop();
-        
-        // Wait for the stop event to complete
-        await new Promise((resolve) => {
-          const onStop = () => {
-            currentMediaRecorder.removeEventListener('stop', onStop);
-            resolve();
-          };
-          currentMediaRecorder.addEventListener('stop', onStop);
-          
-          // Fallback timeout in case stop event doesn't fire
-          setTimeout(resolve, 1000);
-        });
+      // Step 2: Stop current MediaRecorder if active
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        logger.info('🎤 Step 2/14: Stopping current MediaRecorder');
+        try {
+          if (mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+          }
+        } catch (error) {
+          logger.warn('Error stopping MediaRecorder:', error);
+        }
       }
 
-      // Step 4: Clean up old audio streams
-      logger.debug('Step 4: Cleaning up old audio streams...');
+      // Step 3: CRITICAL - Disconnect DJ WebSocket to terminate FFmpeg process
+      logger.info('🔌 Step 3/14: Disconnecting DJ WebSocket (triggers FFmpeg termination)');
+      // CRITICAL TIMING MARKER 2: WebSocket disconnect
+      const websocketDisconnectTime = Date.now();
+      logger.info(`⏱️ WEBSOCKET DISCONNECT TIME: ${new Date(websocketDisconnectTime).toISOString()}`);
+      
+      if (djWebSocketRef.current) {
+        try {
+          djWebSocketRef.current.close(1000, 'Audio source switching');
+          logger.info('DJ WebSocket disconnected for audio source switching');
+        } catch (error) {
+          logger.warn('Error closing DJ WebSocket:', error);
+        }
+        djWebSocketRef.current = null;
+      }
+
+      // Step 4: Clean up all audio stream tracks
+      logger.info('🎵 Step 4/14: Cleaning up current audio stream tracks');
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach(track => {
           track.stop();
-          logger.debug('Stopped audio track:', track.kind, track.label);
+          logger.debug(`Stopped track: ${track.kind} - ${track.label}`);
         });
-      }
-      if (desktopStreamRef.current) {
-        desktopStreamRef.current.getTracks().forEach(track => {
-          track.stop();
-          logger.debug('Stopped desktop track:', track.kind, track.label);
-        });
-        desktopStreamRef.current = null;
+        audioStreamRef.current = null;
       }
 
-      // Step 5: Reduced pause and immediate pre-use validation
-      logger.debug('Step 5: Brief pause and immediate validation...');
-      await new Promise(resolve => setTimeout(resolve, 200)); // Reduced pause
+      // Step 5: Close audio context
+      logger.info('🔊 Step 5/14: Closing audio context');
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        try {
+          await audioContextRef.current.close();
+        } catch (error) {
+          logger.warn('Error closing audio context:', error);
+        }
+        audioContextRef.current = null;
+      }
 
-      // Step 5.5: Final validation just before MediaRecorder creation
-      logger.debug('Step 5.5: Final validation before MediaRecorder creation...');
-      validateStreamBeforeUse(newStream, newSource);
-
-      // Step 6: Create new MediaRecorder with validated stream
-      logger.debug('Step 6: Creating new MediaRecorder with validated stream...');
-      const mediaRecorderOptions = {
-        mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus") 
-          ? "audio/webm;codecs=opus" 
-          : "audio/webm",
-        audioBitsPerSecond: 96000
-      };
+      // Step 6: EXTENDED PAUSE - Critical for FFmpeg termination and Icecast mount point release
+      logger.info('⏸️ Step 6/14: Extended pause for FFmpeg termination and mount point release');
+      // CRITICAL TIMING MARKER 3: Extended pause start
+      const extendedPauseStartTime = Date.now();
+      logger.info(`⏱️ EXTENDED PAUSE START: ${new Date(extendedPauseStartTime).toISOString()}`);
+      logger.info('⏳ Waiting 3 seconds for FFmpeg process termination and Icecast mount point release...');
       
-      const newMediaRecorder = new MediaRecorder(newStream, mediaRecorderOptions);
-
-      // Step 7: Set up comprehensive error handling for new MediaRecorder
-      logger.debug('Step 7: Setting up MediaRecorder event handlers...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
       
-      newMediaRecorder.onerror = (event) => {
-        logger.error('MediaRecorder error during audio source switch:', event.error);
-        // Don't throw here, let the main error handling deal with it
-      };
+      // CRITICAL TIMING MARKER 4: Extended pause end
+      const extendedPauseEndTime = Date.now();
+      logger.info(`⏱️ EXTENDED PAUSE END: ${new Date(extendedPauseEndTime).toISOString()}`);
+      logger.info(`⏱️ Extended pause duration: ${extendedPauseEndTime - extendedPauseStartTime}ms`);
 
-      newMediaRecorder.onstart = () => {
-        logger.debug('New MediaRecorder started successfully');
-      };
+      // Step 7: Acquire and validate new audio source
+      logger.info(`🎯 Step 7/14: Acquiring new audio source: ${newSource}`);
+      // CRITICAL TIMING MARKER 5: New source acquisition start
+      const sourceAcquisitionStartTime = Date.now();
+      logger.info(`⏱️ NEW SOURCE ACQUISITION START: ${new Date(sourceAcquisitionStartTime).toISOString()}`);
+      
+      const newStream = await getAudioStreamForSwitching(newSource);
+      if (!newStream) {
+        throw new Error(`Failed to acquire ${newSource} audio stream`);
+      }
 
-      newMediaRecorder.onstop = () => {
-        logger.debug('MediaRecorder stopped');
-      };
+      // CRITICAL TIMING MARKER 6: New source acquisition end
+      const sourceAcquisitionEndTime = Date.now();
+      logger.info(`⏱️ NEW SOURCE ACQUISITION END: ${new Date(sourceAcquisitionEndTime).toISOString()}`);
+      logger.info(`⏱️ Source acquisition duration: ${sourceAcquisitionEndTime - sourceAcquisitionStartTime}ms`);
 
-      // Enhanced data handler with buffer size checking
-      newMediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
-          // Check buffer size to prevent WebSocket message too large errors
-          const maxSafeSize = 120000; // 120KB - safely under the 128KB backend limit
-          
-          if (event.data.size > maxSafeSize) {
-            logger.warn(`Audio chunk too large (${event.data.size} bytes), skipping to prevent WebSocket disconnect`);
+      // Validate stream before proceeding
+      const isValidStream = validateStreamBeforeUse(newStream, newSource);
+      if (!isValidStream) {
+        newStream.getTracks().forEach(track => track.stop());
+        throw new Error(`Invalid ${newSource} stream - no active audio tracks`);
+      }
+
+      // Step 8: Connect new DJ WebSocket (triggers fresh FFmpeg process)
+      logger.info('🔗 Step 8/14: Connecting new DJ WebSocket (triggers fresh FFmpeg process)');
+      // CRITICAL TIMING MARKER 7: New WebSocket connection start
+      const newWebSocketStartTime = Date.now();
+      logger.info(`⏱️ NEW WEBSOCKET CONNECTION START: ${new Date(newWebSocketStartTime).toISOString()}`);
+      
+      await connectDJWebSocketWithRetry();
+
+      // CRITICAL TIMING MARKER 8: New WebSocket connection end
+      const newWebSocketEndTime = Date.now();
+      logger.info(`⏱️ NEW WEBSOCKET CONNECTION END: ${new Date(newWebSocketEndTime).toISOString()}`);
+      logger.info(`⏱️ New WebSocket connection duration: ${newWebSocketEndTime - newWebSocketStartTime}ms`);
+
+      // Step 9: Wait for WebSocket connection to be established
+      logger.info('⏳ Step 9/14: Waiting for WebSocket connection establishment');
+      let connectionWaitTime = 0;
+      const maxWaitTime = 10000; // 10 seconds timeout
+      
+      while ((!djWebSocketRef.current || djWebSocketRef.current.readyState !== WebSocket.OPEN) && 
+             connectionWaitTime < maxWaitTime) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        connectionWaitTime += 100;
+      }
+
+      if (!djWebSocketRef.current || djWebSocketRef.current.readyState !== WebSocket.OPEN) {
+        throw new Error(`WebSocket connection failed after ${maxWaitTime}ms timeout`);
+      }
+
+      logger.info(`✅ WebSocket connected successfully after ${connectionWaitTime}ms`);
+
+      // Step 10: Create new MediaRecorder with fresh timestamps
+      logger.info('🎬 Step 10/14: Creating new MediaRecorder with fresh timestamps');
+      let isFirstChunk = true;
+
+      try {
+        const mediaRecorder = new MediaRecorder(newStream, {
+          mimeType: 'audio/webm;codecs=opus',
+          audioBitsPerSecond: 128000
+        });
+
+        // Enhanced data handling with buffer size checking and validation
+        const safelySendAudioData = (buffer) => {
+          // CRITICAL: Validate first chunk for proper WebM headers
+          if (isFirstChunk) {
+            logger.info('🔍 Validating first audio chunk after source switch');
+            const headerView = new Uint8Array(buffer.slice(0, 32));
+            const isValidWebM = headerView[0] === 0x1a && headerView[1] === 0x45 && 
+                               headerView[2] === 0xdf && headerView[3] === 0xa3;
+            
+            if (!isValidWebM) {
+              logger.warn('⚠️ First chunk does not contain valid WebM header, skipping');
+              return;
+            }
+            
+            if (buffer.byteLength < 100) {
+              logger.warn('⚠️ First chunk too small, waiting for more substantial chunk');
+              return;
+            }
+            
+            logger.info('✅ First chunk validated successfully');
+            isFirstChunk = false;
+          }
+
+          if (buffer.byteLength > MAX_MESSAGE_SIZE) {
+            logger.warn(`⚠️ Audio chunk too large: ${buffer.byteLength} bytes, skipping`);
             return;
           }
 
-          event.data.arrayBuffer().then(buffer => {
-            // Double check WebSocket is still available and buffer size before sending
-            if (djWebSocketRef.current && 
-                djWebSocketRef.current.readyState === WebSocket.OPEN && 
-                buffer.byteLength <= maxSafeSize) {
-              try {
-                djWebSocketRef.current.send(buffer);
-              } catch (error) {
-                logger.error('Error sending audio data:', error);
-              }
+          if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+            try {
+              djWebSocketRef.current.send(buffer);
+            } catch (error) {
+              logger.error('Error sending audio data after source switch:', error);
             }
-          }).catch(error => {
-            logger.error('Error processing audio data:', error);
-          });
-        }
-      };
+          }
+        };
 
-      // Step 8: Start new recorder with additional safety checks
-      logger.debug('Step 8: Starting new MediaRecorder with final safety checks...');
-      
-      // Final check that stream is still active before starting
-      validateStreamBeforeUse(newStream, newSource);
-
-      // Start with error handling
-      try {
-        newMediaRecorder.start(250); // Smaller intervals (250ms) to prevent buffer buildup
-      } catch (startError) {
-        logger.error('Failed to start new MediaRecorder:', startError);
-        throw new Error(`MediaRecorder start failed: ${startError.message}`);
-      }
-
-      // Step 9: Update references only after successful start
-      logger.debug('Step 9: Updating references after successful start...');
-      mediaRecorderRef.current = newMediaRecorder;
-      audioStreamRef.current = newStream;
-
-      // Store desktop stream reference if applicable
-      if (newSource === 'desktop' || newSource === 'both') {
-        desktopStreamRef.current = newStream;
-      }
-
-      // Step 10: Update audio source state and restart monitoring
-      logger.debug('Step 10: Updating state and restarting monitoring...');
-      setAudioSource(newSource);
-      
-      // Restart audio level monitoring with new stream
-      setTimeout(() => {
-        startAudioLevelMonitoring();
-      }, 500);
-
-      logger.info('Audio source switched successfully to:', newSource, '- WebSocket remained connected');
-
-    } catch (error) {
-      logger.error('Error during audio source switch:', error);
-
-      // Enhanced fallback with better error handling
-      logger.debug('Attempting to restore previous audio source...');
-      try {
-        // Stop any partially created streams
-        if (audioStreamRef.current) {
-          audioStreamRef.current.getTracks().forEach(track => track.stop());
-        }
-        if (desktopStreamRef.current) {
-          desktopStreamRef.current.getTracks().forEach(track => track.stop());
-          desktopStreamRef.current = null;
-        }
-
-        // Get and validate fallback stream
-        const fallbackStream = await getAudioStreamForSwitching(audioSource);
-        await validateAndPrepareStream(fallbackStream, `fallback-${audioSource}`);
-
-        const fallbackRecorder = new MediaRecorder(fallbackStream, {
-          mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus") 
-            ? "audio/webm;codecs=opus" 
-            : "audio/webm",
-          audioBitsPerSecond: 96000
-        });
-
-        // Set up fallback recorder with same buffer size protection
-        fallbackRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
-            const maxSafeSize = 120000;
-            
-            if (event.data.size > maxSafeSize) {
-              logger.warn('Skipping oversized fallback audio chunk');
-              return;
-            }
-
-            event.data.arrayBuffer().then(buffer => {
-              if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
-                djWebSocketRef.current.send(buffer);
-              }
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            event.data.arrayBuffer().then(safelySendAudioData).catch(error => {
+              logger.error('Error processing audio data:', error);
             });
           }
         };
 
-        fallbackRecorder.start(250);
-        mediaRecorderRef.current = fallbackRecorder;
-        audioStreamRef.current = fallbackStream;
+        mediaRecorder.onerror = (event) => {
+          logger.error('MediaRecorder error after source switch:', event.error);
+        };
 
-        // Restart monitoring
-        setTimeout(() => {
-          startAudioLevelMonitoring();
-        }, 500);
+        mediaRecorder.onstart = () => {
+          logger.info('🎤 New MediaRecorder started successfully after source switch');
+        };
 
-        logger.info('Restored to previous audio source');
-      } catch (restoreError) {
-        logger.error('Failed to restore audio source:', restoreError);
-        throw new Error(`Audio switch failed and could not restore: ${error.message}`);
+        mediaRecorderRef.current = mediaRecorder;
+      } catch (error) {
+        newStream.getTracks().forEach(track => track.stop());
+        throw new Error(`Failed to create MediaRecorder for ${newSource}: ${error.message}`);
+      }
+
+      // Step 11: Start new recorder with zero timestamps
+      logger.info('▶️ Step 11/14: Starting new MediaRecorder with zero timestamps');
+      try {
+        mediaRecorderRef.current.start(100); // 100ms chunks for responsiveness
+        logger.info('✅ New MediaRecorder started successfully');
+      } catch (error) {
+        newStream.getTracks().forEach(track => track.stop());
+        throw new Error(`Failed to start new MediaRecorder: ${error.message}`);
+      }
+
+      // Step 12: Update references
+      logger.info('🔄 Step 12/14: Updating audio stream references');
+      audioStreamRef.current = newStream;
+      setAudioSource(newSource);
+
+      // Step 13: Restart monitoring with fallback mechanism
+      logger.info('📊 Step 13/14: Restarting audio level monitoring with fallback');
+      try {
+        startAudioLevelMonitoring();
+      } catch (error) {
+        logger.warn('Failed to restart audio level monitoring, using fallback:', error);
+        try {
+          startSimplifiedAudioLevelMonitoring();
+        } catch (fallbackError) {
+          logger.error('Fallback audio monitoring also failed:', fallbackError);
+        }
+      }
+
+      // Step 14: Final success logging
+      // CRITICAL TIMING MARKER 9: Pipeline reset complete
+      const pipelineResetEndTime = Date.now();
+      logger.info(`⏱️ PIPELINE RESET COMPLETE TIME: ${new Date(pipelineResetEndTime).toISOString()}`);
+      logger.info(`⏱️ TOTAL PIPELINE RESET DURATION: ${pipelineResetEndTime - pipelineResetStartTime}ms`);
+      
+      logger.info(`✅ Step 14/14: Audio source switch completed successfully: ${audioSource} → ${newSource}`);
+      logger.info('🎉 COMPLETE PIPELINE RESET SUCCESSFUL');
+
+      // TIMING SUMMARY
+      logger.info('📊 PIPELINE RESET TIMING SUMMARY:');
+      logger.info(`   • WebSocket disconnect: ${websocketDisconnectTime - pipelineResetStartTime}ms`);
+      logger.info(`   • Extended pause duration: ${extendedPauseEndTime - extendedPauseStartTime}ms`);
+      logger.info(`   • Source acquisition: ${sourceAcquisitionEndTime - sourceAcquisitionStartTime}ms`);
+      logger.info(`   • New WebSocket connection: ${newWebSocketEndTime - newWebSocketStartTime}ms`);
+      logger.info(`   • Total duration: ${pipelineResetEndTime - pipelineResetStartTime}ms`);
+
+    } catch (error) {
+      logger.error(`❌ COMPLETE PIPELINE RESET FAILED: ${error.message}`);
+      
+      // Cleanup on failure
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach(track => track.stop());
+        audioStreamRef.current = null;
+      }
+      
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (stopError) {
+          logger.warn('Error stopping MediaRecorder during cleanup:', stopError);
+        }
+        mediaRecorderRef.current = null;
       }
 
       throw error;
+    } finally {
+      isAudioSourceSwitching.current = false;
+      logger.info('🔓 Audio source switching lock released');
     }
   };
 
@@ -1180,9 +1266,7 @@ export function StreamingProvider({ children }) {
         mediaRecorder.ondataavailable = (event) => {
           if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
             // Check buffer size to prevent WebSocket message too large errors
-            const maxSafeSize = 120000; // 120KB - safely under the 128KB backend limit
-            
-            if (event.data.size > maxSafeSize) {
+            if (event.data.size > MAX_MESSAGE_SIZE) {
               console.warn(`Audio chunk too large (${event.data.size} bytes), skipping to prevent WebSocket disconnect`);
               return;
             }
@@ -1200,7 +1284,7 @@ export function StreamingProvider({ children }) {
 
             event.data.arrayBuffer().then(buffer => {
               // Double check buffer size before sending
-              if (buffer.byteLength <= maxSafeSize) {
+              if (buffer.byteLength <= MAX_MESSAGE_SIZE) {
               safelySendAudioData(buffer);
               } else {
                 console.warn('Skipping oversized buffer to prevent WebSocket disconnect');
@@ -1395,11 +1479,18 @@ export function StreamingProvider({ children }) {
       websocket.onopen = () => {
         console.log('DJ WebSocket connected successfully');
         setWebsocketConnected(true);
+        djConnectionStateRef.current = 'connected';
+        djReconnectAttemptsRef.current = 0; // Reset reconnect attempts on successful connection
+        djLastConnectTimeRef.current = Date.now();
 
+        // Clear any pending reconnection timer
         if (djReconnectTimerRef.current) {
           clearTimeout(djReconnectTimerRef.current);
           djReconnectTimerRef.current = null;
         }
+
+        // Start connection health monitoring with ping/pong
+        startDJConnectionHealthMonitoring();
 
         // If we have an existing MediaRecorder that was recording (after reconnection),
         // we need to re-establish the data flow to the new WebSocket connection
@@ -1484,14 +1575,32 @@ export function StreamingProvider({ children }) {
         }
       };
 
+      // Handle ping/pong messages for connection health monitoring
+      websocket.onmessage = (event) => {
+        try {
+          if (typeof event.data === 'string') {
+            if (event.data === 'pong') {
+              handleDJPongResponse();
+              return;
+            }
+            logger.debug('Received unexpected text message:', event.data);
+          }
+          // Binary data (audio) is handled by MediaRecorder
+        } catch (error) {
+          logger.warn('Error processing WebSocket message:', error);
+        }
+      };
+
       websocket.onerror = (error) => {
         console.error('DJ WebSocket error:', error);
         setWebsocketConnected(false);
+        djConnectionStateRef.current = 'error';
       };
 
       websocket.onclose = (event) => {
         console.log('DJ WebSocket disconnected:', event.code, event.reason);
         setWebsocketConnected(false);
+        djConnectionStateRef.current = 'disconnected';
 
         // Clear MediaRecorder handler to prevent errors after WebSocket is closed
         if (mediaRecorderRef.current && mediaRecorderRef.current.ondataavailable) {
@@ -1505,20 +1614,38 @@ export function StreamingProvider({ children }) {
           djWebSocketRef.current = null;
         }
 
-        // Only auto-reconnect if this was an unexpected disconnect and we should still be live
-        if (isLive && event.code !== 1000 && event.code !== 1001) {
-          // Add random jitter to prevent all clients reconnecting simultaneously
-          const jitter = Math.floor(Math.random() * 1000);
-          const reconnectDelay = 3000 + jitter;
+        // Enhanced auto-reconnection with exponential backoff and stability window protection
+        if (isLive && event.code !== 1000 && event.code !== 1001 && !pipelineResetInProgressRef.current) {
+          // Check if we should attempt reconnection based on attempts and timing
+          if (djReconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+            // Exponential backoff with jitter
+            const baseDelay = BASE_RECONNECT_DELAY * Math.pow(2, djReconnectAttemptsRef.current);
+            const jitter = Math.floor(Math.random() * 1000);
+            const reconnectDelay = Math.min(baseDelay + jitter, 30000); // Cap at 30 seconds
 
-          console.log(`Scheduling DJ WebSocket reconnection in ${reconnectDelay}ms`);
+            djConnectionStateRef.current = 'reconnecting';
+            console.log(`Scheduling DJ WebSocket reconnection attempt ${djReconnectAttemptsRef.current + 1}/${MAX_RECONNECT_ATTEMPTS} in ${reconnectDelay}ms (code: ${event.code})`);
 
-          djReconnectTimerRef.current = setTimeout(() => {
-            if (isLive) {
-              console.log('Attempting DJ WebSocket reconnection...');
-              connectDJWebSocket();
-            }
-          }, reconnectDelay);
+            djReconnectTimerRef.current = setTimeout(() => {
+              // Double-check conditions before reconnecting
+              if (isLive && !pipelineResetInProgressRef.current && djReconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+                djReconnectAttemptsRef.current++;
+                console.log('Attempting DJ WebSocket reconnection...');
+                connectDJWebSocket();
+              } else if (pipelineResetInProgressRef.current) {
+                console.log('Reconnection cancelled: pipeline reset/stability window active');
+              } else {
+                console.log('Reconnection cancelled: max attempts reached or no longer live');
+              }
+            }, reconnectDelay);
+          } else {
+            console.error('Max DJ WebSocket reconnection attempts reached, giving up');
+            djConnectionStateRef.current = 'failed';
+          }
+        } else if (pipelineResetInProgressRef.current) {
+          console.log(`DJ WebSocket disconnected during pipeline reset/stability window - auto-reconnection disabled (code: ${event.code}, reason: ${event.reason})`);
+        } else {
+          console.log(`DJ WebSocket disconnected with clean close or not live - no reconnection needed (code: ${event.code}, reason: ${event.reason})`);
         }
       };
     } catch (error) {
@@ -1811,9 +1938,7 @@ export function StreamingProvider({ children }) {
           mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
               // Check buffer size to prevent WebSocket message too large errors
-              const maxSafeSize = 120000; // 120KB - safely under the 128KB backend limit
-              
-              if (event.data.size > maxSafeSize) {
+              if (event.data.size > MAX_MESSAGE_SIZE) {
                 console.warn(`Audio chunk too large (${event.data.size} bytes), skipping to prevent WebSocket disconnect`);
                 return;
               }
@@ -1831,7 +1956,7 @@ export function StreamingProvider({ children }) {
 
               event.data.arrayBuffer().then(buffer => {
                 // Double check buffer size before sending
-                if (buffer.byteLength <= maxSafeSize) {
+                if (buffer.byteLength <= MAX_MESSAGE_SIZE) {
                 safelySendAudioData(buffer);
                 } else {
                   console.warn('Skipping oversized buffer to prevent WebSocket disconnect');
@@ -2462,6 +2587,130 @@ export function StreamingProvider({ children }) {
     if (audioLevelIntervalRef.current) {
       clearInterval(audioLevelIntervalRef.current);
       audioLevelIntervalRef.current = null;
+    }
+  };
+
+  // Industry-standard WebSocket connection with retry logic and exponential backoff
+  const connectDJWebSocketWithRetry = async () => {
+    return new Promise((resolve) => {
+      const attempt = (attemptNumber = 0) => {
+        if (attemptNumber >= MAX_RECONNECT_ATTEMPTS) {
+          logger.error('Max reconnection attempts reached');
+          djConnectionStateRef.current = 'disconnected';
+          resolve(false);
+          return;
+        }
+
+        // Exponential backoff calculation
+        const delay = attemptNumber === 0 ? 0 : BASE_RECONNECT_DELAY * Math.pow(2, attemptNumber - 1);
+        
+        logger.debug(`Connection attempt ${attemptNumber + 1}/${MAX_RECONNECT_ATTEMPTS}${delay > 0 ? ` (after ${delay}ms delay)` : ''}`);
+
+        setTimeout(() => {
+          djConnectionStateRef.current = 'connecting';
+          djReconnectAttemptsRef.current = attemptNumber + 1;
+          
+          connectDJWebSocket();
+
+          // Check connection success after reasonable timeout
+          setTimeout(() => {
+            if (djWebSocketRef.current?.readyState === WebSocket.OPEN) {
+              djConnectionStateRef.current = 'connected';
+              djReconnectAttemptsRef.current = 0;
+              resolve(true);
+            } else {
+              logger.warn(`Connection attempt ${attemptNumber + 1} failed, retrying...`);
+              attempt(attemptNumber + 1);
+            }
+          }, 3000); // 3 second timeout per attempt
+        }, delay);
+      };
+
+      attempt();
+    });
+  };
+
+  // Application-level connection health monitoring using ping/pong
+  const startDJConnectionHealthMonitoring = () => {
+    // Clear any existing timers
+    if (djPingTimeoutRef.current) clearTimeout(djPingTimeoutRef.current);
+    if (djPongTimeoutRef.current) clearTimeout(djPongTimeoutRef.current);
+    
+    djMissedPingsRef.current = 0;
+
+    const sendPing = () => {
+      if (djWebSocketRef.current?.readyState === WebSocket.OPEN && !pipelineResetInProgressRef.current) {
+        try {
+          djWebSocketRef.current.send('ping');
+          logger.debug('Sent ping to server');
+
+          // Wait for pong response
+          djPongTimeoutRef.current = setTimeout(() => {
+            djMissedPingsRef.current++;
+            logger.warn(`Missed pong response ${djMissedPingsRef.current}/${MAX_MISSED_PINGS}`);
+
+            if (djMissedPingsRef.current >= MAX_MISSED_PINGS) {
+              logger.error('Connection appears unhealthy, forcing reconnection');
+              if (djWebSocketRef.current) {
+                djWebSocketRef.current.close(4000, 'Connection health check failed');
+              }
+            } else {
+              // Schedule next ping
+              djPingTimeoutRef.current = setTimeout(sendPing, PING_INTERVAL);
+            }
+          }, PONG_TIMEOUT);
+        } catch (error) {
+          logger.error('Error sending ping:', error);
+        }
+      }
+    };
+
+    // Start ping cycle
+    djPingTimeoutRef.current = setTimeout(sendPing, PING_INTERVAL);
+  };
+
+  const stopDJConnectionHealthMonitoring = () => {
+    if (djPingTimeoutRef.current) {
+      clearTimeout(djPingTimeoutRef.current);
+      djPingTimeoutRef.current = null;
+    }
+    if (djPongTimeoutRef.current) {
+      clearTimeout(djPongTimeoutRef.current);
+      djPongTimeoutRef.current = null;
+    }
+    djMissedPingsRef.current = 0;
+  };
+
+  // Helper to handle pong responses
+  const handleDJPongResponse = () => {
+    logger.debug('Received pong from server');
+    djMissedPingsRef.current = 0;
+    
+    // Clear pong timeout and schedule next ping
+    if (djPongTimeoutRef.current) {
+      clearTimeout(djPongTimeoutRef.current);
+      djPongTimeoutRef.current = null;
+    }
+    
+    if (djWebSocketRef.current?.readyState === WebSocket.OPEN && !pipelineResetInProgressRef.current) {
+      djPingTimeoutRef.current = setTimeout(() => {
+        const sendPing = () => {
+          if (djWebSocketRef.current?.readyState === WebSocket.OPEN && !pipelineResetInProgressRef.current) {
+            try {
+              djWebSocketRef.current.send('ping');
+              djPongTimeoutRef.current = setTimeout(() => {
+                djMissedPingsRef.current++;
+                if (djMissedPingsRef.current >= MAX_MISSED_PINGS && djWebSocketRef.current) {
+                  djWebSocketRef.current.close(4000, 'Health check failed');
+                }
+              }, PONG_TIMEOUT);
+            } catch (error) {
+              logger.error('Error sending ping:', error);
+            }
+          }
+        };
+        sendPing();
+      }, PING_INTERVAL);
     }
   };
 
