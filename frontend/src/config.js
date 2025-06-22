@@ -16,6 +16,11 @@
  * @returns {string} - Environment variable value or default
  */
 const getEnvVar = (key, defaultValue = '') => {
+  // Check Vite environment variables first (import.meta.env)
+  if (import.meta.env && import.meta.env[key] !== undefined) {
+    return import.meta.env[key];
+  }
+  // Fallback to process.env for compatibility
   // eslint-disable-next-line no-undef
   if (typeof process !== 'undefined' && process.env && process.env[key]) {
     // eslint-disable-next-line no-undef
@@ -26,7 +31,7 @@ const getEnvVar = (key, defaultValue = '') => {
 
 /**
  * Environment Detection Logic
- * Automatically determines if we're running locally or in production
+ * Uses VITE_USE_LOCAL_BACKEND environment variable to determine backend target
  */
 const detectEnvironment = () => {
   // Check for environment variable overrides first
@@ -37,15 +42,9 @@ const detectEnvironment = () => {
     return 'deployed';
   }
 
-  // Auto-detect based on hostname
-  const hostname = window.location.hostname;
-  const isLocal = hostname === 'localhost' || 
-                  hostname === '127.0.0.1' || 
-                  hostname.startsWith('192.168.') ||
-                  hostname.startsWith('10.') ||
-                  hostname.includes('local');
-
-  return isLocal ? 'local' : 'deployed';
+  // Use VITE_USE_LOCAL_BACKEND to determine environment
+  const useLocalBackend = getEnvVar('VITE_USE_LOCAL_BACKEND', 'false');
+  return useLocalBackend === 'true' ? 'local' : 'deployed';
 };
 
 // Environment detection
@@ -58,18 +57,18 @@ export const useLocalBackend = isLocalEnvironment;
 
 /**
  * Environment-specific configuration
- * Centralized place to change all backend URLs
+ * Uses environment variables with fallback defaults
  */
 const environments = {
   local: {
-    apiBaseUrl: 'http://localhost:8080',
-    wsBaseUrl: 'ws://localhost:8080',
-    sockJsBaseUrl: 'http://localhost:8080',
+    apiBaseUrl: `http://${getEnvVar('VITE_API_BASE_URL', 'localhost:8080')}`,
+    wsBaseUrl: `ws://${getEnvVar('VITE_WS_BASE_URL', 'localhost:8080')}`,
+    sockJsBaseUrl: `http://${getEnvVar('VITE_WS_BASE_URL', 'localhost:8080')}`,
   },
   deployed: {
-    apiBaseUrl: 'https://api.wildcat-radio.live',
-    wsBaseUrl: 'wss://api.wildcat-radio.live',
-    sockJsBaseUrl: 'https://api.wildcat-radio.live',
+    apiBaseUrl: `https://${getEnvVar('VITE_API_BASE_URL', 'api.wildcat-radio.live')}`,
+    wsBaseUrl: `wss://${getEnvVar('VITE_WS_BASE_URL', 'api.wildcat-radio.live')}`,
+    sockJsBaseUrl: `https://${getEnvVar('VITE_WS_BASE_URL', 'api.wildcat-radio.live')}`,
   }
 };
 
@@ -84,12 +83,12 @@ export const config = {
   isDeployed: isDeployedEnvironment,
 
   // Base URLs with automatic environment detection
-  apiBaseUrl: getEnvVar('REACT_APP_API_BASE_URL') || currentEnvConfig.apiBaseUrl,
-  wsBaseUrl: getEnvVar('REACT_APP_WS_BASE_URL') || currentEnvConfig.wsBaseUrl,
-  sockJsBaseUrl: getEnvVar('REACT_APP_SOCKJS_BASE_URL') || currentEnvConfig.sockJsBaseUrl,
+  apiBaseUrl: currentEnvConfig.apiBaseUrl,
+  wsBaseUrl: currentEnvConfig.wsBaseUrl,
+  sockJsBaseUrl: currentEnvConfig.sockJsBaseUrl,
 
-  // Icecast URL (external service, same for all environments)
-  icecastUrl: getEnvVar('REACT_APP_ICECAST_URL') || 'https://icecast.software/live.ogg',
+  // Icecast URL (external service, configured via environment variables)
+  icecastUrl: `https://${getEnvVar('VITE_ICECAST_URL', 'api.wildcat-radio.live:8000/live.ogg')}`,
 
   // API Configuration
   apiTimeout: isLocalEnvironment ? 10000 : 30000, // 10s local, 30s deployed
