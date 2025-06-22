@@ -18,6 +18,7 @@ import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { cn } from "../lib/utils";
 import { DesktopSidebar, SidebarLink, useSidebar } from "./ui/sidebar";
+import wildcatradioLogo from "../assets/wildcatradio_logo.png";
 
 // Navigation structure organized by sections
 const navigationSections = {
@@ -144,7 +145,7 @@ const navigationSections = {
 // Section header component
 const SectionHeader = ({ title }) => {
   const { open } = useSidebar();
-  
+
   return (
     <div className="mt-4 first:mt-0">
       <motion.div
@@ -167,7 +168,7 @@ const SectionHeader = ({ title }) => {
         >
           {title}
         </motion.h3>
-        
+
         {/* Separator that appears when minimized */}
         <motion.div
           className="h-1 bg-yellow-400 w-full rounded"
@@ -188,13 +189,13 @@ const SectionHeader = ({ title }) => {
 const NewSidebar = ({ userRole }) => {
   const { isAuthenticated, currentUser, logout } = useAuth();
   const { open, animate } = useSidebar();
-  
+
   // Get the appropriate navigation sections based on authentication and role
   const getNavigationSections = () => {
     if (!isAuthenticated) {
       return navigationSections.PUBLIC;
     }
-    
+
     return navigationSections[userRole] || [];
   };
 
@@ -285,7 +286,7 @@ const NewSidebar = ({ userRole }) => {
               }}
             >
               <motion.img 
-                src="/src/assets/wildcatradio_logo.png" 
+                src={wildcatradioLogo} 
                 alt="WildCats Radio Logo" 
                 className="w-24 h-24 flex-shrink-0"
                 animate={{
@@ -305,7 +306,7 @@ const NewSidebar = ({ userRole }) => {
             </motion.div>
           </div>
         </div>
-        
+
         {/* Main content area */}
         <div className="flex flex-col h-full">
           <div className={cn(
@@ -329,10 +330,10 @@ const NewSidebar = ({ userRole }) => {
               </div>
             ))}
           </div>
-          
+
           {/* Spacer to push footer to bottom */}
           <div className="flex-grow"></div>
-          
+
           {/* Footer */}
           <div className={cn(
             "py-2 pb-4",
@@ -399,7 +400,7 @@ const NewSidebar = ({ userRole }) => {
                     © 2024 All Rights Reserved
                   </p>
                 </div>
-                
+
                 {/* Links Section */}
                 <div className="space-y-2.5 mb-4">
                   <a 
@@ -421,10 +422,10 @@ const NewSidebar = ({ userRole }) => {
                     Contact
                   </a>
                 </div>
-                
+
                 {/* Simple Divider */}
                 <div className="w-full h-px bg-gradient-to-r from-transparent via-yellow-400/30 to-transparent mb-3"></div>
-                
+
                 {/* Tagline */}
                 <div className="text-center">
                   <p className="text-white/50 text-xs">
