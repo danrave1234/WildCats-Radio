@@ -4,6 +4,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -18,6 +20,8 @@ import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.BinaryWebSocketHandler;
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.handler.AbstractWebSocketHandler;
 
 import com.wildcastradio.config.NetworkConfig;
 
@@ -25,9 +29,10 @@ import com.wildcastradio.config.NetworkConfig;
  * WebSocket handler for streaming audio from DJ's browser to Icecast.
  * Receives binary WebSocket messages containing audio data and pipes them
  * through FFmpeg to Icecast server with dual output (OGG + MP3).
+ * Also handles text messages for connection health monitoring (ping/pong).
  */
 @Component
-public class IcecastStreamHandler extends BinaryWebSocketHandler {
+public class IcecastStreamHandler extends AbstractWebSocketHandler {
     private static final Logger logger = LoggerFactory.getLogger(IcecastStreamHandler.class);
     private Process ffmpeg;
     private volatile boolean isConnected = false;
@@ -124,13 +129,46 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
             return;
         }
 
-        // Try to start FFmpeg with retry logic for 403 errors
+        // Try to start FFmpeg with enhanced retry logic for race conditions
         boolean started = false;
         final int[] attempts = {0}; // Use array to make it effectively final
         int maxAttempts = networkConfig.getFfmpegRetryAttempts();
 
         while (!started && attempts[0] < maxAttempts) {
             attempts[0]++;
+            
+            // Exponential backoff delay with jitter for race condition prevention
+            if (attempts[0] > 1) {
+                int baseDelay = 1000; // 1 second base delay
+                int exponentialDelay = baseDelay * (int) Math.pow(2, attempts[0] - 2); // Exponential backoff
+                int jitter = (int) (Math.random() * 500); // Add up to 500ms jitter
+                int totalDelay = Math.min(exponentialDelay + jitter, 8000); // Cap at 8 seconds
+                
+                logger.info("Waiting {}ms before FFmpeg retry attempt {} (exponential backoff with jitter)", totalDelay, attempts[0]);
+                try {
+                    Thread.sleep(totalDelay);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.error("Interrupted during retry delay");
+                    break;
+                }
+            }
+            
+            // Check mount point availability before attempting connection (race condition prevention)
+            if (attempts[0] > 1) {
+                logger.info("Checking mount point availability before attempt {}", attempts[0]);
+                boolean mountPointAvailable = checkMountPointAvailability(icecastHostname);
+                if (!mountPointAvailable) {
+                    logger.warn("Mount point still occupied, extending delay for attempt {}", attempts[0]);
+                    try {
+                        Thread.sleep(2000); // Additional 2 second delay if mount point busy
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+            
             try {
                 // Start FFmpeg process
                 ProcessBuilder pb = new ProcessBuilder(cmd);
@@ -140,11 +178,14 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                 // Reset the logging flag
                 shouldStopLogging = false;
 
+                // Enhanced FFmpeg monitoring with race condition detection
+                final boolean[] connectionSuccessful = {false};
+                final boolean[] raceConditionDetected = {false};
+
                 // Start a thread to monitor FFmpeg output and detect errors
                 loggingThread = new Thread(() -> {
                     try (BufferedReader reader = new BufferedReader(new InputStreamReader(ffmpeg.getInputStream()))) {
                         String line;
-                        boolean connectionSuccessful = false;
 
                         while ((line = reader.readLine()) != null && !shouldStopLogging) {
                             // Break immediately if we should stop logging
@@ -156,7 +197,7 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
 
                             // Check for successful connection indicators (for both streams)
                             if (line.contains("Opening") && line.contains("for writing")) {
-                                connectionSuccessful = true;
+                                connectionSuccessful[0] = true;
                                 isConnected = true;
                                 if (line.contains("live.ogg")) {
                                     logger.info("FFmpeg successfully connected to Icecast OGG stream");
@@ -167,15 +208,19 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                                 }
                             }
 
-                            // Check for 403 Forbidden error
+                            // ENHANCED: Check for 403 Forbidden error with race condition detection
                             if (line.contains("403") && line.contains("Forbidden")) {
                                 logger.warn("FFmpeg received 403 Forbidden from Icecast (attempt {})", attempts[0]);
-                                logger.warn("This usually means authentication failed or mount point access denied");
+                                logger.warn("This indicates a race condition - mount point likely still occupied by previous FFmpeg process");
+                                raceConditionDetected[0] = true;
+                                
                                 if (line.contains("live.ogg")) {
-                                    logger.warn("OGG stream mount point access denied");
+                                    logger.warn("OGG stream mount point access denied - race condition detected");
                                 } else if (line.contains("live.mp3")) {
-                                    logger.warn("MP3 stream mount point access denied");
+                                    logger.warn("MP3 stream mount point access denied - race condition detected");
                                 }
+                                
+                                // Force break to trigger retry with longer delay
                                 break;
                             }
                             
@@ -203,7 +248,7 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                                 break;
                             }
 
-                            // ADDED: Check for URL/protocol errors (the main issue we're fixing)
+                            // Check for URL/protocol errors
                             if (line.contains("Invalid argument") ||
                                     line.contains("Port missing in uri") ||
                                     line.contains("Protocol not found")) {
@@ -212,7 +257,7 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                                 break;
                             }
                             
-                            // ADDED: Check for mount point errors
+                            // Check for mount point errors
                             if (line.contains("mount point") && line.contains("not found")) {
                                 logger.error("FFmpeg mount point error: {}", line);
                                 if (line.contains("live.ogg")) {
@@ -225,7 +270,7 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                                 break;
                             }
                             
-                            // ADDED: Check for server not running
+                            // Check for server not running
                             if (line.contains("No such host") || line.contains("Name resolution failed")) {
                                 logger.error("FFmpeg hostname resolution failed: {}", line);
                                 logger.error("Cannot resolve hostname: {}", icecastHostname);
@@ -233,8 +278,12 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                             }
                         }
 
-                        if (!connectionSuccessful && !shouldStopLogging) {
-                            logger.warn("FFmpeg connection may have failed");
+                        if (!connectionSuccessful[0] && !shouldStopLogging) {
+                            if (raceConditionDetected[0]) {
+                                logger.warn("FFmpeg connection failed due to race condition (attempt {})", attempts[0]);
+                            } else {
+                                logger.warn("FFmpeg connection may have failed for other reasons (attempt {})", attempts[0]);
+                            }
                         }
 
                         logger.debug("FFmpeg logging thread terminated");
@@ -249,39 +298,44 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
                 loggingThread.setDaemon(true);
                 loggingThread.start();
 
-                // Give FFmpeg a moment to establish connection
-                Thread.sleep(1000);
+                // Give FFmpeg more time to establish connection, especially for retry attempts
+                int connectionTimeout = attempts[0] == 1 ? 1000 : 2000; // Longer timeout for retries
+                Thread.sleep(connectionTimeout);
 
-                // Check if process is still alive (not immediately failed)
-                if (ffmpeg.isAlive()) {
-                    started = true;
-                    logger.info("FFmpeg process started successfully for session: {} (attempt {})", session.getId(), attempts[0]);
+                // Check if process is still alive and connection was successful
+                if (ffmpeg.isAlive() && !raceConditionDetected[0]) {
+                    // Give a bit more time for connection to be established
+                    Thread.sleep(500);
+                    
+                    if (connectionSuccessful[0] || ffmpeg.isAlive()) {
+                        started = true;
+                        logger.info("FFmpeg process started successfully for session: {} (attempt {})", session.getId(), attempts[0]);
 
-                    // Notify service that broadcast started
-                    icecastService.notifyBroadcastStarted(session.getId());
+                        // Notify service that broadcast started
+                        icecastService.notifyBroadcastStarted(session.getId());
 
-                    // Publish event to trigger status update
-                    eventPublisher.publishEvent(new StreamStatusChangeEvent(this, true));
-
+                        // Publish event to trigger status update
+                        eventPublisher.publishEvent(new StreamStatusChangeEvent(this, true));
+                    } else {
+                        logger.warn("FFmpeg process alive but connection not confirmed (attempt {})", attempts[0]);
+                        // Let it continue to retry
+                        ffmpeg.destroyForcibly();
+                    }
                 } else {
-                    logger.warn("FFmpeg process failed immediately (attempt {})", attempts[0]);
-                    if (attempts[0] < maxAttempts) {
-                        logger.info("Retrying FFmpeg connection in 500ms...");
-                        Thread.sleep(500);
+                    logger.warn("FFmpeg process failed or race condition detected (attempt {})", attempts[0]);
+                    if (ffmpeg.isAlive()) {
+                        ffmpeg.destroyForcibly();
+                    }
+                    
+                    if (raceConditionDetected[0] && attempts[0] < maxAttempts) {
+                        logger.info("Race condition detected, will retry with exponential backoff delay");
+                    } else if (attempts[0] < maxAttempts) {
+                        logger.info("FFmpeg failed, retrying...");
                     }
                 }
 
             } catch (IOException e) {
                 logger.error("Failed to start FFmpeg process (attempt {}): {}", attempts[0], e.getMessage());
-                if (attempts[0] < maxAttempts) {
-                    logger.info("Retrying FFmpeg connection in 500ms...");
-                    try {
-                        Thread.sleep(500);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 logger.error("Interrupted while starting FFmpeg process");
@@ -291,7 +345,7 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
 
         if (!started) {
             logger.error("Failed to start FFmpeg after {} attempts", maxAttempts);
-            session.close(new CloseStatus(1011, "Failed to start streaming process after multiple attempts"));
+            session.close(new CloseStatus(1011, "Failed to start streaming process after multiple attempts. This may be due to mount point race conditions."));
         }
     }
 
@@ -323,6 +377,20 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
             } catch (IOException e) {
                 logger.error("Error closing WebSocket session", e);
             }
+        }
+    }
+
+    @Override
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+        String payload = message.getPayload();
+        logger.debug("Received text message: {}", payload);
+        
+        // Handle ping/pong for connection health monitoring
+        if ("ping".equals(payload)) {
+            logger.debug("Received ping, sending pong response");
+            session.sendMessage(new TextMessage("pong"));
+        } else {
+            logger.warn("Received unexpected text message: {}", payload);
         }
     }
 
@@ -395,6 +463,50 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
             ffmpeg = null;
         }
         super.handleTransportError(session, exception);
+    }
+
+    /**
+     * Check if Icecast mount points are available (not occupied by another source)
+     * This helps prevent race conditions during audio source switching
+     */
+    private boolean checkMountPointAvailability(String icecastHostname) {
+        try {
+            URL statusUrl = new URL("http://" + icecastHostname + ":8000/status-json.xsl");
+            HttpURLConnection connection = (HttpURLConnection) statusUrl.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(3000);
+            connection.setReadTimeout(3000);
+
+            if (connection.getResponseCode() == 200) {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        response.append(line);
+                    }
+
+                    String jsonResponse = response.toString();
+                    
+                    // Check if mount points are currently occupied
+                    boolean oggOccupied = jsonResponse.contains("\"mount\":\"/live.ogg\"") && jsonResponse.contains("\"source_ip\"");
+                    boolean mp3Occupied = jsonResponse.contains("\"mount\":\"/live.mp3\"") && jsonResponse.contains("\"source_ip\"");
+                    
+                    if (oggOccupied || mp3Occupied) {
+                        logger.warn("Mount points still occupied - OGG: {}, MP3: {}", oggOccupied, mp3Occupied);
+                        return false;
+                    }
+                    
+                    logger.debug("Mount points appear available for new connection");
+                    return true;
+                }
+            } else {
+                logger.warn("Could not check mount point status, HTTP response: {}", connection.getResponseCode());
+                return true; // Assume available if we can't check
+            }
+        } catch (Exception e) {
+            logger.warn("Error checking mount point availability: {}", e.getMessage());
+            return true; // Assume available if check fails
+        }
     }
 }
 //hehe
