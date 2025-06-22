@@ -77,9 +77,9 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-b from-white via-yellow-50 to-yellow-200">
-      <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 py-8 relative">
-        <div className="w-full max-w-md">
+    <div className="min-h-screen w-full bg-gradient-to-b from-white via-yellow-50 to-yellow-200 overflow-y-auto">
+      <div className="w-full flex flex-col items-center justify-start min-h-screen p-4 py-6 sm:py-8 relative">
+        <div className="w-full max-w-md my-auto">
           {/* Logo Section */}
           <div className="flex justify-center mb-2">
             <img 
@@ -90,26 +90,26 @@ export default function Register() {
           </div>
           
           {/* Title Section */}
-          <div className="text-center mb-4 px-4">
+          <div className="text-center mb-3 sm:mb-4 px-4">
             <p className="text-sm text-gray-600 uppercase tracking-wider max-w-sm mx-auto font-semibold">
-              Your radio broadcast platform
+              Join the WildCat Radio community
             </p>
           </div>
 
           <Card className="border-0 shadow-2xl bg-white backdrop-blur-xl overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out">
             <div className="h-3 bg-gradient-to-r from-wildcats-maroon to-wildcats-maroon/70" />
-            <CardHeader className="px-6 pt-6 pb-3">
+            <CardHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-2 sm:pb-3">
               <div>
-                <CardTitle className="text-xl font-bold text-gray-800">Create your account</CardTitle>
+                <CardTitle className="text-lg sm:text-xl font-bold text-gray-800">Create your account</CardTitle>
                 <CardDescription className="text-sm text-gray-500 mt-1">
-                  Enter your information to create an account
+                  Enter your details below to create your account
                 </CardDescription>
               </div>
             </CardHeader>
-            <div className="px-6">
+            <div className="px-4 sm:px-6">
               <Separator className="bg-gray-200" />
             </div>
-            <CardContent className="px-6 py-6 pt-3">
+            <CardContent className="px-4 sm:px-6 py-4 sm:py-6 pt-3">
               <form onSubmit={handleSubmit} className="space-y-3">
                 {/* Name Fields Row */}
                 <div className="grid grid-cols-2 gap-3">
