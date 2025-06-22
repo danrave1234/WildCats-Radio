@@ -266,9 +266,7 @@ const Header = ({ onMobileMenuToggle }) => {
                 )}
               >
                 <div className="h-7 w-7 sm:h-8 sm:w-8 md:h-9 md:w-9 lg:h-10 lg:w-10 rounded-full bg-maroon-600 flex items-center justify-center text-white shadow-sm border-2 border-white flex-shrink-0">
-                  {currentUser.role?.toLowerCase() === 'dj' ? (
-                    <span className="text-[10px] sm:text-xs md:text-sm font-bold">DJ</span>
-                  ) : currentUser.role?.toLowerCase() === 'admin' ? (
+                  {currentUser.role?.toLowerCase() === 'admin' ? (
                     <UserRound className="h-3 w-3 sm:h-4 sm:w-4 md:h-5 md:w-5" />
                   ) : (
                     <span className="text-[10px] sm:text-xs md:text-sm font-medium">
@@ -280,7 +278,7 @@ const Header = ({ onMobileMenuToggle }) => {
                   <span className="font-medium text-xs lg:text-sm text-maroon-800 truncate w-full">
                     {getDisplayName(currentUser)}
                   </span>
-                  <span className="text-[10px] lg:text-xs text-maroon-500 truncate w-full">
+                  <span className="text-[10px] lg:text-xs text-maroon-500 truncate w-full text-left">
                     {formatRole(currentUser.role)}
                   </span>
                 </div>
