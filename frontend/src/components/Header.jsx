@@ -82,42 +82,48 @@ const Header = ({ onMobileMenuToggle }) => {
   const getInitials = (user) => {
     if (!user) return "AA";
     
-    const firstName = user.firstName || "";
-    const lastName = user.lastName || "";
+    const firstName = user.firstName || user.firstname || "";
+    const lastName = user.lastName || user.lastname || "";
     const username = user.username || "";
     const fullName = user.name || user.fullName || "";
     const email = user.email || "";
     
-    // Try firstName + lastName first
+    // Priority 1: firstName + lastName initials
     if (firstName && lastName) {
       return (firstName.charAt(0) + lastName.charAt(0)).toUpperCase();
     }
     
-    // Try to split fullName if available
+    // Priority 2: Split fullName if it contains spaces
     if (fullName && fullName.includes(" ")) {
-      const nameParts = fullName.trim().split(" ");
+      const nameParts = fullName.trim().split(/\s+/);
       if (nameParts.length >= 2) {
         return (nameParts[0].charAt(0) + nameParts[nameParts.length - 1].charAt(0)).toUpperCase();
       }
     }
     
-    // Try firstName + first letter of username/email
+    // Priority 3: firstName + first letter of lastName (if lastName is missing but firstName exists)
     if (firstName && (username || email)) {
       const secondChar = username ? username.charAt(0) : email.charAt(0);
       return (firstName.charAt(0) + secondChar).toUpperCase();
     }
     
-    // Try username if it has multiple characters
+    // Priority 4: lastName + first letter of username/email (if firstName is missing)
+    if (lastName && (username || email)) {
+      const secondChar = username ? username.charAt(0) : email.charAt(0);
+      return (lastName.charAt(0) + secondChar).toUpperCase();
+    }
+    
+    // Priority 5: Use username if it has multiple characters
     if (username && username.length >= 2) {
       return username.substring(0, 2).toUpperCase();
     }
     
-    // Try fullName if it has multiple characters
+    // Priority 6: Use fullName if it has multiple characters
     if (fullName && fullName.length >= 2) {
       return fullName.substring(0, 2).toUpperCase();
     }
     
-    // Try email prefix
+    // Priority 7: Use email prefix
     if (email && email.includes("@")) {
       const emailPrefix = email.split("@")[0];
       if (emailPrefix.length >= 2) {
@@ -125,9 +131,12 @@ const Header = ({ onMobileMenuToggle }) => {
       }
     }
     
-    // Fallback to single character or AA
+    // Fallback to single character repeated or AA
     if (firstName) {
       return (firstName.charAt(0) + firstName.charAt(0)).toUpperCase();
+    }
+    if (lastName) {
+      return (lastName.charAt(0) + lastName.charAt(0)).toUpperCase();
     }
     if (username) {
       return (username.charAt(0) + username.charAt(0)).toUpperCase();
@@ -140,21 +149,42 @@ const Header = ({ onMobileMenuToggle }) => {
   const getDisplayName = (user) => {
     if (!user) return "User";
     
-    const firstName = user.firstName || "";
-    const lastName = user.lastName || "";
+    const firstName = user.firstName || user.firstname || "";
+    const lastName = user.lastName || user.lastname || "";
+    const username = user.username || "";
+    const fullName = user.name || user.fullName || "";
     
+    // Priority 1: firstName + lastName combination
     if (firstName && lastName) {
       return `${firstName} ${lastName}`;
-    } else if (firstName) {
-      return firstName;
-    } else if (user.username) {
-      return user.username;
-    } else if (user.name) {
-      return user.name;
-    } else if (user.fullName) {
-      return user.fullName;
     }
     
+    // Priority 2: Use fullName if it exists and contains spaces
+    if (fullName && fullName.includes(" ")) {
+      return fullName;
+    }
+    
+    // Priority 3: Use firstName only
+    if (firstName) {
+      return firstName;
+    }
+    
+    // Priority 4: Use lastName only
+    if (lastName) {
+      return lastName;
+    }
+    
+    // Priority 5: Use fullName (single word)
+    if (fullName) {
+      return fullName;
+    }
+    
+    // Priority 6: Use username
+    if (username) {
+      return username;
+    }
+    
+    // Fallback
     return "User";
   };
 
