@@ -49,6 +49,16 @@ public class IcecastStreamHandler extends BinaryWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         logger.info("WebSocket connection established with session ID: {}", session.getId());
+        
+        // Add delay to prevent rapid connection attempts during audio source switching
+        // This helps avoid race conditions where new FFmpeg processes try to connect
+        // before the old process has fully released the Icecast mount point
+        try {
+            Thread.sleep(500); // Increased to 500ms for better race condition prevention
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted during connection establishment delay");
+        }
 
         // FIXED: Use the actual Icecast server hostname, not the Spring Boot app domain
         String icecastHostname = networkConfig.getIcecastHostname();

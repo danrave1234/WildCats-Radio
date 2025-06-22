@@ -60,6 +60,9 @@ export function StreamingProvider({ children }) {
   const djReconnectTimerRef = useRef(null);
   const listenerReconnectTimerRef = useRef(null);
   const statusReconnectTimerRef = useRef(null);
+  
+  // Flag to prevent auto-reconnection during pipeline resets
+  const pipelineResetInProgressRef = useRef(false);
 
   // Add new audio source state
   const [audioSource, setAudioSource] = useState('microphone'); // 'microphone', 'desktop', 'both'
@@ -777,7 +780,7 @@ export function StreamingProvider({ children }) {
     }
   };
 
-  // Seamless function to switch audio source during broadcast without disconnecting
+  // Enhanced function to switch audio source during broadcast with full pipeline reset
   const switchAudioSourceLive = async (newSource) => {
     if (!isLive || !mediaRecorderRef.current) {
       logger.warn('Cannot switch audio source: not live or no media recorder');
@@ -785,27 +788,27 @@ export function StreamingProvider({ children }) {
       return;
     }
 
+    // Prevent multiple simultaneous pipeline resets
+    if (pipelineResetInProgressRef.current) {
+      logger.warn('Pipeline reset already in progress, ignoring duplicate request');
+      throw new Error('Audio source switch already in progress. Please wait for current switch to complete.');
+    }
+
     try {
-      logger.info('Switching audio source from', audioSource, 'to', newSource);
+      logger.info('Starting full pipeline reset for audio source switch from', audioSource, 'to', newSource);
 
-      // Step 1: Prepare new audio stream first (fail fast if this doesn't work)
-      logger.debug('Step 1: Preparing new audio stream...');
-      const newStream = await getAudioStreamForSwitching(newSource);
-      
-      // Step 1.5: Initial validation of the new stream
-      logger.debug('Step 1.5: Initial stream validation...');
-      await validateAndPrepareStream(newStream, newSource);
+      // Set flag to prevent auto-reconnection during pipeline reset AND stability window
+      pipelineResetInProgressRef.current = true;
 
-      // Step 2: Stop current audio level monitoring to prevent conflicts
-      logger.debug('Step 2: Stopping audio level monitoring...');
+      // Step 1: Stop current audio level monitoring to prevent conflicts
+      logger.debug('Step 1: Stopping audio level monitoring...');
       stopAudioLevelMonitoring();
 
-      // Step 3: Gracefully stop current MediaRecorder
-      logger.debug('Step 3: Stopping current MediaRecorder...');
+      // Step 2: Stop current MediaRecorder to cease sending data
+      logger.debug('Step 2: Stopping current MediaRecorder...');
       const currentMediaRecorder = mediaRecorderRef.current;
       
       if (currentMediaRecorder.state === 'recording') {
-        // Stop the recorder gracefully
         currentMediaRecorder.stop();
         
         // Wait for the stop event to complete
@@ -821,14 +824,34 @@ export function StreamingProvider({ children }) {
         });
       }
 
-      // Step 4: Clean up old audio streams
+      // Step 3: Disconnect DJ WebSocket - CRITICAL for FFmpeg process termination
+      logger.debug('Step 3: Disconnecting DJ WebSocket to terminate FFmpeg process...');
+      if (djWebSocketRef.current) {
+        // Temporarily disable reconnection and set flag to prevent auto-reconnect
+        djWebSocketRef.current.onclose = null;
+        djWebSocketRef.current.onerror = null;
+        
+        // Clear any existing reconnection timer to prevent interference
+        if (djReconnectTimerRef.current) {
+          clearTimeout(djReconnectTimerRef.current);
+          djReconnectTimerRef.current = null;
+        }
+        
+        djWebSocketRef.current.close(1000, 'Audio source switching - pipeline reset');
+        djWebSocketRef.current = null;
+      }
+      setWebsocketConnected(false);
+
+      // Step 4: Clean up all old audio stream tracks to release device resources
       logger.debug('Step 4: Cleaning up old audio streams...');
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach(track => {
           track.stop();
           logger.debug('Stopped audio track:', track.kind, track.label);
         });
+        audioStreamRef.current = null;
       }
+      
       if (desktopStreamRef.current) {
         desktopStreamRef.current.getTracks().forEach(track => {
           track.stop();
@@ -837,16 +860,78 @@ export function StreamingProvider({ children }) {
         desktopStreamRef.current = null;
       }
 
-      // Step 5: Reduced pause and immediate pre-use validation
-      logger.debug('Step 5: Brief pause and immediate validation...');
-      await new Promise(resolve => setTimeout(resolve, 200)); // Reduced pause
+      // Step 5: Close old audio context to fully release audio processing resources
+      logger.debug('Step 5: Closing old audio context...');
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        await audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
 
-      // Step 5.5: Final validation just before MediaRecorder creation
-      logger.debug('Step 5.5: Final validation before MediaRecorder creation...');
+      // Clear all audio processing references
+      analyserRef.current = null;
+      noiseGateRef.current = null;
+      gainNodeRef.current = null;
+      microphoneBoostRef.current = null;
+
+      // Step 6: Extended pause to ensure complete cleanup (increased for FFmpeg termination)
+      logger.debug('Step 6: Extended pause for complete pipeline cleanup...');
+      await new Promise(resolve => setTimeout(resolve, 2500)); // 2.5 seconds for FFmpeg process termination
+
+      // Step 7: Acquire and validate new audio source
+      logger.debug('Step 7: Acquiring new audio source...');
+      const newStream = await getAudioStreamForSwitching(newSource);
+      
+      // Validate the new stream before proceeding
+      await validateAndPrepareStream(newStream, newSource);
+
+      // Step 8: Connect new DJ WebSocket - triggers fresh FFmpeg process start
+      logger.debug('Step 8: Connecting new DJ WebSocket for fresh FFmpeg process...');
+      connectDJWebSocket();
+
+      // Step 9: Wait for WebSocket connection to establish
+      logger.debug('Step 9: Waiting for WebSocket connection...');
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          // Clean up any partially established connection
+          if (djWebSocketRef.current) {
+            djWebSocketRef.current.onclose = null;
+            djWebSocketRef.current.onerror = null;
+            djWebSocketRef.current.close();
+            djWebSocketRef.current = null;
+          }
+          reject(new Error('WebSocket connection timeout during audio source switch - server may be overloaded'));
+        }, 8000); // Reduced to 8 seconds for faster feedback
+
+        const checkConnection = () => {
+          // Check if pipeline reset was cancelled
+          if (!pipelineResetInProgressRef.current) {
+            clearTimeout(timeout);
+            reject(new Error('Pipeline reset was cancelled'));
+            return;
+          }
+          
+          if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+            clearTimeout(timeout);
+            setWebsocketConnected(true);
+            logger.debug('New WebSocket connected successfully');
+            resolve();
+          } else if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.CLOSED) {
+            clearTimeout(timeout);
+            reject(new Error('WebSocket connection failed - server rejected connection'));
+          } else {
+            setTimeout(checkConnection, 150); // Slightly longer intervals to reduce CPU usage
+          }
+        };
+        
+        checkConnection();
+      });
+
+      // Step 10: Create new MediaRecorder with fresh timestamps
+      logger.debug('Step 10: Creating new MediaRecorder with fresh timestamp reset...');
+      
+      // Final validation just before MediaRecorder creation
       validateStreamBeforeUse(newStream, newSource);
 
-      // Step 6: Create new MediaRecorder with validated stream
-      logger.debug('Step 6: Creating new MediaRecorder with validated stream...');
       const mediaRecorderOptions = {
         mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus") 
           ? "audio/webm;codecs=opus" 
@@ -856,20 +941,19 @@ export function StreamingProvider({ children }) {
       
       const newMediaRecorder = new MediaRecorder(newStream, mediaRecorderOptions);
 
-      // Step 7: Set up comprehensive error handling for new MediaRecorder
-      logger.debug('Step 7: Setting up MediaRecorder event handlers...');
+      // Step 11: Set up enhanced error handling for new MediaRecorder
+      logger.debug('Step 11: Setting up MediaRecorder event handlers...');
       
       newMediaRecorder.onerror = (event) => {
-        logger.error('MediaRecorder error during audio source switch:', event.error);
-        // Don't throw here, let the main error handling deal with it
+        logger.error('MediaRecorder error during fresh pipeline:', event.error);
       };
 
       newMediaRecorder.onstart = () => {
-        logger.debug('New MediaRecorder started successfully');
+        logger.debug('Fresh MediaRecorder started successfully with zero timestamps');
       };
 
       newMediaRecorder.onstop = () => {
-        logger.debug('MediaRecorder stopped');
+        logger.debug('Fresh MediaRecorder stopped');
       };
 
       // Enhanced data handler with buffer size checking
@@ -891,31 +975,27 @@ export function StreamingProvider({ children }) {
               try {
                 djWebSocketRef.current.send(buffer);
               } catch (error) {
-                logger.error('Error sending audio data:', error);
+                logger.error('Error sending fresh audio data:', error);
               }
             }
           }).catch(error => {
-            logger.error('Error processing audio data:', error);
+            logger.error('Error processing fresh audio data:', error);
           });
         }
       };
 
-      // Step 8: Start new recorder with additional safety checks
-      logger.debug('Step 8: Starting new MediaRecorder with final safety checks...');
+      // Step 12: Start new recorder with fresh timestamps
+      logger.debug('Step 12: Starting fresh MediaRecorder...');
       
-      // Final check that stream is still active before starting
-      validateStreamBeforeUse(newStream, newSource);
-
-      // Start with error handling
       try {
-        newMediaRecorder.start(250); // Smaller intervals (250ms) to prevent buffer buildup
+        newMediaRecorder.start(250); // Fresh start with zero timestamps
       } catch (startError) {
-        logger.error('Failed to start new MediaRecorder:', startError);
-        throw new Error(`MediaRecorder start failed: ${startError.message}`);
+        logger.error('Failed to start fresh MediaRecorder:', startError);
+        throw new Error(`Fresh MediaRecorder start failed: ${startError.message}`);
       }
 
-      // Step 9: Update references only after successful start
-      logger.debug('Step 9: Updating references after successful start...');
+      // Step 13: Update references only after successful start
+      logger.debug('Step 13: Updating references after successful pipeline reset...');
       mediaRecorderRef.current = newMediaRecorder;
       audioStreamRef.current = newStream;
 
@@ -924,8 +1004,8 @@ export function StreamingProvider({ children }) {
         desktopStreamRef.current = newStream;
       }
 
-      // Step 10: Update audio source state and restart monitoring
-      logger.debug('Step 10: Updating state and restarting monitoring...');
+      // Step 14: Update audio source state and restart monitoring
+      logger.debug('Step 14: Updating state and restarting monitoring...');
       setAudioSource(newSource);
       
       // Restart audio level monitoring with new stream
@@ -933,27 +1013,85 @@ export function StreamingProvider({ children }) {
         startAudioLevelMonitoring();
       }, 500);
 
-      logger.info('Audio source switched successfully to:', newSource, '- WebSocket remained connected');
+      // CRITICAL: Implement stability window to prevent race condition
+      // Keep pipelineResetInProgressRef true for 8 seconds after successful connection
+      // This prevents auto-reconnection if server-side FFmpeg process fails during mount point acquisition
+      logger.debug('Step 15: Starting 8-second stability window to prevent reconnection race condition...');
+      setTimeout(() => {
+        if (pipelineResetInProgressRef.current) {
+          pipelineResetInProgressRef.current = false;
+          logger.debug('Pipeline reset stability window completed - auto-reconnection re-enabled');
+        }
+      }, 8000); // 8-second stability window
+      
+      logger.info('Full pipeline reset completed successfully - fresh FFmpeg process and zero timestamps:', newSource);
+      logger.info('Stability window active for 8 seconds to prevent server-side race conditions');
 
     } catch (error) {
-      logger.error('Error during audio source switch:', error);
+      logger.error('Error during full pipeline reset for audio source switch:', error);
 
-      // Enhanced fallback with better error handling
-      logger.debug('Attempting to restore previous audio source...');
+      // Enhanced fallback with complete pipeline restoration
+      logger.debug('Attempting complete pipeline restoration to previous source...');
       try {
-        // Stop any partially created streams
+        // Ensure complete cleanup first
         if (audioStreamRef.current) {
           audioStreamRef.current.getTracks().forEach(track => track.stop());
+          audioStreamRef.current = null;
         }
         if (desktopStreamRef.current) {
           desktopStreamRef.current.getTracks().forEach(track => track.stop());
           desktopStreamRef.current = null;
         }
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+          await audioContextRef.current.close();
+          audioContextRef.current = null;
+        }
 
-        // Get and validate fallback stream
+        // Clear all references
+        analyserRef.current = null;
+        noiseGateRef.current = null;
+        gainNodeRef.current = null;
+        microphoneBoostRef.current = null;
+
+        // Disconnect any partial WebSocket connection
+        if (djWebSocketRef.current) {
+          djWebSocketRef.current.onclose = null;
+          djWebSocketRef.current.onerror = null;
+          
+          // Clear any reconnection timer
+          if (djReconnectTimerRef.current) {
+            clearTimeout(djReconnectTimerRef.current);
+            djReconnectTimerRef.current = null;
+          }
+          
+          djWebSocketRef.current.close(1000, 'Pipeline restoration cleanup');
+          djWebSocketRef.current = null;
+        }
+        setWebsocketConnected(false);
+
+        // Wait for complete cleanup
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Restore with original source
         const fallbackStream = await getAudioStreamForSwitching(audioSource);
-        await validateAndPrepareStream(fallbackStream, `fallback-${audioSource}`);
+        await validateAndPrepareStream(fallbackStream, `restored-${audioSource}`);
 
+        // Reconnect WebSocket for fresh FFmpeg process
+        connectDJWebSocket();
+
+        // Wait for connection
+        await new Promise((resolve) => {
+          const checkConnection = () => {
+            if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+              resolve();
+            } else {
+              setTimeout(checkConnection, 100);
+            }
+          };
+          checkConnection();
+        });
+
+        // Create fresh fallback recorder
         const fallbackRecorder = new MediaRecorder(fallbackStream, {
           mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus") 
             ? "audio/webm;codecs=opus" 
@@ -988,10 +1126,13 @@ export function StreamingProvider({ children }) {
           startAudioLevelMonitoring();
         }, 500);
 
-        logger.info('Restored to previous audio source');
+        logger.info('Complete pipeline restoration successful');
       } catch (restoreError) {
-        logger.error('Failed to restore audio source:', restoreError);
-        throw new Error(`Audio switch failed and could not restore: ${error.message}`);
+        logger.error('Failed to restore audio pipeline:', restoreError);
+        throw new Error(`Audio switch failed and pipeline restoration failed: ${error.message}`);
+      } finally {
+        // Always clear the pipeline reset flag, even if restoration fails
+        pipelineResetInProgressRef.current = false;
       }
 
       throw error;
@@ -1505,20 +1646,29 @@ export function StreamingProvider({ children }) {
           djWebSocketRef.current = null;
         }
 
-        // Only auto-reconnect if this was an unexpected disconnect and we should still be live
-        if (isLive && event.code !== 1000 && event.code !== 1001) {
+        // Enhanced auto-reconnection logic with pipeline reset and stability window protection
+        if (isLive && event.code !== 1000 && event.code !== 1001 && !pipelineResetInProgressRef.current) {
           // Add random jitter to prevent all clients reconnecting simultaneously
           const jitter = Math.floor(Math.random() * 1000);
           const reconnectDelay = 3000 + jitter;
 
-          console.log(`Scheduling DJ WebSocket reconnection in ${reconnectDelay}ms`);
+          console.log(`Scheduling DJ WebSocket reconnection in ${reconnectDelay}ms (code: ${event.code}, reason: ${event.reason})`);
 
           djReconnectTimerRef.current = setTimeout(() => {
-            if (isLive) {
+            // Double-check both conditions before reconnecting
+            if (isLive && !pipelineResetInProgressRef.current) {
               console.log('Attempting DJ WebSocket reconnection...');
               connectDJWebSocket();
+            } else if (pipelineResetInProgressRef.current) {
+              console.log('Reconnection cancelled: pipeline reset/stability window still active');
+            } else {
+              console.log('Reconnection cancelled: no longer live');
             }
           }, reconnectDelay);
+        } else if (pipelineResetInProgressRef.current) {
+          console.log(`DJ WebSocket disconnected during pipeline reset/stability window - auto-reconnection disabled (code: ${event.code}, reason: ${event.reason})`);
+        } else {
+          console.log(`DJ WebSocket disconnected with clean close or not live - no reconnection needed (code: ${event.code}, reason: ${event.reason})`);
         }
       };
     } catch (error) {

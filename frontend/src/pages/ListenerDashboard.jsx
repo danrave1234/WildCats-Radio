@@ -102,6 +102,7 @@ export default function ListenerDashboard() {
   const songRequestWsRef = useRef(null);
   const pollWsRef = useRef(null);
   const broadcastWsRef = useRef(null);
+  const globalBroadcastWsRef = useRef(null); // For general broadcast status updates
 
   // UI refs
   const chatContainerRef = useRef(null);
@@ -837,10 +838,21 @@ export default function ListenerDashboard() {
           switch (message.type) {
             case 'BROADCAST_STARTED':
               logger.debug('Stream started via WebSocket');
+              // Fetch the new broadcast information immediately
+              if (message.broadcast) {
+                setCurrentBroadcast(message.broadcast);
+                setCurrentBroadcastId(message.broadcast.id);
+                logger.debug('Broadcast information updated from WebSocket:', message.broadcast);
+              } else {
+                // Fallback: fetch broadcast info if not included in message
+                fetchCurrentBroadcastInfo();
+              }
               break;
 
             case 'BROADCAST_ENDED':
               logger.debug('Stream ended via WebSocket');
+              setCurrentBroadcast(null);
+              setCurrentBroadcastId(null);
               break;
 
             case 'LISTENER_COUNT_UPDATE':
@@ -848,7 +860,14 @@ export default function ListenerDashboard() {
               break;
 
             case 'BROADCAST_STATUS_UPDATE':
-              logger.debug('Broadcast status updated via WebSocket:', message.broadcast.status === 'LIVE');
+              logger.debug('Broadcast status updated via WebSocket:', message.broadcast?.status === 'LIVE');
+              // Update broadcast information when status changes
+              if (message.broadcast) {
+                setCurrentBroadcast(message.broadcast);
+                if (message.broadcast.status === 'LIVE' && !currentBroadcastId) {
+                  setCurrentBroadcastId(message.broadcast.id);
+                }
+              }
               break;
 
             case 'LISTENER_JOINED':
@@ -968,6 +987,28 @@ export default function ListenerDashboard() {
     }
   };
 
+  // Helper function to fetch current broadcast info
+  const fetchCurrentBroadcastInfo = async () => {
+    try {
+      // Fetch live broadcasts from API
+      const response = await broadcastService.getLive();
+      const liveBroadcasts = response.data;
+
+      if (liveBroadcasts && liveBroadcasts.length > 0) {
+        const liveBroadcast = liveBroadcasts[0];
+        setCurrentBroadcast(liveBroadcast);
+        setCurrentBroadcastId(liveBroadcast.id);
+        logger.debug("Live broadcast information fetched:", liveBroadcast);
+      } else {
+        setCurrentBroadcast(null);
+        setCurrentBroadcastId(null);
+        logger.debug("No live broadcasts found");
+      }
+    } catch (error) {
+      logger.error("Error fetching current broadcast info:", error);
+    }
+  };
+
   // Check if a broadcast is live
   useEffect(() => {
     const checkBroadcastStatus = async () => {
@@ -1001,10 +1042,15 @@ export default function ListenerDashboard() {
         const response = await broadcastService.getLive();
         const liveBroadcasts = response.data;
 
-        // If there are any live broadcasts, set isLive to true
+        // If there are any live broadcasts, update state
         if (liveBroadcasts && liveBroadcasts.length > 0) {
-          logger.debug("Live broadcast:", liveBroadcasts[0]);
-          } else {
+          const liveBroadcast = liveBroadcasts[0];
+          setCurrentBroadcast(liveBroadcast);
+          setCurrentBroadcastId(liveBroadcast.id);
+          logger.debug("Live broadcast found:", liveBroadcast);
+        } else {
+          setCurrentBroadcast(null);
+          setCurrentBroadcastId(null);
           logger.debug("No live broadcasts found");
         }
       } catch (error) {
@@ -1021,6 +1067,81 @@ export default function ListenerDashboard() {
 
     return () => clearInterval(interval);
   }, [targetBroadcastId]); // Add targetBroadcastId as dependency
+
+  // Global broadcast status WebSocket for real-time broadcast detection
+  useEffect(() => {
+    const setupGlobalBroadcastWebSocket = async () => {
+      try {
+        // Clean up any existing connection
+        if (globalBroadcastWsRef.current) {
+          globalBroadcastWsRef.current.disconnect();
+          globalBroadcastWsRef.current = null;
+        }
+
+        logger.debug('Setting up global broadcast status WebSocket...');
+        
+        // Subscribe to global broadcast status updates (no specific broadcast ID)
+        const connection = await broadcastService.subscribeToBroadcastUpdates(null, (message) => {
+          logger.debug('Global broadcast update received:', message);
+
+          switch (message.type) {
+            case 'BROADCAST_STARTED':
+              logger.debug('New broadcast started via global WebSocket');
+              if (message.broadcast) {
+                setCurrentBroadcast(message.broadcast);
+                setCurrentBroadcastId(message.broadcast.id);
+                logger.debug('Updated to new live broadcast:', message.broadcast);
+              } else {
+                // Fallback: fetch live broadcasts
+                fetchCurrentBroadcastInfo();
+              }
+              break;
+
+            case 'BROADCAST_ENDED':
+              logger.debug('Broadcast ended via global WebSocket');
+              setCurrentBroadcast(null);
+              setCurrentBroadcastId(null);
+              break;
+
+            case 'BROADCAST_STATUS_UPDATE':
+              logger.debug('Broadcast status updated via global WebSocket:', message.broadcast?.status);
+              if (message.broadcast && message.broadcast.status === 'LIVE') {
+                setCurrentBroadcast(message.broadcast);
+                setCurrentBroadcastId(message.broadcast.id);
+                logger.debug('Broadcast went live via status update:', message.broadcast);
+              } else if (message.broadcast && message.broadcast.status !== 'LIVE') {
+                // If this was the current broadcast and it's no longer live
+                if (currentBroadcastId === message.broadcast.id) {
+                  setCurrentBroadcast(null);
+                  setCurrentBroadcastId(null);
+                  logger.debug('Current broadcast ended via status update');
+                }
+              }
+              break;
+
+            default:
+              // Other message types can be ignored for global status
+              break;
+          }
+        });
+
+        globalBroadcastWsRef.current = connection;
+        logger.debug('Global broadcast status WebSocket connected successfully');
+      } catch (error) {
+        logger.error('Failed to connect global broadcast status WebSocket:', error);
+      }
+    };
+
+    // Set up the global WebSocket connection
+    setupGlobalBroadcastWebSocket();
+
+    return () => {
+      if (globalBroadcastWsRef.current) {
+        globalBroadcastWsRef.current.disconnect();
+        globalBroadcastWsRef.current = null;
+      }
+    };
+  }, []); // Run once on component mount
 
   // Fetch active polls for the current broadcast
   useEffect(() => {
