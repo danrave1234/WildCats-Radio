@@ -38,9 +38,9 @@ public class WebSocketConfig implements WebSocketConfigurer {
     @Bean
     public ServletServerContainerFactoryBean createWebSocketContainer() {
         ServletServerContainerFactoryBean container = new ServletServerContainerFactoryBean();
-        // Set larger buffer sizes for audio data (64KB)
-        container.setMaxBinaryMessageBufferSize(65536); 
-        container.setMaxTextMessageBufferSize(65536);
+        // Increase buffer sizes for audio data to handle larger chunks during audio source switching
+        container.setMaxBinaryMessageBufferSize(131072); // 128KB - increased from 64KB
+        container.setMaxTextMessageBufferSize(131072);   // 128KB - increased from 64KB
         // Increase timeout to handle potential network delays
         container.setAsyncSendTimeout(30000L);
         return container;

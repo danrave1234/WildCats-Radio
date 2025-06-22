@@ -300,7 +300,7 @@ export function StreamingProvider({ children }) {
   const getDiagnosticMicrophoneAudioStream = async () => {
     try {
       console.log('🔬 Starting diagnostic microphone audio capture...');
-
+      
       // Step 1: Test basic microphone access
       const micStream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -313,7 +313,7 @@ export function StreamingProvider({ children }) {
       });
 
       console.log('✅ Diagnostic microphone stream obtained');
-
+      
       // Step 2: Test audio levels directly from raw stream
       const testContext = new AudioContext({ sampleRate: 48000 });
       const testSource = testContext.createMediaStreamSource(micStream);
@@ -327,7 +327,7 @@ export function StreamingProvider({ children }) {
       let testCount = 0;
 
       console.log('🔬 Testing raw microphone audio levels for 2 seconds...');
-
+      
       await new Promise((resolve) => {
         const testInterval = setInterval(() => {
           testAnalyser.getByteFrequencyData(testData);
@@ -337,7 +337,7 @@ export function StreamingProvider({ children }) {
           }
           const rms = Math.sqrt(sum / testData.length);
           const dB = rms > 0 ? 20 * Math.log10(rms / 255) : -100;
-
+          
           if (rms > maxLevel) maxLevel = rms;
           testCount++;
 
@@ -368,25 +368,25 @@ export function StreamingProvider({ children }) {
         // Test: return the raw stream directly without any processing
         // This will help identify if the issue is in the processing pipeline
         console.log('⚠️ Using DIRECT STREAM mode (no processing) for testing');
-
+        
         // Set up basic references for audio level monitoring
         const testContext = new AudioContext({ sampleRate: 48000 });
         const testSource = testContext.createMediaStreamSource(micStream);
         const testAnalyser = testContext.createAnalyser();
         testSource.connect(testAnalyser);
-
+        
         analyserRef.current = testAnalyser;
         audioContextRef.current = testContext;
-
+        
         // Start basic monitoring
         startSimplifiedAudioLevelMonitoring();
-
+        
         console.log('✅ Direct stream mode active - no audio processing applied');
         return micStream; // Return raw stream directly
-
+        
       } catch (directError) {
         console.warn('⚠️ Direct stream failed, falling back to processing pipeline:', directError);
-
+        
         // Step 5b: Create processing pipeline as fallback
         const audioContext = new AudioContext({
           sampleRate: 48000,
@@ -395,7 +395,7 @@ export function StreamingProvider({ children }) {
         audioContextRef.current = audioContext;
 
         const processedStream = createSimplifiedAudioProcessingPipeline(micStream, audioContext);
-
+        
         // DON'T stop original stream immediately - let processed stream establish first
         setTimeout(() => {
           console.log('🔧 Stopping original microphone stream after processed stream established');
@@ -416,7 +416,7 @@ export function StreamingProvider({ children }) {
   const getFallbackMicrophoneAudioStream = async () => {
     try {
       console.log('🔄 Attempting fallback microphone capture...');
-
+      
       // Try different audio constraints
       const constraints = [
         // Constraint 1: Minimal settings
@@ -449,39 +449,39 @@ export function StreamingProvider({ children }) {
       for (let i = 0; i < constraints.length; i++) {
         try {
           console.log(`🔄 Trying fallback constraint ${i + 1}:`, constraints[i]);
-
+          
           const stream = await navigator.mediaDevices.getUserMedia(constraints[i]);
-
+          
           // Test this stream briefly
           const testCtx = new AudioContext();
           const testSrc = testCtx.createMediaStreamSource(stream);
           const testAna = testCtx.createAnalyser();
           testSrc.connect(testAna);
-
+          
           // Quick test
           const testArr = new Uint8Array(testAna.frequencyBinCount);
           await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms
           testAna.getByteFrequencyData(testArr);
-
+          
           let sum = 0;
           for (let j = 0; j < testArr.length; j++) {
             sum += testArr[j];
           }
           const avgLevel = sum / testArr.length;
-
+          
           testCtx.close();
-
+          
           console.log(`🔄 Fallback constraint ${i + 1} average level: ${avgLevel.toFixed(2)}`);
-
+          
           if (avgLevel > 0.5 || i === constraints.length - 1) { // Accept if any audio or last attempt
             console.log(`✅ Fallback constraint ${i + 1} accepted, using direct stream`);
-
+            
             // Return the stream directly without complex processing
             return stream;
           } else {
             stream.getTracks().forEach(track => track.stop());
           }
-
+          
         } catch (error) {
           console.warn(`⚠️ Fallback constraint ${i + 1} failed:`, error.message);
         }
@@ -578,6 +578,205 @@ export function StreamingProvider({ children }) {
     logger.debug('Microphone boost level set to:', clampedBoost);
   };
 
+  // Helper function to validate and prepare audio stream for MediaRecorder
+  const validateAndPrepareStream = async (stream, sourceType) => {
+    try {
+      logger.debug(`Validating ${sourceType} stream for MediaRecorder compatibility...`);
+      
+      // Check if stream has active audio tracks
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        throw new Error(`No audio tracks found in ${sourceType} stream`);
+      }
+
+      // Check if tracks are active and ready
+      const activeTracks = audioTracks.filter(track => track.readyState === 'live');
+      if (activeTracks.length === 0) {
+        throw new Error(`No active audio tracks found in ${sourceType} stream`);
+      }
+
+      logger.debug(`${sourceType} stream validation: ${activeTracks.length} active tracks found`);
+
+      // Test MediaRecorder compatibility with this stream
+      if (!MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+        logger.warn('Opus codec not supported, trying webm fallback');
+        if (!MediaRecorder.isTypeSupported("audio/webm")) {
+          throw new Error('WebM audio recording not supported in this browser');
+        }
+      }
+
+      // Create a test MediaRecorder to verify stream compatibility
+      logger.debug(`Testing MediaRecorder compatibility with ${sourceType} stream...`);
+      const testRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus") 
+          ? "audio/webm;codecs=opus" 
+          : "audio/webm",
+        audioBitsPerSecond: 96000
+      });
+
+      // Wait a brief moment to ensure the stream is fully established
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Test that we can actually start recording (but don't actually start)
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`${sourceType} stream validation timeout`));
+        }, 2000);
+
+        testRecorder.onstart = () => {
+          clearTimeout(timeout);
+          testRecorder.stop(); // Immediately stop the test
+          logger.debug(`${sourceType} stream validation successful`);
+          resolve(stream);
+        };
+
+        testRecorder.onerror = (event) => {
+          clearTimeout(timeout);
+          reject(new Error(`${sourceType} stream validation failed: ${event.error?.message || 'Unknown error'}`));
+        };
+
+        testRecorder.onstop = () => {
+          // Clean up test recorder
+          testRecorder.ondataavailable = null;
+          testRecorder.onstart = null;
+          testRecorder.onerror = null;
+          testRecorder.onstop = null;
+        };
+
+        try {
+          // Attempt to start test recording
+          testRecorder.start();
+        } catch (error) {
+          clearTimeout(timeout);
+          reject(new Error(`${sourceType} stream validation failed: ${error.message}`));
+        }
+      });
+
+    } catch (error) {
+      logger.error(`Stream validation failed for ${sourceType}:`, error);
+      throw error;
+    }
+  };
+
+  // Enhanced function to validate stream just before use (immediate validation)
+  const validateStreamBeforeUse = (stream, sourceType) => {
+    logger.debug(`Final validation of ${sourceType} stream before MediaRecorder use...`);
+    
+    if (!stream) {
+      throw new Error(`${sourceType} stream is null or undefined`);
+    }
+
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) {
+      throw new Error(`No audio tracks in ${sourceType} stream`);
+    }
+
+    const activeTracks = audioTracks.filter(track => track.readyState === 'live');
+    if (activeTracks.length === 0) {
+      throw new Error(`Audio stream became inactive before MediaRecorder could start`);
+    }
+
+    // Check if any tracks have ended
+    const endedTracks = audioTracks.filter(track => track.readyState === 'ended');
+    if (endedTracks.length > 0) {
+      throw new Error(`Audio tracks have ended - this often happens when screen sharing is cancelled`);
+    }
+
+    logger.debug(`${sourceType} stream final validation passed: ${activeTracks.length} active tracks`);
+    return true;
+  };
+
+  // Enhanced desktop audio stream acquisition with better lifecycle management
+  const getDesktopAudioStreamWithLifecycleManagement = async () => {
+    try {
+      logger.debug('Getting desktop audio stream with enhanced lifecycle management...');
+      
+      // Check if getDisplayMedia is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        throw new Error('Screen capture not supported in this browser');
+      }
+
+      // Check if we're in a secure context (HTTPS or localhost)
+      if (!window.isSecureContext && window.location.protocol !== 'http:') {
+        throw new Error('Desktop audio capture requires a secure connection (HTTPS). Please use HTTPS or localhost.');
+      }
+
+      // Request desktop stream with enhanced constraints
+      const desktopStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          mediaSource: 'screen',
+          width: { max: 1 },
+          height: { max: 1 }
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: 2
+        }
+      });
+
+      // Check if we got audio tracks
+      const audioTracks = desktopStream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        // Stop any video tracks we don't need
+        desktopStream.getVideoTracks().forEach(track => track.stop());
+        throw new Error('No audio track found in the selected source. Please select a source that includes audio (like a browser tab with music) or choose "System Audio" in the sharing dialog.');
+      }
+
+      // Create a new stream with only the audio track
+      const audioOnlyStream = new MediaStream();
+      audioTracks.forEach(track => {
+        audioOnlyStream.addTrack(track);
+        
+        // Add lifecycle event listeners to track stream health
+        track.addEventListener('ended', () => {
+          logger.warn('Desktop audio track ended - user likely stopped screen sharing');
+        });
+        
+        track.addEventListener('mute', () => {
+          logger.warn('Desktop audio track muted');
+        });
+        
+        track.addEventListener('unmute', () => {
+          logger.debug('Desktop audio track unmuted');
+        });
+      });
+
+      // Stop any video tracks since we only need audio
+      desktopStream.getVideoTracks().forEach(track => track.stop());
+
+      // Add stream-level event listeners
+      audioOnlyStream.addEventListener('addtrack', () => {
+        logger.debug('Track added to desktop audio stream');
+      });
+
+      audioOnlyStream.addEventListener('removetrack', () => {
+        logger.warn('Track removed from desktop audio stream');
+      });
+
+      logger.debug('Desktop audio stream obtained successfully with enhanced lifecycle management');
+      return audioOnlyStream;
+      
+    } catch (error) {
+      logger.error('Error getting desktop audio stream:', error);
+
+      // Provide user-friendly error messages
+      if (error.name === 'NotSupportedError') {
+        throw new Error('Desktop audio capture is not supported in this browser. Please try using Chrome, Edge, or Firefox, or switch to microphone-only mode.');
+      } else if (error.name === 'NotAllowedError') {
+        throw new Error('Permission denied for desktop audio capture. Please allow screen sharing and make sure to select a source with audio.');
+      } else if (error.name === 'NotFoundError') {
+        throw new Error('No audio source found. Please select a source that includes audio (like a browser tab with music playing).');
+      } else if (error.name === 'AbortError') {
+        throw new Error('Desktop audio capture was cancelled. Please try again and select a source with audio.');
+      } else {
+        throw new Error(error.message || 'Failed to capture desktop audio. Please try using microphone mode instead.');
+      }
+    }
+  };
+
   // Seamless function to switch audio source during broadcast without disconnecting
   const switchAudioSourceLive = async (newSource) => {
     if (!isLive || !mediaRecorderRef.current) {
@@ -587,85 +786,195 @@ export function StreamingProvider({ children }) {
     }
 
     try {
-      logger.info('Switching audio source seamlessly from', audioSource, 'to', newSource);
+      logger.info('Switching audio source from', audioSource, 'to', newSource);
 
-      // Don't stop MediaRecorder or WebSocket - we'll switch streams seamlessly
+      // Step 1: Prepare new audio stream first (fail fast if this doesn't work)
+      logger.debug('Step 1: Preparing new audio stream...');
+      const newStream = await getAudioStreamForSwitching(newSource);
+      
+      // Step 1.5: Initial validation of the new stream
+      logger.debug('Step 1.5: Initial stream validation...');
+      await validateAndPrepareStream(newStream, newSource);
 
-      // 1. Get new audio stream
-      const newStream = await getAudioStream(newSource);
-
-      // 2. Stop current audio level monitoring
+      // Step 2: Stop current audio level monitoring to prevent conflicts
+      logger.debug('Step 2: Stopping audio level monitoring...');
       stopAudioLevelMonitoring();
 
-      // 3. Stop current audio streams (but not MediaRecorder)
+      // Step 3: Gracefully stop current MediaRecorder
+      logger.debug('Step 3: Stopping current MediaRecorder...');
+      const currentMediaRecorder = mediaRecorderRef.current;
+      
+      if (currentMediaRecorder.state === 'recording') {
+        // Stop the recorder gracefully
+        currentMediaRecorder.stop();
+        
+        // Wait for the stop event to complete
+        await new Promise((resolve) => {
+          const onStop = () => {
+            currentMediaRecorder.removeEventListener('stop', onStop);
+            resolve();
+          };
+          currentMediaRecorder.addEventListener('stop', onStop);
+          
+          // Fallback timeout in case stop event doesn't fire
+          setTimeout(resolve, 1000);
+        });
+      }
+
+      // Step 4: Clean up old audio streams
+      logger.debug('Step 4: Cleaning up old audio streams...');
       if (audioStreamRef.current) {
-        audioStreamRef.current.getTracks().forEach(track => track.stop());
+        audioStreamRef.current.getTracks().forEach(track => {
+          track.stop();
+          logger.debug('Stopped audio track:', track.kind, track.label);
+        });
       }
       if (desktopStreamRef.current) {
-        desktopStreamRef.current.getTracks().forEach(track => track.stop());
+        desktopStreamRef.current.getTracks().forEach(track => {
+          track.stop();
+          logger.debug('Stopped desktop track:', track.kind, track.label);
+        });
         desktopStreamRef.current = null;
       }
 
-      // 4. Create new MediaRecorder with new stream, but keep it connected to same WebSocket
-      const currentMediaRecorder = mediaRecorderRef.current;
+      // Step 5: Reduced pause and immediate pre-use validation
+      logger.debug('Step 5: Brief pause and immediate validation...');
+      await new Promise(resolve => setTimeout(resolve, 200)); // Reduced pause
 
-      // Stop current recorder gracefully
-      if (currentMediaRecorder.state === 'recording') {
-        currentMediaRecorder.stop();
-      }
+      // Step 5.5: Final validation just before MediaRecorder creation
+      logger.debug('Step 5.5: Final validation before MediaRecorder creation...');
+      validateStreamBeforeUse(newStream, newSource);
 
-      // Wait a brief moment for the stop to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Step 6: Create new MediaRecorder with validated stream
+      logger.debug('Step 6: Creating new MediaRecorder with validated stream...');
+      const mediaRecorderOptions = {
+        mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus") 
+          ? "audio/webm;codecs=opus" 
+          : "audio/webm",
+        audioBitsPerSecond: 96000
+      };
+      
+      const newMediaRecorder = new MediaRecorder(newStream, mediaRecorderOptions);
 
-      // 5. Create new MediaRecorder with new stream
-      const newMediaRecorder = new MediaRecorder(newStream, {
-        mimeType: "audio/webm;codecs=opus",
-        audioBitsPerSecond: 96000 // Lower bitrate for better compatibility
-      });
+      // Step 7: Set up comprehensive error handling for new MediaRecorder
+      logger.debug('Step 7: Setting up MediaRecorder event handlers...');
+      
+      newMediaRecorder.onerror = (event) => {
+        logger.error('MediaRecorder error during audio source switch:', event.error);
+        // Don't throw here, let the main error handling deal with it
+      };
 
-      // 6. Set up data handling with existing WebSocket (no reconnection needed)
+      newMediaRecorder.onstart = () => {
+        logger.debug('New MediaRecorder started successfully');
+      };
+
+      newMediaRecorder.onstop = () => {
+        logger.debug('MediaRecorder stopped');
+      };
+
+      // Enhanced data handler with buffer size checking
       newMediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+          // Check buffer size to prevent WebSocket message too large errors
+          const maxSafeSize = 120000; // 120KB - safely under the 128KB backend limit
+          
+          if (event.data.size > maxSafeSize) {
+            logger.warn(`Audio chunk too large (${event.data.size} bytes), skipping to prevent WebSocket disconnect`);
+            return;
+          }
+
           event.data.arrayBuffer().then(buffer => {
-            // Double check WebSocket is still available before sending
-            if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
-              djWebSocketRef.current.send(buffer);
+            // Double check WebSocket is still available and buffer size before sending
+            if (djWebSocketRef.current && 
+                djWebSocketRef.current.readyState === WebSocket.OPEN && 
+                buffer.byteLength <= maxSafeSize) {
+              try {
+                djWebSocketRef.current.send(buffer);
+              } catch (error) {
+                logger.error('Error sending audio data:', error);
+              }
             }
           }).catch(error => {
-            console.error('Error sending audio data:', error);
+            logger.error('Error processing audio data:', error);
           });
         }
       };
 
-      // 7. Start new recorder immediately
-      newMediaRecorder.start(250);
+      // Step 8: Start new recorder with additional safety checks
+      logger.debug('Step 8: Starting new MediaRecorder with final safety checks...');
+      
+      // Final check that stream is still active before starting
+      validateStreamBeforeUse(newStream, newSource);
 
-      // 8. Update references
+      // Start with error handling
+      try {
+        newMediaRecorder.start(250); // Smaller intervals (250ms) to prevent buffer buildup
+      } catch (startError) {
+        logger.error('Failed to start new MediaRecorder:', startError);
+        throw new Error(`MediaRecorder start failed: ${startError.message}`);
+      }
+
+      // Step 9: Update references only after successful start
+      logger.debug('Step 9: Updating references after successful start...');
       mediaRecorderRef.current = newMediaRecorder;
       audioStreamRef.current = newStream;
 
-      // 9. Update audio source state
-      setAudioSource(newSource);
+      // Store desktop stream reference if applicable
+      if (newSource === 'desktop' || newSource === 'both') {
+        desktopStreamRef.current = newStream;
+      }
 
-      logger.info('Audio source switched seamlessly to:', newSource, '- WebSocket remained connected');
+      // Step 10: Update audio source state and restart monitoring
+      logger.debug('Step 10: Updating state and restarting monitoring...');
+      setAudioSource(newSource);
+      
+      // Restart audio level monitoring with new stream
+      setTimeout(() => {
+        startAudioLevelMonitoring();
+      }, 500);
+
+      logger.info('Audio source switched successfully to:', newSource, '- WebSocket remained connected');
 
     } catch (error) {
-      logger.error('Error during seamless audio source switch:', error);
+      logger.error('Error during audio source switch:', error);
 
-      // If seamless switch fails, try to restore previous state
+      // Enhanced fallback with better error handling
       logger.debug('Attempting to restore previous audio source...');
       try {
-        const fallbackStream = await getAudioStream(audioSource);
+        // Stop any partially created streams
+        if (audioStreamRef.current) {
+          audioStreamRef.current.getTracks().forEach(track => track.stop());
+        }
+        if (desktopStreamRef.current) {
+          desktopStreamRef.current.getTracks().forEach(track => track.stop());
+          desktopStreamRef.current = null;
+        }
+
+        // Get and validate fallback stream
+        const fallbackStream = await getAudioStreamForSwitching(audioSource);
+        await validateAndPrepareStream(fallbackStream, `fallback-${audioSource}`);
 
         const fallbackRecorder = new MediaRecorder(fallbackStream, {
-          mimeType: "audio/webm;codecs=opus",
-          audioBitsPerSecond: 96000 // Lower bitrate for better compatibility
+          mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus") 
+            ? "audio/webm;codecs=opus" 
+            : "audio/webm",
+          audioBitsPerSecond: 96000
         });
 
+        // Set up fallback recorder with same buffer size protection
         fallbackRecorder.ondataavailable = (event) => {
           if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+            const maxSafeSize = 120000;
+            
+            if (event.data.size > maxSafeSize) {
+              logger.warn('Skipping oversized fallback audio chunk');
+              return;
+            }
+
             event.data.arrayBuffer().then(buffer => {
-              djWebSocketRef.current.send(buffer);
+              if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+                djWebSocketRef.current.send(buffer);
+              }
             });
           }
         };
@@ -674,12 +983,74 @@ export function StreamingProvider({ children }) {
         mediaRecorderRef.current = fallbackRecorder;
         audioStreamRef.current = fallbackStream;
 
+        // Restart monitoring
+        setTimeout(() => {
+          startAudioLevelMonitoring();
+        }, 500);
+
         logger.info('Restored to previous audio source');
       } catch (restoreError) {
         logger.error('Failed to restore audio source:', restoreError);
         throw new Error(`Audio switch failed and could not restore: ${error.message}`);
       }
 
+      throw error;
+    }
+  };
+
+  // Enhanced function to get audio stream specifically for switching (with better lifecycle management)
+  const getAudioStreamForSwitching = async (source = audioSource) => {
+    try {
+      console.log('Getting audio stream for switching to source:', source);
+
+      switch (source) {
+        case 'microphone':
+          return await getMicrophoneAudioStream();
+
+        case 'desktop':
+          try {
+            // Use the enhanced desktop audio stream function
+            const desktopStream = await getDesktopAudioStreamWithLifecycleManagement();
+            return desktopStream;
+          } catch (error) {
+            console.warn('Desktop audio capture failed, falling back to microphone:', error.message);
+            // Show user-friendly message about the fallback
+            const fallbackMessage = `Desktop audio capture failed: ${error.message}\n\nFalling back to microphone only. You can change the audio source in the settings above.`;
+            console.log('Fallback message:', fallbackMessage);
+
+            // Set audio source back to microphone
+            setAudioSource('microphone');
+
+            // Throw the original error with fallback info
+            throw new Error(fallbackMessage);
+          }
+
+        case 'both':
+          try {
+            const micStream = await getMicrophoneAudioStream();
+            const deskStream = await getDesktopAudioStreamWithLifecycleManagement();
+            return await mixAudioStreams(micStream, deskStream);
+          } catch (error) {
+            console.warn('Mixed audio capture failed, falling back to microphone:', error.message);
+
+            // If desktop part failed, fall back to microphone only
+            if (error.message.includes('Desktop audio') || error.message.includes('Screen sharing') || error.message.includes('NotSupported')) {
+              console.log('Desktop audio part failed, trying microphone only');
+              setAudioSource('microphone');
+
+              const fallbackMessage = `Mixed audio setup failed: ${error.message}\n\nFalling back to microphone only. You can try again with desktop audio once you've resolved the issue.`;
+              throw new Error(fallbackMessage);
+            }
+
+            throw error;
+          }
+
+        default:
+          console.warn('Unknown audio source:', source, 'defaulting to microphone');
+          return await getMicrophoneAudioStream();
+      }
+    } catch (error) {
+      console.error('Error getting audio stream for switching:', error);
       throw error;
     }
   };
@@ -808,6 +1179,14 @@ export function StreamingProvider({ children }) {
 
         mediaRecorder.ondataavailable = (event) => {
           if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+            // Check buffer size to prevent WebSocket message too large errors
+            const maxSafeSize = 120000; // 120KB - safely under the 128KB backend limit
+            
+            if (event.data.size > maxSafeSize) {
+              console.warn(`Audio chunk too large (${event.data.size} bytes), skipping to prevent WebSocket disconnect`);
+              return;
+            }
+
             const currentTime = Date.now();
             const timeSinceLastChunk = currentTime - lastChunkTime;
             chunkCount++;
@@ -820,14 +1199,19 @@ export function StreamingProvider({ children }) {
             lastChunkTime = currentTime;
 
             event.data.arrayBuffer().then(buffer => {
+              // Double check buffer size before sending
+              if (buffer.byteLength <= maxSafeSize) {
               safelySendAudioData(buffer);
+              } else {
+                console.warn('Skipping oversized buffer to prevent WebSocket disconnect');
+              }
             }).catch(error => {
               console.error('Error processing audio data:', error);
             });
           }
         };
 
-        mediaRecorder.start(250);
+        mediaRecorder.start(250); // Smaller intervals to prevent buffer buildup
         setIsLive(true);
         console.log('DJ streaming restored successfully');
       }
@@ -1405,7 +1789,7 @@ export function StreamingProvider({ children }) {
       // Set up MediaRecorder when WebSocket connects
       const setupRecording = () => {
         if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
-
+          
           // Helper function to safely send audio data through WebSocket
           const safelySendAudioData = (buffer) => {
             if (djWebSocketRef.current && 
@@ -1426,6 +1810,14 @@ export function StreamingProvider({ children }) {
 
           mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+              // Check buffer size to prevent WebSocket message too large errors
+              const maxSafeSize = 120000; // 120KB - safely under the 128KB backend limit
+              
+              if (event.data.size > maxSafeSize) {
+                console.warn(`Audio chunk too large (${event.data.size} bytes), skipping to prevent WebSocket disconnect`);
+                return;
+              }
+
               const currentTime = Date.now();
               const timeSinceLastChunk = currentTime - lastChunkTime;
               chunkCount++;
@@ -1438,14 +1830,19 @@ export function StreamingProvider({ children }) {
               lastChunkTime = currentTime;
 
               event.data.arrayBuffer().then(buffer => {
+                // Double check buffer size before sending
+                if (buffer.byteLength <= maxSafeSize) {
                 safelySendAudioData(buffer);
+                } else {
+                  console.warn('Skipping oversized buffer to prevent WebSocket disconnect');
+                }
               }).catch(error => {
                 console.error('Error processing audio data:', error);
               });
             }
           };
 
-          mediaRecorder.start(500);
+          mediaRecorder.start(250); // Smaller intervals to prevent buffer buildup
           setIsLive(true);
           console.log('Broadcasting started successfully');
         } else {
@@ -1763,7 +2160,7 @@ export function StreamingProvider({ children }) {
   const createAudioProcessingPipeline = (inputStream, audioContext) => {
     try {
       console.log('🎛️ Creating audio processing pipeline...');
-
+      
       // Create audio processing nodes
       const source = audioContext.createMediaStreamSource(inputStream);
       const analyser = audioContext.createAnalyser();
@@ -1786,7 +2183,7 @@ export function StreamingProvider({ children }) {
       micBoostNode.gain.value = microphoneBoost; // Use state value
       noiseGate.gain.value = 1.0; // Will be controlled by noise gate logic  
       masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
-
+      
       console.log('🎛️ Audio pipeline initial settings:', {
         microphoneBoost: micBoostNode.gain.value,
         noiseGateValue: noiseGate.gain.value,
@@ -1819,7 +2216,7 @@ export function StreamingProvider({ children }) {
   const createSimplifiedAudioProcessingPipeline = (inputStream, audioContext) => {
     try {
       console.log('🎛️ Creating simplified audio processing pipeline...');
-
+      
       // Create minimal processing nodes to avoid timing issues
       const source = audioContext.createMediaStreamSource(inputStream);
       const analyser = audioContext.createAnalyser();
@@ -1840,7 +2237,7 @@ export function StreamingProvider({ children }) {
       // Set initial values - simplified gain staging
       micBoostNode.gain.value = microphoneBoost; // Apply microphone boost
       masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
-
+      
       console.log('🎛️ Simplified audio pipeline settings:', {
         microphoneBoost: micBoostNode.gain.value,
         masterGainValue: masterGain.gain.value,
@@ -1857,31 +2254,31 @@ export function StreamingProvider({ children }) {
 
       // DEBUG: Test each stage of the pipeline
       console.log('🔧 Testing audio pipeline stages...');
-
+      
       // Test raw source audio levels
       const sourceAnalyser = audioContext.createAnalyser();
       sourceAnalyser.fftSize = 256;
       source.connect(sourceAnalyser);
-
+      
       // Test final destination audio levels  
       const destAnalyser = audioContext.createAnalyser();
       destAnalyser.fftSize = 256;
       masterGain.connect(destAnalyser);
-
+      
       // Monitor both for 3 seconds
       let debugCount = 0;
       const debugInterval = setInterval(() => {
         const sourceData = new Uint8Array(sourceAnalyser.frequencyBinCount);
         const destData = new Uint8Array(destAnalyser.frequencyBinCount);
-
+        
         sourceAnalyser.getByteFrequencyData(sourceData);
         destAnalyser.getByteFrequencyData(destData);
-
+        
         const sourceRMS = Math.sqrt(sourceData.reduce((sum, val) => sum + val*val, 0) / sourceData.length);
         const destRMS = Math.sqrt(destData.reduce((sum, val) => sum + val*val, 0) / destData.length);
-
+        
         console.log(`🔧 Pipeline debug ${debugCount}: Source RMS=${sourceRMS.toFixed(2)}, Dest RMS=${destRMS.toFixed(2)}, Boost=${micBoostNode.gain.value}x, Master=${masterGain.gain.value}`);
-
+        
         debugCount++;
         if (debugCount >= 30) { // 3 seconds
           clearInterval(debugInterval);
@@ -1904,7 +2301,7 @@ export function StreamingProvider({ children }) {
   const createFallbackAudioProcessingPipeline = (inputStream) => {
     try {
       console.log('🎛️ Creating fallback audio processing pipeline...');
-
+      
       // Create minimal audio context for basic processing
       const audioContext = new AudioContext({
         sampleRate: inputStream.getAudioTracks()[0].getSettings().sampleRate || 44100,
@@ -1922,7 +2319,7 @@ export function StreamingProvider({ children }) {
 
       // Apply basic microphone boost
       micBoostNode.gain.value = microphoneBoost * (isDJMuted ? 0.0 : djAudioGain);
-
+      
       console.log('🎛️ Fallback audio pipeline settings:', {
         microphoneBoost: microphoneBoost,
         isDJMuted,
