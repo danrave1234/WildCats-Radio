@@ -6,10 +6,10 @@ import Header from './Header';
 import { SidebarProvider } from './ui/sidebar';
 import { EnhancedScrollArea } from './ui/enhanced-scroll-area';
 
-const MainContent = ({ children }) => {
+const MainContent = ({ children, onMobileMenuToggle }) => {
   return (
     <div className="flex flex-col flex-1 h-screen overflow-hidden">
-      <Header />
+      <Header onMobileMenuToggle={onMobileMenuToggle} />
       <EnhancedScrollArea className="flex-1">
         <main className="p-4 md:p-6 lg:p-8">
           <div className="max-w-7xl mx-auto">
@@ -27,6 +27,10 @@ const Layout = ({ children }) => {
   // Controlled sidebar state - always starts minimized
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const toggleSidebar = () => {
+    setSidebarOpen(!sidebarOpen);
+  };
+
   return (
     <SidebarProvider 
       defaultOpen={false}
@@ -35,7 +39,7 @@ const Layout = ({ children }) => {
     >
       <div className="h-screen bg-wildcats-background dark:bg-gray-900 flex overflow-hidden">
         {isAuthenticated && <NewSidebar userRole={currentUser?.role} />}
-        <MainContent>
+        <MainContent onMobileMenuToggle={toggleSidebar}>
           <Outlet />
           {children}
         </MainContent>

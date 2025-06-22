@@ -53,7 +53,7 @@ export const SidebarBody = (props) => {
   return (
     <>
       <DesktopSidebar {...props} />
-      <MobileSidebar {...(props)} />
+      <MobileOverlaySidebar {...(props)} />
     </>
   );
 };
@@ -68,7 +68,8 @@ export const DesktopSidebar = ({
   return (
     <motion.div
       className={cn(
-        "h-screen hidden md:flex md:flex-col flex-shrink-0 sticky top-0 border-r border-gray-200 bg-maroon-700",
+        "h-screen hidden md:flex md:flex-col flex-shrink-0 sticky top-0 border-r border-gray-200 relative overflow-hidden",
+        "bg-gradient-to-br from-wildcats-maroon via-red-800 to-red-900 backdrop-blur-xl",
         className
       )}
       animate={{
@@ -91,54 +92,69 @@ export const DesktopSidebar = ({
         setOpen(false);
       }}
       {...props}>
-      {children}
+      {/* Premium gradient overlays to match header */}
+      <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/10 pointer-events-none"></div>
+      <div className="absolute inset-0 bg-gradient-to-r from-red-700/20 via-transparent to-red-900/30 pointer-events-none"></div>
+      
+      {/* Content with relative positioning */}
+      <div className="relative z-10 h-full">
+        {children}
+      </div>
     </motion.div>
   );
 };
 
-export const MobileSidebar = ({
+export const MobileOverlaySidebar = ({
   className,
   children,
   ...props
 }) => {
   const { open, setOpen } = useSidebar();
+  
   return (
-    <>
-      <div
-        className={cn(
-          "h-10 px-4 py-4 flex flex-row md:hidden items-center justify-between w-full bg-maroon-700"
-        )}
-        {...props}>
-        <div className="flex justify-end z-20 w-full">
-          <Menu
-            className="text-white cursor-pointer"
-            onClick={() => setOpen(!open)} />
-        </div>
-        <AnimatePresence>
-          {open && (
-            <motion.div
-              initial={{ x: "-100%", opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: "-100%", opacity: 0 }}
-              transition={{
-                duration: 0.3,
-                ease: "easeInOut",
-              }}
-              className={cn(
-                "fixed h-full w-full inset-0 p-10 z-[100] flex flex-col justify-between bg-maroon-700",
-                className
-              )}>
-              <div
-                className="absolute right-10 top-10 z-50 text-white cursor-pointer"
-                onClick={() => setOpen(!open)}>
-                <X />
-              </div>
+    <AnimatePresence>
+      {open && (
+        <>
+          {/* Backdrop overlay */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 bg-black/50 z-40 md:hidden"
+            onClick={() => setOpen(false)}
+          />
+          
+          {/* Mobile sidebar overlay */}
+          <motion.div
+            initial={{ x: "-100%", opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: "-100%", opacity: 0 }}
+            transition={{
+              duration: 0.3,
+              ease: "easeInOut",
+            }}
+            className={cn(
+              "fixed left-0 top-0 h-full w-80 max-w-[85vw] z-50 md:hidden flex flex-col relative overflow-hidden",
+              "bg-gradient-to-br from-wildcats-maroon via-red-800 to-red-900",
+              className
+            )}
+            {...props}
+          >
+            {/* Premium gradient overlays */}
+            <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/10 pointer-events-none"></div>
+            <div className="absolute inset-0 bg-gradient-to-r from-red-700/20 via-transparent to-red-900/30 pointer-events-none"></div>
+            
+
+            
+            {/* Content with relative positioning and proper padding */}
+            <div className="relative z-10 h-full flex flex-col">
               {children}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 };
 

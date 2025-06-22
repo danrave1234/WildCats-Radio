@@ -13,11 +13,12 @@ import {
   History as HistoryIcon,
   LogIn as LogInIcon,
   UserPlus as UserPlusIcon,
+  X,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { cn } from "../lib/utils";
-import { DesktopSidebar, SidebarLink, useSidebar } from "./ui/sidebar";
+import { SidebarBody, SidebarLink, useSidebar } from "./ui/sidebar";
 import wildcatradioLogo from "../assets/wildcatradio_logo.png";
 
 // Navigation structure organized by sections
@@ -142,6 +143,22 @@ const navigationSections = {
   ]
 };
 
+// Mobile close button component
+const MobileCloseButton = () => {
+  const { setOpen } = useSidebar();
+  
+  return (
+    <div className="absolute right-4 top-4 z-50 md:hidden">
+      <button
+        onClick={() => setOpen(false)}
+        className="text-gray-600 hover:bg-gray-100 p-2 rounded-lg transition-colors"
+      >
+        <X className="h-5 w-5" />
+      </button>
+    </div>
+  );
+};
+
 // Section header component
 const SectionHeader = ({ title }) => {
   const { open } = useSidebar();
@@ -202,11 +219,16 @@ const NewSidebar = ({ userRole }) => {
   const sections = getNavigationSections();
 
   return (
-    <DesktopSidebar>
+    <SidebarBody>
       <div className="flex flex-col h-full">
-        {/* Logo section with white background */}
-        <div className="bg-white border-b border-gray-200">
-          <div className="relative flex items-center justify-center h-28 overflow-hidden">
+        {/* Logo section with white background - much larger on mobile */}
+        <div className="bg-white border-b border-gray-200 relative">
+          <MobileCloseButton />
+          
+          {/* Premium background effect for mobile */}
+          <div className="absolute inset-0 bg-gradient-to-b from-white via-gray-50/30 to-white md:hidden pointer-events-none"></div>
+          
+          <div className="relative flex items-center justify-center h-48 md:h-28 overflow-hidden py-4 md:py-0">
             {/* Show panel-right icon when closed with fade animation */}
             <motion.div
               className="absolute inset-0 flex items-center justify-center"
@@ -288,7 +310,7 @@ const NewSidebar = ({ userRole }) => {
               <motion.img 
                 src={wildcatradioLogo} 
                 alt="WildCats Radio Logo" 
-                className="w-24 h-24 flex-shrink-0"
+                className="w-32 h-32 md:w-24 md:h-24 flex-shrink-0"
                 animate={{
                   y: open ? 0 : 10,
                   filter: open ? "brightness(1)" : "brightness(0.8)"
@@ -305,15 +327,17 @@ const NewSidebar = ({ userRole }) => {
               />
             </motion.div>
           </div>
+          
+
         </div>
 
         {/* Main content area */}
         <div className="flex flex-col h-full">
           <div className={cn(
-            "flex-1 mt-6 space-y-1 py-2",
+            "flex-1 mt-6 space-y-1 py-2 px-4 md:px-2",
             {
-              "px-0": !open, // No horizontal padding when collapsed (full width highlight)
-              "px-2": open,  // Add horizontal padding when expanded (maroon margins)
+              "md:px-0": !open, // No horizontal padding when collapsed on desktop (full width highlight)
+              "md:px-2": open,  // Add horizontal padding when expanded on desktop (maroon margins)
             }
           )}>
             {sections.map((section, sectionIndex) => (
@@ -336,10 +360,10 @@ const NewSidebar = ({ userRole }) => {
 
           {/* Footer */}
           <div className={cn(
-            "py-2 pb-4",
+            "py-2 pb-4 px-4 md:px-2",
             {
-              "px-0": !open, // No horizontal padding when collapsed
-              "px-2": open,  // Add horizontal padding when expanded
+              "md:px-0": !open, // No horizontal padding when collapsed on desktop
+              "md:px-2": open,  // Add horizontal padding when expanded on desktop
             }
           )}>
             {/* Expanded Footer */}
@@ -486,7 +510,7 @@ const NewSidebar = ({ userRole }) => {
           </div>
         </div>
       </div>
-    </DesktopSidebar>
+    </SidebarBody>
   );
 };
 
