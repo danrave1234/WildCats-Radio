@@ -1,454 +1,492 @@
-import { useState, useEffect, useRef } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import {
-  UserCircleIcon,
-  ArrowRightOnRectangleIcon,
-  SunIcon,
-  MoonIcon,
-  Cog6ToothIcon,
-  RadioIcon,
-  HomeIcon,
-  CalendarIcon,
-  BellIcon,
-  ShieldCheckIcon,
-  ChartBarIcon,
-  Bars3Icon,
-  XMarkIcon
-} from '@heroicons/react/24/outline';
-import { useAuth } from '../context/AuthContext';
-import { useNotifications } from '../context/NotificationContext';
-import wildcatRadioLogo from '../assets/wildcatradio_logo.png';
+import React from 'react';
+import { motion } from 'framer-motion';
+import { 
+  Home, 
+  BarChart3, 
+  Calendar, 
+  Music, 
+  Users, 
+  Settings, 
+  Radio, 
+  PanelRight,
+  Inbox as InboxIcon,
+  History as HistoryIcon,
+  LogIn as LogInIcon,
+  UserPlus as UserPlusIcon,
+} from "lucide-react";
+import { NavLink } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+import { cn } from "../lib/utils";
+import { DesktopSidebar, SidebarLink, useSidebar } from "./ui/sidebar";
 
-// Theme storage using localStorage (better than cookies for client-side preferences)
-const THEME_STORAGE_KEY = 'wildcats-radio-theme';
-const USER_PREFERENCE_KEY = 'wildcats-radio-user-preference';
-
-const setThemePreference = (darkMode, hasUserPreference = true) => {
-  localStorage.setItem(THEME_STORAGE_KEY, darkMode.toString());
-  localStorage.setItem(USER_PREFERENCE_KEY, hasUserPreference.toString());
+// Navigation structure organized by sections
+const navigationSections = {
+  LISTENER: [
+    {
+      title: "MAIN",
+      items: [
+        {
+          label: "Listen",
+          href: "/dashboard",
+          icon: <Music className="h-5 w-5" />,
+        },
+        {
+          label: "Schedule",
+          href: "/schedule",
+          icon: <Calendar className="h-5 w-5" />,
+        },
+      ]
+    },
+    {
+      title: "PERSONAL",
+      items: [
+        {
+          label: "Inbox",
+          href: "/notifications",
+          icon: <InboxIcon className="h-5 w-5" />,
+        },
+      ]
+    }
+  ],
+  DJ: [
+    {
+      title: "MAIN",
+      items: [
+        {
+          label: "DJ Dashboard",
+          href: "/dj-dashboard",
+          icon: <Radio className="h-5 w-5" />,
+        },
+        {
+          label: "Broadcast History",
+          href: "/broadcast-history",
+          icon: <HistoryIcon className="h-5 w-5" />,
+        },
+        {
+          label: "Analytics",
+          href: "/analytics",
+          icon: <BarChart3 className="h-5 w-5" />,
+        },
+        {
+          label: "Schedule",
+          href: "/schedule",
+          icon: <Calendar className="h-5 w-5" />,
+        },
+      ]
+    },
+    {
+      title: "PERSONAL",
+      items: [
+        {
+          label: "Inbox",
+          href: "/notifications",
+          icon: <InboxIcon className="h-5 w-5" />,
+        },
+      ]
+    }
+  ],
+  ADMIN: [
+    {
+      title: "MAIN",
+      items: [
+        {
+          label: "Admin Dashboard",
+          href: "/admin",
+          icon: <Users className="h-5 w-5" />,
+        },
+        {
+          label: "Broadcast History",
+          href: "/broadcast-history",
+          icon: <HistoryIcon className="h-5 w-5" />,
+        },
+        {
+          label: "Analytics",
+          href: "/analytics",
+          icon: <BarChart3 className="h-5 w-5" />,
+        },
+        {
+          label: "Schedule",
+          href: "/schedule",
+          icon: <Calendar className="h-5 w-5" />,
+        },
+      ]
+    },
+    {
+      title: "PERSONAL",
+      items: [
+        {
+          label: "Inbox",
+          href: "/notifications",
+          icon: <InboxIcon className="h-5 w-5" />,
+        },
+      ]
+    }
+  ],
+  PUBLIC: [
+    {
+      title: "AUTH",
+      items: [
+        {
+          label: "Login",
+          href: "/login",
+          icon: <LogInIcon className="h-5 w-5" />,
+        },
+        {
+          label: "Register",
+          href: "/register",
+          icon: <UserPlusIcon className="h-5 w-5" />,
+        },
+      ]
+    }
+  ]
 };
 
-const getThemePreference = () => {
-  const hasUserPreference = localStorage.getItem(USER_PREFERENCE_KEY) === 'true';
-  const savedDarkMode = localStorage.getItem(THEME_STORAGE_KEY) === 'true';
-  return { hasUserPreference, savedDarkMode };
-};
-
-const Sidebar = ({ userRole }) => {
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
-  const [userPreference, setUserPreference] = useState(null);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const location = useLocation();
-  const { currentUser } = useAuth();
-  const { unreadCount } = useNotifications();
+// Section header component
+const SectionHeader = ({ title }) => {
+  const { open } = useSidebar();
   
-  // Refs for click outside detection
-  const sidebarRef = useRef(null);
-  const menuButtonRef = useRef(null);
-  const profileDropdownRef = useRef(null);
-
-  // Check if system prefers dark mode
-  const systemPrefersDark = () => {
-    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  }
-
-  // Apply dark mode to document
-  const applyDarkMode = (isDark) => {
-    if (isDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }
-
-  // Toggle dark mode with improved state management
-  const toggleDarkMode = () => {
-    const newDarkMode = !darkMode;
-    setDarkMode(newDarkMode);
-    setUserPreference(newDarkMode);
-    applyDarkMode(newDarkMode);
-    setThemePreference(newDarkMode, true);
-  }
-
-  // Initialize theme on component mount
-  useEffect(() => {
-    const { hasUserPreference, savedDarkMode } = getThemePreference();
-
-    if (hasUserPreference) {
-      // User has manually set a preference
-      setUserPreference(savedDarkMode);
-      setDarkMode(savedDarkMode);
-      applyDarkMode(savedDarkMode);
-    } else {
-      // Follow system preference
-      const systemDark = systemPrefersDark();
-      setUserPreference(null);
-      setDarkMode(systemDark);
-      applyDarkMode(systemDark);
-    }
-
-    // Set up listener for system preference changes
-    const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleSystemPreferenceChange = (e) => {
-      // Only follow system changes if user hasn't set a preference
-      const { hasUserPreference: currentUserPref } = getThemePreference();
-      if (!currentUserPref) {
-        const systemDark = e.matches;
-        setDarkMode(systemDark);
-        applyDarkMode(systemDark);
-      }
-    };
-
-    if (darkModeMediaQuery.addEventListener) {
-      darkModeMediaQuery.addEventListener('change', handleSystemPreferenceChange);
-    } else if (darkModeMediaQuery.addListener) {
-      darkModeMediaQuery.addListener(handleSystemPreferenceChange);
-    }
-
-    return () => {
-      if (darkModeMediaQuery.removeEventListener) {
-        darkModeMediaQuery.removeEventListener('change', handleSystemPreferenceChange);
-      } else if (darkModeMediaQuery.removeListener) {
-        darkModeMediaQuery.removeListener(handleSystemPreferenceChange);
-      }
-    };
-  }, []);
-
-  // Close profile dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (isProfileOpen && profileDropdownRef.current && !profileDropdownRef.current.contains(event.target)) {
-        setIsProfileOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isProfileOpen]);
-
-  // Close dropdown and mobile menu when navigating
-  useEffect(() => {
-    setIsProfileOpen(false);
-    setIsMobileMenuOpen(false);
-  }, [location]);
-
-  // Improved click outside detection for mobile menu
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (isMobileMenuOpen) {
-        // Check if click is outside both the sidebar and the menu button
-        const isClickOnSidebar = sidebarRef.current && sidebarRef.current.contains(event.target);
-        const isClickOnMenuButton = menuButtonRef.current && menuButtonRef.current.contains(event.target);
-        
-        if (!isClickOnSidebar && !isClickOnMenuButton) {
-          setIsMobileMenuOpen(false);
-        }
-      }
-    };
-
-    // Use capture phase to ensure we catch the event before other handlers
-    document.addEventListener("mousedown", handleClickOutside, true);
-    document.addEventListener("touchstart", handleClickOutside, true);
-    
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside, true);
-      document.removeEventListener("touchstart", handleClickOutside, true);
-    };
-  }, [isMobileMenuOpen]);
-
-  // Prevent body scroll when mobile menu is open
-  useEffect(() => {
-    if (isMobileMenuOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    
-    // Cleanup on unmount
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
-  }, [isMobileMenuOpen]);
-
-  const getInitials = (user) => {
-    if (!user || (!user.firstname && !user.lastname)) return "??";
-    const first = user.firstname ? user.firstname[0] : '';
-    const last = user.lastname ? user.lastname[0] : '';
-    return `${first}${last}`.toUpperCase();
-  };
-
-  const toggleMobileMenu = () => {
-    setIsMobileMenuOpen(!isMobileMenuOpen);
-  };
-
-  const closeMobileMenu = () => {
-    setIsMobileMenuOpen(false);
-  };
-
   return (
-    <>
-      {/* Mobile menu button - Always visible and accessible */}
-      <button
-        ref={menuButtonRef}
-        onClick={toggleMobileMenu}
-        className="mobile-menu-button fixed top-4 left-4 z-[60] p-2 rounded-md bg-white dark:bg-gray-800 shadow-lg border border-gray-200 dark:border-gray-700 md:hidden hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-        aria-label="Toggle menu"
-        aria-expanded={isMobileMenuOpen}
+    <div className="mt-4 first:mt-0">
+      <motion.div
+        className="px-3 py-2"
+        animate={{
+          height: "auto",
+        }}
+        transition={{ duration: 0.2 }}
       >
-        {isMobileMenuOpen ? (
-          <XMarkIcon className="h-6 w-6 text-gray-900 dark:text-white" />
-        ) : (
-          <Bars3Icon className="h-6 w-6 text-gray-900 dark:text-white" />
-        )}
-      </button>
-
-      {/* Mobile overlay - Click to close */}
-      {isMobileMenuOpen && (
-        <div 
-          className="fixed inset-0 z-40 bg-black bg-opacity-50 md:hidden transition-opacity duration-300"
-          onClick={closeMobileMenu}
-          onTouchStart={closeMobileMenu}
-          aria-hidden="true"
+        {/* Text that fades out when minimizing */}
+        <motion.h3
+          className="text-xs font-semibold text-yellow-400 uppercase tracking-wider"
+          animate={{
+            opacity: open ? 1 : 0,
+          }}
+          transition={{ 
+            duration: 0.15,
+            delay: open ? 0.1 : 0 // Delay fade in when opening, immediate fade out when closing
+          }}
+        >
+          {title}
+        </motion.h3>
+        
+        {/* Separator that appears when minimized */}
+        <motion.div
+          className="h-1 bg-yellow-400 w-full rounded"
+          animate={{
+            opacity: open ? 0 : 1,
+            scaleX: open ? 0 : 1,
+          }}
+          transition={{ 
+            duration: 0.15,
+            delay: open ? 0 : 0.1 // Delay appearance when minimizing, immediate hide when opening
+          }}
         />
-      )}
-
-      {/* Sidebar - Fixed positioning to stay sticky during scroll */}
-      <aside 
-        ref={sidebarRef}
-        className={`mobile-sidebar fixed top-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transform transition-transform duration-300 ease-in-out ${
-          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-        } md:translate-x-0 h-screen overflow-hidden`}
-        aria-hidden={!isMobileMenuOpen}
-      >
-        {/* Logo Section - Fixed height */}
-        <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-gray-700">
-          <Link to="/" className="flex justify-center items-center py-4" onClick={closeMobileMenu}>
-            <img src={wildcatRadioLogo} alt="WildCats Radio" className="h-32 w-auto max-h-32" />
-          </Link>
-        </div>
-
-        {/* Navigation Links - Scrollable middle section */}
-        <nav className="flex-1 overflow-y-auto py-6 px-4 min-h-0">
-          <ul className="space-y-2">
-            {userRole === 'LISTENER' && (
-              <li>
-                <Link
-                  to="/dashboard"
-                  onClick={closeMobileMenu}
-                  className={`flex items-center p-3 text-base font-medium rounded-lg ${
-                    location.pathname === '/dashboard'
-                      ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
-                      : 'text-gray-900 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  <HomeIcon className="w-6 h-6 mr-3" />
-                  <span>Dashboard</span>
-                </Link>
-              </li>
-            )}
-
-            {userRole === 'DJ' && (
-              <li>
-                <Link
-                  to="/dj-dashboard"
-                  onClick={closeMobileMenu}
-                  className={`flex items-center p-3 text-base font-medium rounded-lg ${
-                    location.pathname === '/dj-dashboard'
-                      ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
-                      : 'text-gray-900 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  <RadioIcon className="w-6 h-6 mr-3" />
-                  <span>DJ Dashboard</span>
-                </Link>
-              </li>
-            )}
-
-            {userRole === 'ADMIN' && (
-              <li>
-                <Link
-                  to="/admin"
-                  onClick={closeMobileMenu}
-                  className={`flex items-center p-3 text-base font-medium rounded-lg ${
-                    location.pathname === '/admin'
-                      ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
-                      : 'text-gray-900 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  <ShieldCheckIcon className="w-6 h-6 mr-3" />
-                  <span>Admin</span>
-                </Link>
-              </li>
-            )}
-
-            <li>
-              <Link
-                to="/notifications"
-                onClick={closeMobileMenu}
-                className={`flex items-center p-3 text-base font-medium rounded-lg relative ${
-                  location.pathname === '/notifications'
-                    ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
-                    : 'text-gray-900 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
-              >
-                <BellIcon className="w-6 h-6 mr-3" />
-                <span>Notifications</span>
-                {unreadCount > 0 && (
-                  <span className="ml-auto bg-maroon-600 text-white text-xs font-medium px-2 py-1 rounded-full min-w-[20px] h-5 flex items-center justify-center">
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </span>
-                )}
-              </Link>
-            </li>
-
-            {(userRole === 'DJ' || userRole === 'ADMIN') && (
-              <li>
-                <Link
-                  to="/broadcast-history"
-                  onClick={closeMobileMenu}
-                  className={`flex items-center p-3 text-base font-medium rounded-lg ${
-                    location.pathname === '/broadcast-history'
-                      ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
-                      : 'text-gray-900 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  <RadioIcon className="w-6 h-6 mr-3" />
-                  <span>Broadcast History</span>
-                </Link>
-              </li>
-            )}
-
-            {(userRole === 'DJ' || userRole === 'ADMIN') && (
-              <li>
-                <Link
-                  to="/analytics"
-                  onClick={closeMobileMenu}
-                  className={`flex items-center p-3 text-base font-medium rounded-lg ${
-                    location.pathname === '/analytics'
-                      ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
-                      : 'text-gray-900 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  <ChartBarIcon className="w-6 h-6 mr-3" />
-                  <span>Analytics</span>
-                </Link>
-              </li>
-            )}
-
-            <li>
-              <Link
-                to="/schedule"
-                onClick={closeMobileMenu}
-                className={`flex items-center p-3 text-base font-medium rounded-lg ${
-                  location.pathname === '/schedule'
-                    ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
-                    : 'text-gray-900 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
-              >
-                <CalendarIcon className="w-6 h-6 mr-3" />
-                <span>Schedule</span>
-              </Link>
-            </li>
-          </ul>
-
-          {/* Settings and theme section - within scrollable area */}
-          <div className="mt-10 pt-6 border-t border-gray-200 dark:border-gray-700">
-            <button
-              onClick={toggleDarkMode}
-              className="flex items-center p-3 w-full text-base font-medium text-gray-900 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title={userPreference === null ? 'Currently following system preference' : 'Manual theme selection'}
-            >
-              {darkMode ? (
-                <>
-                  <SunIcon className="w-6 h-6 mr-3" />
-                  <span>Light Mode</span>
-                </>
-              ) : (
-                <>
-                  <MoonIcon className="w-6 h-6 mr-3" />
-                  <span>Dark Mode</span>
-                </>
-              )}
-              {userPreference === null && (
-                <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">Auto</span>
-              )}
-            </button>
-
-            <Link
-              to="/settings"
-              onClick={closeMobileMenu}
-              className={`flex items-center p-3 text-base font-medium rounded-lg ${
-                location.pathname === '/settings'
-                  ? 'bg-maroon-50 dark:bg-maroon-900/30 text-maroon-600 dark:text-maroon-400'
-                  : 'text-gray-900 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
-            >
-              <Cog6ToothIcon className="w-6 h-6 mr-3" />
-              <span>Settings</span>
-            </Link>
-          </div>
-        </nav>
-
-        {/* User Profile Section - Fixed at bottom */}
-        <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700 p-4">
-          <div className="profile-dropdown relative" ref={profileDropdownRef}>
-            <div
-              onClick={() => setIsProfileOpen(!isProfileOpen)}
-              className="flex items-center space-x-3 cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            >
-              <div className="h-10 w-10 rounded-full bg-gold-500 flex items-center justify-center text-black font-medium flex-shrink-0">
-                {getInitials(currentUser)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                  {currentUser ? `${currentUser.firstname} ${currentUser.lastname}` : 'Guest User'}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                  {currentUser?.role || 'Listener'}
-                </p>
-              </div>
-            </div>
-
-            {isProfileOpen && (
-              <div
-                className="absolute bottom-full left-0 mb-2 w-56 rounded-xl shadow-lg py-1 bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 focus:outline-none z-50 border border-gray-200 dark:border-gray-700"
-                role="menu"
-              >
-                <Link
-                  to="/profile"
-                  onClick={closeMobileMenu}
-                  className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  role="menuitem"
-                >
-                  <div className="flex items-center">
-                    <UserCircleIcon className="mr-2 h-5 w-5" />
-                    Your Profile
-                  </div>
-                </Link>
-
-                <div className="border-t border-gray-200 dark:border-gray-700">
-                  <Link
-                    to="/logout"
-                    onClick={closeMobileMenu}
-                    className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                    role="menuitem"
-                  >
-                    <div className="flex items-center">
-                      <ArrowRightOnRectangleIcon className="mr-2 h-5 w-5" />
-                      Sign Out
-                    </div>
-                  </Link>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </aside>
-    </>
+      </motion.div>
+    </div>
   );
 };
 
-export default Sidebar; 
+const NewSidebar = ({ userRole }) => {
+  const { isAuthenticated, currentUser, logout } = useAuth();
+  const { open, animate } = useSidebar();
+  
+  // Get the appropriate navigation sections based on authentication and role
+  const getNavigationSections = () => {
+    if (!isAuthenticated) {
+      return navigationSections.PUBLIC;
+    }
+    
+    return navigationSections[userRole] || [];
+  };
+
+  const sections = getNavigationSections();
+
+  return (
+    <DesktopSidebar>
+      <div className="flex flex-col h-full">
+        {/* Logo section with white background */}
+        <div className="bg-white border-b border-gray-200">
+          <div className="relative flex items-center justify-center h-28 overflow-hidden">
+            {/* Show panel-right icon when closed with fade animation */}
+            <motion.div
+              className="absolute inset-0 flex items-center justify-center"
+              initial={false}
+              animate={{
+                opacity: !open ? 1 : 0,
+                x: !open ? 0 : -30,
+                scale: !open ? 1 : 0.8,
+              }}
+              transition={{ 
+                duration: 0.4,
+                ease: [0.25, 0.46, 0.45, 0.94],
+                opacity: { 
+                  duration: 0.3,
+                  ease: "easeOut",
+                  delay: !open ? 0.1 : 0
+                },
+                x: { 
+                  duration: 0.4,
+                  ease: [0.34, 1.26, 0.64, 1],
+                  delay: !open ? 0.05 : 0
+                },
+                scale: { 
+                  duration: 0.3,
+                  ease: "easeOut",
+                  delay: !open ? 0.08 : 0
+                }
+              }}
+              style={{ 
+                pointerEvents: !open ? 'auto' : 'none'
+              }}
+            >
+              <PanelRight 
+                className="w-6 h-6"
+                style={{ color: '#800000' }}
+              />
+            </motion.div>
+
+            {/* Show bigger logo when open with fade in from left animation */}
+            <motion.div
+              className="absolute inset-0 flex items-center justify-center"
+              initial={false}
+              animate={{
+                opacity: open ? 1 : 0,
+                x: open ? 0 : -40,
+                scale: open ? 1 : 0.7,
+                rotateY: open ? 0 : -15,
+              }}
+              transition={{ 
+                duration: 0.5,
+                ease: [0.25, 0.46, 0.45, 0.94],
+                opacity: { 
+                  duration: 0.4,
+                  ease: "easeOut",
+                  delay: open ? 0.15 : 0
+                },
+                x: { 
+                  duration: 0.5,
+                  ease: [0.34, 1.26, 0.64, 1], // Smooth bounce effect
+                  delay: open ? 0.1 : 0
+                },
+                scale: { 
+                  duration: 0.4,
+                  ease: "easeOut",
+                  delay: open ? 0.12 : 0
+                },
+                rotateY: {
+                  duration: 0.4,
+                  ease: [0.16, 1, 0.3, 1],
+                  delay: open ? 0.08 : 0
+                }
+              }}
+              style={{ 
+                transformOrigin: "center center",
+                perspective: "1000px",
+                pointerEvents: open ? 'auto' : 'none'
+              }}
+            >
+              <motion.img 
+                src="/src/assets/wildcatradio_logo.png" 
+                alt="WildCats Radio Logo" 
+                className="w-24 h-24 flex-shrink-0"
+                animate={{
+                  y: open ? 0 : 10,
+                  filter: open ? "brightness(1)" : "brightness(0.8)"
+                }}
+                transition={{ 
+                  duration: 0.3,
+                  ease: "easeOut",
+                  delay: open ? 0.2 : 0,
+                  filter: {
+                    duration: 0.3,
+                    delay: open ? 0.15 : 0
+                  }
+                }}
+              />
+            </motion.div>
+          </div>
+        </div>
+        
+        {/* Main content area */}
+        <div className="flex flex-col h-full">
+          <div className={cn(
+            "flex-1 mt-6 space-y-1 py-2",
+            {
+              "px-0": !open, // No horizontal padding when collapsed (full width highlight)
+              "px-2": open,  // Add horizontal padding when expanded (maroon margins)
+            }
+          )}>
+            {sections.map((section, sectionIndex) => (
+              <div key={section.title}>
+                <SectionHeader title={section.title} />
+                <div className="space-y-1">
+                  {section.items.map((link) => (
+                    <SidebarLink 
+                      key={link.label} 
+                      link={link} 
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          {/* Spacer to push footer to bottom */}
+          <div className="flex-grow"></div>
+          
+          {/* Footer */}
+          <div className={cn(
+            "py-2 pb-4",
+            {
+              "px-0": !open, // No horizontal padding when collapsed
+              "px-2": open,  // Add horizontal padding when expanded
+            }
+          )}>
+            {/* Expanded Footer */}
+            <motion.div 
+              className="border-t border-maroon-600/30"
+              initial={false}
+              animate={{
+                opacity: open ? 1 : 0,
+                y: open ? 0 : 25,
+                scale: open ? 1 : 0.92,
+              }}
+              transition={{ 
+                duration: 0.5,
+                ease: [0.25, 0.46, 0.45, 0.94], // Custom cubic-bezier for smooth motion
+                opacity: { 
+                  duration: open ? 0.4 : 0.2,
+                  ease: "easeOut",
+                  delay: open ? 0.1 : 0
+                },
+                y: { 
+                  duration: 0.5,
+                  ease: [0.34, 1.56, 0.64, 1], // Slight bounce for natural feel
+                  delay: open ? 0.05 : 0
+                },
+                scale: { 
+                  duration: 0.4,
+                  ease: "easeOut",
+                  delay: open ? 0.08 : 0
+                }
+              }}
+              style={{ 
+                transformOrigin: "bottom center",
+                display: open ? "block" : "none"
+              }}
+            >
+              <motion.div 
+                className="pt-5 pb-4 px-4"
+                animate={{
+                  y: open ? 0 : 15,
+                  opacity: open ? 1 : 0.7,
+                }}
+                transition={{ 
+                  duration: 0.45,
+                  ease: [0.16, 1, 0.3, 1], // Smooth easing curve
+                  delay: open ? 0.15 : 0,
+                  opacity: {
+                    duration: 0.3,
+                    delay: open ? 0.2 : 0
+                  }
+                }}
+              >
+                {/* Brand Section */}
+                <div className="mb-4">
+                  <h4 className="text-yellow-400 font-semibold text-sm mb-1">
+                    WildCats Radio
+                  </h4>
+                  <p className="text-white/60 text-xs">
+                    © 2024 All Rights Reserved
+                  </p>
+                </div>
+                
+                {/* Links Section */}
+                <div className="space-y-2.5 mb-4">
+                  <a 
+                    href="/privacy-policy" 
+                    className="block text-white/70 hover:text-yellow-300 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
+                  >
+                    Privacy Policy
+                  </a>
+                  <a 
+                    href="/terms-of-service" 
+                    className="block text-white/70 hover:text-yellow-300 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
+                  >
+                    Terms of Service
+                  </a>
+                  <a 
+                    href="/contact" 
+                    className="block text-white/70 hover:text-yellow-300 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
+                  >
+                    Contact
+                  </a>
+                </div>
+                
+                {/* Simple Divider */}
+                <div className="w-full h-px bg-gradient-to-r from-transparent via-yellow-400/30 to-transparent mb-3"></div>
+                
+                {/* Tagline */}
+                <div className="text-center">
+                  <p className="text-white/50 text-xs">
+                    Broadcasting Excellence
+                  </p>
+                </div>
+              </motion.div>
+            </motion.div>
+
+            {/* Minimized Footer - Version */}
+            <motion.div 
+              className="absolute bottom-0 left-0 right-0 flex justify-center items-center"
+              initial={false}
+              animate={{
+                opacity: open ? 0 : 1,
+                y: open ? 30 : 0,
+                scale: open ? 0.75 : 1,
+              }}
+              transition={{ 
+                duration: 0.5,
+                ease: [0.25, 0.46, 0.45, 0.94], // Matching the expanded footer curve
+                opacity: { 
+                  duration: open ? 0.2 : 0.4,
+                  ease: "easeOut",
+                  delay: open ? 0 : 0.1
+                },
+                y: { 
+                  duration: 0.5,
+                  ease: [0.34, 1.26, 0.64, 1], // Subtle bounce
+                  delay: open ? 0 : 0.08
+                },
+                scale: { 
+                  duration: 0.4,
+                  ease: "easeOut",
+                  delay: open ? 0 : 0.12
+                }
+              }}
+              style={{ 
+                transformOrigin: "center",
+                display: open ? "none" : "flex"
+              }}
+            >
+              <motion.div
+                className="bg-yellow-400 text-black w-full py-1 text-xs font-bold tracking-tight uppercase select-none shadow-sm hover:bg-yellow-300 hover:shadow-md transition-all duration-200 text-center"
+                whileHover={{ 
+                  scale: 1.02,
+                  y: -1
+                }}
+                transition={{ 
+                  type: "spring", 
+                  stiffness: 300, 
+                  damping: 20 
+                }}
+              >
+                v1.0
+              </motion.div>
+            </motion.div>
+          </div>
+        </div>
+      </div>
+    </DesktopSidebar>
+  );
+};
+
+export default NewSidebar; 
