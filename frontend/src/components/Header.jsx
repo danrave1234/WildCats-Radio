@@ -266,8 +266,8 @@ const Header = ({ onMobileMenuToggle }) => {
                 )}
               >
                 <div className="h-7 w-7 sm:h-8 sm:w-8 md:h-9 md:w-9 lg:h-10 lg:w-10 rounded-full bg-maroon-600 flex items-center justify-center text-white shadow-sm border-2 border-white flex-shrink-0">
-                  {currentUser.role?.toLowerCase() === 'admin' ? (
-                    <UserRound className="h-3 w-3 sm:h-4 sm:w-4 md:h-5 md:w-5" />
+                  {currentUser.role?.toLowerCase() === 'admin' || currentUser.role?.toLowerCase() === 'dj' ? (
+                    <User className="h-3 w-3 sm:h-4 sm:w-4 md:h-5 md:w-5" />
                   ) : (
                     <span className="text-[10px] sm:text-xs md:text-sm font-medium">
                       {getInitials(currentUser)}
