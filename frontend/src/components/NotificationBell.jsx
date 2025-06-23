@@ -134,10 +134,11 @@ export default function NotificationBell() {
         setIsOpen(false); // Close popover after clicking notification
     };
 
-    // Filter and sort unread notifications: newest first
-    const unreadNotifications = notifications
+    // Get 10 latest unread notifications: newest first
+    const latestUnreadNotifications = notifications
         .filter(notification => !notification.read)
-        .sort((a, b) => new Date(b.timestamp || b.createdAt) - new Date(a.timestamp || a.createdAt));
+        .sort((a, b) => new Date(b.timestamp || b.createdAt) - new Date(a.timestamp || a.createdAt))
+        .slice(0, 10);
 
     const getNotificationIcon = (type) => {
         const IconComponent = notificationTypeIcons[type] || notificationTypeIcons.default;
@@ -280,8 +281,8 @@ export default function NotificationBell() {
                     </div>
 
                     {/* Notifications List */}
-                    <div className={`${unreadNotifications.length === 0 ? '' : 'h-96 overflow-y-auto notification-scroll'}`}>
-                        {unreadNotifications.length === 0 ? (
+                    <div className={`${latestUnreadNotifications.length === 0 ? '' : 'h-96 overflow-y-auto notification-scroll'}`}>
+                        {latestUnreadNotifications.length === 0 ? (
                             <div className="flex flex-col items-center justify-center text-center p-8 h-96">
                                 <div className="relative mb-4">
                                     <Bell className="h-12 w-12 text-gray-300 mx-auto" />
@@ -293,7 +294,7 @@ export default function NotificationBell() {
                                 </p>
                             </div>
                             ) : (
-                            unreadNotifications.map((notification, index) => {
+                            latestUnreadNotifications.map((notification, index) => {
                                 const swipeState = swipeStates[notification.id] || { offset: 0, isDragging: false };
                                 const opacity = swipeState.isDragging ? Math.max(0.3, 1 - Math.abs(swipeState.offset) / 200) : 1;
                                 const transform = `translateX(${swipeState.offset}px)`;

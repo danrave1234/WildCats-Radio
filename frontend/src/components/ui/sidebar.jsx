@@ -1,7 +1,7 @@
 "use client";;
 import { cn } from "@/lib/utils";
-import { NavLink } from "react-router-dom";
-import React, { useState, createContext, useContext } from "react";
+import { NavLink, useLocation } from "react-router-dom";
+import React, { useState, createContext, useContext, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Menu, X } from "lucide-react";
 
@@ -110,18 +110,26 @@ export const MobileOverlaySidebar = ({
   ...props
 }) => {
   const { open, setOpen } = useSidebar();
+  const location = useLocation();
+
+  // Auto-close mobile sidebar when route changes
+  useEffect(() => {
+    if (open) {
+      setOpen(false);
+    }
+  }, [location.pathname, setOpen]); // Don't include 'open' to avoid unnecessary re-runs
   
   return (
     <AnimatePresence>
       {open && (
         <>
-          {/* Backdrop overlay */}
+          {/* Backdrop overlay with blur */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 bg-black/50 z-40 md:hidden"
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm supports-[backdrop-filter]:bg-black/30 z-40 md:hidden"
             onClick={() => setOpen(false)}
           />
           
