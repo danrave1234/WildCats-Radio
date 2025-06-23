@@ -1079,9 +1079,19 @@ export default function DJDashboard() {
                       .map((msg) => {
                         if (!msg || !msg.sender) return null;
 
-                        const isDJ = msg.sender && msg.sender.name && msg.sender.name.includes("DJ");
-                        const senderName = msg.sender.name || 'Unknown User';
-                        const initials = senderName.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
+                        // Construct name from firstname and lastname fields (backend sends these, not a single 'name' field)
+                        const firstName = msg.sender.firstname || '';
+                        const lastName = msg.sender.lastname || '';
+                        const fullName = `${firstName} ${lastName}`.trim();
+                        const senderName = fullName || msg.sender.email || 'Unknown User';
+                        
+                        // Check if user is a DJ based on their role or name
+                        const isDJ = (msg.sender.role && msg.sender.role.includes("DJ")) || 
+                                     (senderName.includes("DJ")) ||
+                                     (firstName.includes("DJ")) ||
+                                     (lastName.includes("DJ"));
+                        
+                        const initials = senderName.split(' ').map(part => part[0] || '').join('').toUpperCase().slice(0, 2) || 'U';
 
                         let messageDate;
                         try {
