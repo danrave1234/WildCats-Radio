@@ -24,13 +24,34 @@ export const SidebarProvider = ({
 }) => {
   // Internal state for uncontrolled usage - respects defaultOpen but defaults to false
   const [openState, setOpenState] = useState(defaultOpen);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const location = useLocation();
 
   // Use controlled props if provided, otherwise use internal state
   const open = openProp !== undefined ? openProp : openState;
   const setOpen = onOpenChangeProp !== undefined ? onOpenChangeProp : setOpenState;
 
+  // Auto-close sidebar on mobile when route changes
+  useEffect(() => {
+    const isMobile = () => window.innerWidth < 768; // md breakpoint
+    
+    if (isMobile() && open && !isTransitioning) {
+      setIsTransitioning(true);
+      // Use a small delay to prevent rapid state changes
+      const timeoutId = setTimeout(() => {
+        setOpen(false);
+        setIsTransitioning(false);
+      }, 100);
+      
+      return () => {
+        clearTimeout(timeoutId);
+        setIsTransitioning(false);
+      };
+    }
+  }, [location.pathname]); // Remove open and setOpen from dependencies to prevent loops
+
   return (
-    <SidebarContext.Provider value={{ open, setOpen, animate }}>
+    <SidebarContext.Provider value={{ open, setOpen, animate, isTransitioning }}>
       {children}
     </SidebarContext.Provider>
   );
@@ -110,14 +131,6 @@ export const MobileOverlaySidebar = ({
   ...props
 }) => {
   const { open, setOpen } = useSidebar();
-  const location = useLocation();
-
-  // Auto-close mobile sidebar when route changes
-  useEffect(() => {
-    if (open) {
-      setOpen(false);
-    }
-  }, [location.pathname, setOpen]); // Don't include 'open' to avoid unnecessary re-runs
   
   return (
     <AnimatePresence>
@@ -176,13 +189,14 @@ export const SidebarLink = ({
   return (
     <motion.div
       whileHover={{ 
-        scale: 1.02,
-        y: -2,
+        scale: 1.01,
+        y: -1,
       }}
       transition={{
         type: "spring",
-        stiffness: 400,
-        damping: 17
+        stiffness: 300,
+        damping: 20,
+        duration: 0.15
       }}
     >
     <NavLink
@@ -220,9 +234,12 @@ export const SidebarLink = ({
             <motion.span
               animate={{
                 opacity: open ? 1 : 0,
-                x: open ? 0 : -10
+                x: open ? 0 : -5
               }}
-              transition={{ duration: 0.2 }}
+              transition={{ 
+                duration: 0.15,
+                ease: "easeOut"
+              }}
               className="font-medium whitespace-pre ml-12 pl-3 relative">
               {link.label}
               
@@ -241,9 +258,8 @@ export const SidebarLink = ({
                       opacity: 0,
                     }}
                     transition={{ 
-                      duration: 0.4, 
-                      ease: [0.25, 0.46, 0.45, 0.94], // Custom easing for smooth animation
-                      opacity: { duration: 0.2 }
+                      duration: 0.2, 
+                      ease: "easeOut"
                     }}
                     style={{
                       transformOrigin: "left"
@@ -262,8 +278,8 @@ export const SidebarLink = ({
                     opacity: 1
                   }}
                   transition={{ 
-                    duration: 0.25, 
-                    ease: [0.25, 0.46, 0.45, 0.94]
+                    duration: 0.15, 
+                    ease: "easeOut"
                   }}
                   style={{
                     transformOrigin: "left"
@@ -276,9 +292,12 @@ export const SidebarLink = ({
             <motion.div
               animate={{
                 opacity: isActive && open ? 1 : 0,
-                x: isActive && open ? 0 : 10
+                x: isActive && open ? 0 : 5
               }}
-              transition={{ duration: 0.3, delay: 0.1 }}
+              transition={{ 
+                duration: 0.15, 
+                ease: "easeOut"
+              }}
               className="absolute right-3 w-2 h-2 bg-maroon-600 rounded-full"
             />
           </div>
