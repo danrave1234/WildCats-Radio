@@ -517,31 +517,20 @@ const Header = ({ onMobileMenuToggle }) => {
 
       {/* Logout Confirmation Dialog */}
       <AlertDialog open={isLogoutDialogOpen} onOpenChange={setIsLogoutDialogOpen}>
-        <AlertDialogContent className="max-w-md border-slate-200 bg-white rounded-2xl">
-          <AlertDialogHeader className="space-y-4">
-            <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full">
-              <AlertTriangle className="w-6 h-6 text-red-600" />
-            </div>
-            <AlertDialogTitle className="text-xl font-semibold text-slate-900 text-center">
-              Confirm Logout
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-slate-600 text-center">
-              Are you sure you want to logout? You will be redirected to the login page.
+        <AlertDialogContent className="rounded-none">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will sign you out of your account. You will need to sign in again to access your dashboard.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="gap-3 mt-6">
-            <AlertDialogCancel 
-              onClick={handleLogoutCancel}
-              className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-800 border-0 rounded-xl"
-            >
-              Cancel
-            </AlertDialogCancel>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleLogoutCancel} className="rounded-none">Cancel</AlertDialogCancel>
             <AlertDialogAction 
               onClick={handleLogoutConfirm}
-              className="flex-1 bg-red-600 hover:bg-red-700 text-white border-red-600 hover:border-red-700 rounded-xl"
+              className="bg-wildcats-maroon hover:bg-red-800 text-white rounded-none"
             >
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
+              Sign Out
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
