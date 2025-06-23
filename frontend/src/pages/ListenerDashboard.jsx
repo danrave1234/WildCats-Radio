@@ -91,6 +91,9 @@ export default function ListenerDashboard() {
   // Poll selection state
   const [selectedPollOption, setSelectedPollOption] = useState(null);
 
+  // Missing pollLoading state
+  const [pollLoading, setPollLoading] = useState(false);
+
   // Chat timestamp update state
   const [_chatTimestampTick, _setChatTimestampTick] = useState(0);
 
@@ -1547,6 +1550,78 @@ export default function ListenerDashboard() {
     }
   };
 
+  // Safe chat message renderer with comprehensive error handling
+  const renderSafeChatMessage = (msg) => {
+    try {
+      // Validate message data
+      if (!msg || !msg.sender || !msg.id || !msg.content) {
+        return null;
+      }
+
+      // Construct name from firstname and lastname fields (backend sends these, not a single 'name' field)
+      const firstName = msg.sender.firstname || '';
+      const lastName = msg.sender.lastname || '';
+      const fullName = `${firstName} ${lastName}`.trim();
+      const senderName = fullName || msg.sender.email || 'Unknown User';
+      
+      // Check if user is a DJ based on their role or name
+      const isDJ = (msg.sender.role && msg.sender.role.includes("DJ")) || 
+                   (senderName.includes("DJ")) ||
+                   (firstName.includes("DJ")) ||
+                   (lastName.includes("DJ"));
+      
+      const initials = senderName.split(' ').map(part => part[0] || '').join('').toUpperCase().slice(0, 2) || 'U';
+
+      // Handle date parsing more robustly
+      let messageDate;
+      try {
+        messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
+      } catch (error) {
+        logger.error('Error parsing message date:', error);
+        messageDate = new Date();
+      }
+
+      // Format relative time
+      const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
+        ? formatDistanceToNow(messageDate, { addSuffix: false }) 
+        : 'Just now';
+
+      const formattedTimeAgo = timeAgo
+        .replace(' seconds', ' sec')
+        .replace(' second', ' sec')
+        .replace(' minutes', ' min')
+        .replace(' minute', ' min')
+        .replace(' hours', ' hour')
+        .replace(' days', ' day')
+        .replace(' months', ' month')
+        .replace(' years', ' year');
+
+      return (
+        <div key={msg.id} className="mb-4">
+          <div className="flex items-center mb-1">
+            <div className={`h-8 w-8 min-w-[2rem] rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
+              {isDJ ? 'DJ' : initials}
+            </div>
+            <div className="ml-2 overflow-hidden">
+              <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{senderName}</span>
+            </div>
+          </div>
+          <div className="ml-10 space-y-1">
+            <div className={`rounded-lg p-3 message-bubble ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
+              <p className="text-sm text-gray-800 dark:text-gray-200 chat-message" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content || 'No content'}</p>
+            </div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 pl-1">
+              {formattedTimeAgo} ago
+            </div>
+          </div>
+        </div>
+      );
+    } catch (error) {
+      logger.error('Error rendering chat message:', error, msg);
+      return null;
+    }
+  };
+
   // Render chat messages
   const renderChatMessages = () => (
     <div className="max-h-60 overflow-y-auto space-y-3 mb-4 chat-messages-container custom-scrollbar" ref={chatContainerRef}>
@@ -1555,67 +1630,9 @@ export default function ListenerDashboard() {
       ) : (
         chatMessages
           .slice()
-          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
-          .map((msg) => {
-            // Ensure we have valid message data
-            if (!msg || !msg.sender) {
-              logger.debug('Listener Dashboard: Skipping invalid message:', msg);
-              return null;
-            }
-
-            // Check if the message is from a DJ
-            const isDJ = msg.sender && msg.sender.name && msg.sender.name.includes("DJ");
-            const senderName = msg.sender.name || 'Unknown User';
-            const initials = senderName.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
-
-            // Handle date parsing more robustly
-            let messageDate;
-            try {
-              messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
-            } catch (error) {
-              logger.error('Listener Dashboard: Error parsing message date:', error);
-              messageDate = new Date();
-            }
-
-            // Format relative time (updated every minute due to chatTimestampTick)
-            const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
-              ? formatDistanceToNow(messageDate, { addSuffix: false }) 
-              : 'Just now';
-
-            // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
-            const formattedTimeAgo = timeAgo
-              .replace(' seconds', ' sec')
-              .replace(' second', ' sec')
-              .replace(' minutes', ' min')
-              .replace(' minute', ' min')
-              .replace(' hours', ' hour')
-              .replace(' days', ' day')
-              .replace(' months', ' month')
-              .replace(' years', ' year');
-
-            return (
-              <div
-                key={msg.id}
-                className="mb-3"
-              >
-                <div className="flex items-center mb-1">
-                  <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
-                    {isDJ ? 'DJ' : initials}
-                  </div>
-                  <div className="ml-2">
-                    <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{senderName}</span>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {formattedTimeAgo} ago
-                    </div>
-                  </div>
-                </div>
-                <div className={`rounded-lg p-3 ml-8 ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
-                  <p className="text-sm text-gray-800 dark:text-gray-200">{msg.content || 'No content'}</p>
-                </div>
-              </div>
-            );
-          })
-          .filter(Boolean)
+          .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+          .map(renderSafeChatMessage)
+          .filter(Boolean) // Remove any null values from failed renders
       )}
     </div>
   );
@@ -2162,56 +2179,11 @@ export default function ListenerDashboard() {
                   ref={chatContainerRef}
                   className="flex-grow overflow-y-auto p-4 space-y-4 chat-messages-container relative"
                 >
-                  {chatMessages.map((msg) => {
-                    const isDJ = msg.sender && msg.sender.name.includes("DJ");
-                    const initials = msg.sender.name.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
-
-                    // Parse the createdAt timestamp from the backend
-                    let messageDate;
-                    try {
-                      messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
-                    } catch (error) {
-                      logger.error('Listener Dashboard: Error parsing message date:', error);
-                      messageDate = new Date();
-                    }
-
-                    // Format relative time (updated every minute due to chatTimestampTick)
-                    const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
-                      ? formatDistanceToNow(messageDate, { addSuffix: false }) 
-                      : 'Just now';
-
-                    // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
-                    const formattedTimeAgo = timeAgo
-                      .replace(' seconds', ' sec')
-                      .replace(' second', ' sec')
-                      .replace(' minutes', ' min')
-                      .replace(' minute', ' min')
-                      .replace(' hours', ' hour')
-                      .replace(' days', ' day')
-                      .replace(' months', ' month')
-                      .replace(' years', ' year');
-
-                    return (
-                      <div key={msg.id} className="mb-4">
-                        <div className="flex items-center mb-1">
-                          <div className={`h-8 w-8 min-w-[2rem] rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
-                            {isDJ ? 'DJ' : initials}
-                          </div>
-                          <div className="ml-2 overflow-hidden">
-                            <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{msg.sender.name}</span>
-                          </div>
-                        </div>
-                        <div className="ml-10 space-y-1">
-                          <div className={`rounded-lg p-3 message-bubble ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
-                            <p className="text-sm text-gray-800 dark:text-gray-200 chat-message" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content}</p>
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400 pl-1">
-                            {formattedTimeAgo} ago
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {chatMessages
+                    .slice()
+                    .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+                    .map(renderSafeChatMessage)
+                    .filter(Boolean)}
                 </div>
 
                 {/* Scroll to bottom button */}
@@ -2453,56 +2425,15 @@ export default function ListenerDashboard() {
                   ref={chatContainerRef}
                   className="flex-grow overflow-y-auto p-4 space-y-4 chat-messages-container relative"
                 >
-                  {chatMessages.map((msg) => {
-                    const isDJ = msg.sender && msg.sender.name.includes("DJ");
-                    const initials = msg.sender.name.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
-
-                    // Parse the createdAt timestamp from the backend
-                    let messageDate;
-                    try {
-                      messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
-                    } catch (error) {
-                      logger.error('Listener Dashboard: Error parsing message date:', error);
-                      messageDate = new Date();
-                    }
-
-                    // Format relative time (updated every minute due to chatTimestampTick)
-                    const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
-                      ? formatDistanceToNow(messageDate, { addSuffix: false }) 
-                      : 'Just now';
-
-                    // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
-                    const formattedTimeAgo = timeAgo
-                      .replace(' seconds', ' sec')
-                      .replace(' second', ' sec')
-                      .replace(' minutes', ' min')
-                      .replace(' minute', ' min')
-                      .replace(' hours', ' hour')
-                      .replace(' days', ' day')
-                      .replace(' months', ' month')
-                      .replace(' years', ' year');
-
-                    return (
-                      <div key={msg.id} className="mb-4">
-                        <div className="flex items-center mb-1">
-                          <div className={`h-8 w-8 min-w-[2rem] rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
-                            {isDJ ? 'DJ' : initials}
-                          </div>
-                          <div className="ml-2 overflow-hidden">
-                            <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{msg.sender.name}</span>
-                          </div>
-                        </div>
-                        <div className="ml-10 space-y-1">
-                          <div className={`rounded-lg p-3 message-bubble ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
-                            <p className="text-sm text-gray-800 dark:text-gray-200 chat-message" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content}</p>
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400 pl-1">
-                            {formattedTimeAgo} ago
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {chatMessages.length === 0 ? (
+                    <p className="text-center text-gray-500 dark:text-gray-400 py-4">No messages yet</p>
+                  ) : (
+                    chatMessages
+                      .slice()
+                      .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+                      .map(renderSafeChatMessage)
+                      .filter(Boolean) // Remove any null values from failed renders
+                  )}
                 </div>
 
                 {/* Scroll to bottom button */}
