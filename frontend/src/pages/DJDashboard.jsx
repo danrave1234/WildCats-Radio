@@ -43,7 +43,7 @@ const WORKFLOW_STATES = {
 export default function DJDashboard() {
   // Authentication context
   const { currentUser } = useAuth()
-  
+
   // Streaming context
   const { 
     isLive, 
@@ -123,7 +123,7 @@ export default function DJDashboard() {
   const [totalSongRequests, setTotalSongRequests] = useState(0)
   const [totalPolls, setTotalPolls] = useState(0)
   const [durationTick, setDurationTick] = useState(0)
-  
+
   // Chat timestamp update state
   const [chatTimestampTick, setChatTimestampTick] = useState(0)
 
@@ -349,17 +349,26 @@ export default function DJDashboard() {
         }
 
         logger.debug('DJ Dashboard: Setting up song request WebSocket for broadcast:', currentBroadcast.id);
-        const connection = await songRequestService.subscribeToSongRequests(currentBroadcast.id, (newRequest) => {
+        const connection = await songRequestService.subscribeToSongRequests(currentBroadcast.id, (message) => {
+          // Check if this is a deletion notification
+          if (message.type === 'SONG_REQUEST_DELETED') {
+            logger.debug('DJ Dashboard: Received song request deletion notification:', message);
+            // Remove the deleted request from the state
+            setSongRequests(prev => prev.filter(req => req.id !== message.requestId));
+            return;
+          }
+
+          // Handle new song request
           // Double-check the request is for the current broadcast
-          if (newRequest.broadcastId === currentBroadcast.id) {
-            logger.debug('DJ Dashboard: Received new song request:', newRequest);
+          if (message.broadcastId === currentBroadcast.id) {
+            logger.debug('DJ Dashboard: Received new song request:', message);
             setSongRequests(prev => {
-              const exists = prev.some(req => req.id === newRequest.id);
+              const exists = prev.some(req => req.id === message.id);
               if (exists) return prev;
-              return [newRequest, ...prev];
+              return [message, ...prev];
             });
           } else {
-            logger.debug('DJ Dashboard: Ignoring song request for different broadcast:', newRequest.broadcastId);
+            logger.debug('DJ Dashboard: Ignoring song request for different broadcast:', message.broadcastId);
           }
         });
         songRequestWsRef.current = connection;
@@ -382,7 +391,7 @@ export default function DJDashboard() {
         logger.debug('DJ Dashboard: Setting up poll WebSocket for broadcast:', currentBroadcast.id);
         const connection = await pollService.subscribeToPolls(currentBroadcast.id, (pollUpdate) => {
           logger.debug('DJ Dashboard: Received poll update:', pollUpdate);
-          
+
           switch (pollUpdate.type) {
             case 'POLL_VOTE':
               logger.debug('DJ Dashboard: Processing poll vote update for poll:', pollUpdate.pollId);
@@ -408,7 +417,7 @@ export default function DJDashboard() {
                   : prev
               );
               break;
-              
+
             case 'NEW_POLL':
               logger.debug('DJ Dashboard: Processing new poll:', pollUpdate.poll);
               // Add new poll to the list
@@ -419,7 +428,7 @@ export default function DJDashboard() {
               });
               setActivePoll(pollUpdate.poll);
               break;
-              
+
             case 'POLL_UPDATED':
               logger.debug('DJ Dashboard: Processing poll update:', pollUpdate.poll);
               if (pollUpdate.poll && !pollUpdate.poll.isActive) {
@@ -427,7 +436,7 @@ export default function DJDashboard() {
                 setActivePoll(prev => prev?.id === pollUpdate.poll.id ? null : prev);
               }
               break;
-              
+
             case 'POLL_RESULTS':
               logger.debug('DJ Dashboard: Processing poll results update:', pollUpdate.results);
               if (pollUpdate.pollId && pollUpdate.results) {
@@ -452,7 +461,7 @@ export default function DJDashboard() {
                 );
               }
               break;
-              
+
             default:
               logger.debug('DJ Dashboard: Unknown poll update type:', pollUpdate.type);
           }
@@ -613,23 +622,23 @@ export default function DJDashboard() {
 
     try {
       setStreamError(null)
-      
+
       // Use the global streaming context to start the broadcast
       await startStreamingBroadcast({
         id: currentBroadcast.id,
         title: currentBroadcast.title,
         description: currentBroadcast.description
       });
-      
+
       setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE);
       setBroadcastStartTime(new Date());
-      
+
     } catch (error) {
       logger.error("Error starting broadcast:", error)
-      
+
       // Provide user-friendly error messages based on the error type
       let errorMessage = error.message || "Unknown error occurred";
-      
+
       if (errorMessage.includes('Desktop audio capture failed') || errorMessage.includes('NotSupported')) {
         setStreamError(
           `Desktop Audio Issue: ${errorMessage}\n\n` +
@@ -664,13 +673,13 @@ export default function DJDashboard() {
   const stopBroadcast = async () => {
     try {
       logger.debug("Stopping broadcast")
-      
+
       // Use the global streaming context to stop the broadcast
       await stopStreamingBroadcast();
-      
+
       // Reset state back to create new broadcast
       setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
-      
+
       // Reset analytics
       setBroadcastStartTime(null)
       setTotalInteractions(0)
@@ -681,7 +690,7 @@ export default function DJDashboard() {
       setSongRequests([])
       setPolls([])
       setActivePoll(null)
-      
+
     } catch (error) {
       logger.error("Error stopping broadcast:", error)
       setStreamError(`Error stopping broadcast: ${error.message}`)
@@ -697,14 +706,14 @@ export default function DJDashboard() {
     try {
       setStreamError(null)
       logger.debug("Canceling broadcast:", currentBroadcast.id)
-      
+
       // Delete the broadcast from the backend
       await broadcastService.delete(currentBroadcast.id)
-      
+
       // Reset state back to create new broadcast
       setCurrentBroadcast(null)
       setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
-      
+
       logger.debug("Broadcast canceled successfully")
     } catch (error) {
       logger.error("Error canceling broadcast:", error)
@@ -715,7 +724,7 @@ export default function DJDashboard() {
   const handleRestoreAudio = async () => {
     setIsRestoringAudio(true);
     setStreamError(null);
-    
+
     try {
       const success = await restoreDJStreaming();
       if (success) {
@@ -747,7 +756,7 @@ export default function DJDashboard() {
         }
         audioPreviewRef.current.src = serverConfig.streamUrl
         audioPreviewRef.current.volume = isMuted ? 0 : volume / 100
-        
+
         try {
           await audioPreviewRef.current.play()
           setPreviewEnabled(true)
@@ -794,6 +803,23 @@ export default function DJDashboard() {
       setChatMessage('')
     } catch (error) {
       logger.error('Error sending chat message:', error)
+    }
+  }
+
+  const handleDeleteSongRequest = async (requestId) => {
+    if (!currentBroadcast) return
+
+    try {
+      logger.debug('Deleting song request:', requestId)
+      await songRequestService.deleteRequest(currentBroadcast.id, requestId)
+
+      // Remove the deleted request from the state
+      setSongRequests(prev => prev.filter(request => request.id !== requestId))
+
+      logger.debug('Song request deleted successfully')
+    } catch (error) {
+      logger.error('Error deleting song request:', error)
+      alert('Failed to delete song request. Please try again.')
     }
   }
 
@@ -1084,13 +1110,13 @@ export default function DJDashboard() {
                         const lastName = msg.sender.lastname || '';
                         const fullName = `${firstName} ${lastName}`.trim();
                         const senderName = fullName || msg.sender.email || 'Unknown User';
-                        
+
                         // Check if user is a DJ based on their role or name
                         const isDJ = (msg.sender.role && msg.sender.role.includes("DJ")) || 
                                      (senderName.includes("DJ")) ||
                                      (firstName.includes("DJ")) ||
                                      (lastName.includes("DJ"));
-                        
+
                         const initials = senderName.split(' ').map(part => part[0] || '').join('').toUpperCase().slice(0, 2) || 'U';
 
                         let messageDate;
@@ -1188,13 +1214,22 @@ export default function DJDashboard() {
                               </div>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="mb-1">
-                                <span className="text-sm font-medium text-gray-900 dark:text-white block">
-                                  {request.songTitle}
-                                </span>
-                                <span className="text-xs text-gray-600 dark:text-gray-300">
-                                  by {request.artist}
-                                </span>
+                              <div className="flex justify-between items-start">
+                                <div className="mb-1">
+                                  <span className="text-sm font-medium text-gray-900 dark:text-white block">
+                                    {request.songTitle}
+                                  </span>
+                                  <span className="text-xs text-gray-600 dark:text-gray-300">
+                                    by {request.artist}
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => handleDeleteSongRequest(request.id)}
+                                  className="text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 transition-colors"
+                                  title="Delete request"
+                                >
+                                  <XMarkIcon className="h-4 w-4" />
+                                </button>
                               </div>
 
                               {request.dedication && (
@@ -1603,7 +1638,7 @@ export default function DJDashboard() {
                   <XMarkIcon className="h-5 w-5 mr-2" />
                   Cancel Broadcast
                 </button>
-                
+
                 <button
                   onClick={startBroadcast}
                   disabled={!serverConfig}

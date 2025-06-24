@@ -510,6 +510,7 @@ export const songRequestService = {
   getRequestsByBroadcast: (broadcastId) => api.get(`/api/broadcasts/${broadcastId}/song-requests`),
   getRequests: (broadcastId) => api.get(`/api/broadcasts/${broadcastId}/song-requests`), // Alias for compatibility
   createRequest: (broadcastId, requestData) => api.post(`/api/broadcasts/${broadcastId}/song-requests`, requestData),
+  deleteRequest: (broadcastId, requestId) => api.delete(`/api/broadcasts/${broadcastId}/song-requests/${requestId}`),
   // FIXME: This endpoint does not seem to exist on the backend
   updateStatus: (requestId, status) => api.put(`/api/song-requests/${requestId}/status?status=${status}`),
 

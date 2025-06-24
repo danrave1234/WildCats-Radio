@@ -1097,7 +1097,7 @@ export default function ListenerDashboard() {
         }
 
         logger.debug('Setting up global broadcast status WebSocket...');
-        
+
         // Subscribe to global broadcast status updates (no specific broadcast ID)
         const connection = await broadcastService.subscribeToBroadcastUpdates(null, (message) => {
           logger.debug('Global broadcast update received:', message);
@@ -1167,14 +1167,14 @@ export default function ListenerDashboard() {
         logger.debug('Global broadcast status WebSocket connected successfully');
       } catch (error) {
         logger.error('Failed to connect global broadcast status WebSocket:', error);
-        
+
         // Fallback: increase polling frequency if WebSocket fails
         logger.debug('Setting up fallback polling due to global WebSocket failure');
         const fallbackPolling = setInterval(() => {
           logger.debug('Fallback polling: checking for live broadcasts');
           fetchCurrentBroadcastInfo();
         }, 30000); // Poll every 30 seconds as fallback
-        
+
         // Store the polling interval for cleanup
         globalBroadcastWsRef.current = {
           disconnect: () => {
@@ -1481,9 +1481,6 @@ export default function ListenerDashboard() {
       // Send song request to the server
       await songRequestService.createRequest(currentBroadcastId, requestData);
 
-      // Show success message
-      alert(`Song request submitted: "${songRequest.title}" by ${songRequest.artist}`);
-
       // Reset the form
       setSongRequest({ title: '', artist: '', dedication: '' });
     } catch (error) {
@@ -1563,13 +1560,13 @@ export default function ListenerDashboard() {
       const lastName = msg.sender.lastname || '';
       const fullName = `${firstName} ${lastName}`.trim();
       const senderName = fullName || msg.sender.email || 'Unknown User';
-      
+
       // Check if user is a DJ based on their role or name
       const isDJ = (msg.sender.role && msg.sender.role.includes("DJ")) || 
                    (senderName.includes("DJ")) ||
                    (firstName.includes("DJ")) ||
                    (lastName.includes("DJ"));
-      
+
       const initials = senderName.split(' ').map(part => part[0] || '').join('').toUpperCase().slice(0, 2) || 'U';
 
       // Handle date parsing more robustly
