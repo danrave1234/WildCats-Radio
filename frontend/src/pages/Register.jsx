@@ -16,7 +16,8 @@ export default function Register() {
   const { register, loading, error: authError } = useAuth()
   const navigate = useNavigate()
   const [formData, setFormData] = useState({
-    name: "",
+    firstname: "",
+    lastname: "",
     email: "",
     password: "",
     confirmPassword: "",
@@ -76,9 +77,9 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-b from-white via-yellow-50 to-yellow-200">
-      <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 py-8 relative">
-        <div className="w-full max-w-md">
+    <div className="min-h-screen w-full bg-gradient-to-b from-white via-yellow-50 to-yellow-200 overflow-y-auto">
+      <div className="w-full flex flex-col items-center justify-start min-h-screen p-4 py-6 sm:py-8 relative">
+        <div className="w-full max-w-md my-auto">
           {/* Logo Section */}
           <div className="flex justify-center mb-2">
             <img 
@@ -89,40 +90,40 @@ export default function Register() {
           </div>
           
           {/* Title Section */}
-          <div className="text-center mb-4 px-4">
+          <div className="text-center mb-3 sm:mb-4 px-4">
             <p className="text-sm text-gray-600 uppercase tracking-wider max-w-sm mx-auto font-semibold">
-              Your radio broadcast platform
+              Join the WildCat Radio community
             </p>
           </div>
 
           <Card className="border-0 shadow-2xl bg-white backdrop-blur-xl overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out">
             <div className="h-3 bg-gradient-to-r from-wildcats-maroon to-wildcats-maroon/70" />
-            <CardHeader className="px-6 pt-6 pb-3">
+            <CardHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-2 sm:pb-3">
               <div>
-                <CardTitle className="text-xl font-bold text-gray-800">Create your account</CardTitle>
+                <CardTitle className="text-lg sm:text-xl font-bold text-gray-800">Create your account</CardTitle>
                 <CardDescription className="text-sm text-gray-500 mt-1">
-                  Enter your information to create an account
+                  Enter your details below to create your account
                 </CardDescription>
               </div>
             </CardHeader>
-            <div className="px-6">
+            <div className="px-4 sm:px-6">
               <Separator className="bg-gray-200" />
             </div>
-            <CardContent className="px-6 py-6 pt-3">
+            <CardContent className="px-4 sm:px-6 py-4 sm:py-6 pt-3">
               <form onSubmit={handleSubmit} className="space-y-3">
                 {/* Name Fields Row */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="name" className="text-xs font-semibold text-gray-700">
+                    <Label htmlFor="firstname" className="text-xs font-semibold text-gray-700">
                       First Name
                     </Label>
                     <Input
-                      id="name"
-                      name="name"
+                      id="firstname"
+                      name="firstname"
                       type="text"
                       autoComplete="given-name"
                       required
-                      value={formData.name}
+                      value={formData.firstname}
                       onChange={handleChange}
                       placeholder="First name"
                       className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
@@ -139,6 +140,8 @@ export default function Register() {
                       type="text"
                       autoComplete="family-name"
                       required
+                      value={formData.lastname}
+                      onChange={handleChange}
                       placeholder="Last name"
                       className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                     />
@@ -251,7 +254,7 @@ export default function Register() {
                     id="terms"
                     checked={agreedToTerms}
                     onCheckedChange={setAgreedToTerms}
-                    className="border-wildcats-maroon data-[state=checked]:bg-wildcats-maroon data-[state=checked]:text-white data-[state=checked]:border-wildcats-maroon focus:outline-none focus-visible:ring-0 mt-0.5 !rounded-none h-4 w-4 data-[state=unchecked]:hover:bg-wildcats-maroon/10 data-[state=unchecked]:hover:before:content-['✓'] data-[state=unchecked]:hover:before:absolute data-[state=unchecked]:hover:before:text-wildcats-maroon data-[state=unchecked]:hover:before:opacity-30 data-[state=unchecked]:hover:before:text-xs data-[state=unchecked]:hover:before:flex data-[state=unchecked]:hover:before:items-center data-[state=unchecked]:hover:before:justify-center data-[state=unchecked]:hover:before:inset-0 relative"
+                    className="border-wildcats-maroon data-[state=checked]:bg-wildcats-maroon data-[state=checked]:text-white data-[state=checked]:border-wildcats-maroon focus:outline-none focus-visible:ring-0 mt-0.5 !rounded-none h-3 w-3 data-[state=unchecked]:hover:bg-wildcats-maroon/10 data-[state=unchecked]:hover:before:content-['✓'] data-[state=unchecked]:hover:before:absolute data-[state=unchecked]:hover:before:text-wildcats-maroon data-[state=unchecked]:hover:before:opacity-30 data-[state=unchecked]:hover:before:text-xs data-[state=unchecked]:hover:before:flex data-[state=unchecked]:hover:before:items-center data-[state=unchecked]:hover:before:justify-center data-[state=unchecked]:hover:before:inset-0 relative"
                   />
                   <div className="grid gap-1.5 leading-none">
                     <label
@@ -296,7 +299,7 @@ export default function Register() {
                   Already have an account?{' '}
                   <Link 
                     to="/login" 
-                    className="font-semibold text-wildcats-maroon hover:text-wildcats-maroon/80 transition-colors focus:outline-none"
+                    className="font-semibold text-wildcats-maroon focus:outline-none inline-block relative transition-transform duration-150 hover:-translate-y-0.5 hover:underline hover:underline-offset-2"
                   >
                     Sign in
                   </Link>

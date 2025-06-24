@@ -26,7 +26,8 @@ const logo = require('../../assets/images/wildcat_radio_logo_transparent.png');
 const SignupScreen: React.FC = () => {
   const router = useRouter();
   const { signIn } = useAuth();
-  const [fullName, setFullName] = useState('');
+  const [firstname, setFirstname] = useState('');
+  const [lastname, setLastname] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -41,7 +42,8 @@ const SignupScreen: React.FC = () => {
   const logoAnim = useFadeInUpAnimation({ delay: 300 });
   const titleAnim = useFadeInUpAnimation({ delay: 400 });
   const subtitleAnim = useFadeInUpAnimation({ delay: 500 });
-  const fullNameAnim = useFadeInUpAnimation({ delay: 600 });
+  const firstNameAnim = useFadeInUpAnimation({ delay: 600 });
+  const lastNameAnim = useFadeInUpAnimation({ delay: 650 });
   const emailAnim = useFadeInUpAnimation({ delay: 700 });
   const passwordAnim = useFadeInUpAnimation({ delay: 800 });
   const confirmPasswordAnim = useFadeInUpAnimation({ delay: 900 });
@@ -69,7 +71,7 @@ const SignupScreen: React.FC = () => {
   );
 
   const handleSignUp = async () => {
-    if (!fullName || !email || !password || !confirmPassword) {
+    if (!firstname || !lastname || !email || !password || !confirmPassword) {
       Alert.alert('Error', 'Please fill in all fields.');
       return;
     }
@@ -83,7 +85,7 @@ const SignupScreen: React.FC = () => {
     }
     setIsLoading(true);
     try {
-      const response = await registerUser({ name: fullName, email, password });
+      const response = await registerUser({ firstname, lastname, email, password });
       if (response.error) {
         Alert.alert('Sign Up Failed', response.error);
       } else if (response.token) {
@@ -144,11 +146,19 @@ const SignupScreen: React.FC = () => {
             </Animated.View>
 
             <AnimatedTextInput
-              label="Full Name"
-              value={fullName}
-              onChangeText={setFullName}
+              label="First Name"
+              value={firstname}
+              onChangeText={setFirstname}
               editable={!isLoading}
-              containerStyle={fullNameAnim}
+              containerStyle={firstNameAnim}
+            />
+
+            <AnimatedTextInput
+              label="Last Name"
+              value={lastname}
+              onChangeText={setLastname}
+              editable={!isLoading}
+              containerStyle={lastNameAnim}
             />
 
             <AnimatedTextInput

@@ -13,6 +13,7 @@ const Settings = lazy(() => import('./pages/Settings'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const BroadcastHistory = lazy(() => import('./pages/BroadcastHistory'));
 const AnalyticsDashboard = lazy(() => import('./pages/AnalyticsDashboard'));
+const CorsTest = lazy(() => import('./pages/CorsTest'));
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BroadcastHistoryProvider } from './context/BroadcastHistoryContext';
 import { AnalyticsProvider } from './context/AnalyticsContext';
@@ -105,6 +106,13 @@ const AppRoutes = () => {
             <Navigate to="/login" replace />
           )}
         </Layout>
+      } />
+      
+      {/* CORS Test - accessible to everyone */}
+      <Route path="/cors-test" element={
+        <Suspense fallback={<LoadingFallback />}>
+          <CorsTest />
+        </Suspense>
       } />
       
       <Route path="/dashboard" element={

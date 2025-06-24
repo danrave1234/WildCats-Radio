@@ -1,7 +1,7 @@
 "use client";;
 import { cn } from "@/lib/utils";
-import { NavLink } from "react-router-dom";
-import React, { useState, createContext, useContext } from "react";
+import { NavLink, useLocation } from "react-router-dom";
+import React, { useState, createContext, useContext, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Menu, X } from "lucide-react";
 
@@ -24,13 +24,34 @@ export const SidebarProvider = ({
 }) => {
   // Internal state for uncontrolled usage - respects defaultOpen but defaults to false
   const [openState, setOpenState] = useState(defaultOpen);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const location = useLocation();
 
   // Use controlled props if provided, otherwise use internal state
   const open = openProp !== undefined ? openProp : openState;
   const setOpen = onOpenChangeProp !== undefined ? onOpenChangeProp : setOpenState;
 
+  // Auto-close sidebar on mobile when route changes
+  useEffect(() => {
+    const isMobile = () => window.innerWidth < 768; // md breakpoint
+    
+    if (isMobile() && open && !isTransitioning) {
+      setIsTransitioning(true);
+      // Use a small delay to prevent rapid state changes
+      const timeoutId = setTimeout(() => {
+        setOpen(false);
+        setIsTransitioning(false);
+      }, 100);
+      
+      return () => {
+        clearTimeout(timeoutId);
+        setIsTransitioning(false);
+      };
+    }
+  }, [location.pathname]); // Remove open and setOpen from dependencies to prevent loops
+
   return (
-    <SidebarContext.Provider value={{ open, setOpen, animate }}>
+    <SidebarContext.Provider value={{ open, setOpen, animate, isTransitioning }}>
       {children}
     </SidebarContext.Provider>
   );
@@ -53,7 +74,7 @@ export const SidebarBody = (props) => {
   return (
     <>
       <DesktopSidebar {...props} />
-      <MobileSidebar {...(props)} />
+      <MobileOverlaySidebar {...(props)} />
     </>
   );
 };
@@ -68,7 +89,8 @@ export const DesktopSidebar = ({
   return (
     <motion.div
       className={cn(
-        "h-screen hidden md:flex md:flex-col flex-shrink-0 sticky top-0 border-r border-gray-200 bg-maroon-700",
+        "h-screen hidden md:flex md:flex-col flex-shrink-0 sticky top-0 border-r border-gray-200 relative overflow-hidden",
+        "bg-gradient-to-br from-wildcats-maroon via-red-800 to-red-900 backdrop-blur-xl",
         className
       )}
       animate={{
@@ -91,54 +113,69 @@ export const DesktopSidebar = ({
         setOpen(false);
       }}
       {...props}>
-      {children}
+      {/* Premium gradient overlays to match header */}
+      <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/10 pointer-events-none"></div>
+      <div className="absolute inset-0 bg-gradient-to-r from-red-700/20 via-transparent to-red-900/30 pointer-events-none"></div>
+      
+      {/* Content with relative positioning */}
+      <div className="relative z-10 h-full">
+        {children}
+      </div>
     </motion.div>
   );
 };
 
-export const MobileSidebar = ({
+export const MobileOverlaySidebar = ({
   className,
   children,
   ...props
 }) => {
   const { open, setOpen } = useSidebar();
+  
   return (
-    <>
-      <div
-        className={cn(
-          "h-10 px-4 py-4 flex flex-row md:hidden items-center justify-between w-full bg-maroon-700"
-        )}
-        {...props}>
-        <div className="flex justify-end z-20 w-full">
-          <Menu
-            className="text-white cursor-pointer"
-            onClick={() => setOpen(!open)} />
-        </div>
-        <AnimatePresence>
-          {open && (
-            <motion.div
-              initial={{ x: "-100%", opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: "-100%", opacity: 0 }}
-              transition={{
-                duration: 0.3,
-                ease: "easeInOut",
-              }}
-              className={cn(
-                "fixed h-full w-full inset-0 p-10 z-[100] flex flex-col justify-between bg-maroon-700",
-                className
-              )}>
-              <div
-                className="absolute right-10 top-10 z-50 text-white cursor-pointer"
-                onClick={() => setOpen(!open)}>
-                <X />
-              </div>
+    <AnimatePresence>
+      {open && (
+        <>
+          {/* Backdrop overlay with blur */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm supports-[backdrop-filter]:bg-black/30 z-40 md:hidden"
+            onClick={() => setOpen(false)}
+          />
+          
+          {/* Mobile sidebar overlay */}
+          <motion.div
+            initial={{ x: "-100%", opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: "-100%", opacity: 0 }}
+            transition={{
+              duration: 0.3,
+              ease: "easeInOut",
+            }}
+            className={cn(
+              "fixed left-0 top-0 h-full w-80 max-w-[85vw] z-50 md:hidden flex flex-col relative overflow-hidden",
+              "bg-gradient-to-br from-wildcats-maroon via-red-800 to-red-900",
+              className
+            )}
+            {...props}
+          >
+            {/* Premium gradient overlays */}
+            <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/10 pointer-events-none"></div>
+            <div className="absolute inset-0 bg-gradient-to-r from-red-700/20 via-transparent to-red-900/30 pointer-events-none"></div>
+            
+
+            
+            {/* Content with relative positioning and proper padding */}
+            <div className="relative z-10 h-full flex flex-col">
               {children}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 };
 
@@ -152,13 +189,14 @@ export const SidebarLink = ({
   return (
     <motion.div
       whileHover={{ 
-        scale: 1.02,
-        y: -2,
+        scale: 1.01,
+        y: -1,
       }}
       transition={{
         type: "spring",
-        stiffness: 400,
-        damping: 17
+        stiffness: 300,
+        damping: 20,
+        duration: 0.15
       }}
     >
     <NavLink
@@ -196,9 +234,12 @@ export const SidebarLink = ({
             <motion.span
               animate={{
                 opacity: open ? 1 : 0,
-                x: open ? 0 : -10
+                x: open ? 0 : -5
               }}
-              transition={{ duration: 0.2 }}
+              transition={{ 
+                duration: 0.15,
+                ease: "easeOut"
+              }}
               className="font-medium whitespace-pre ml-12 pl-3 relative">
               {link.label}
               
@@ -217,9 +258,8 @@ export const SidebarLink = ({
                       opacity: 0,
                     }}
                     transition={{ 
-                      duration: 0.4, 
-                      ease: [0.25, 0.46, 0.45, 0.94], // Custom easing for smooth animation
-                      opacity: { duration: 0.2 }
+                      duration: 0.2, 
+                      ease: "easeOut"
                     }}
                     style={{
                       transformOrigin: "left"
@@ -238,8 +278,8 @@ export const SidebarLink = ({
                     opacity: 1
                   }}
                   transition={{ 
-                    duration: 0.25, 
-                    ease: [0.25, 0.46, 0.45, 0.94]
+                    duration: 0.15, 
+                    ease: "easeOut"
                   }}
                   style={{
                     transformOrigin: "left"
@@ -252,9 +292,12 @@ export const SidebarLink = ({
             <motion.div
               animate={{
                 opacity: isActive && open ? 1 : 0,
-                x: isActive && open ? 0 : 10
+                x: isActive && open ? 0 : 5
               }}
-              transition={{ duration: 0.3, delay: 0.1 }}
+              transition={{ 
+                duration: 0.15, 
+                ease: "easeOut"
+              }}
               className="absolute right-3 w-2 h-2 bg-maroon-600 rounded-full"
             />
           </div>

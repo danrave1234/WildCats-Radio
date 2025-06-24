@@ -9,7 +9,8 @@ import {
   LogOut,
   Settings,
   UserRound,
-  AlertTriangle
+  AlertTriangle,
+  Sparkles
 } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import { Button } from "./ui/button";
@@ -33,9 +34,11 @@ import {
 } from "./ui/alert-dialog";
 import { cn } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
+import { useStreaming } from "../context/StreamingContext";
 
 const Header = ({ onMobileMenuToggle }) => {
   const { currentUser, isAuthenticated, logout } = useAuth();
+  const { isLive } = useStreaming();
   const [currentTime, setCurrentTime] = useState("");
   const [currentDate, setCurrentDate] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -62,8 +65,6 @@ const Header = ({ onMobileMenuToggle }) => {
     return () => clearInterval(timer);
   }, []);
 
-
-
   const handleLogoutClick = () => {
     setIsDropdownOpen(false);
     setIsLogoutDialogOpen(true);
@@ -82,42 +83,48 @@ const Header = ({ onMobileMenuToggle }) => {
   const getInitials = (user) => {
     if (!user) return "AA";
     
-    const firstName = user.firstName || "";
-    const lastName = user.lastName || "";
+    const firstName = user.firstName || user.firstname || "";
+    const lastName = user.lastName || user.lastname || "";
     const username = user.username || "";
     const fullName = user.name || user.fullName || "";
     const email = user.email || "";
     
-    // Try firstName + lastName first
+    // Priority 1: firstName + lastName initials
     if (firstName && lastName) {
       return (firstName.charAt(0) + lastName.charAt(0)).toUpperCase();
     }
     
-    // Try to split fullName if available
+    // Priority 2: Split fullName if it contains spaces
     if (fullName && fullName.includes(" ")) {
-      const nameParts = fullName.trim().split(" ");
+      const nameParts = fullName.trim().split(/\s+/);
       if (nameParts.length >= 2) {
         return (nameParts[0].charAt(0) + nameParts[nameParts.length - 1].charAt(0)).toUpperCase();
       }
     }
     
-    // Try firstName + first letter of username/email
+    // Priority 3: firstName + first letter of lastName (if lastName is missing but firstName exists)
     if (firstName && (username || email)) {
       const secondChar = username ? username.charAt(0) : email.charAt(0);
       return (firstName.charAt(0) + secondChar).toUpperCase();
     }
     
-    // Try username if it has multiple characters
+    // Priority 4: lastName + first letter of username/email (if firstName is missing)
+    if (lastName && (username || email)) {
+      const secondChar = username ? username.charAt(0) : email.charAt(0);
+      return (lastName.charAt(0) + secondChar).toUpperCase();
+    }
+    
+    // Priority 5: Use username if it has multiple characters
     if (username && username.length >= 2) {
       return username.substring(0, 2).toUpperCase();
     }
     
-    // Try fullName if it has multiple characters
+    // Priority 6: Use fullName if it has multiple characters
     if (fullName && fullName.length >= 2) {
       return fullName.substring(0, 2).toUpperCase();
     }
     
-    // Try email prefix
+    // Priority 7: Use email prefix
     if (email && email.includes("@")) {
       const emailPrefix = email.split("@")[0];
       if (emailPrefix.length >= 2) {
@@ -125,9 +132,12 @@ const Header = ({ onMobileMenuToggle }) => {
       }
     }
     
-    // Fallback to single character or AA
+    // Fallback to single character repeated or AA
     if (firstName) {
       return (firstName.charAt(0) + firstName.charAt(0)).toUpperCase();
+    }
+    if (lastName) {
+      return (lastName.charAt(0) + lastName.charAt(0)).toUpperCase();
     }
     if (username) {
       return (username.charAt(0) + username.charAt(0)).toUpperCase();
@@ -140,21 +150,42 @@ const Header = ({ onMobileMenuToggle }) => {
   const getDisplayName = (user) => {
     if (!user) return "User";
     
-    const firstName = user.firstName || "";
-    const lastName = user.lastName || "";
+    const firstName = user.firstName || user.firstname || "";
+    const lastName = user.lastName || user.lastname || "";
+    const username = user.username || "";
+    const fullName = user.name || user.fullName || "";
     
+    // Priority 1: firstName + lastName combination
     if (firstName && lastName) {
       return `${firstName} ${lastName}`;
-    } else if (firstName) {
-      return firstName;
-    } else if (user.username) {
-      return user.username;
-    } else if (user.name) {
-      return user.name;
-    } else if (user.fullName) {
-      return user.fullName;
     }
     
+    // Priority 2: Use fullName if it exists and contains spaces
+    if (fullName && fullName.includes(" ")) {
+      return fullName;
+    }
+    
+    // Priority 3: Use firstName only
+    if (firstName) {
+      return firstName;
+    }
+    
+    // Priority 4: Use lastName only
+    if (lastName) {
+      return lastName;
+    }
+    
+    // Priority 5: Use fullName (single word)
+    if (fullName) {
+      return fullName;
+    }
+    
+    // Priority 6: Use username
+    if (username) {
+      return username;
+    }
+    
+    // Fallback
     return "User";
   };
 
@@ -165,192 +196,346 @@ const Header = ({ onMobileMenuToggle }) => {
   };
 
   return (
-    <header className="h-20 sm:h-24 md:h-28 border-b border-gray-200 bg-white/95 backdrop-blur-sm flex items-center justify-between px-4 sm:px-6 md:px-8 sticky top-0 z-10 transition-all duration-300">
-      <div className="flex items-center flex-1 min-w-0">
-        {/* Mobile menu button - only visible on small screens */}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onMobileMenuToggle}
-          className="md:hidden mr-3 sm:mr-4 rounded-lg h-10 w-10 text-maroon-700 hover:bg-maroon-50 transition-colors flex-shrink-0"
-        >
-          <Menu className="h-4 w-4 sm:h-5 sm:w-5" />
-          <span className="sr-only">Toggle menu</span>
-        </Button>
-
-        {/* Modern Date & Time Display */}
-        <div className="flex items-center flex-1 min-w-0">
-          <div className="flex items-center space-x-4 sm:space-x-6">
-            {/* Date Section */}
-            <div className="flex flex-col">
-              <span className="text-sm sm:text-base text-gray-500 font-medium uppercase tracking-wide">
-                Today
-              </span>
-              <span className="text-xl sm:text-2xl md:text-3xl font-bold text-maroon-800 tracking-tight leading-none">
-                {currentDate}
-              </span>
-            </div>
-            
-            {/* Separator */}
-            <div className="h-12 sm:h-14 w-px bg-gray-300"></div>
-            
-            {/* Time Section */}
-            <div className="flex flex-col">
-              <span className="text-sm sm:text-base text-gray-500 font-medium uppercase tracking-wide">
-                Current Time
-              </span>
-              <span className="text-xl sm:text-2xl md:text-3xl font-bold text-maroon-700 font-mono tracking-tight leading-none">
-                {currentTime}
-              </span>
-            </div>
-            
-
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0 bg-maroon-800 px-6 py-4 rounded-2xl relative mr-4 sm:mr-6">
-        {/* Yellow accent line */}
-        <div className="absolute left-2 top-1/2 -translate-y-1/2 h-10 w-1 bg-yellow-400 rounded-full"></div>
-        {/* Yellow accent dot on right side */}
-        <div className="absolute right-2 top-2 w-2 h-2 bg-yellow-400 rounded-full"></div>
-        {/* Notifications */}
-        <div className="flex-shrink-0">
-          <NotificationBell />
-        </div>
-
-
-
-        {/* User Dropdown - only show if authenticated */}
-        {isAuthenticated && currentUser && (
-          <DropdownMenu open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                className={cn(
-                  "flex items-center gap-2 sm:gap-3 px-3 py-2 rounded-xl transition-all duration-300 flex-shrink-0",
-                  "bg-white/95 hover:bg-white shadow-sm border border-white/20",
-                  "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0",
-                  "hover:scale-105 hover:-translate-y-1 hover:shadow-lg",
-                  isDropdownOpen && "scale-105 -translate-y-1 shadow-lg"
-                )}
-              >
-                <div className="h-7 w-7 sm:h-8 sm:w-8 md:h-9 md:w-9 lg:h-10 lg:w-10 rounded-full bg-maroon-600 flex items-center justify-center text-white shadow-sm border-2 border-white flex-shrink-0">
-                  {currentUser.role?.toLowerCase() === 'dj' ? (
-                    <span className="text-[10px] sm:text-xs md:text-sm font-bold">DJ</span>
-                  ) : currentUser.role?.toLowerCase() === 'admin' ? (
-                    <UserRound className="h-3 w-3 sm:h-4 sm:w-4 md:h-5 md:w-5" />
-                  ) : (
-                    <span className="text-[10px] sm:text-xs md:text-sm font-medium">
-                      {getInitials(currentUser)}
-                    </span>
-                  )}
-                </div>
-                <div className="hidden sm:hidden md:flex flex-col items-start min-w-0 max-w-[120px] lg:max-w-none">
-                  <span className="font-medium text-xs lg:text-sm text-maroon-800 truncate w-full">
-                    {getDisplayName(currentUser)}
-                  </span>
-                  <span className="text-[10px] lg:text-xs text-maroon-500 truncate w-full">
-                    {formatRole(currentUser.role)}
-                  </span>
-                </div>
-                <div className="flex items-center flex-shrink-0">
-                  <ChevronDown className="h-3 w-3 sm:h-3 sm:w-3 md:h-4 md:w-4 text-maroon-600 flex-shrink-0" />
-                </div>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="w-48 sm:w-52 md:w-56 mt-1 p-2 border border-gray-200 bg-gray-50 shadow-lg !rounded-none"
+    <motion.nav 
+      initial={{ y: -20, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+      className="relative sm:bg-gradient-to-r sm:from-white/90 sm:via-slate-50/95 sm:to-white/90 bg-wildcats-maroon backdrop-blur-2xl border-b border-slate-200/40 sm:shadow-2xl sm:shadow-black/[0.08] shadow-2xl shadow-wildcats-maroon/30 sm:supports-[backdrop-filter]:bg-white/80 overflow-hidden"
+    >
+      {/* Premium gradient overlays - only for desktop */}
+      <div className="absolute inset-0 sm:bg-gradient-to-r sm:from-blue-50/30 sm:via-transparent sm:to-purple-50/20 pointer-events-none"></div>
+      <div className="absolute inset-0 sm:bg-gradient-to-b sm:from-white/40 sm:via-transparent sm:to-slate-100/30 pointer-events-none"></div>
+      
+      {/* Floating orbs for premium effect - desktop only */}
+      <motion.div 
+        className="absolute -top-20 -left-20 w-40 h-40 bg-gradient-to-br from-wildcats-yellow/20 to-amber-300/10 rounded-full blur-3xl hidden sm:block"
+        animate={{ 
+          x: [0, 30, 0],
+          y: [0, -20, 0],
+          scale: [1, 1.1, 1]
+        }}
+        transition={{ 
+          duration: 20,
+          repeat: Infinity,
+          repeatType: "reverse",
+          ease: "easeInOut"
+        }}
+      ></motion.div>
+      
+      <motion.div 
+        className="absolute -top-16 -right-16 w-32 h-32 bg-gradient-to-br from-wildcats-maroon/15 to-red-400/10 rounded-full blur-2xl hidden sm:block"
+        animate={{ 
+          x: [0, -25, 0],
+          y: [0, 15, 0],
+          scale: [1, 0.9, 1]
+        }}
+        transition={{ 
+          duration: 15,
+          repeat: Infinity,
+          repeatType: "reverse",
+          ease: "easeInOut",
+          delay: 2
+        }}
+      ></motion.div>
+      
+              <div className="relative w-full z-10">
+          <div className="flex items-center justify-between h-16">
+          {/* Left Section - Mobile Menu Button + Desktop Time Display */}
+          <div className="flex items-center space-x-4 px-2 sm:px-4 lg:px-6 py-3 h-full">
+            {/* Mobile Sidebar Menu Button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="sm:hidden p-2 rounded-xl hover:bg-white/10 text-white transition-all duration-300 hover:scale-105 active:scale-95"
+              onClick={onMobileMenuToggle}
             >
-              <DropdownMenuLabel className="font-normal">
-                <div className="flex flex-col space-y-1">
-                  <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">
-                    {getDisplayName(currentUser)}
-                  </p>
-                  <p className="text-[10px] sm:text-xs text-gray-600 truncate">
-                    {currentUser.email || "user@example.com"}
-                  </p>
-                  <p className="text-[10px] sm:text-xs text-gray-600">
-                    Role: <span className="px-1 sm:px-1.5 py-0.5 rounded-full text-[10px] sm:text-xs bg-yellow-100 text-yellow-800">{formatRole(currentUser.role)}</span>
-                  </p>
-                </div>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator className="bg-gray-200 my-2" />
-              <DropdownMenuItem
-                className="cursor-pointer px-3 py-2 text-gray-900 transition-colors !rounded-none
-                           hover:bg-yellow-100 hover:text-yellow-800
-                           focus:bg-yellow-100 focus:text-yellow-800
-                           [&:hover]:!bg-yellow-100 [&:hover]:!text-yellow-800
-                           [&:focus]:!bg-yellow-100 [&:focus]:!text-yellow-800
-                           [&:hover_svg]:!text-yellow-800 [&:focus_svg]:!text-yellow-800"
-                onClick={() => {
-                  window.location.href = '/profile';
-                }}
+              <Menu className="h-5 w-5" />
+            </Button>
+
+                        {/* Desktop Time Display */}
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.2, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+              className="hidden sm:flex items-center space-x-4"
+            >
+              {/* Live Indicator */}
+              <div className="flex items-center space-x-3">
+                <motion.div 
+                  className="relative w-3 h-3"
+                  animate={isLive ? { scale: [1, 1.1, 1] } : {}}
+                  transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  <div className={`absolute inset-0 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-slate-400'}`}></div>
+                  {isLive && (
+                    <motion.div 
+                      className="absolute inset-0 bg-emerald-400 rounded-full"
+                      animate={{ opacity: [0.5, 1, 0.5] }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    ></motion.div>
+                  )}
+                </motion.div>
+                <span className={`text-sm font-semibold uppercase tracking-wider ${isLive ? 'text-slate-700' : 'text-slate-500'}`}>
+                  {isLive ? 'Live' : 'Not Live'}
+                </span>
+              </div>
+
+              {/* Separator */}
+              <div className="w-px h-8 bg-slate-300"></div>
+
+              {/* Time & Date */}
+              <div className="flex flex-col">
+                <span className="text-base font-medium text-slate-600 leading-tight">
+                  {currentDate}
+                </span>
+                <motion.span 
+                  className="text-2xl font-bold text-slate-900 tabular-nums leading-tight"
+                  key={currentTime}
+                  initial={{ opacity: 0.8 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  {currentTime}
+                </motion.span>
+              </div>
+            </motion.div>
+          </div>
+
+          {/* Right Section - Notifications + User Menu */}
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.4, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+            className="relative ml-auto"
+          >
+            {/* Ultra Premium Maroon Background Container */}
+            <div className="bg-wildcats-maroon sm:bg-gradient-to-br sm:from-wildcats-maroon sm:via-red-800 sm:to-red-900 px-4 py-3 flex items-center justify-end space-x-4 h-16 relative shadow-2xl shadow-wildcats-maroon/30 overflow-hidden">
+              {/* Luxury animated accent line - desktop only */}
+              <motion.div 
+                className="absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-b from-wildcats-yellow via-yellow-400 to-amber-400 shadow-xl shadow-yellow-400/40 sm:block hidden"
+                initial={{ scaleY: 0, opacity: 0 }}
+                animate={{ scaleY: 1, opacity: 1 }}
+                transition={{ delay: 0.6, duration: 1, ease: "easeOut" }}
               >
-                <User className="mr-2 h-4 w-4 transition-colors group-hover:text-maroon-900" />
-                <span>Profile</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                className="cursor-pointer px-3 py-2 text-gray-900 transition-colors !rounded-none
-                           hover:bg-yellow-100 hover:text-yellow-800
-                           focus:bg-yellow-100 focus:text-yellow-800
-                           [&:hover]:!bg-yellow-100 [&:hover]:!text-yellow-800
-                           [&:focus]:!bg-yellow-100 [&:focus]:!text-yellow-800
-                           [&:hover_svg]:!text-yellow-800 [&:focus_svg]:!text-yellow-800"
-                onClick={() => {
-                  window.location.href = '/settings';
-                }}
+                <motion.div 
+                  className="absolute inset-0 bg-gradient-to-b from-white/30 via-transparent to-white/10"
+                  animate={{ 
+                    opacity: [0.3, 0.7, 0.3]
+                  }}
+                  transition={{ 
+                    duration: 3,
+                    repeat: Infinity,
+                    ease: "easeInOut"
+                  }}
+                ></motion.div>
+              </motion.div>
+              
+              {/* Premium inner effects - desktop only */}
+              <div className="absolute inset-0 sm:bg-gradient-to-r sm:from-white/10 sm:via-transparent sm:to-white/5 pointer-events-none"></div>
+              <div className="absolute inset-0 sm:bg-gradient-to-b sm:from-red-700/20 sm:via-transparent sm:to-red-900/30 pointer-events-none"></div>
+              
+              {/* Floating particles effect - desktop only */}
+              {[...Array(3)].map((_, i) => (
+                <motion.div
+                  key={i}
+                  className="absolute w-1 h-1 bg-white/20 rounded-full hidden sm:block"
+                  animate={{
+                    x: [0, Math.random() * 100 - 50],
+                    y: [0, Math.random() * 60 - 30],
+                    opacity: [0, 0.6, 0],
+                    scale: [0, 1, 0]
+                  }}
+                  transition={{
+                    duration: 4 + Math.random() * 2,
+                    repeat: Infinity,
+                    delay: Math.random() * 2,
+                    ease: "easeInOut"
+                  }}
+                  style={{
+                    left: `${20 + Math.random() * 60}%`,
+                    top: `${20 + Math.random() * 60}%`,
+                  }}
+                />
+              ))}
+              
+              {/* Notifications with enhanced styling */}
+              <motion.div 
+                className="relative z-20"
+                whileHover={{ scale: 1.05 }}
+                transition={{ type: "spring", stiffness: 400, damping: 17 }}
               >
-                <Settings className="mr-2 h-4 w-4 transition-colors group-hover:text-maroon-900" />
-                <span>Settings</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-gray-200 my-2" />
-              <DropdownMenuItem
-                className="cursor-pointer px-3 py-2 text-red-600 hover:bg-red-50 hover:text-red-600 focus:bg-red-100 focus:text-red-600 transition-colors !rounded-none
-                           [&:hover]:!text-red-600 [&:focus]:!text-red-600"
-                onClick={handleLogoutClick}
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                <span>Logout</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+                <NotificationBell />
+              </motion.div>
+
+              {/* User Dropdown - only show if authenticated */}
+              {isAuthenticated && currentUser && (
+                <motion.div 
+                  className="relative z-20"
+                  whileHover={{ scale: 1.02 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                >
+                  <DropdownMenu open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        className={cn(
+                          "transition-all duration-500",
+                          // Desktop styling - full button with text and arrow
+                          "sm:flex sm:items-center sm:space-x-3 sm:px-5 sm:py-3",
+                          "sm:bg-gradient-to-br sm:from-white/95 sm:via-white sm:to-slate-50/90 sm:backdrop-blur-xl sm:text-wildcats-maroon",
+                          "sm:hover:from-white sm:hover:via-white sm:hover:to-white sm:hover:shadow-2xl sm:hover:shadow-black/20",
+                          "sm:border sm:border-white/40 sm:shadow-xl sm:shadow-black/10 sm:rounded-2xl",
+                          // Mobile styling - just avatar circle
+                          "flex items-center justify-center p-0 bg-transparent border-none shadow-none rounded-full",
+                          "hover:bg-white/10",
+                          "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0",
+                          "hover:scale-[1.05] active:scale-[0.95]",
+                          "relative overflow-hidden group",
+                          isDropdownOpen && "scale-[1.05] sm:scale-[1.03] sm:from-white sm:via-white sm:to-white sm:border-white/60 sm:shadow-2xl sm:shadow-black/15"
+                        )}
+                      >
+                        <div className="h-9 w-9 rounded-full sm:bg-gradient-to-br sm:from-wildcats-maroon sm:via-wildcats-maroon sm:to-red-900 bg-white flex items-center justify-center sm:text-white text-wildcats-maroon shadow-sm sm:ring-2 sm:ring-white/20">
+                          {currentUser.role?.toLowerCase() === 'admin' || currentUser.role?.toLowerCase() === 'dj' ? (
+                            <User className="h-4 w-4" />
+                          ) : (
+                            <span className="text-xs font-bold tracking-wide">
+                              {getInitials(currentUser)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="hidden sm:flex flex-col items-start text-left min-w-0 ml-3">
+                          <span className="font-semibold text-sm text-slate-900 leading-tight truncate max-w-[120px]">
+                            {getDisplayName(currentUser)}
+                          </span>
+                          <span className="text-xs text-slate-500 leading-tight mt-0.5 font-medium">
+                            {formatRole(currentUser.role)}
+                          </span>
+                        </div>
+                        <ChevronDown className={cn(
+                          "hidden sm:block h-4 w-4 text-slate-400 transition-all duration-300 ease-out flex-shrink-0 ml-3",
+                          isDropdownOpen && "rotate-180 text-slate-600"
+                        )} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      sideOffset={13}
+                      className="w-72 p-0 border border-slate-200/60 bg-white shadow-xl backdrop-blur-xl !rounded-none overflow-hidden"
+                    >
+                      {/* User Profile Header */}
+                      <div className="px-4 py-4 bg-gradient-to-br from-slate-50 to-slate-100/50 border-b border-slate-100">
+                        <div className="flex items-center space-x-3">
+                          <div className="h-12 w-12 rounded-full bg-gradient-to-br from-wildcats-maroon via-wildcats-maroon to-red-900 flex items-center justify-center text-white shadow-lg ring-2 ring-white/30">
+                            {currentUser.role?.toLowerCase() === 'admin' || currentUser.role?.toLowerCase() === 'dj' ? (
+                              <User className="h-5 w-5" />
+                            ) : (
+                              <span className="text-sm font-bold tracking-wide">
+                                {getInitials(currentUser)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-sm font-semibold text-slate-900 truncate leading-tight">
+                              {getDisplayName(currentUser)}
+                            </h3>
+                            <p className="text-xs text-slate-500 truncate mt-0.5">
+                              {currentUser.email || "user@example.com"}
+                            </p>
+                            <div className="mt-1.5">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-wildcats-yellow/20 text-amber-700 border border-wildcats-yellow/30">
+                                {formatRole(currentUser.role)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Menu Items */}
+                      <div className="p-2">
+                        <DropdownMenuItem
+                          className="flex items-center space-x-3 px-3 py-3 cursor-pointer transition-all duration-200 !rounded-none group
+                                     hover:bg-slate-50 focus:bg-slate-50
+                                     [&:hover]:!bg-slate-50 [&:focus]:!bg-slate-50"
+                          onClick={() => {
+                            setIsDropdownOpen(false);
+                            window.location.href = '/profile';
+                          }}
+                        >
+                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center group-hover:bg-slate-200 transition-colors">
+                            <User className="h-4 w-4 text-slate-600" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-slate-900">Profile</p>
+                            <p className="text-xs text-slate-500">Manage your account</p>
+                          </div>
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuItem 
+                          className="flex items-center space-x-3 px-3 py-3 cursor-pointer transition-all duration-200 !rounded-none group
+                                     hover:bg-slate-50 focus:bg-slate-50
+                                     [&:hover]:!bg-slate-50 [&:focus]:!bg-slate-50"
+                          onClick={() => {
+                            setIsDropdownOpen(false);
+                            window.location.href = '/settings';
+                          }}
+                        >
+                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center group-hover:bg-slate-200 transition-colors">
+                            <Settings className="h-4 w-4 text-slate-600" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-slate-900">Settings</p>
+                            <p className="text-xs text-slate-500">Preferences & privacy</p>
+                          </div>
+                        </DropdownMenuItem>
+                      </div>
+
+                      {/* Logout Section */}
+                      <div className="border-t border-slate-100 p-2">
+                        <DropdownMenuItem
+                          className="flex items-center space-x-3 px-3 py-3 cursor-pointer transition-all duration-200 !rounded-none group
+                                     hover:bg-red-50 focus:bg-red-50
+                                     [&:hover]:!bg-red-50 [&:focus]:!bg-red-50"
+                          onClick={handleLogoutClick}
+                        >
+                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-red-100 flex items-center justify-center group-hover:bg-red-200 transition-colors">
+                            <LogOut className="h-4 w-4 text-red-600" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-red-700">Logout</p>
+                            <p className="text-xs text-red-500">Sign out of your account</p>
+                          </div>
+                        </DropdownMenuItem>
+                      </div>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </motion.div>
+              )}
+            </div>
+          </motion.div>
+        </div>
       </div>
 
       {/* Logout Confirmation Dialog */}
       <AlertDialog open={isLogoutDialogOpen} onOpenChange={setIsLogoutDialogOpen}>
-        <AlertDialogContent className="max-w-md border-maroon-200 bg-white">
-          <AlertDialogHeader className="space-y-4">
-            <div className="flex items-center justify-center w-12 h-12 mx-auto bg-maroon-100 rounded-full">
-              <AlertTriangle className="w-6 h-6 text-maroon-600" />
-            </div>
-            <AlertDialogTitle className="text-xl font-semibold text-gray-900 text-center">
-              Confirm Logout
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-gray-600 text-center">
-              Are you sure you want to logout? You will be redirected to the login page.
+        <AlertDialogContent className="rounded-none">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will sign you out of your account. You will need to sign in again to access your dashboard.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="gap-3 mt-6">
-            <AlertDialogCancel 
-              onClick={handleLogoutCancel}
-              className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-800 border-0 outline-none focus:ring-0 focus:outline-none focus-visible:ring-0 transition-colors"
-            >
-              Cancel
-            </AlertDialogCancel>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleLogoutCancel} className="rounded-none">Cancel</AlertDialogCancel>
             <AlertDialogAction 
               onClick={handleLogoutConfirm}
-              className="flex-1 bg-maroon-600 hover:bg-maroon-700 text-white border-maroon-600 hover:border-maroon-700 transition-colors"
+              className="bg-wildcats-maroon hover:bg-red-800 text-white rounded-none"
             >
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
+              Sign Out
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </header>
+    </motion.nav>
   );
 };
 

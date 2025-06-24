@@ -1,4 +1,4 @@
-const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.autoidleapp.com/api'; // Adjusted base URL
+const API_BASE_URL = 'https://api.wildcat-radio.live/api'; // Adjusted base URL
 //const API_BASE_URL = 'http://192.168.5.60:8080/api';
 //const API_BASE_URL = 'http://10.0.2.2:8080/api'; // For Android emulator, use this if running on localhost
 
@@ -12,10 +12,8 @@ interface AuthResponse {
 // Define the expected structure for user data from /api/auth/me
 export interface UserData {
   id?: string; // Assuming id might be part of user data
-  fullName?: string; // Changed from name for consistency with request
-  name?: string; // Keeping this if API actually returns 'name'
-  firstName?: string; // For editing and potentially if API returns it
-  lastName?: string;  // For editing and potentially if API returns it
+  firstname?: string;
+  lastname?: string;
   email?: string;
   role?: string;
   memberSince?: string; // Example for "Listener since May 2025"
@@ -26,7 +24,8 @@ export interface UserData {
 
 // Interface for updating user profile (firstName, lastName, email)
 export interface UpdateUserProfilePayload {
-  fullName?: string;
+  firstname?: string;
+  lastname?: string;
   email?: string;
   // Add any other updatable fields here
 }

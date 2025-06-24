@@ -43,8 +43,6 @@ public class GoogleCloudConfig {
     @Value("${spring.profiles.active:default}")
     private String activeProfile;
 
-    @Value("${PORT:#{null}}")
-    private String herokuPort;
 
     @PostConstruct
     public void logConfiguration() {
@@ -54,7 +52,6 @@ public class GoogleCloudConfig {
         logger.info("Icecast Mount Point: {}", icecastMountPoint);
         logger.info("Server Port: {}", serverPort);
         logger.info("Active Profile: {}", activeProfile);
-        logger.info("Heroku Port Environment: {}", herokuPort != null ? herokuPort : "Not set");
         logger.info("==============================");
 
         // Validate configuration
@@ -81,7 +78,7 @@ public class GoogleCloudConfig {
      * Check if we're running in a cloud environment
      */
     public boolean isCloudDeployment() {
-        return herokuPort != null || "prod".equals(activeProfile) || "cloud".equals(activeProfile);
+        return "prod".equals(activeProfile) || "cloud".equals(activeProfile);
     }
 
     /**

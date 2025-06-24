@@ -4,7 +4,8 @@ import com.wildcastradio.User.UserEntity;
 
 public class UserDTO {
     private Long id;
-    private String name;
+    private String firstname;
+    private String lastname;
     private String email;
     private String role;
     
@@ -12,9 +13,10 @@ public class UserDTO {
     public UserDTO() {
     }
     
-    public UserDTO(Long id, String name, String email, String role) {
+    public UserDTO(Long id, String firstname, String lastname, String email, String role) {
         this.id = id;
-        this.name = name;
+        this.firstname = firstname;
+        this.lastname = lastname;
         this.email = email;
         this.role = role;
     }
@@ -27,7 +29,8 @@ public class UserDTO {
         
         return new UserDTO(
             user.getId(),
-            user.getName(),
+            user.getFirstname(),
+            user.getLastname(),
             user.getEmail(),
             user.getRole().toString()
         );
@@ -42,12 +45,20 @@ public class UserDTO {
         this.id = id;
     }
     
-    public String getName() {
-        return name;
+    public String getFirstname() {
+        return firstname;
     }
     
-    public void setName(String name) {
-        this.name = name;
+    public void setFirstname(String firstname) {
+        this.firstname = firstname;
+    }
+    
+    public String getLastname() {
+        return lastname;
+    }
+    
+    public void setLastname(String lastname) {
+        this.lastname = lastname;
     }
     
     public String getEmail() {

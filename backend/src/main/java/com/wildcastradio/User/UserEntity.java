@@ -29,7 +29,10 @@ public class UserEntity {
     private Long id;
 
     @Column(nullable = false)
-    private String name;
+    private String firstname;
+
+    @Column(nullable = false)
+    private String lastname;
 
     @Column(nullable = false, unique = true)
     private String email;
@@ -71,12 +74,13 @@ public class UserEntity {
     }
     
     // All args constructor
-    public UserEntity(Long id, String name, String email, String password, UserRole role, 
+    public UserEntity(Long id, String firstname, String lastname, String email, String password, UserRole role, 
                     boolean verified, String verificationCode, List<BroadcastEntity> broadcasts,
                     List<ChatMessageEntity> chatMessages, List<SongRequestEntity> songRequests,
                     List<NotificationEntity> notifications, List<ActivityLogEntity> activityLogs) {
         this.id = id;
-        this.name = name;
+        this.firstname = firstname;
+        this.lastname = lastname;
         this.email = email;
         this.password = password;
         this.role = role;
@@ -98,12 +102,20 @@ public class UserEntity {
         this.id = id;
     }
 
-    public String getName() {
-        return name;
+    public String getFirstname() {
+        return firstname;
     }
 
-    public void setName(String name) {
-        this.name = name;
+    public void setFirstname(String firstname) {
+        this.firstname = firstname;
+    }
+
+    public String getLastname() {
+        return lastname;
+    }
+
+    public void setLastname(String lastname) {
+        this.lastname = lastname;
     }
 
     public String getEmail() {

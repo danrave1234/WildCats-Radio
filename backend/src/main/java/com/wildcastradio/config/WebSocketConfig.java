@@ -21,12 +21,15 @@ public class WebSocketConfig implements WebSocketConfigurer {
     
     private final IcecastStreamHandler icecastStreamHandler;
     private final ListenerStatusHandler listenerStatusHandler;
+    private final CorsConfig corsConfig;
     
     @Autowired
     public WebSocketConfig(IcecastStreamHandler icecastStreamHandler, 
-                          ListenerStatusHandler listenerStatusHandler) {
+                          ListenerStatusHandler listenerStatusHandler,
+                          CorsConfig corsConfig) {
         this.icecastStreamHandler = icecastStreamHandler;
         this.listenerStatusHandler = listenerStatusHandler;
+        this.corsConfig = corsConfig;
     }
     
     /**
@@ -35,9 +38,9 @@ public class WebSocketConfig implements WebSocketConfigurer {
     @Bean
     public ServletServerContainerFactoryBean createWebSocketContainer() {
         ServletServerContainerFactoryBean container = new ServletServerContainerFactoryBean();
-        // Set larger buffer sizes for audio data (64KB)
-        container.setMaxBinaryMessageBufferSize(65536); 
-        container.setMaxTextMessageBufferSize(65536);
+        // Increase buffer sizes for audio data to handle larger chunks during audio source switching
+        container.setMaxBinaryMessageBufferSize(131072); // 128KB - increased from 64KB
+        container.setMaxTextMessageBufferSize(131072);   // 128KB - increased from 64KB
         // Increase timeout to handle potential network delays
         container.setAsyncSendTimeout(30000L);
         return container;
@@ -50,28 +53,10 @@ public class WebSocketConfig implements WebSocketConfigurer {
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         // Audio streaming endpoint for DJs
         registry.addHandler(icecastStreamHandler, "/ws/live")
-                .setAllowedOrigins(
-                    "http://localhost:3000",   // React development server
-                    "http://localhost:5173",   // Vite development server  
-                    "http://127.0.0.1:3000",
-                    "http://127.0.0.1:5173",
-                    "https://wildcat-radio-f05d362144e6.herokuapp.com",
-                    "https://wildcat-radio.vercel.app",
-                    "https://wildcat-radio-f05d362144e6.autoidleapp.com",
-                    "https://wildcat-radio.live"  // New production domain
-                );
+                .setAllowedOrigins(corsConfig.getAllowedOrigins().toArray(new String[0]));
         
         // Status updates endpoint for listeners  
         registry.addHandler(listenerStatusHandler, "/ws/listener")
-                .setAllowedOrigins(
-                    "http://localhost:3000",   // React development server
-                    "http://localhost:5173",   // Vite development server  
-                    "http://127.0.0.1:3000",
-                    "http://127.0.0.1:5173",
-                    "https://wildcat-radio-f05d362144e6.herokuapp.com",
-                    "https://wildcat-radio.vercel.app",
-                    "https://wildcat-radio-f05d362144e6.autoidleapp.com",
-                    "https://wildcat-radio.live"  // New production domain
-                );
+                .setAllowedOrigins(corsConfig.getAllowedOrigins().toArray(new String[0]));
     }
 }

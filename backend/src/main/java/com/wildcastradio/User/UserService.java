@@ -64,7 +64,8 @@ public class UserService implements UserDetailsService {
         UserEntity user = new UserEntity();
         user.setEmail(request.getEmail());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setName(request.getName());
+        user.setFirstname(request.getFirstname());
+        user.setLastname(request.getLastname());
         user.setRole(UserEntity.UserRole.LISTENER); // Default role
         user.setVerified(false);
         user.setVerificationCode(generateVerificationCode());
@@ -121,7 +122,7 @@ public class UserService implements UserDetailsService {
 
         // Send verification email
         try {
-            sendVerificationEmail(email, verificationCode, user.getName());
+            sendVerificationEmail(email, verificationCode, user.getFirstname());
             // Log the activity
             activityLogService.logActivity(
                 user,
@@ -210,8 +211,11 @@ public class UserService implements UserDetailsService {
     public UserEntity updateProfile(Long userId, UserDTO updatedInfo) {
         UserEntity user = findById(userId);
 
-        if (updatedInfo.getName() != null) {
-            user.setName(updatedInfo.getName());
+        if (updatedInfo.getFirstname() != null) {
+            user.setFirstname(updatedInfo.getFirstname());
+        }
+        if (updatedInfo.getLastname() != null) {
+            user.setLastname(updatedInfo.getLastname());
         }
 
         // Don't update email here for security reasons

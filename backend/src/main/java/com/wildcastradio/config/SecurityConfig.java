@@ -27,6 +27,9 @@ public class SecurityConfig {
     @Autowired
     private JwtRequestFilter jwtRequestFilter;
 
+    @Autowired
+    private CorsConfig corsConfig;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -71,17 +74,8 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // For development - specify exact origins instead of using wildcards with credentials
-        configuration.setAllowedOrigins(Arrays.asList(
-            "http://localhost:3000",   // React development server
-            "http://localhost:5173",   // Vite development server
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:5173",
-            "https://wildcat-radio-f05d362144e6.herokuapp.com",
-            "https://wildcat-radio.vercel.app",
-            "https://wildcat-radio-f05d362144e6.autoidleapp.com",
-            "https://wildcat-radio.live"  // New production domain
-        ));
+        // Use dynamic CORS configuration
+        configuration.setAllowedOrigins(corsConfig.getAllowedOrigins());
 
         // Allow all methods required for REST and WebSocket/SockJS
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "CONNECT"));
@@ -110,16 +104,7 @@ public class SecurityConfig {
 
         // Create specific enhanced configuration for SockJS endpoints
         CorsConfiguration sockJsConfig = new CorsConfiguration();
-        sockJsConfig.setAllowedOrigins(Arrays.asList(
-            "http://localhost:3000",
-            "http://localhost:5173", 
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:5173",
-            "https://wildcat-radio-f05d362144e6.herokuapp.com",
-            "https://wildcat-radio.vercel.app",
-            "https://wildcat-radio-f05d362144e6.autoidleapp.com",
-            "https://wildcat-radio.live"  // New production domain
-        ));
+        sockJsConfig.setAllowedOrigins(corsConfig.getAllowedOrigins());
         sockJsConfig.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"));
         sockJsConfig.setAllowedHeaders(Arrays.asList("*"));
         sockJsConfig.setExposedHeaders(Arrays.asList(

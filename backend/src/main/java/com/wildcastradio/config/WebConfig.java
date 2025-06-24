@@ -16,7 +16,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebConfig implements WebMvcConfigurer {
 
     // CORS configuration disabled - handled by SecurityConfig
-    // @Value("${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,https://wildcat-radio-f05d362144e6.herokuapp.com,https://wildcat-radio.vercel.app,https://wildcat-radio-f05d362144e6.autoidleapp.com}")
+    // @Value("${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,https://wildcat-radio.vercel.app,https://api.wildcat-radio.live}")
     // private String allowedOrigins;
 
     // @Override

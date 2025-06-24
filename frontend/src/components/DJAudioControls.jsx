@@ -44,7 +44,56 @@ const DJAudioControls = () => {
       await switchAudioSourceLive(newSource);
     } catch (error) {
       console.error('Failed to switch audio source:', error);
-      alert(`Failed to switch audio source: ${error.message}`);
+      
+      // Provide specific, user-friendly error messages based on the error type
+      let errorMessage = '';
+      const errorMsg = error.message || '';
+      
+      if (errorMsg.includes('validation failed') || errorMsg.includes('No active audio tracks')) {
+        errorMessage = `Audio source switching failed: The ${newSource} audio source is not ready or compatible.\n\n` +
+          `Your broadcast is still running with the previous audio source.\n` +
+          `Try again in a moment, or check your audio device settings.`;
+      } else if (errorMsg.includes('MediaRecorder start failed') || errorMsg.includes('NotSupportedError')) {
+        errorMessage = `Audio source switching failed: Browser compatibility issue with ${newSource} audio.\n\n` +
+          `Your broadcast is still running with the previous audio source.\n` +
+          `This is a browser limitation. Try refreshing the page or using a different browser.`;
+      } else if (errorMsg.includes('Permission denied') || errorMsg.includes('NotAllowedError')) {
+        errorMessage = `Audio source switching failed: Permission denied for ${newSource} audio.\n\n` +
+          `Your broadcast is still running with the previous audio source.\n` +
+          `Please allow microphone/screen sharing access and try again.`;
+      } else if (errorMsg.includes('Desktop audio capture failed') || errorMsg.includes('getDisplayMedia')) {
+        errorMessage = `Desktop audio switching failed: Could not access desktop audio.\n\n` +
+          `Your broadcast is still running with microphone audio.\n` +
+          `Make sure to select a source with audio (like a browser tab with music) when prompted.`;
+      } else if (errorMsg.includes('WebSocket connection timeout')) {
+        errorMessage = `Audio source switching failed: Connection timeout during pipeline reset.\n\n` +
+          `Your broadcast is still running with the previous audio source.\n` +
+          `This can happen due to network issues. Please try again or refresh the page.`;
+      } else if (errorMsg.includes('stream became inactive') || errorMsg.includes('tracks have ended') || errorMsg.includes('screen sharing is cancelled')) {
+        errorMessage = `Audio source switching failed: The audio stream was disconnected during the switch.\n\n` +
+          `Your broadcast is still running with the previous audio source.\n` +
+          `This commonly happens when:\n` +
+          `• Screen sharing dialog is closed too quickly\n` +
+          `• The selected audio source stops playing\n` +
+          `• Audio device is disconnected\n\n` +
+          `Try again and keep the sharing dialog open until switching completes.`;
+      } else if (errorMsg.includes('No audio track found') || errorMsg.includes('select a source with audio')) {
+        errorMessage = `Desktop audio switching failed: No audio found in the selected source.\n\n` +
+          `Your broadcast is still running with the previous audio source.\n` +
+          `Please select a source that has audio (like a browser tab playing music) or choose "System Audio" when prompted.`;
+      } else if (errorMsg.includes('pipeline restoration failed')) {
+        errorMessage = `Audio source switching failed: Complete pipeline restoration failed.\n\n` +
+          `Your broadcast may have been interrupted. Please refresh the page and restart your broadcast.\n` +
+          `This is a rare issue that can occur with complex audio source switches.`;
+      } else {
+        // Generic fallback message
+        errorMessage = `Audio source switching failed, but your broadcast continues running.\n\n` +
+          `No interruption to your live stream.\n` +
+          `${errorMsg || 'Please try again or refresh the page if the issue persists.'}`;
+      }
+      
+      // Show user-friendly error message
+      alert(errorMessage);
     } finally {
       setIsSwitchingSource(false);
     }
@@ -222,9 +271,15 @@ const DJAudioControls = () => {
                 })}
               </div>
               {isSwitchingSource && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
-                  Switching audio source...
-                </p>
+                <div className="text-xs text-amber-600 dark:text-amber-400 text-center space-y-1">
+                  <p>Switching audio source...</p>
+                  <p className="text-gray-500 dark:text-gray-400">
+                    Full pipeline reset (~5-8 seconds)
+                  </p>
+                  <p className="text-gray-400 dark:text-gray-500 text-xs">
+                    Prevents server conflicts & ensures clean audio
+                  </p>
+                </div>
               )}
             </div>
 

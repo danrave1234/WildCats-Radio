@@ -80,7 +80,6 @@ export default function ListenerDashboard() {
   // UI state
   const [activeTab, setActiveTab] = useState("song");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
-  const [pollLoading, setPollLoading] = useState(false);
   const [_currentSong, _setCurrentSong] = useState(null);
 
   // Local audio state for the dashboard player (separate from streaming context)
@@ -91,6 +90,9 @@ export default function ListenerDashboard() {
 
   // Poll selection state
   const [selectedPollOption, setSelectedPollOption] = useState(null);
+
+  // Missing pollLoading state
+  const [pollLoading, setPollLoading] = useState(false);
 
   // Chat timestamp update state
   const [_chatTimestampTick, _setChatTimestampTick] = useState(0);
@@ -103,6 +105,7 @@ export default function ListenerDashboard() {
   const songRequestWsRef = useRef(null);
   const pollWsRef = useRef(null);
   const broadcastWsRef = useRef(null);
+  const globalBroadcastWsRef = useRef(null); // For general broadcast status updates
 
   // UI refs
   const chatContainerRef = useRef(null);
@@ -834,36 +837,69 @@ export default function ListenerDashboard() {
 
         // Use the broadcast service from api.js
         const connection = await broadcastService.subscribeToBroadcastUpdates(currentBroadcastId, (message) => {
+          logger.debug('Listener Dashboard: Broadcast WebSocket message received:', message);
 
           switch (message.type) {
             case 'BROADCAST_STARTED':
               logger.debug('Stream started via WebSocket');
+              // CRITICAL FIX: Always fetch the latest broadcast information when a new broadcast starts
+              // This ensures the UI shows the correct title and details immediately
+              if (message.broadcast) {
+                logger.debug('Broadcast information included in message:', message.broadcast);
+                setCurrentBroadcast(message.broadcast);
+                setCurrentBroadcastId(message.broadcast.id);
+              }
+              // Always fetch full details as well, regardless of message content
+              logger.debug('Fetching complete broadcast information after BROADCAST_STARTED');
+              fetchCurrentBroadcastInfo();
               break;
 
             case 'BROADCAST_ENDED':
               logger.debug('Stream ended via WebSocket');
+              setCurrentBroadcast(null);
+              setCurrentBroadcastId(null);
               break;
 
             case 'LISTENER_COUNT_UPDATE':
               logger.debug('Listener count updated via WebSocket:', message.data?.listenerCount || 0);
+              if (message.data?.listenerCount !== undefined) {
+                setLocalListenerCount(message.data.listenerCount);
+              }
               break;
 
             case 'BROADCAST_STATUS_UPDATE':
-              logger.debug('Broadcast status updated via WebSocket:', message.broadcast.status === 'LIVE');
+              logger.debug('Broadcast status updated via WebSocket:', message.broadcast?.status === 'LIVE');
+              // Update broadcast information when status changes
+              if (message.broadcast) {
+                setCurrentBroadcast(message.broadcast);
+                if (message.broadcast.status === 'LIVE' && !currentBroadcastId) {
+                  setCurrentBroadcastId(message.broadcast.id);
+                  // Fetch complete details when broadcast goes live
+                  logger.debug('Fetching complete broadcast information after status update to LIVE');
+                  fetchCurrentBroadcastInfo();
+                }
+              }
               break;
 
             case 'LISTENER_JOINED':
               // Update listener count if provided
               logger.debug('Listener joined via WebSocket:', message.data?.listenerCount !== undefined ? message.data.listenerCount : 0);
+              if (message.data?.listenerCount !== undefined) {
+                setLocalListenerCount(message.data.listenerCount);
+              }
               break;
 
             case 'LISTENER_LEFT':
               // Update listener count if provided
               logger.debug('Listener left via WebSocket:', message.data?.listenerCount !== undefined ? message.data.listenerCount : 0);
+              if (message.data?.listenerCount !== undefined) {
+                setLocalListenerCount(message.data.listenerCount);
+              }
               break;
 
             default:
               // Unknown message type - can be safely ignored
+              logger.debug('Unknown broadcast message type:', message.type);
           }
         });
 
@@ -969,6 +1005,28 @@ export default function ListenerDashboard() {
     }
   };
 
+  // Helper function to fetch current broadcast info
+  const fetchCurrentBroadcastInfo = async () => {
+    try {
+      // Fetch live broadcasts from API
+      const response = await broadcastService.getLive();
+      const liveBroadcasts = response.data;
+
+      if (liveBroadcasts && liveBroadcasts.length > 0) {
+        const liveBroadcast = liveBroadcasts[0];
+        setCurrentBroadcast(liveBroadcast);
+        setCurrentBroadcastId(liveBroadcast.id);
+        logger.debug("Live broadcast information fetched:", liveBroadcast);
+      } else {
+        setCurrentBroadcast(null);
+        setCurrentBroadcastId(null);
+        logger.debug("No live broadcasts found");
+      }
+    } catch (error) {
+      logger.error("Error fetching current broadcast info:", error);
+    }
+  };
+
   // Check if a broadcast is live
   useEffect(() => {
     const checkBroadcastStatus = async () => {
@@ -1002,10 +1060,15 @@ export default function ListenerDashboard() {
         const response = await broadcastService.getLive();
         const liveBroadcasts = response.data;
 
-        // If there are any live broadcasts, set isLive to true
+        // If there are any live broadcasts, update state
         if (liveBroadcasts && liveBroadcasts.length > 0) {
-          logger.debug("Live broadcast:", liveBroadcasts[0]);
-          } else {
+          const liveBroadcast = liveBroadcasts[0];
+          setCurrentBroadcast(liveBroadcast);
+          setCurrentBroadcastId(liveBroadcast.id);
+          logger.debug("Live broadcast found:", liveBroadcast);
+        } else {
+          setCurrentBroadcast(null);
+          setCurrentBroadcastId(null);
           logger.debug("No live broadcasts found");
         }
       } catch (error) {
@@ -1022,6 +1085,116 @@ export default function ListenerDashboard() {
 
     return () => clearInterval(interval);
   }, [targetBroadcastId]); // Add targetBroadcastId as dependency
+
+  // Global broadcast status WebSocket for real-time broadcast detection
+  useEffect(() => {
+    const setupGlobalBroadcastWebSocket = async () => {
+      try {
+        // Clean up any existing connection
+        if (globalBroadcastWsRef.current) {
+          globalBroadcastWsRef.current.disconnect();
+          globalBroadcastWsRef.current = null;
+        }
+
+        logger.debug('Setting up global broadcast status WebSocket...');
+        
+        // Subscribe to global broadcast status updates (no specific broadcast ID)
+        const connection = await broadcastService.subscribeToBroadcastUpdates(null, (message) => {
+          logger.debug('Global broadcast update received:', message);
+
+          switch (message.type) {
+            case 'BROADCAST_STARTED':
+              logger.debug('New broadcast started via global WebSocket');
+              // CRITICAL FIX: Immediately fetch complete broadcast information
+              // This is essential for audio source switching scenarios where the DJ
+              // reconnects and creates a new broadcast session
+              if (message.broadcast) {
+                logger.debug('Updating to new broadcast from global WebSocket:', message.broadcast);
+                setCurrentBroadcast(message.broadcast);
+                setCurrentBroadcastId(message.broadcast.id);
+              }
+              // Always fetch complete details to ensure UI is up-to-date
+              logger.debug('Fetching complete broadcast information via global WebSocket after BROADCAST_STARTED');
+              fetchCurrentBroadcastInfo();
+              break;
+
+            case 'BROADCAST_ENDED':
+              logger.debug('Broadcast ended via global WebSocket');
+              // Only clear state if it matches the current broadcast
+              if (!message.broadcast || message.broadcast.id === currentBroadcastId) {
+                setCurrentBroadcast(null);
+                setCurrentBroadcastId(null);
+                logger.debug('Cleared current broadcast state');
+              }
+              break;
+
+            case 'BROADCAST_STATUS_UPDATE':
+              logger.debug('Broadcast status updated via global WebSocket:', message.broadcast?.status);
+              if (message.broadcast && message.broadcast.status === 'LIVE') {
+                // New broadcast went live
+                logger.debug('New broadcast went live via global status update:', message.broadcast);
+                setCurrentBroadcast(message.broadcast);
+                setCurrentBroadcastId(message.broadcast.id);
+                // Fetch complete details for the new live broadcast
+                logger.debug('Fetching complete broadcast information for newly live broadcast');
+                fetchCurrentBroadcastInfo();
+              } else if (message.broadcast && message.broadcast.status !== 'LIVE') {
+                // If this was the current broadcast and it's no longer live
+                if (currentBroadcastId === message.broadcast.id) {
+                  setCurrentBroadcast(null);
+                  setCurrentBroadcastId(null);
+                  logger.debug('Current broadcast ended via global status update');
+                }
+              }
+              break;
+
+            case 'LISTENER_COUNT_UPDATE':
+              // Update listener count for any broadcast updates
+              if (message.data?.listenerCount !== undefined) {
+                setLocalListenerCount(message.data.listenerCount);
+                logger.debug('Updated listener count via global WebSocket:', message.data.listenerCount);
+              }
+              break;
+
+            default:
+              // Other message types can be ignored for global status
+              logger.debug('Global WebSocket - ignoring message type:', message.type);
+              break;
+          }
+        });
+
+        globalBroadcastWsRef.current = connection;
+        logger.debug('Global broadcast status WebSocket connected successfully');
+      } catch (error) {
+        logger.error('Failed to connect global broadcast status WebSocket:', error);
+        
+        // Fallback: increase polling frequency if WebSocket fails
+        logger.debug('Setting up fallback polling due to global WebSocket failure');
+        const fallbackPolling = setInterval(() => {
+          logger.debug('Fallback polling: checking for live broadcasts');
+          fetchCurrentBroadcastInfo();
+        }, 30000); // Poll every 30 seconds as fallback
+        
+        // Store the polling interval for cleanup
+        globalBroadcastWsRef.current = {
+          disconnect: () => {
+            clearInterval(fallbackPolling);
+            logger.debug('Stopped fallback polling');
+          }
+        };
+      }
+    };
+
+    // Set up the global WebSocket connection
+    setupGlobalBroadcastWebSocket();
+
+    return () => {
+      if (globalBroadcastWsRef.current) {
+        globalBroadcastWsRef.current.disconnect();
+        globalBroadcastWsRef.current = null;
+      }
+    };
+  }, []); // Run once on component mount
 
   // Fetch active polls for the current broadcast
   useEffect(() => {
@@ -1377,6 +1550,78 @@ export default function ListenerDashboard() {
     }
   };
 
+  // Safe chat message renderer with comprehensive error handling
+  const renderSafeChatMessage = (msg) => {
+    try {
+      // Validate message data
+      if (!msg || !msg.sender || !msg.id || !msg.content) {
+        return null;
+      }
+
+      // Construct name from firstname and lastname fields (backend sends these, not a single 'name' field)
+      const firstName = msg.sender.firstname || '';
+      const lastName = msg.sender.lastname || '';
+      const fullName = `${firstName} ${lastName}`.trim();
+      const senderName = fullName || msg.sender.email || 'Unknown User';
+      
+      // Check if user is a DJ based on their role or name
+      const isDJ = (msg.sender.role && msg.sender.role.includes("DJ")) || 
+                   (senderName.includes("DJ")) ||
+                   (firstName.includes("DJ")) ||
+                   (lastName.includes("DJ"));
+      
+      const initials = senderName.split(' ').map(part => part[0] || '').join('').toUpperCase().slice(0, 2) || 'U';
+
+      // Handle date parsing more robustly
+      let messageDate;
+      try {
+        messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
+      } catch (error) {
+        logger.error('Error parsing message date:', error);
+        messageDate = new Date();
+      }
+
+      // Format relative time
+      const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
+        ? formatDistanceToNow(messageDate, { addSuffix: false }) 
+        : 'Just now';
+
+      const formattedTimeAgo = timeAgo
+        .replace(' seconds', ' sec')
+        .replace(' second', ' sec')
+        .replace(' minutes', ' min')
+        .replace(' minute', ' min')
+        .replace(' hours', ' hour')
+        .replace(' days', ' day')
+        .replace(' months', ' month')
+        .replace(' years', ' year');
+
+      return (
+        <div key={msg.id} className="mb-4">
+          <div className="flex items-center mb-1">
+            <div className={`h-8 w-8 min-w-[2rem] rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
+              {isDJ ? 'DJ' : initials}
+            </div>
+            <div className="ml-2 overflow-hidden">
+              <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{senderName}</span>
+            </div>
+          </div>
+          <div className="ml-10 space-y-1">
+            <div className={`rounded-lg p-3 message-bubble ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
+              <p className="text-sm text-gray-800 dark:text-gray-200 chat-message" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content || 'No content'}</p>
+            </div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 pl-1">
+              {formattedTimeAgo} ago
+            </div>
+          </div>
+        </div>
+      );
+    } catch (error) {
+      logger.error('Error rendering chat message:', error, msg);
+      return null;
+    }
+  };
+
   // Render chat messages
   const renderChatMessages = () => (
     <div className="max-h-60 overflow-y-auto space-y-3 mb-4 chat-messages-container custom-scrollbar" ref={chatContainerRef}>
@@ -1385,67 +1630,9 @@ export default function ListenerDashboard() {
       ) : (
         chatMessages
           .slice()
-          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
-          .map((msg) => {
-            // Ensure we have valid message data
-            if (!msg || !msg.sender) {
-              logger.debug('Listener Dashboard: Skipping invalid message:', msg);
-              return null;
-            }
-
-            // Check if the message is from a DJ
-            const isDJ = msg.sender && msg.sender.name && msg.sender.name.includes("DJ");
-            const senderName = msg.sender.name || 'Unknown User';
-            const initials = senderName.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
-
-            // Handle date parsing more robustly
-            let messageDate;
-            try {
-              messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
-            } catch (error) {
-              logger.error('Listener Dashboard: Error parsing message date:', error);
-              messageDate = new Date();
-            }
-
-            // Format relative time (updated every minute due to chatTimestampTick)
-            const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
-              ? formatDistanceToNow(messageDate, { addSuffix: false }) 
-              : 'Just now';
-
-            // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
-            const formattedTimeAgo = timeAgo
-              .replace(' seconds', ' sec')
-              .replace(' second', ' sec')
-              .replace(' minutes', ' min')
-              .replace(' minute', ' min')
-              .replace(' hours', ' hour')
-              .replace(' days', ' day')
-              .replace(' months', ' month')
-              .replace(' years', ' year');
-
-            return (
-              <div
-                key={msg.id}
-                className="mb-3"
-              >
-                <div className="flex items-center mb-1">
-                  <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
-                    {isDJ ? 'DJ' : initials}
-                  </div>
-                  <div className="ml-2">
-                    <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{senderName}</span>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {formattedTimeAgo} ago
-                    </div>
-                  </div>
-                </div>
-                <div className={`rounded-lg p-3 ml-8 ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
-                  <p className="text-sm text-gray-800 dark:text-gray-200">{msg.content || 'No content'}</p>
-                </div>
-              </div>
-            );
-          })
-          .filter(Boolean)
+          .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+          .map(renderSafeChatMessage)
+          .filter(Boolean) // Remove any null values from failed renders
       )}
     </div>
   );
@@ -1992,56 +2179,11 @@ export default function ListenerDashboard() {
                   ref={chatContainerRef}
                   className="flex-grow overflow-y-auto p-4 space-y-4 chat-messages-container relative"
                 >
-                  {chatMessages.map((msg) => {
-                    const isDJ = msg.sender && msg.sender.name.includes("DJ");
-                    const initials = msg.sender.name.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
-
-                    // Parse the createdAt timestamp from the backend
-                    let messageDate;
-                    try {
-                      messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
-                    } catch (error) {
-                      logger.error('Listener Dashboard: Error parsing message date:', error);
-                      messageDate = new Date();
-                    }
-
-                    // Format relative time (updated every minute due to chatTimestampTick)
-                    const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
-                      ? formatDistanceToNow(messageDate, { addSuffix: false }) 
-                      : 'Just now';
-
-                    // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
-                    const formattedTimeAgo = timeAgo
-                      .replace(' seconds', ' sec')
-                      .replace(' second', ' sec')
-                      .replace(' minutes', ' min')
-                      .replace(' minute', ' min')
-                      .replace(' hours', ' hour')
-                      .replace(' days', ' day')
-                      .replace(' months', ' month')
-                      .replace(' years', ' year');
-
-                    return (
-                      <div key={msg.id} className="mb-4">
-                        <div className="flex items-center mb-1">
-                          <div className={`h-8 w-8 min-w-[2rem] rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
-                            {isDJ ? 'DJ' : initials}
-                          </div>
-                          <div className="ml-2 overflow-hidden">
-                            <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{msg.sender.name}</span>
-                          </div>
-                        </div>
-                        <div className="ml-10 space-y-1">
-                          <div className={`rounded-lg p-3 message-bubble ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
-                            <p className="text-sm text-gray-800 dark:text-gray-200 chat-message" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content}</p>
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400 pl-1">
-                            {formattedTimeAgo} ago
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {chatMessages
+                    .slice()
+                    .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+                    .map(renderSafeChatMessage)
+                    .filter(Boolean)}
                 </div>
 
                 {/* Scroll to bottom button */}
@@ -2283,56 +2425,15 @@ export default function ListenerDashboard() {
                   ref={chatContainerRef}
                   className="flex-grow overflow-y-auto p-4 space-y-4 chat-messages-container relative"
                 >
-                  {chatMessages.map((msg) => {
-                    const isDJ = msg.sender && msg.sender.name.includes("DJ");
-                    const initials = msg.sender.name.split(' ').map(part => part[0]).join('').toUpperCase().slice(0, 2);
-
-                    // Parse the createdAt timestamp from the backend
-                    let messageDate;
-                    try {
-                      messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
-                    } catch (error) {
-                      logger.error('Listener Dashboard: Error parsing message date:', error);
-                      messageDate = new Date();
-                    }
-
-                    // Format relative time (updated every minute due to chatTimestampTick)
-                    const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
-                      ? formatDistanceToNow(messageDate, { addSuffix: false }) 
-                      : 'Just now';
-
-                    // Format the timeAgo to match the requested format (e.g., "2 minutes ago" -> "2 min ago")
-                    const formattedTimeAgo = timeAgo
-                      .replace(' seconds', ' sec')
-                      .replace(' second', ' sec')
-                      .replace(' minutes', ' min')
-                      .replace(' minute', ' min')
-                      .replace(' hours', ' hour')
-                      .replace(' days', ' day')
-                      .replace(' months', ' month')
-                      .replace(' years', ' year');
-
-                    return (
-                      <div key={msg.id} className="mb-4">
-                        <div className="flex items-center mb-1">
-                          <div className={`h-8 w-8 min-w-[2rem] rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
-                            {isDJ ? 'DJ' : initials}
-                          </div>
-                          <div className="ml-2 overflow-hidden">
-                            <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{msg.sender.name}</span>
-                          </div>
-                        </div>
-                        <div className="ml-10 space-y-1">
-                          <div className={`rounded-lg p-3 message-bubble ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
-                            <p className="text-sm text-gray-800 dark:text-gray-200 chat-message" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content}</p>
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400 pl-1">
-                            {formattedTimeAgo} ago
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {chatMessages.length === 0 ? (
+                    <p className="text-center text-gray-500 dark:text-gray-400 py-4">No messages yet</p>
+                  ) : (
+                    chatMessages
+                      .slice()
+                      .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+                      .map(renderSafeChatMessage)
+                      .filter(Boolean) // Remove any null values from failed renders
+                  )}
                 </div>
 
                 {/* Scroll to bottom button */}
