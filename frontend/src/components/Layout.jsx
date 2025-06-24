@@ -1,30 +1,16 @@
 import React, { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import NewSidebar from './Sidebar';
 import Header from './Header';
 import { SidebarProvider } from './ui/sidebar';
 import { EnhancedScrollArea } from './ui/enhanced-scroll-area';
 
-const MainContent = ({ children, onMobileMenuToggle }) => {
-  return (
-    <div className="flex flex-col flex-1 h-screen overflow-hidden">
-      <Header onMobileMenuToggle={onMobileMenuToggle} />
-      <EnhancedScrollArea className="flex-1">
-        <main className="p-4 md:p-6 lg:p-8">
-          <div className="max-w-7xl mx-auto">
-            {children}
-          </div>
-        </main>
-      </EnhancedScrollArea>
-    </div>
-  );
-};
-
 const Layout = ({ children }) => {
   const { currentUser, isAuthenticated } = useAuth();
+  const location = useLocation();
+  const isDashboard = location.pathname.includes('/dashboard') || location.pathname.startsWith('/broadcast/');
   
-  // Controlled sidebar state - always starts minimized
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const toggleSidebar = () => {
@@ -39,10 +25,26 @@ const Layout = ({ children }) => {
     >
       <div className="h-screen bg-wildcats-background dark:bg-gray-900 flex overflow-hidden">
         {isAuthenticated && <NewSidebar userRole={currentUser?.role} />}
-        <MainContent onMobileMenuToggle={toggleSidebar}>
-          <Outlet />
-          {children}
-        </MainContent>
+        
+        <div className="flex flex-col flex-1 h-screen overflow-hidden">
+          <Header onMobileMenuToggle={toggleSidebar} />
+
+          {isDashboard ? (
+            <div className="flex-1 bg-background text-foreground">
+              <Outlet />
+              {children}
+            </div>
+          ) : (
+            <EnhancedScrollArea className="flex-1">
+              <main>
+                <div className="max-w-auto mx-auto">
+                  <Outlet />
+                  {children}
+                </div>
+              </main>
+            </EnhancedScrollArea>
+          )}
+        </div>
       </div>
     </SidebarProvider>
   );

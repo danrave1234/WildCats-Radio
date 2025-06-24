@@ -200,48 +200,14 @@ const Header = ({ onMobileMenuToggle }) => {
       initial={{ y: -20, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-      className="relative sm:bg-gradient-to-r sm:from-white/90 sm:via-slate-50/95 sm:to-white/90 bg-wildcats-maroon backdrop-blur-2xl border-b border-slate-200/40 sm:shadow-2xl sm:shadow-black/[0.08] shadow-2xl shadow-wildcats-maroon/30 sm:supports-[backdrop-filter]:bg-white/80 overflow-hidden"
+      className="relative bg-white border-b border-slate-200/40 shadow-sm overflow-hidden"
     >
-      {/* Premium gradient overlays - only for desktop */}
-      <div className="absolute inset-0 sm:bg-gradient-to-r sm:from-blue-50/30 sm:via-transparent sm:to-purple-50/20 pointer-events-none"></div>
-      <div className="absolute inset-0 sm:bg-gradient-to-b sm:from-white/40 sm:via-transparent sm:to-slate-100/30 pointer-events-none"></div>
-      
-      {/* Floating orbs for premium effect - desktop only */}
-      <motion.div 
-        className="absolute -top-20 -left-20 w-40 h-40 bg-gradient-to-br from-wildcats-yellow/20 to-amber-300/10 rounded-full blur-3xl hidden sm:block"
-        animate={{ 
-          x: [0, 30, 0],
-          y: [0, -20, 0],
-          scale: [1, 1.1, 1]
-        }}
-        transition={{ 
-          duration: 20,
-          repeat: Infinity,
-          repeatType: "reverse",
-          ease: "easeInOut"
-        }}
-      ></motion.div>
-      
-      <motion.div 
-        className="absolute -top-16 -right-16 w-32 h-32 bg-gradient-to-br from-wildcats-maroon/15 to-red-400/10 rounded-full blur-2xl hidden sm:block"
-        animate={{ 
-          x: [0, -25, 0],
-          y: [0, 15, 0],
-          scale: [1, 0.9, 1]
-        }}
-        transition={{ 
-          duration: 15,
-          repeat: Infinity,
-          repeatType: "reverse",
-          ease: "easeInOut",
-          delay: 2
-        }}
-      ></motion.div>
+
       
               <div className="relative w-full z-10">
-          <div className="flex items-center justify-between h-16">
+          <div className="flex items-center h-16">
           {/* Left Section - Mobile Menu Button + Desktop Time Display */}
-          <div className="flex items-center space-x-4 px-2 sm:px-4 lg:px-6 py-3 h-full">
+          <div className="flex-1 flex items-center space-x-4 px-2 sm:px-4 lg:px-6 py-3 h-full">
             {/* Mobile Sidebar Menu Button */}
             <Button
               variant="ghost"
@@ -306,10 +272,10 @@ const Header = ({ onMobileMenuToggle }) => {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.4, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-            className="relative ml-auto"
+            className="relative"
           >
             {/* Ultra Premium Maroon Background Container */}
-            <div className="bg-wildcats-maroon sm:bg-gradient-to-br sm:from-wildcats-maroon sm:via-red-800 sm:to-red-900 px-4 py-3 flex items-center justify-end space-x-4 h-16 relative shadow-2xl shadow-wildcats-maroon/30 overflow-hidden">
+            <div className="w-96 bg-wildcats-maroon sm:bg-gradient-to-br sm:from-wildcats-maroon sm:via-red-800 sm:to-red-900 px-4 py-3 flex items-center justify-center space-x-4 h-16 relative shadow-2xl shadow-wildcats-maroon/30 overflow-hidden">
               {/* Luxury animated accent line - desktop only */}
               <motion.div 
                 className="absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-b from-wildcats-yellow via-yellow-400 to-amber-400 shadow-xl shadow-yellow-400/40 sm:block hidden"
