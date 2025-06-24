@@ -566,44 +566,7 @@ export const pollService = {
   hasUserVoted: (pollId) => api.get(`/api/polls/${pollId}/has-voted`),
   getUserVote: (pollId) => api.get(`/api/polls/${pollId}/user-vote`),
 
-  // Subscribe to real-time poll updates for a specific broadcast
-  subscribeToPolls: (broadcastId, callback) => {
-    const stompClient = createWebSocketConnection('/ws-radio');
-
-    const token = getCookie('token');
-    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-
-    return new Promise((resolve, reject) => {
-      stompClient.connect(headers, () => {
-        logger.debug('Connected to Polls WebSocket for broadcast:', broadcastId);
-
-        // Subscribe to broadcast-specific poll updates
-        const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/polls`, (message) => {
-          try {
-            const pollData = JSON.parse(message.body);
-            callback(pollData);
-          } catch (error) {
-            logger.error('Error parsing poll data:', error);
-          }
-        });
-
-        resolve({
-          disconnect: () => {
-            if (subscription) {
-              subscription.unsubscribe();
-            }
-            if (stompClient && stompClient.connected) {
-              stompClient.disconnect();
-            }
-          },
-          isConnected: () => stompClient.connected
-        });
-      }, (error) => {
-        logger.error('Polls WebSocket connection error:', error);
-        reject(error);
-      });
-    });
-  },
+  // Note: WebSocket subscription for polls removed - using HTTP polling only
 };
 
 // Services for Icecast streaming

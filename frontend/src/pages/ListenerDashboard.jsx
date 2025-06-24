@@ -103,7 +103,6 @@ export default function ListenerDashboard() {
   // WebSocket references for interactions
   const chatWsRef = useRef(null);
   const songRequestWsRef = useRef(null);
-  const pollWsRef = useRef(null);
   const broadcastWsRef = useRef(null);
   const globalBroadcastWsRef = useRef(null); // For general broadcast status updates
 
@@ -468,10 +467,6 @@ export default function ListenerDashboard() {
         songRequestWsRef.current.disconnect();
         songRequestWsRef.current = null;
       }
-      if (pollWsRef.current) {
-        pollWsRef.current.disconnect();
-        pollWsRef.current = null;
-      }
       if (broadcastWsRef.current) {
         broadcastWsRef.current.disconnect();
         broadcastWsRef.current = null;
@@ -626,7 +621,7 @@ export default function ListenerDashboard() {
     // Guard: Only setup WebSockets if we have a valid broadcast ID
     // We allow unauthenticated users to connect to WebSockets for listening to chat/polls
     if (!currentBroadcastId || currentBroadcastId <= 0) {
-      // Cleanup any existing connections when no valid broadcast
+      // Cleanup broadcast-specific connections when no valid broadcast
       if (chatWsRef.current) {
         chatWsRef.current.disconnect();
         chatWsRef.current = null;
@@ -635,14 +630,12 @@ export default function ListenerDashboard() {
         songRequestWsRef.current.disconnect();
         songRequestWsRef.current = null;
       }
-      if (pollWsRef.current) {
-        pollWsRef.current.disconnect();
-        pollWsRef.current = null;
-      }
       if (broadcastWsRef.current) {
         broadcastWsRef.current.disconnect();
         broadcastWsRef.current = null;
       }
+      // Note: Keep poll WebSocket connected even without active broadcast
+      // Polls might be created and updated independently of broadcast status
       return;
     }
 
@@ -757,73 +750,7 @@ export default function ListenerDashboard() {
       }
     };
 
-    // Setup Poll WebSocket
-    const setupPollWebSocket = async () => {
-      try {
-        // Clean up any existing connection first
-        if (pollWsRef.current) {
-          logger.debug('Listener Dashboard: Cleaning up existing poll WebSocket');
-          pollWsRef.current.disconnect();
-          pollWsRef.current = null;
-        }
-
-        const connection = await pollService.subscribeToPolls(currentBroadcastId, (data) => {
-          logger.debug('Listener Dashboard: Received poll WebSocket message:', data);
-          switch (data.type) {
-            case 'NEW_POLL':
-              if (data.poll && data.poll.isActive) {
-                logger.debug('Listener Dashboard: New poll received:', data.poll);
-                setActivePoll({
-                  ...data.poll,
-                  totalVotes: data.poll.options.reduce((sum, option) => sum + (option.votes || 0), 0),
-                  userVoted: false
-                });
-                // Reset selection for new poll
-                setSelectedPollOption(null);
-              }
-              break;
-
-            case 'POLL_VOTE':
-              // Handle real-time vote updates
-              if (data.pollId === activePoll?.id && data.poll) {
-                logger.debug('Listener Dashboard: Poll vote update received:', data.poll);
-                setActivePoll(prev => prev ? {
-                  ...prev,
-                  options: data.poll.options || prev.options,
-                  totalVotes: data.poll.totalVotes || (data.poll.options ? data.poll.options.reduce((sum, option) => sum + (option.votes || 0), 0) : prev.totalVotes)
-                } : null);
-              }
-              break;
-
-            case 'POLL_UPDATED':
-              if (data.poll && !data.poll.isActive && activePoll?.id === data.poll.id) {
-                logger.debug('Listener Dashboard: Poll ended:', data.poll);
-                setActivePoll(null);
-                setSelectedPollOption(null);
-              }
-              break;
-
-            case 'POLL_RESULTS':
-              if (data.pollId === activePoll?.id && data.results) {
-                logger.debug('Listener Dashboard: Poll results update received:', data.results);
-                setActivePoll(prev => prev ? {
-                  ...prev,
-                  options: data.results.options,
-                  totalVotes: data.results.totalVotes
-                } : null);
-              }
-              break;
-
-            default:
-              logger.debug('Listener Dashboard: Unknown poll message type:', data.type);
-          }
-        });
-        pollWsRef.current = connection;
-        logger.debug('Listener Dashboard: Poll WebSocket connected successfully');
-      } catch (error) {
-        logger.error('Listener Dashboard: Failed to connect poll WebSocket:', error);
-      }
-    };
+    // Note: Poll WebSocket removed - using only 3-second HTTP polling as requested
 
     // Setup Broadcast WebSocket for broadcast-level updates
     const setupBroadcastWebSocket = async () => {
@@ -913,7 +840,6 @@ export default function ListenerDashboard() {
     // Setup WebSockets immediately - no delay needed with proper guards
     setupChatWebSocket();
     setupSongRequestWebSocket();
-    setupPollWebSocket();
     setupBroadcastWebSocket();
 
     return () => {
@@ -926,16 +852,13 @@ export default function ListenerDashboard() {
         songRequestWsRef.current.disconnect();
         songRequestWsRef.current = null;
       }
-      if (pollWsRef.current) {
-        pollWsRef.current.disconnect();
-        pollWsRef.current = null;
-      }
       if (broadcastWsRef.current) {
         broadcastWsRef.current.disconnect();
         broadcastWsRef.current = null;
       }
     };
   }, [currentBroadcastId]); // Removed chatMessages.length and activePoll?.id dependencies to prevent unnecessary re-runs
+
 
   // Update chat timestamps every minute
   useEffect(() => {
@@ -1253,9 +1176,12 @@ export default function ListenerDashboard() {
 
       fetchActivePolls();
 
-      // Minimal polling since WebSocket handles all poll updates in real-time
-      // Only check very occasionally as fallback
-      const interval = setInterval(fetchActivePolls, 300000); // Check every 5 minutes instead of 1 minute
+      // 3-second HTTP polling as requested - WebSocket removed per user request
+      // This ensures polls are updated frequently using only HTTP requests
+      const pollInterval = 3000; // 3 seconds as requested
+      const interval = setInterval(fetchActivePolls, pollInterval);
+
+      logger.debug('Poll HTTP polling enabled: checking every 3 seconds (WebSocket disabled)');
 
       return () => clearInterval(interval);
     } else {
