@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react';
 import { useBroadcastHistory } from '../context/BroadcastHistoryContext';
 import { useAuth } from '../context/AuthContext';
 import { formatDistanceToNow, format } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
+import { parseISO } from 'date-fns';
 import { 
   RadioIcon, 
   MagnifyingGlassIcon, 
@@ -32,6 +34,15 @@ const broadcastTypeColors = {
   BROADCAST_ENDED: 'text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-900/30',
   NEW_BROADCAST_POSTED: 'text-purple-600 bg-purple-100 dark:text-purple-400 dark:bg-purple-900/30',
   default: 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/30'
+};
+
+// Helper to parse backend timestamp as UTC
+const parseBackendTimestamp = (timestamp) => {
+  if (!timestamp) return null;
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
+    return parseISO(timestamp);
+  }
+  return parseISO(timestamp + 'Z');
 };
 
 export default function BroadcastHistory() {
@@ -335,9 +346,9 @@ export default function BroadcastHistory() {
                               {broadcast.message}
                             </p>
                             <div className="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
-                              <span>{format(new Date(broadcast.timestamp), 'MMM d, yyyy • h:mm a')}</span>
+                              <span>{formatInTimeZone(parseBackendTimestamp(broadcast.timestamp), 'Asia/Manila', 'MMM d, yyyy • h:mm a')}</span>
                               <span>•</span>
-                              <span>{formatDistanceToNow(new Date(broadcast.timestamp), { addSuffix: true })}</span>
+                              <span>{formatDistanceToNow(parseBackendTimestamp(broadcast.timestamp), { addSuffix: true })}</span>
                             </div>
                           </div>
                         </div>

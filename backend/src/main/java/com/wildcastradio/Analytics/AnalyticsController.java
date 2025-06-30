@@ -3,6 +3,7 @@ package com.wildcastradio.Analytics;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.wildcastradio.ActivityLog.ActivityLogService;
 import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.Broadcast.BroadcastService;
+import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 import com.wildcastradio.ChatMessage.ChatMessageService;
 import com.wildcastradio.SongRequest.SongRequestService;
 import com.wildcastradio.User.UserService;
@@ -107,8 +109,12 @@ public class AnalyticsController {
      */
     @GetMapping("/popular-broadcasts")
     @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
-    public ResponseEntity<List<BroadcastEntity>> getPopularBroadcasts() {
-        return ResponseEntity.ok(broadcastService.getPopularBroadcasts(5));
+    public ResponseEntity<List<BroadcastDTO>> getPopularBroadcasts() {
+        List<BroadcastEntity> popularBroadcasts = broadcastService.getPopularBroadcasts(5);
+        List<BroadcastDTO> broadcastDTOs = popularBroadcasts.stream()
+                .map(BroadcastDTO::fromEntity)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(broadcastDTOs);
     }
 
     /**
