@@ -19,6 +19,8 @@ import {
   ArrowDown,
   MessageSquare,
   Crown,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { broadcastService, chatService, songRequestService, pollService, streamService } from "../services/api";
 import { formatDistanceToNow } from 'date-fns';
@@ -30,6 +32,15 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "../components/ui/dialog";
 import { Textarea } from "../components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Slider } from "../components/ui/slider";
@@ -47,6 +58,7 @@ export default function ListenerDashboard() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const isSpecificBroadcast = location.pathname.startsWith('/broadcast/');
+  const [forceShowLive, setForceShowLive] = useState(false);
 
   // Get streaming context
   const { 
@@ -1725,381 +1737,354 @@ export default function ListenerDashboard() {
   return (
     <>
       {/* Desktop Layout */}
-      <div className="hidden lg:flex h-full">
-        <main className="flex-1 overflow-y-auto bg-muted/30">
-          <div className="container mx-auto px-6 py-6 space-y-6">
-            {/* Broadcast Stream Visualizer */}
-            <Card className="bg-card text-card-foreground overflow-hidden">
-              <CardHeader className="relative p-4">
-                {isLive ? (
-                  <Badge variant="destructive" className="absolute top-4 left-4 z-10 w-auto">
-                    <span className="relative flex h-2 w-2 mr-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
-                    </span>
-                    LIVE ({Math.max(listenerCount, localListenerCount)} listeners)
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary" className="absolute top-4 left-4 z-10 w-auto">
-                    OFF AIR
-                  </Badge>
-                )}
-                {streamError && (
-                  <div className="absolute top-12 left-4 right-4 p-2 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md text-xs">
-                    {streamError}
-                  </div>
-                )}
-              </CardHeader>
-              <CardContent className="p-4 flex flex-col justify-center">
-                {isLive ? (
+      <div className="hidden lg:flex h-[calc(100vh-4rem)] overflow-hidden">
+        <main className="flex-1 bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 overflow-hidden">
+          <ScrollArea className="h-[calc(100vh-4rem)] hide-scrollbar">
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-8 p-8 items-start">
+              
+              {/* Left Column: Song Request & Polls */}
+              <div className="space-y-8">
+                {(isLive || forceShowLive) ? (
                   <>
-                    <div className="flex">
-                      <div className="w-24 h-24 bg-muted flex items-center justify-center text-muted-foreground text-2xl rounded-lg">
-                        <Music className="h-10 w-10" />
-                      </div>
-                      <div className="ml-4 text-card-foreground flex-grow">
-                        <h3 className="text-xl font-bold">{currentBroadcast?.title || "Loading..."}</h3>
-                        <p className="text-sm opacity-80">
-                          {currentBroadcast?.host?.name
-                            ? `Hosted by ${currentBroadcast.host.name}`
-                            : currentBroadcast?.dj?.name
-                              ? `Hosted by ${currentBroadcast.dj.name}`
-                              : "Loading..."}
-                        </p>
-
-                        <div className="mt-4">
-                          <p className="text-xs uppercase opacity-60">NOW PLAYING</p>
-                          {_currentSong ? (
-                            <>
-                              <p className="text-sm font-medium">{_currentSong.title}</p>
-                              <p className="text-xs opacity-70">{_currentSong.artist}</p>
-                            </>
-                          ) : (
-                            <p className="text-sm opacity-70">No track information available</p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="ml-auto flex flex-col items-center justify-center space-y-2">
-                        <Button
-                          onClick={togglePlay}
-                          disabled={!serverConfig}
-                          size="icon"
-                          variant={localAudioPlaying ? 'secondary' : 'default'}
-                          aria-label={localAudioPlaying ? 'Pause' : 'Play'}
-                        >
-                          {localAudioPlaying ? (
-                            <Pause className="h-6 w-6" />
-                          ) : (
-                            <Play className="h-6 w-6" />
-                          )}
-                        </Button>
-                        <Button
-                          onClick={refreshStream}
-                          size="icon"
-                          variant="ghost"
-                          aria-label="Refresh Stream"
-                        >
-                          <RefreshCcw className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="flex items-center mt-4">
-                      <Button onClick={handleMuteToggle} size="icon" variant="ghost" className="mr-2">
-                        {isMuted ? (
-                          <VolumeX className="h-5 w-5" />
-                        ) : (
-                          <Volume2 className="h-5 w-5" />
-                        )}
-                      </Button>
-                      <Slider
-                        min={0}
-                        max={100}
-                        value={[volume]}
-                        onValueChange={(value) => updateVolume(value[0])}
-                        className="w-full"
-                      />
-                      <div className="ml-2 text-xs w-7 text-right">{volume}%</div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-center text-card-foreground py-8">
-                    <h2 className="text-2xl font-bold mb-3">WildCats Radio</h2>
-                    <p className="mb-2">No broadcast currently active</p>
-                    {nextBroadcast ? (
-                      <p className="text-sm opacity-70">
-                        Next broadcast: {nextBroadcast.title} on {nextBroadcast.date} at {nextBroadcast.time}
-                      </p>
-                    ) : (
-                      <p className="text-sm opacity-70">No upcoming broadcasts scheduled</p>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Desktop Song Request/Poll section */}
-            <Tabs defaultValue="song" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="song">
-                  <Music className="h-5 w-5 mr-2" />
-                  Song Request
-                </TabsTrigger>
-                <TabsTrigger value="poll">
-                  <Vote className="h-5 w-5 mr-2" />
-                  Poll
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="song">
-                <Card>
-                  <CardContent className="p-6">
-                    {isLive ? (
-                      <>
+                    <div>
+                      <h3 className="mb-4 text-xl font-bold text-slate-900 dark:text-white">Live Interactions</h3>
+                      <div className="flex space-x-6">
+                        {/* Song Request Button */}
                         {!currentUser ? (
-                          <div className="flex items-center justify-center h-full py-12">
-                            <div className="text-center w-full">
-                              <div className="flex items-center mb-6 justify-center">
-                                <div className="bg-muted rounded-full p-3 mr-4">
-                                  <Music className="h-6 w-6 text-muted-foreground" />
-                                </div>
-                                <div>
-                                  <h3 className="font-medium text-lg">Request a Song</h3>
-                                  <p className="text-sm text-muted-foreground">Let the DJ know what you'd like to hear</p>
-                                </div>
-                              </div>
-                              <p className="text-muted-foreground mb-4">
-                                Login or create an account to request songs during live broadcasts
+                            <div className="p-8 text-center">
+                              <p className="text-slate-600 dark:text-slate-400 mb-4">
+                                Login or create an account to interact.
                               </p>
                               <div className="flex space-x-3 justify-center">
-                                <Button onClick={handleLoginRedirect}>
+                                <Button onClick={handleLoginRedirect} className="bg-wildcats-maroon text-white hover:bg-red-800 rounded-lg">
                                   <LogIn className="h-4 w-4 mr-2" />
                                   Login
                                 </Button>
-                                <Button onClick={handleRegisterRedirect} variant="secondary">
+                                <Button onClick={handleRegisterRedirect} variant="outline" className="rounded-lg">
                                   <UserPlus className="h-4 w-4 mr-2" />
                                   Register
                                 </Button>
                               </div>
                             </div>
-                          </div>
-                        ) : (
-                          <form onSubmit={handleSongRequestSubmit} className="space-y-5">
-                            <div>
-                              <Label htmlFor="song-title">Song Title</Label>
-                              <Input
-                                id="song-title"
-                                type="text"
-                                value={songRequest.title}
-                                onChange={(e) => setSongRequest({ ...songRequest, title: e.target.value })}
-                                placeholder="Enter song title"
-                                required
-                              />
-                            </div>
+                          ) : (
+                            <>
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <button className="group flex flex-col justify-start items-start w-48 h-40 p-5 rounded-xl bg-wildcats-maroon/10 hover:bg-wildcats-maroon/20 shadow-xl hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300 ease-in-out">
+                                    <Music className="w-8 h-8 text-wildcats-maroon mb-auto" />
+                                    <span className="font-semibold text-lg text-wildcats-maroon">Song Request</span>
+                                  </button>
+                                </DialogTrigger>
+                                <DialogContent className="sm:max-w-[525px] sm:rounded-none">
+                                  <DialogHeader>
+                                    <div className="flex items-center">
+                                      <div className="w-12 h-12 bg-wildcats-maroon/10 rounded-lg flex items-center justify-center mr-4 flex-shrink-0">
+                                          <Music className="h-6 w-6 text-wildcats-maroon" />
+                                      </div>
+                                      <div>
+                                          <DialogTitle>Request a Song</DialogTitle>
+                                          <DialogDescription>
+                                              Let the DJ know what you'd like to hear.
+                                          </DialogDescription>
+                                      </div>
+                                    </div>
+                                  </DialogHeader>
+                                  <form onSubmit={handleSongRequestSubmit} className="space-y-6 pt-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                      <div className="space-y-2">
+                                        <Label htmlFor="song-title" className="text-sm font-semibold text-slate-700 dark:text-slate-300">Song Title *</Label>
+                                        <Input
+                                          id="song-title"
+                                          type="text"
+                                          value={songRequest.title}
+                                          onChange={(e) => setSongRequest({ ...songRequest, title: e.target.value })}
+                                          placeholder="e.g., Bohemian Rhapsody"
+                                          className="h-12 border-slate-300 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-700/50"
+                                          required
+                                        />
+                                      </div>
+                                      <div className="space-y-2">
+                                        <Label htmlFor="artist" className="text-sm font-semibold text-slate-700 dark:text-slate-300">Artist *</Label>
+                                        <Input
+                                          id="artist"
+                                          type="text"
+                                          value={songRequest.artist}
+                                          onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
+                                          placeholder="e.g., Queen"
+                                          className="h-12 border-slate-300 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-700/50"
+                                          required
+                                        />
+                                      </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor="dedication" className="text-sm font-semibold text-slate-700 dark:text-slate-300">Dedication (Optional)</Label>
+                                      <Textarea
+                                        id="dedication"
+                                        value={songRequest.dedication}
+                                        onChange={(e) => setSongRequest({ ...songRequest, dedication: e.target.value })}
+                                        placeholder="Add a personal message or dedication..."
+                                        className="min-h-[100px] border-slate-300 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-700/50 resize-none"
+                                      />
+                                    </div>
+                                    <DialogFooter>
+                                      <Button type="submit" className="bg-wildcats-maroon hover:bg-red-800 text-white shadow-lg px-8 h-12 rounded-xl font-semibold text-base">
+                                        <Send className="h-5 w-5 mr-2" />
+                                        Submit Request
+                                      </Button>
+                                    </DialogFooter>
+                                  </form>
+                                </DialogContent>
+                              </Dialog>
 
-                            <div>
-                              <Label htmlFor="artist">Artist</Label>
-                              <Input
-                                id="artist"
-                                type="text"
-                                value={songRequest.artist}
-                                onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
-                                placeholder="Enter artist name"
-                                required
-                              />
-                            </div>
-
-                            <div className="flex-grow">
-                              <Label htmlFor="dedication">Dedication (Optional)</Label>
-                              <Textarea
-                                id="dedication"
-                                value={songRequest.dedication}
-                                onChange={(e) => setSongRequest({ ...songRequest, dedication: e.target.value })}
-                                placeholder="Add a message or dedication"
-                                className="min-h-[120px]"
-                              />
-                            </div>
-
-                            <div className="mt-auto flex justify-between items-center">
-                              <p className="text-xs text-muted-foreground">
-                                Song requests are subject to availability and DJ's playlist.
-                              </p>
-                              <Button type="submit">
-                                Submit Request
-                              </Button>
-                            </div>
-                          </form>
-                        )}
-                      </>
-                    ) : (
-                      <div className="flex items-center justify-center h-full py-12">
-                        <div className="text-center w-full">
-                          <div className="flex items-center mb-8 justify-center">
-                            <div className="bg-muted rounded-full p-3 mr-4">
-                              <Music className="h-6 w-6 text-muted-foreground" />
-                            </div>
-                            <div>
-                              <h3 className="font-medium text-lg">Request a Song</h3>
-                              <p className="text-sm text-muted-foreground">Let us know what you'd like to hear next</p>
-                            </div>
-                          </div>
-                          <p className="text-muted-foreground">Song requests are only available during live broadcasts</p>
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              <TabsContent value="poll">
-                <Card>
-                  <CardContent className="p-6">
-                    {isLive ? (
-                      <>
-                        {pollLoading && !activePoll ? (
-                          <div className="text-center py-8">
-                            <p className="text-muted-foreground animate-pulse">Loading polls...</p>
-                          </div>
-                        ) : activePoll ? (
-                          <div>
-                            <div className="mb-4">
-                              <h3 className="text-lg font-semibold mb-2">
-                                {activePoll.question || activePoll.title}
-                              </h3>
-                              <p className="text-sm text-muted-foreground">
-                                {!currentUser
-                                  ? 'Login to participate in the poll'
-                                  : activePoll.userVoted
-                                    ? 'You have voted'
-                                    : 'Choose your answer and click Vote'
-                                }
-                              </p>
-                            </div>
-
-                            <div className="space-y-3 mb-6">
-                              {activePoll.options.map((option) => {
-                                const percentage = (activePoll.userVoted && currentUser)
-                                  ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0
-                                  : 0;
-                                const isSelected = selectedPollOption === option.id;
-                                const isUserChoice = activePoll.userVotedFor === option.id;
-                                const canInteract = currentUser && !activePoll.userVoted;
-
-                                return (
-                                  <div key={option.id}>
-                                    <Button
-                                      variant={isSelected || isUserChoice ? "secondary" : "outline"}
-                                      className="w-full justify-between h-auto"
-                                      onClick={() => canInteract && handlePollOptionSelect(option.id)}
-                                      disabled={!canInteract && !activePoll.userVoted}
-                                    >
-                                      <span>{option.optionText || option.text}</span>
-                                      {(activePoll.userVoted && currentUser) && (
-                                        <span className="text-xs text-muted-foreground">{option.votes || 0} votes</span>
-                                      )}
-                                    </Button>
-                                    {(activePoll.userVoted && currentUser) && (
-                                      <div className="mt-2 space-y-1">
-                                        <Progress value={percentage} className="h-2" />
-                                        <span className="text-xs text-muted-foreground">{percentage}%</span>
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <button className="group flex flex-col justify-start items-start w-48 h-40 p-5 rounded-xl bg-blue-100 hover:bg-blue-200/70 shadow-xl hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300 ease-in-out">
+                                    <Vote className="w-8 h-8 text-blue-700 mb-auto" />
+                                    <span className="font-semibold text-lg text-blue-800">Live Poll</span>
+                                  </button>
+                                </DialogTrigger>
+                                <DialogContent className="sm:max-w-[525px] sm:rounded-none">
+                                  <DialogHeader>
+                                      <div className="flex items-center">
+                                          <div className="w-12 h-12 bg-blue-500/10 rounded-lg flex items-center justify-center mr-4 flex-shrink-0">
+                                              <Vote className="h-6 w-6 text-blue-500" />
+                                          </div>
+                                          <div>
+                                              <DialogTitle>Live Poll</DialogTitle>
+                                              <DialogDescription>
+                                                  Cast your vote on the current topic.
+                                              </DialogDescription>
+                                          </div>
+                                      </div>
+                                  </DialogHeader>
+                                  <div className="pt-4">
+                                    {pollLoading && !activePoll ? (
+                                      <div className="text-center py-16 text-muted-foreground animate-pulse text-lg">Loading polls...</div>
+                                    ) : activePoll ? (
+                                      <div className="max-w-md mx-auto">
+                                        <div className="text-center mb-8">
+                                          <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+                                            {activePoll.question || activePoll.title}
+                                          </h3>
+                                          <p className="text-sm text-slate-600 dark:text-slate-400">
+                                            {!currentUser ? 'Login to participate' : activePoll.userVoted ? 'Results are in!' : 'Cast your vote below'}
+                                          </p>
+                                        </div>
+                                        <div className="space-y-4 mb-8">
+                                          {activePoll.options.map((option) => {
+                                            const percentage = (activePoll.totalVotes > 0) ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 : 0;
+                                            const isSelected = selectedPollOption === option.id;
+                                            const isUserChoice = activePoll.userVotedFor === option.id;
+                                            const canInteract = currentUser && !activePoll.userVoted;
+                                            return (
+                                              <div key={option.id} className="relative">
+                                                <Button
+                                                  variant="outline"
+                                                  className={cn(
+                                                    "w-full justify-start h-14 p-4 text-left rounded-xl transition-all duration-200 border-2",
+                                                    isSelected ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30" : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600",
+                                                    isUserChoice && "border-purple-500 bg-purple-50 dark:bg-purple-900/30 font-semibold",
+                                                    !canInteract && "cursor-default"
+                                                  )}
+                                                  onClick={() => canInteract && handlePollOptionSelect(option.id)}
+                                                  disabled={!canInteract}
+                                                >
+                                                  <div className="flex items-center justify-between w-full">
+                                                    <span className="font-medium text-slate-800 dark:text-slate-200">{option.optionText || option.text}</span>
+                                                    {activePoll.userVoted && currentUser && (
+                                                      <span className="font-bold text-slate-700 dark:text-slate-300">{percentage}%</span>
+                                                    )}
+                                                  </div>
+                                                </Button>
+                                                {activePoll.userVoted && currentUser && (
+                                                  <div className="absolute top-0 left-0 h-full rounded-xl bg-gradient-to-r from-blue-200 to-purple-200 dark:from-blue-800/50 dark:to-purple-800/50 -z-10 transition-all duration-500" style={{ width: `${percentage}%` }}></div>
+                                                )}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                        <DialogFooter>
+                                          {!currentUser ? (
+                                            <div className="text-center w-full">
+                                              <p className="text-sm text-muted-foreground mb-3">Login to participate in polls</p>
+                                              <div className="flex space-x-2 justify-center">
+                                                <Button onClick={handleLoginRedirect} className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg"><LogIn className="h-4 w-4 mr-2" />Login</Button>
+                                                <Button onClick={handleRegisterRedirect} variant="secondary" className="rounded-lg"><UserPlus className="h-4 w-4 mr-2" />Register</Button>
+                                              </div>
+                                            </div>
+                                          ) : activePoll.userVoted ? (
+                                            <div className="text-center w-full">
+                                              <p className="text-sm text-muted-foreground mb-2">Total votes: {activePoll.totalVotes || 0}</p>
+                                              <Badge variant="secondary" className="bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 rounded-md">Voted</Badge>
+                                            </div>
+                                          ) : (
+                                            <Button onClick={handlePollVote} disabled={!selectedPollOption || pollLoading} className="bg-blue-500 hover:bg-blue-600 text-white shadow-lg px-10 h-12 rounded-xl font-semibold text-base">
+                                              {pollLoading ? 'Voting...' : 'Vote'}
+                                            </Button>
+                                          )}
+                                        </DialogFooter>
+                                      </div>
+                                    ) : (
+                                      <div className="text-center py-16">
+                                         <div className="w-20 h-20 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center border border-slate-200 dark:border-slate-700 mx-auto mb-6">
+                                          <Vote className="h-10 w-10 text-slate-400 dark:text-slate-500" />
+                                        </div>
+                                        <h3 className="text-xl font-bold text-slate-900 dark:text-white">No Active Polls</h3>
+                                        <p className="text-slate-600 dark:text-slate-400 mt-2">Polls will appear here during live broadcasts.</p>
                                       </div>
                                     )}
                                   </div>
-                                );
-                              })}
-                            </div>
-
-                            <div className="mt-auto flex justify-center">
-                              {!currentUser ? (
-                                <div className="text-center">
-                                  <p className="text-sm text-muted-foreground mb-3">
-                                    Login to participate in polls
-                                  </p>
-                                  <div className="flex space-x-2 justify-center">
-                                    <Button onClick={handleLoginRedirect}>
-                                      <LogIn className="h-4 w-4 mr-2" />
-                                      Login
-                                    </Button>
-                                    <Button onClick={handleRegisterRedirect} variant="secondary">
-                                      <UserPlus className="h-4 w-4 mr-2" />
-                                      Register
-                                    </Button>
-                                  </div>
-                                </div>
-                              ) : activePoll.userVoted ? (
-                                <div className="text-center">
-                                  <p className="text-sm text-muted-foreground mb-2">
-                                    Total votes: {activePoll.totalVotes || 0}
-                                  </p>
-                                  <Badge variant="secondary">
-                                    Voted
-                                  </Badge>
-                                </div>
-                              ) : (
-                                <Button
-                                  onClick={handlePollVote}
-                                  disabled={!selectedPollOption || pollLoading}
-                                >
-                                  {pollLoading ? 'Voting...' : 'Vote'}
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-center py-12">
-                            <div>
-                              <p className="text-muted-foreground mb-2">No active polls</p>
-                              <p className="text-sm text-muted-foreground">Active polls will appear during live broadcasts</p>
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="flex items-center justify-center h-full py-12">
-                        <div className="text-center w-full">
-                          <div className="mb-8">
-                            <h3 className="text-xl font-medium">Vote</h3>
-                            <p className="text-sm text-muted-foreground">Which do you prefer the most?</p>
-                          </div>
-                          <p className="text-muted-foreground">Polls are only available during live broadcasts</p>
-                        </div>
+                                </DialogContent>
+                              </Dialog>
+                            </>
+                          )}
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
-            {streamError && !streamError.includes('Audio playback error') && (
-              <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-lg">
-                <div className="flex items-start">
-                  <div className="flex-shrink-0">
-                    <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
-                  </div>
-                  <div className="ml-3">
-                    <h3 className="text-sm font-medium text-red-800 dark:text-red-200">
-                      Audio Playback Issue
-                    </h3>
-                    <div className="mt-1 text-sm text-red-700 dark:text-red-300">
-                      <p>{streamError}</p>
-                      {streamError.includes('format') && (
-                        <div className="mt-2 space-y-1">
-                          <p className="font-medium">Try these solutions:</p>
-                          <ul className="list-disc list-inside space-y-1 ml-2">
-                            <li>Refresh the page and try again</li>
-                            <li>Use Chrome, Firefox, or Edge browser</li>
-                            <li>Check if the DJ is currently broadcasting</li>
-                            <li>Ensure your internet connection is stable</li>
-                          </ul>
-                        </div>
-                      )}
                     </div>
-                  </div>
-                </div>
+
+                    {/* Polls Card - REMOVED */}
+                    
+                  </>
+                ) : (
+                  <Card className="border-none shadow-xl rounded-2xl">
+                    <CardContent className="p-8 text-center py-20">
+                      <div className="w-24 h-24 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center border border-slate-200 dark:border-slate-700 mx-auto mb-6">
+                        <Mic className="h-12 w-12 text-slate-400 dark:text-slate-500" />
+                      </div>
+                      <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Station is Off Air</h3>
+                      <p className="text-slate-600 dark:text-slate-400 mt-2">
+                        Song requests and polls are only available during live broadcasts.
+                      </p>
+                      <Button 
+                        onClick={() => setForceShowLive(true)} 
+                        className="mt-6"
+                        variant="secondary"
+                      >
+                        <Eye className="mr-2 h-4 w-4" />
+                        Show Live Preview (For Design)
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
-            )}
-          </div>
+
+              {/* Right Column: Player */}
+              <div className="w-[448px]" style={{ perspective: '1000px' }}>
+                 <Card 
+                    className="relative overflow-hidden border-none shadow-2xl rounded-2xl sticky top-8 bg-gradient-to-br from-wildcats-maroon to-red-900 transition-transform duration-500 ease-in-out"
+                    style={{ transform: 'rotateY(-5deg)' }}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'rotateY(0deg) scale(1.02)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'rotateY(-5deg)'}
+                  >
+                    <div className="absolute -top-24 -right-24 w-72 h-72 bg-white/10 rounded-full mix-blend-soft-light filter blur-3xl opacity-50 pointer-events-none"></div>
+                    <div className="absolute -bottom-24 -left-24 w-72 h-72 bg-red-400/10 rounded-full mix-blend-soft-light filter blur-3xl opacity-50 pointer-events-none"></div>
+                    {(isLive || forceShowLive) ? (
+                        <CardContent className="relative z-10 p-10 flex flex-col items-center text-center">
+                          <div className="w-full flex items-center justify-between mb-10">
+                             <Badge className="bg-white/10 text-white border-white/20 shadow-lg">
+                                <span className="relative flex h-2 w-2 mr-2">
+                                  <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 animate-ping"></span>
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-400"></span>
+                                </span>
+                                LIVE
+                              </Badge>
+                              <div className="flex items-center space-x-2 text-sm text-red-200">
+                                <div className="w-2 h-2 bg-green-400 rounded-full shadow-[0_0_5px_theme(colors.green.400)]"></div>
+                                <span className="font-medium">{Math.max(listenerCount, localListenerCount)} listeners</span>
+                              </div>
+                          </div>
+
+                          <div className="h-48 w-48 bg-black/20 rounded-full flex items-center justify-center mb-8 shadow-inner border border-white/10 ring-1 ring-white/10 p-2">
+                            <img src="/wildcat_logo.png" alt="WildCat Radio" className="w-full h-full object-contain" />
+                          </div>
+
+                          <p className="text-base font-semibold uppercase tracking-widest text-red-200 mb-2">NOW BROADCASTING</p>
+                          <h2 className="text-4xl font-extrabold text-white tracking-tight [text-shadow:0_4px_10px_rgba(0,0,0,0.3)]">{currentBroadcast?.title || "..."}</h2>
+                          <p className="text-red-200 mb-10 font-medium">
+                            {currentBroadcast?.host?.name ? `with ${currentBroadcast.host.name}` : currentBroadcast?.dj?.name ? `with ${currentBroadcast.dj.name}` : "On Air"}
+                          </p>
+
+                          <button
+                            onClick={(e) => { e.preventDefault(); togglePlay(); }}
+                            disabled={!serverConfig}
+                            className={cn(
+                              "w-28 h-28 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center border-2 border-white/10 outline-none focus:outline-none focus:ring-4 focus:ring-red-400/50 focus:ring-offset-2 focus:ring-offset-red-950 transform hover:scale-105 mb-10",
+                              localAudioPlaying 
+                                ? "bg-black/20 text-white" 
+                                : "bg-white/20 text-white"
+                            )}
+                            aria-label={localAudioPlaying ? 'Pause' : 'Play'}
+                          >
+                            {localAudioPlaying ? <Pause className="h-12 w-12 drop-shadow-lg" /> : <Play className="h-12 w-12 ml-1 drop-shadow-lg" />}
+                          </button>
+                          
+                          <div className="w-full max-w-md bg-black/20 backdrop-blur-sm rounded-full p-2 border border-white/10 shadow-inner">
+                            <div className="flex items-center space-x-3">
+                              <Button onClick={handleMuteToggle} size="icon" variant="ghost" className="h-12 w-12 rounded-full flex-shrink-0 text-red-200 hover:bg-white/10 hover:text-white">
+                                {isMuted ? <VolumeX className="h-6 w-6" /> : <Volume2 className="h-6 w-6" />}
+                              </Button>
+                              <Slider min={0} max={100} value={[volume]} onValueChange={(value) => updateVolume(value[0])} className="w-full" />
+                              <div className="text-base font-medium text-red-200 w-12 text-center tabular-nums">{volume}%</div>
+                            </div>
+                          </div>
+
+                           {streamError && (
+                            <div className="mt-8 w-full">
+                              <div className="p-4 bg-red-900/20 border border-red-800/50 rounded-xl text-sm text-red-300 font-medium">
+                                {streamError}
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                    ) : (
+                       <CardContent className="relative z-10 p-6 flex flex-col items-center text-center py-16">
+                          <div className="relative inline-block mb-6">
+                            <div className="h-48 w-48 bg-black/20 rounded-full flex items-center justify-center mb-8 shadow-inner border border-white/10 ring-1 ring-white/10 p-2">
+                              <img src="/wildcat_logo.png" alt="WildCat Radio" className="w-44 h-44 object-contain opacity-40" />
+                            </div>
+                             <div className="absolute -top-1 -right-1 w-8 h-8 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center shadow-md">
+                              <span className="w-3 h-3 bg-slate-400 rounded-full"></span>
+                            </div>
+                          </div>
+                          <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
+                            Station is Off Air
+                          </h2>
+                           {nextBroadcast ? (
+                            <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 inline-block shadow-sm text-xs">
+                              <p className="text-blue-800 dark:text-blue-300 font-semibold">
+                                Next: {nextBroadcast.title}
+                              </p>
+                              <p className="text-blue-600 dark:text-blue-400 mt-0.5">
+                                {nextBroadcast.date} at {nextBroadcast.time}
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-slate-500 dark:text-slate-400 mt-2 text-sm">
+                              Check back soon!
+                            </p>
+                          )}
+                       </CardContent>
+                    )}
+                 </Card>
+              </div>
+            </div>
+          </ScrollArea>
         </main>
 
         {/* Desktop Right Column - Live Chat */}
-        <aside className="w-96 flex flex-col border-l bg-card">
-          <Card className="flex-grow flex flex-col rounded-none border-0 h-full bg-transparent shadow-none">
+        {(isLive || forceShowLive) && (
+          <motion.aside 
+            className="w-96 flex flex-col border-l bg-card h-[calc(100vh-4rem)]"
+            initial={{ x: 100, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 100, opacity: 0 }}
+            transition={{ 
+              type: "spring",
+              stiffness: 300,
+              damping: 30,
+              duration: 0.5
+            }}
+          >
+            <Card className="flex flex-col rounded-none border-0 h-[calc(100vh-4rem)] bg-transparent shadow-none">
             <CardHeader className="flex flex-row items-center justify-between p-3 border-b">
               <div className="flex items-center space-x-2">
                 <MessageSquare className="h-5 w-5 text-wildcats-maroon fill-current" />
@@ -2107,8 +2092,8 @@ export default function ListenerDashboard() {
               </div>
               {isLive && <Badge variant="outline">{Math.max(listenerCount, localListenerCount)} listeners</Badge>}
             </CardHeader>
-            <CardContent className="flex-grow p-0 relative flex flex-col">
-              <ScrollArea className="flex-1" ref={chatContainerRef}>
+            <CardContent className="flex-1 p-0 relative flex flex-col overflow-hidden">
+              <ScrollArea className="flex-1 h-0" ref={chatContainerRef}>
                 <div className="p-4 space-y-1">
                   {isLive ? (
                     chatMessages.length > 0 ? (
@@ -2168,11 +2153,12 @@ export default function ListenerDashboard() {
                 </div>
               )}
             </CardContent>
-            <CardFooter className="px-3 py-3 mt-auto bg-white">
+            <CardFooter className="px-3 py-3 bg-white flex-shrink-0 border-t">
               {renderChatInput()}
             </CardFooter>
           </Card>
-        </aside>
+        </motion.aside>
+        )}
       </div>
       
       {/* Mobile: Flex column layout */}
@@ -2180,7 +2166,7 @@ export default function ListenerDashboard() {
         {/* Mobile: Broadcast Stream */}
         <Card className="bg-card text-card-foreground overflow-hidden">
             <CardHeader className="relative p-4">
-              {isLive ? (
+              {(isLive || forceShowLive) ? (
                 <Badge variant="destructive" className="absolute top-4 left-4 z-10 w-auto">
                   <span className="relative flex h-2 w-2 mr-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
@@ -2200,7 +2186,7 @@ export default function ListenerDashboard() {
               )}
             </CardHeader>
             <CardContent className="p-4 flex flex-col justify-center">
-              {isLive ? (
+              {(isLive || forceShowLive) ? (
                 <>
                   <div className="flex">
                     <div className="w-24 h-24 bg-muted flex items-center justify-center text-muted-foreground text-2xl rounded-lg">
@@ -2242,14 +2228,6 @@ export default function ListenerDashboard() {
                           <Play className="h-6 w-6" />
                         )}
                       </Button>
-                      <Button
-                        onClick={refreshStream}
-                        size="icon"
-                        variant="ghost"
-                        aria-label="Refresh Stream"
-                      >
-                        <RefreshCcw className="h-4 w-4" />
-                      </Button>
                     </div>
                   </div>
                   <div className="flex items-center mt-4">
@@ -2269,6 +2247,17 @@ export default function ListenerDashboard() {
                     />
                     <div className="ml-2 text-xs w-7 text-right">{volume}%</div>
                   </div>
+                   {forceShowLive && !isLive && (
+                    <Button 
+                      onClick={() => setForceShowLive(false)} 
+                      variant="outline"
+                      size="sm"
+                      className="mt-4 w-full border-dashed"
+                    >
+                      <EyeOff className="mr-2 h-4 w-4" />
+                      Hide Live Preview
+                    </Button>
+                  )}
                 </>
               ) : (
                 <div className="text-center text-card-foreground py-8">
@@ -2281,14 +2270,34 @@ export default function ListenerDashboard() {
                   ) : (
                     <p className="text-sm opacity-70">No upcoming broadcasts scheduled</p>
                   )}
+                   <Button 
+                    onClick={() => setForceShowLive(true)} 
+                    variant="secondary"
+                    className="mt-4"
+                  >
+                    <Eye className="mr-2 h-4 w-4" />
+                    Show Live Preview
+                  </Button>
                 </div>
               )}
             </CardContent>
           </Card>
 
         {/* Mobile: Live Chat */}
-        <div className="lg:col-span-1 flex flex-col">
-          <Card className="flex-grow flex flex-col h-[400px]">
+        {(isLive || forceShowLive) && (
+          <motion.div 
+            className="lg:col-span-1 flex flex-col"
+            initial={{ y: 50, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 50, opacity: 0 }}
+            transition={{ 
+              type: "spring",
+              stiffness: 400,
+              damping: 25,
+              duration: 0.4
+            }}
+          >
+            <Card className="flex-grow flex flex-col h-[400px]">
             <CardHeader className="flex flex-row items-center justify-between p-3 border-b">
               <div className="flex items-center space-x-2">
                 <MessageSquare className="h-5 w-5 text-wildcats-maroon fill-current" />
@@ -2361,11 +2370,25 @@ export default function ListenerDashboard() {
               {renderChatInput()}
             </CardFooter>
           </Card>
-        </div>
+        </motion.div>
+        )}
 
-        {/* Mobile: Song Request/Poll */}
-        <div className="order-3">
-          <Tabs defaultValue="song" className="w-full">
+        {/* Mobile: Song Request/Poll - only show when live */}
+        {(isLive || forceShowLive) && (
+          <motion.div 
+            className="order-3"
+            initial={{ y: 30, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 30, opacity: 0 }}
+            transition={{ 
+              type: "spring",
+              stiffness: 350,
+              damping: 25,
+              duration: 0.6,
+              delay: 0.1
+            }}
+          >
+            <Tabs defaultValue="song" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="song">
                 <Music className="h-5 w-5 mr-2" />
@@ -2379,7 +2402,7 @@ export default function ListenerDashboard() {
             <TabsContent value="song">
               <Card>
                 <CardContent className="p-6">
-                {isLive ? (
+                {(isLive || forceShowLive) ? (
                     <>
                       {!currentUser ? (
                         <div className="flex items-center justify-center h-full py-12">
@@ -2478,7 +2501,7 @@ export default function ListenerDashboard() {
             <TabsContent value="poll">
               <Card>
                 <CardContent className="p-6">
-                {isLive ? (
+                {(isLive || forceShowLive) ? (
                     <>
                       {pollLoading && !activePoll ? (
                         <div className="text-center py-8">
@@ -2593,7 +2616,8 @@ export default function ListenerDashboard() {
               </Card>
             </TabsContent>
           </Tabs>
-        </div>
+        </motion.div>
+        )}
         {streamError && !streamError.includes('Audio playback error') && (
           <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-lg">
             <div className="flex items-start">

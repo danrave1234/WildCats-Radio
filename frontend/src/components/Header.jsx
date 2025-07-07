@@ -225,29 +225,7 @@ const Header = ({ onMobileMenuToggle }) => {
               transition={{ delay: 0.2, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
               className="hidden sm:flex items-center space-x-4"
             >
-              {/* Live Indicator */}
-              <div className="flex items-center space-x-3">
-                <motion.div 
-                  className="relative w-3 h-3"
-                  animate={isLive ? { scale: [1, 1.1, 1] } : {}}
-                  transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                >
-                  <div className={`absolute inset-0 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-slate-400'}`}></div>
-                  {isLive && (
-                    <motion.div 
-                      className="absolute inset-0 bg-emerald-400 rounded-full"
-                      animate={{ opacity: [0.5, 1, 0.5] }}
-                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                    ></motion.div>
-                  )}
-                </motion.div>
-                <span className={`text-sm font-semibold uppercase tracking-wider ${isLive ? 'text-slate-700' : 'text-slate-500'}`}>
-                  {isLive ? 'Live' : 'Not Live'}
-                </span>
-              </div>
 
-              {/* Separator */}
-              <div className="w-px h-8 bg-slate-300"></div>
 
               {/* Time & Date */}
               <div className="flex flex-col">
