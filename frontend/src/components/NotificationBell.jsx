@@ -392,7 +392,7 @@ export default function NotificationBell() {
                     </div>
 
                     {/* Footer */}
-                    <div className="p-3 border-t border-maroon-300 dark:border-maroon-600 bg-maroon-600 dark:bg-maroon-700">
+                    <div className="p-3 border-t border-[#800000]/30 dark:border-[#800000]/60 bg-[#800000] dark:bg-[#800000]">
                         <Link
                             to="/notifications"
                             onClick={() => setIsOpen(false)}

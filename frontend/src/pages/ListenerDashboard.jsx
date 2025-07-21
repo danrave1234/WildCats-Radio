@@ -1747,74 +1747,68 @@ export default function ListenerDashboard() {
                 {(isLive || forceShowLive) ? (
                   <>
                     <div>
-                      <h3 className="mb-4 text-xl font-bold text-slate-900 dark:text-white">Live Interactions</h3>
-                      <div className="flex space-x-6">
-                        {/* Song Request Button */}
-                        {!currentUser ? (
-                            <div className="p-8 text-center">
-                              <p className="text-slate-600 dark:text-slate-400 mb-4">
-                                Login or create an account to interact.
-                              </p>
-                              <div className="flex space-x-3 justify-center">
-                                <Button onClick={handleLoginRedirect} className="bg-wildcats-maroon text-white hover:bg-red-800 rounded-lg">
-                                  <LogIn className="h-4 w-4 mr-2" />
-                                  Login
-                                </Button>
-                                <Button onClick={handleRegisterRedirect} variant="outline" className="rounded-lg">
-                                  <UserPlus className="h-4 w-4 mr-2" />
-                                  Register
-                                </Button>
+                      <h2 className="mb-6 text-3xl font-bold text-slate-900 dark:text-white">Live Interactions</h2>
+                      {/* Song Request and Poll Cards */}
+                      <div className="space-y-12">
+                          {/* Song Request Section */}
+                          <div>
+                            {/* Song Request Header - Outside Card */}
+                            <div className="flex items-center mb-4">
+                              <div className="w-12 h-12 bg-wildcats-maroon/10 rounded-lg flex items-center justify-center mr-4 flex-shrink-0">
+                                <Music className="h-6 w-6 text-wildcats-maroon" />
+                              </div>
+                              <div>
+                                <h3 className="text-lg font-semibold text-wildcats-maroon">Request a Song</h3>
+                                <p className="text-sm text-slate-600 dark:text-slate-400">
+                                  Let the DJ know what you'd like to hear.
+                                </p>
                               </div>
                             </div>
-                          ) : (
-                            <>
-                              <Dialog>
-                                <DialogTrigger asChild>
-                                  <button className="group flex flex-col justify-start items-start w-48 h-40 p-5 rounded-xl bg-wildcats-maroon/10 hover:bg-wildcats-maroon/20 shadow-xl hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300 ease-in-out">
-                                    <Music className="w-8 h-8 text-wildcats-maroon mb-auto" />
-                                    <span className="font-semibold text-lg text-wildcats-maroon">Song Request</span>
-                                  </button>
-                                </DialogTrigger>
-                                <DialogContent className="sm:max-w-[525px] sm:rounded-none">
-                                  <DialogHeader>
-                                    <div className="flex items-center">
-                                      <div className="w-12 h-12 bg-wildcats-maroon/10 rounded-lg flex items-center justify-center mr-4 flex-shrink-0">
-                                          <Music className="h-6 w-6 text-wildcats-maroon" />
-                                      </div>
-                                      <div>
-                                          <DialogTitle>Request a Song</DialogTitle>
-                                          <DialogDescription>
-                                              Let the DJ know what you'd like to hear.
-                                          </DialogDescription>
-                                      </div>
+                            {/* Song Request Card */}
+                            <Card className="border-none shadow-xl rounded-2xl flex flex-col h-full min-h-[300px] overflow-hidden">
+                            <CardContent className="flex-1 flex flex-col justify-between">
+                              {!currentUser ? (
+                                <div className="text-center py-8">
+                                  <p className="text-slate-600 dark:text-slate-400 mb-4">
+                                    Login or create an account to request songs.
+                                  </p>
+                                  <div className="flex space-x-3 justify-center">
+                                    <Button onClick={handleLoginRedirect} className="bg-wildcats-maroon text-white hover:bg-red-800 rounded-lg">
+                                      <LogIn className="h-4 w-4 mr-2" />
+                                      Login
+                                    </Button>
+                                    <Button onClick={handleRegisterRedirect} variant="outline" className="rounded-lg">
+                                      <UserPlus className="h-4 w-4 mr-2" />
+                                      Register
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                                                 <form onSubmit={handleSongRequestSubmit} className="space-y-4">
+                                   <div className="grid grid-cols-1 gap-4">
+                                     <div className="space-y-2 mt-4">
+                                       <Label htmlFor="song-title" className="text-sm font-semibold text-slate-700 dark:text-slate-300">Song Title *</Label>
+                                      <Input
+                                        id="song-title"
+                                        type="text"
+                                        value={songRequest.title}
+                                        onChange={(e) => setSongRequest({ ...songRequest, title: e.target.value })}
+                                        placeholder="e.g., Bohemian Rhapsody"
+                                        className="h-10 border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700/50"
+                                        required
+                                      />
                                     </div>
-                                  </DialogHeader>
-                                  <form onSubmit={handleSongRequestSubmit} className="space-y-6 pt-4">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                      <div className="space-y-2">
-                                        <Label htmlFor="song-title" className="text-sm font-semibold text-slate-700 dark:text-slate-300">Song Title *</Label>
-                                        <Input
-                                          id="song-title"
-                                          type="text"
-                                          value={songRequest.title}
-                                          onChange={(e) => setSongRequest({ ...songRequest, title: e.target.value })}
-                                          placeholder="e.g., Bohemian Rhapsody"
-                                          className="h-12 border-slate-300 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-700/50"
-                                          required
-                                        />
-                                      </div>
-                                      <div className="space-y-2">
-                                        <Label htmlFor="artist" className="text-sm font-semibold text-slate-700 dark:text-slate-300">Artist *</Label>
-                                        <Input
-                                          id="artist"
-                                          type="text"
-                                          value={songRequest.artist}
-                                          onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
-                                          placeholder="e.g., Queen"
-                                          className="h-12 border-slate-300 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-700/50"
-                                          required
-                                        />
-                                      </div>
+                                    <div className="space-y-2">
+                                      <Label htmlFor="artist" className="text-sm font-semibold text-slate-700 dark:text-slate-300">Artist *</Label>
+                                      <Input
+                                        id="artist"
+                                        type="text"
+                                        value={songRequest.artist}
+                                        onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
+                                        placeholder="e.g., Queen"
+                                        className="h-10 border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700/50"
+                                        required
+                                      />
                                     </div>
                                     <div className="space-y-2">
                                       <Label htmlFor="dedication" className="text-sm font-semibold text-slate-700 dark:text-slate-300">Dedication (Optional)</Label>
@@ -1823,122 +1817,118 @@ export default function ListenerDashboard() {
                                         value={songRequest.dedication}
                                         onChange={(e) => setSongRequest({ ...songRequest, dedication: e.target.value })}
                                         placeholder="Add a personal message or dedication..."
-                                        className="min-h-[100px] border-slate-300 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-700/50 resize-none"
+                                        className="min-h-[80px] border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700/50 resize-none"
                                       />
                                     </div>
-                                    <DialogFooter>
-                                      <Button type="submit" className="bg-wildcats-maroon hover:bg-red-800 text-white shadow-lg px-8 h-12 rounded-xl font-semibold text-base">
-                                        <Send className="h-5 w-5 mr-2" />
-                                        Submit Request
-                                      </Button>
-                                    </DialogFooter>
-                                  </form>
-                                </DialogContent>
-                              </Dialog>
+                                  </div>
+                                  <div className="pt-2">
+                                    <Button type="submit" className="bg-wildcats-maroon hover:bg-red-800 text-white shadow-lg px-6 h-10 rounded-lg font-semibold w-full">
+                                      <Send className="h-4 w-4 mr-2" />
+                                      Submit Request
+                                    </Button>
+                                  </div>
+                                </form>
+                              )}
+                            </CardContent>
+                          </Card>
+                          </div>
 
-                              <Dialog>
-                                <DialogTrigger asChild>
-                                  <button className="group flex flex-col justify-start items-start w-48 h-40 p-5 rounded-xl bg-blue-100 hover:bg-blue-200/70 shadow-xl hover:shadow-2xl transform hover:scale-105 hover:-translate-y-1 transition-all duration-300 ease-in-out">
-                                    <Vote className="w-8 h-8 text-blue-700 mb-auto" />
-                                    <span className="font-semibold text-lg text-blue-800">Live Poll</span>
-                                  </button>
-                                </DialogTrigger>
-                                <DialogContent className="sm:max-w-[525px] sm:rounded-none">
-                                  <DialogHeader>
-                                      <div className="flex items-center">
-                                          <div className="w-12 h-12 bg-blue-500/10 rounded-lg flex items-center justify-center mr-4 flex-shrink-0">
-                                              <Vote className="h-6 w-6 text-blue-500" />
-                                          </div>
-                                          <div>
-                                              <DialogTitle>Live Poll</DialogTitle>
-                                              <DialogDescription>
-                                                  Cast your vote on the current topic.
-                                              </DialogDescription>
-                                          </div>
-                                      </div>
-                                  </DialogHeader>
-                                  <div className="pt-4">
-                                    {pollLoading && !activePoll ? (
-                                      <div className="text-center py-16 text-muted-foreground animate-pulse text-lg">Loading polls...</div>
-                                    ) : activePoll ? (
-                                      <div className="max-w-md mx-auto">
-                                        <div className="text-center mb-8">
-                                          <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-                                            {activePoll.question || activePoll.title}
-                                          </h3>
-                                          <p className="text-sm text-slate-600 dark:text-slate-400">
-                                            {!currentUser ? 'Login to participate' : activePoll.userVoted ? 'Results are in!' : 'Cast your vote below'}
-                                          </p>
-                                        </div>
-                                        <div className="space-y-4 mb-8">
-                                          {activePoll.options.map((option) => {
-                                            const percentage = (activePoll.totalVotes > 0) ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 : 0;
-                                            const isSelected = selectedPollOption === option.id;
-                                            const isUserChoice = activePoll.userVotedFor === option.id;
-                                            const canInteract = currentUser && !activePoll.userVoted;
-                                            return (
-                                              <div key={option.id} className="relative">
-                                                <Button
-                                                  variant="outline"
-                                                  className={cn(
-                                                    "w-full justify-start h-14 p-4 text-left rounded-xl transition-all duration-200 border-2",
-                                                    isSelected ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30" : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600",
-                                                    isUserChoice && "border-purple-500 bg-purple-50 dark:bg-purple-900/30 font-semibold",
-                                                    !canInteract && "cursor-default"
-                                                  )}
-                                                  onClick={() => canInteract && handlePollOptionSelect(option.id)}
-                                                  disabled={!canInteract}
-                                                >
-                                                  <div className="flex items-center justify-between w-full">
-                                                    <span className="font-medium text-slate-800 dark:text-slate-200">{option.optionText || option.text}</span>
-                                                    {activePoll.userVoted && currentUser && (
-                                                      <span className="font-bold text-slate-700 dark:text-slate-300">{percentage}%</span>
-                                                    )}
-                                                  </div>
-                                                </Button>
-                                                {activePoll.userVoted && currentUser && (
-                                                  <div className="absolute top-0 left-0 h-full rounded-xl bg-gradient-to-r from-blue-200 to-purple-200 dark:from-blue-800/50 dark:to-purple-800/50 -z-10 transition-all duration-500" style={{ width: `${percentage}%` }}></div>
-                                                )}
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                        <DialogFooter>
-                                          {!currentUser ? (
-                                            <div className="text-center w-full">
-                                              <p className="text-sm text-muted-foreground mb-3">Login to participate in polls</p>
-                                              <div className="flex space-x-2 justify-center">
-                                                <Button onClick={handleLoginRedirect} className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg"><LogIn className="h-4 w-4 mr-2" />Login</Button>
-                                                <Button onClick={handleRegisterRedirect} variant="secondary" className="rounded-lg"><UserPlus className="h-4 w-4 mr-2" />Register</Button>
-                                              </div>
+                          {/* Poll Section */}
+                          <div className="mt-12">
+                            {/* Poll Header - Outside Card */}
+                            <div className="flex items-center mb-4">
+                              <div className="w-12 h-12 bg-blue-500/10 rounded-lg flex items-center justify-center mr-4 flex-shrink-0">
+                                <Vote className="h-6 w-6 text-blue-500" />
+                              </div>
+                              <div>
+                                <h3 className="text-lg font-semibold text-blue-800">Live Poll</h3>
+                                <p className="text-sm text-slate-600 dark:text-slate-400">
+                                  Cast your vote on the current topic.
+                                </p>
+                              </div>
+                            </div>
+                            {/* Poll Card */}
+                            <Card className="border-none shadow-xl rounded-2xl flex flex-col h-full min-h-[300px] overflow-hidden">
+                            <CardContent className="flex-1 flex flex-col justify-between">
+                              {pollLoading && !activePoll ? (
+                                <div className="text-center py-8 text-muted-foreground animate-pulse">Loading polls...</div>
+                              ) : activePoll ? (
+                                <div>
+                                  <div className="text-center mb-6">
+                                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                                      {activePoll.question || activePoll.title}
+                                    </h3>
+                                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                                      {!currentUser ? 'Login to participate' : activePoll.userVoted ? 'Results are in!' : 'Cast your vote below'}
+                                    </p>
+                                  </div>
+                                  <div className="space-y-3 mb-6">
+                                    {activePoll.options.map((option) => {
+                                      const percentage = (activePoll.totalVotes > 0) ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 : 0;
+                                      const isSelected = selectedPollOption === option.id;
+                                      const isUserChoice = activePoll.userVotedFor === option.id;
+                                      const canInteract = currentUser && !activePoll.userVoted;
+                                      return (
+                                        <div key={option.id} className="relative">
+                                          <Button
+                                            variant="outline"
+                                            className={cn(
+                                              "w-full justify-start h-12 p-3 text-left rounded-lg transition-all duration-200 border-2",
+                                              isSelected ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30" : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600",
+                                              isUserChoice && "border-purple-500 bg-purple-50 dark:bg-purple-900/30 font-semibold",
+                                              !canInteract && "cursor-default"
+                                            )}
+                                            onClick={() => canInteract && handlePollOptionSelect(option.id)}
+                                            disabled={!canInteract}
+                                          >
+                                            <div className="flex items-center justify-between w-full">
+                                              <span className="font-medium text-slate-800 dark:text-slate-200 text-sm">{option.optionText || option.text}</span>
+                                              {activePoll.userVoted && currentUser && (
+                                                <span className="font-bold text-slate-700 dark:text-slate-300 text-sm">{percentage}%</span>
+                                              )}
                                             </div>
-                                          ) : activePoll.userVoted ? (
-                                            <div className="text-center w-full">
-                                              <p className="text-sm text-muted-foreground mb-2">Total votes: {activePoll.totalVotes || 0}</p>
-                                              <Badge variant="secondary" className="bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 rounded-md">Voted</Badge>
-                                            </div>
-                                          ) : (
-                                            <Button onClick={handlePollVote} disabled={!selectedPollOption || pollLoading} className="bg-blue-500 hover:bg-blue-600 text-white shadow-lg px-10 h-12 rounded-xl font-semibold text-base">
-                                              {pollLoading ? 'Voting...' : 'Vote'}
-                                            </Button>
+                                          </Button>
+                                          {activePoll.userVoted && currentUser && (
+                                            <div className="absolute top-0 left-0 h-full rounded-lg bg-gradient-to-r from-blue-200 to-purple-200 dark:from-blue-800/50 dark:to-purple-800/50 -z-10 transition-all duration-500" style={{ width: `${percentage}%` }}></div>
                                           )}
-                                        </DialogFooter>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="pt-2">
+                                    {!currentUser ? (
+                                      <div className="text-center">
+                                        <p className="text-sm text-muted-foreground mb-3">Login to participate in polls</p>
+                                        <div className="flex space-x-2 justify-center">
+                                          <Button onClick={handleLoginRedirect} className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg"><LogIn className="h-4 w-4 mr-2" />Login</Button>
+                                          <Button onClick={handleRegisterRedirect} variant="secondary" className="rounded-lg"><UserPlus className="h-4 w-4 mr-2" />Register</Button>
+                                        </div>
+                                      </div>
+                                    ) : activePoll.userVoted ? (
+                                      <div className="text-center">
+                                        <p className="text-sm text-muted-foreground mb-2">Total votes: {activePoll.totalVotes || 0}</p>
+                                        <Badge variant="secondary" className="bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300 rounded-md">Voted</Badge>
                                       </div>
                                     ) : (
-                                      <div className="text-center py-16">
-                                         <div className="w-20 h-20 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center border border-slate-200 dark:border-slate-700 mx-auto mb-6">
-                                          <Vote className="h-10 w-10 text-slate-400 dark:text-slate-500" />
-                                        </div>
-                                        <h3 className="text-xl font-bold text-slate-900 dark:text-white">No Active Polls</h3>
-                                        <p className="text-slate-600 dark:text-slate-400 mt-2">Polls will appear here during live broadcasts.</p>
-                                      </div>
+                                      <Button onClick={handlePollVote} disabled={!selectedPollOption || pollLoading} className="bg-blue-500 hover:bg-blue-600 text-white shadow-lg px-6 h-10 rounded-lg font-semibold w-full">
+                                        {pollLoading ? 'Voting...' : 'Vote'}
+                                      </Button>
                                     )}
                                   </div>
-                                </DialogContent>
-                              </Dialog>
-                            </>
-                          )}
-                      </div>
+                                </div>
+                              ) : (
+                                <div className="text-center py-8">
+                                  <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center border border-slate-200 dark:border-slate-700 mx-auto mb-4">
+                                    <Vote className="h-8 w-8 text-slate-400 dark:text-slate-500" />
+                                  </div>
+                                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">No Active Polls</h3>
+                                  <p className="text-slate-600 dark:text-slate-400 mt-2 text-sm">Polls will appear here during live broadcasts.</p>
+                                                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                          </div>
+                         </div>
                     </div>
 
                     {/* Polls Card - REMOVED */}
@@ -1970,10 +1960,7 @@ export default function ListenerDashboard() {
               {/* Right Column: Player */}
               <div className="w-[448px]" style={{ perspective: '1000px' }}>
                  <Card 
-                    className="relative overflow-hidden border-none shadow-2xl rounded-2xl sticky top-8 bg-gradient-to-br from-wildcats-maroon to-red-900 transition-transform duration-500 ease-in-out"
-                    style={{ transform: 'rotateY(-5deg)' }}
-                    onMouseEnter={(e) => e.currentTarget.style.transform = 'rotateY(0deg) scale(1.02)'}
-                    onMouseLeave={(e) => e.currentTarget.style.transform = 'rotateY(-5deg)'}
+                    className="relative overflow-hidden border-none shadow-2xl rounded-2xl sticky top-8 bg-gradient-to-br from-[#800000] to-[#600000]"
                   >
                     <div className="absolute -top-24 -right-24 w-72 h-72 bg-white/10 rounded-full mix-blend-soft-light filter blur-3xl opacity-50 pointer-events-none"></div>
                     <div className="absolute -bottom-24 -left-24 w-72 h-72 bg-red-400/10 rounded-full mix-blend-soft-light filter blur-3xl opacity-50 pointer-events-none"></div>
