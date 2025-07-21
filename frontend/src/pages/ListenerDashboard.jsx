@@ -1960,7 +1960,7 @@ export default function ListenerDashboard() {
               {/* Right Column: Player */}
               <div className="w-[448px]" style={{ perspective: '1000px' }}>
                  <Card 
-                    className="relative overflow-hidden border-none shadow-2xl rounded-2xl sticky top-8 bg-gradient-to-br from-[#800000] to-[#600000]"
+                    className="relative overflow-hidden border-none shadow-2xl rounded-2xl sticky top-8 bg-gradient-to-br from-[#800000] to-[#600000] min-h-[840px]"
                   >
                     <div className="absolute -top-24 -right-24 w-72 h-72 bg-white/10 rounded-full mix-blend-soft-light filter blur-3xl opacity-50 pointer-events-none"></div>
                     <div className="absolute -bottom-24 -left-24 w-72 h-72 bg-red-400/10 rounded-full mix-blend-soft-light filter blur-3xl opacity-50 pointer-events-none"></div>
@@ -2009,7 +2009,7 @@ export default function ListenerDashboard() {
                               <Button onClick={handleMuteToggle} size="icon" variant="ghost" className="h-12 w-12 rounded-full flex-shrink-0 text-red-200 hover:bg-white/10 hover:text-white">
                                 {isMuted ? <VolumeX className="h-6 w-6" /> : <Volume2 className="h-6 w-6" />}
                               </Button>
-                              <Slider min={0} max={100} value={[volume]} onValueChange={(value) => updateVolume(value[0])} className="w-full" />
+                              <Slider min={0} max={100} value={[volume]} onValueChange={(value) => updateVolume(value[0])} className="w-full [&>*]:bg-white/30 [&>*>*]:bg-white [&>*:last-child]:!border-0 [&>*:last-child]:!outline-0 [&>*:last-child]:!ring-0 [&>*:last-child]:bg-white [&>*:last-child]:rounded-full [&>*:last-child]:shadow-lg [&>*:last-child]:focus:!outline-0 [&>*:last-child]:focus:!ring-0 [&>*:last-child]:focus:!border-0 [&_[role=slider]]:!border-0 [&_[role=slider]]:!outline-0" />
                               <div className="text-base font-medium text-red-200 w-12 text-center tabular-nums">{volume}%</div>
                             </div>
                           </div>
