@@ -43,7 +43,7 @@ const WORKFLOW_STATES = {
 export default function DJDashboard() {
   // Authentication context
   const { currentUser } = useAuth()
-  
+
   // Streaming context
   const { 
     isLive, 
@@ -123,7 +123,7 @@ export default function DJDashboard() {
   const [totalSongRequests, setTotalSongRequests] = useState(0)
   const [totalPolls, setTotalPolls] = useState(0)
   const [durationTick, setDurationTick] = useState(0)
-  
+
   // Chat timestamp update state
   const [chatTimestampTick, setChatTimestampTick] = useState(0)
 
@@ -349,17 +349,26 @@ export default function DJDashboard() {
         }
 
         logger.debug('DJ Dashboard: Setting up song request WebSocket for broadcast:', currentBroadcast.id);
-        const connection = await songRequestService.subscribeToSongRequests(currentBroadcast.id, (newRequest) => {
+        const connection = await songRequestService.subscribeToSongRequests(currentBroadcast.id, (message) => {
+          // Check if this is a deletion notification
+          if (message.type === 'SONG_REQUEST_DELETED') {
+            logger.debug('DJ Dashboard: Received song request deletion notification:', message);
+            // Remove the deleted request from the state
+            setSongRequests(prev => prev.filter(req => req.id !== message.requestId));
+            return;
+          }
+
+          // Handle new song request
           // Double-check the request is for the current broadcast
-          if (newRequest.broadcastId === currentBroadcast.id) {
-            logger.debug('DJ Dashboard: Received new song request:', newRequest);
+          if (message.broadcastId === currentBroadcast.id) {
+            logger.debug('DJ Dashboard: Received new song request:', message);
             setSongRequests(prev => {
-              const exists = prev.some(req => req.id === newRequest.id);
+              const exists = prev.some(req => req.id === message.id);
               if (exists) return prev;
-              return [newRequest, ...prev];
+              return [message, ...prev];
             });
           } else {
-            logger.debug('DJ Dashboard: Ignoring song request for different broadcast:', newRequest.broadcastId);
+            logger.debug('DJ Dashboard: Ignoring song request for different broadcast:', message.broadcastId);
           }
         });
         songRequestWsRef.current = connection;
@@ -382,7 +391,7 @@ export default function DJDashboard() {
         logger.debug('DJ Dashboard: Setting up poll WebSocket for broadcast:', currentBroadcast.id);
         const connection = await pollService.subscribeToPolls(currentBroadcast.id, (pollUpdate) => {
           logger.debug('DJ Dashboard: Received poll update:', pollUpdate);
-          
+
           switch (pollUpdate.type) {
             case 'POLL_VOTE':
               logger.debug('DJ Dashboard: Processing poll vote update for poll:', pollUpdate.pollId);
@@ -408,7 +417,7 @@ export default function DJDashboard() {
                   : prev
               );
               break;
-              
+
             case 'NEW_POLL':
               logger.debug('DJ Dashboard: Processing new poll:', pollUpdate.poll);
               // Add new poll to the list
@@ -419,7 +428,7 @@ export default function DJDashboard() {
               });
               setActivePoll(pollUpdate.poll);
               break;
-              
+
             case 'POLL_UPDATED':
               logger.debug('DJ Dashboard: Processing poll update:', pollUpdate.poll);
               if (pollUpdate.poll && !pollUpdate.poll.isActive) {
@@ -427,7 +436,7 @@ export default function DJDashboard() {
                 setActivePoll(prev => prev?.id === pollUpdate.poll.id ? null : prev);
               }
               break;
-              
+
             case 'POLL_RESULTS':
               logger.debug('DJ Dashboard: Processing poll results update:', pollUpdate.results);
               if (pollUpdate.pollId && pollUpdate.results) {
@@ -452,7 +461,7 @@ export default function DJDashboard() {
                 );
               }
               break;
-              
+
             default:
               logger.debug('DJ Dashboard: Unknown poll update type:', pollUpdate.type);
           }
@@ -485,6 +494,65 @@ export default function DJDashboard() {
       }
     };
   }, [workflowState, currentBroadcast?.id]); // Removed unnecessary dependencies to prevent re-runs
+
+  // Setup 3-second interval for poll results fetching alongside WebSocket
+  useEffect(() => {
+    // Guard: Only setup interval if we have a valid broadcast and are in streaming state
+    if (workflowState !== WORKFLOW_STATES.STREAMING_LIVE || !currentBroadcast || !currentBroadcast.id) {
+      return;
+    }
+
+    logger.debug('DJ Dashboard: Setting up 3-second poll results interval for broadcast:', currentBroadcast.id);
+
+    const fetchPollResults = async () => {
+      try {
+        // Fetch current polls for the broadcast
+        const pollsResponse = await pollService.getPollsForBroadcast(currentBroadcast.id);
+        if (pollsResponse.data && pollsResponse.data.length > 0) {
+          logger.debug('DJ Dashboard: Interval fetched poll results:', pollsResponse.data.length);
+
+          // Update polls state with fresh data
+          setPolls(prevPolls => {
+            const updatedPolls = pollsResponse.data.map(fetchedPoll => {
+              const existingPoll = prevPolls.find(p => p.id === fetchedPoll.id);
+              // Only update if there are actual changes to avoid unnecessary re-renders
+              if (existingPoll &&
+                  existingPoll.totalVotes === fetchedPoll.totalVotes &&
+                  JSON.stringify(existingPoll.options) === JSON.stringify(fetchedPoll.options)) {
+                return existingPoll;
+              }
+              return fetchedPoll;
+            });
+            return updatedPolls;
+          });
+
+          // Update active poll if it exists in the fetched data
+          setActivePoll(prevActivePoll => {
+            if (!prevActivePoll) return prevActivePoll;
+            const updatedActivePoll = pollsResponse.data.find(p => p.id === prevActivePoll.id);
+            if (updatedActivePoll &&
+                (prevActivePoll.totalVotes !== updatedActivePoll.totalVotes ||
+                 JSON.stringify(prevActivePoll.options) !== JSON.stringify(updatedActivePoll.options))) {
+              logger.debug('DJ Dashboard: Interval updated active poll results');
+              return updatedActivePoll;
+            }
+            return prevActivePoll;
+          });
+        }
+      } catch (error) {
+        logger.error('DJ Dashboard: Error fetching poll results via interval:', error);
+      }
+    };
+
+    // Set up the interval
+    const intervalId = setInterval(fetchPollResults, 3000); // 3 seconds
+
+    // Cleanup function
+    return () => {
+      logger.debug('DJ Dashboard: Cleaning up poll results interval');
+      clearInterval(intervalId);
+    };
+  }, [workflowState, currentBroadcast?.id]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -613,23 +681,23 @@ export default function DJDashboard() {
 
     try {
       setStreamError(null)
-      
+
       // Use the global streaming context to start the broadcast
       await startStreamingBroadcast({
         id: currentBroadcast.id,
         title: currentBroadcast.title,
         description: currentBroadcast.description
       });
-      
+
       setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE);
       setBroadcastStartTime(new Date());
-      
+
     } catch (error) {
       logger.error("Error starting broadcast:", error)
-      
+
       // Provide user-friendly error messages based on the error type
       let errorMessage = error.message || "Unknown error occurred";
-      
+
       if (errorMessage.includes('Desktop audio capture failed') || errorMessage.includes('NotSupported')) {
         setStreamError(
           `Desktop Audio Issue: ${errorMessage}\n\n` +
@@ -664,13 +732,13 @@ export default function DJDashboard() {
   const stopBroadcast = async () => {
     try {
       logger.debug("Stopping broadcast")
-      
+
       // Use the global streaming context to stop the broadcast
       await stopStreamingBroadcast();
-      
+
       // Reset state back to create new broadcast
       setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
-      
+
       // Reset analytics
       setBroadcastStartTime(null)
       setTotalInteractions(0)
@@ -681,7 +749,7 @@ export default function DJDashboard() {
       setSongRequests([])
       setPolls([])
       setActivePoll(null)
-      
+
     } catch (error) {
       logger.error("Error stopping broadcast:", error)
       setStreamError(`Error stopping broadcast: ${error.message}`)
@@ -697,14 +765,14 @@ export default function DJDashboard() {
     try {
       setStreamError(null)
       logger.debug("Canceling broadcast:", currentBroadcast.id)
-      
+
       // Delete the broadcast from the backend
       await broadcastService.delete(currentBroadcast.id)
-      
+
       // Reset state back to create new broadcast
       setCurrentBroadcast(null)
       setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
-      
+
       logger.debug("Broadcast canceled successfully")
     } catch (error) {
       logger.error("Error canceling broadcast:", error)
@@ -715,7 +783,7 @@ export default function DJDashboard() {
   const handleRestoreAudio = async () => {
     setIsRestoringAudio(true);
     setStreamError(null);
-    
+
     try {
       const success = await restoreDJStreaming();
       if (success) {
@@ -747,7 +815,7 @@ export default function DJDashboard() {
         }
         audioPreviewRef.current.src = serverConfig.streamUrl
         audioPreviewRef.current.volume = isMuted ? 0 : volume / 100
-        
+
         try {
           await audioPreviewRef.current.play()
           setPreviewEnabled(true)
@@ -797,13 +865,29 @@ export default function DJDashboard() {
     }
   }
 
+  const handleDeleteSongRequest = async (requestId) => {
+    if (!currentBroadcast) return
+
+    try {
+      logger.debug('Deleting song request:', requestId)
+      await songRequestService.deleteRequest(currentBroadcast.id, requestId)
+
+      // Remove the deleted request from the state
+      setSongRequests(prev => prev.filter(request => request.id !== requestId))
+
+      logger.debug('Song request deleted successfully')
+    } catch (error) {
+      logger.error('Error deleting song request:', error)
+      alert('Failed to delete song request. Please try again.')
+    }
+  }
+
   const handlePollSubmit = async (e) => {
     e.preventDefault()
     if (!newPoll.question.trim() || !currentBroadcast) return
 
     const validOptions = newPoll.options.filter(option => option.trim())
     if (validOptions.length < 2) {
-      alert('Please provide at least 2 poll options')
       return
     }
 
@@ -834,10 +918,8 @@ export default function DJDashboard() {
       // Reset form and close creation panel
       setNewPoll({ question: '', options: ['', ''] })
       setShowPollCreation(false)
-      alert('Poll created successfully!')
     } catch (error) {
       logger.error('Error creating poll:', error)
-      alert('Failed to create poll. Please try again.')
     } finally {
       setIsCreatingPoll(false)
     }
@@ -884,10 +966,10 @@ export default function DJDashboard() {
   return (
     <div className="relative min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Main Content */}
-    <div className="container mx-auto px-4 py-6">
-      <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">
-        DJ Dashboard
-      </h1>
+      <div className="container mx-auto px-4 py-6">
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">
+          DJ Dashboard
+        </h1>
 
         {/* Live Streaming Bar - Fixed at top when live */}
         {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
@@ -950,105 +1032,105 @@ export default function DJDashboard() {
 
         {/* Workflow Progress Indicator - Hidden when live */}
         {workflowState !== WORKFLOW_STATES.STREAMING_LIVE && (
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
-        <div className="p-6">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
-              Broadcast Workflow
-          </h2>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">
+                Broadcast Workflow
+              </h2>
 
-            <div className="flex items-center justify-between">
-              {/* Step 1: Create Broadcast Content */}
-            <div className="flex items-center">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
-                  workflowState === WORKFLOW_STATES.CREATE_BROADCAST 
-                    ? 'border-blue-500 bg-blue-500 text-white' 
-                    : workflowState === WORKFLOW_STATES.READY_TO_STREAM || workflowState === WORKFLOW_STATES.STREAMING_LIVE
-                    ? 'border-green-500 bg-green-500 text-white'
-                    : 'border-gray-300 text-gray-500'
-                }`}>
-                  {workflowState === WORKFLOW_STATES.CREATE_BROADCAST ? (
-                    <PlusIcon className="h-5 w-5" />
-                  ) : (
-                    <CheckIcon className="h-5 w-5" />
-                  )}
+              <div className="flex items-center justify-between">
+                {/* Step 1: Create Broadcast Content */}
+                <div className="flex items-center">
+                  <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
+                    workflowState === WORKFLOW_STATES.CREATE_BROADCAST 
+                      ? 'border-blue-500 bg-blue-500 text-white' 
+                      : workflowState === WORKFLOW_STATES.READY_TO_STREAM || workflowState === WORKFLOW_STATES.STREAMING_LIVE
+                      ? 'border-green-500 bg-green-500 text-white'
+                      : 'border-gray-300 text-gray-500'
+                  }`}>
+                    {workflowState === WORKFLOW_STATES.CREATE_BROADCAST ? (
+                      <PlusIcon className="h-5 w-5" />
+                    ) : (
+                      <CheckIcon className="h-5 w-5" />
+                    )}
+                  </div>
+                  <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
+                    Create Broadcast
+                  </span>
                 </div>
-                <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
-                  Create Broadcast
-              </span>
-            </div>
 
-              {/* Arrow */}
-              <div className="flex-1 h-0.5 bg-gray-300 dark:bg-gray-600 mx-4"></div>
+                {/* Arrow */}
+                <div className="flex-1 h-0.5 bg-gray-300 dark:bg-gray-600 mx-4"></div>
 
-              {/* Step 2: Ready to Stream */}
-              <div className="flex items-center">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
-                  workflowState === WORKFLOW_STATES.READY_TO_STREAM 
-                    ? 'border-blue-500 bg-blue-500 text-white' 
-                    : workflowState === WORKFLOW_STATES.STREAMING_LIVE
-                    ? 'border-green-500 bg-green-500 text-white'
-                    : 'border-gray-300 text-gray-500'
-                }`}>
-                  {workflowState === WORKFLOW_STATES.STREAMING_LIVE ? (
-                    <CheckIcon className="h-5 w-5" />
-                  ) : (
-                    <ClockIcon className="h-5 w-5" />
-                  )}
+                {/* Step 2: Ready to Stream */}
+                <div className="flex items-center">
+                  <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
+                    workflowState === WORKFLOW_STATES.READY_TO_STREAM 
+                      ? 'border-blue-500 bg-blue-500 text-white' 
+                      : workflowState === WORKFLOW_STATES.STREAMING_LIVE
+                      ? 'border-green-500 bg-green-500 text-white'
+                      : 'border-gray-300 text-gray-500'
+                  }`}>
+                    {workflowState === WORKFLOW_STATES.STREAMING_LIVE ? (
+                      <CheckIcon className="h-5 w-5" />
+                    ) : (
+                      <ClockIcon className="h-5 w-5" />
+                    )}
+                  </div>
+                  <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
+                    Ready to Stream
+                  </span>
                 </div>
-                <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
-                  Ready to Stream
-                </span>
-          </div>
 
-              {/* Arrow */}
-              <div className="flex-1 h-0.5 bg-gray-300 dark:bg-gray-600 mx-4"></div>
+                {/* Arrow */}
+                <div className="flex-1 h-0.5 bg-gray-300 dark:bg-gray-600 mx-4"></div>
 
-              {/* Step 3: Live Streaming */}
-              <div className="flex items-center">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
-                  workflowState === WORKFLOW_STATES.STREAMING_LIVE 
-                    ? 'border-red-500 bg-red-500 text-white' 
-                    : 'border-gray-300 text-gray-500'
-                }`}>
-                  <MicrophoneIcon className="h-5 w-5" />
+                {/* Step 3: Live Streaming */}
+                <div className="flex items-center">
+                  <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
+                    workflowState === WORKFLOW_STATES.STREAMING_LIVE 
+                      ? 'border-red-500 bg-red-500 text-white' 
+                      : 'border-gray-300 text-gray-500'
+                  }`}>
+                    <MicrophoneIcon className="h-5 w-5" />
+                  </div>
+                  <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
+                    Live Streaming
+                  </span>
                 </div>
-                <span className="ml-3 text-sm font-medium text-gray-900 dark:text-white">
-                  Live Streaming
-                </span>
               </div>
             </div>
           </div>
-        </div>
         )}
 
-          {/* Error Display */}
-          {streamError && (
-            <div className="mb-6 p-4 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md border border-red-300 dark:border-red-800">
-              <div className="flex items-start space-x-3">
-                <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
-                <div className="flex-1">
-                  <h3 className="font-semibold text-red-800 dark:text-red-200 mb-2">Broadcast Error</h3>
-                  <div className="text-sm whitespace-pre-line">{streamError}</div>
-                </div>
+        {/* Error Display */}
+        {streamError && (
+          <div className="mb-6 p-4 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md border border-red-300 dark:border-red-800">
+            <div className="flex items-start space-x-3">
+              <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h3 className="font-semibold text-red-800 dark:text-red-200 mb-2">Broadcast Error</h3>
+                <div className="text-sm whitespace-pre-line">{streamError}</div>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Audio Restoration Notice - Show when live but audio not streaming */}
-          {workflowState === WORKFLOW_STATES.STREAMING_LIVE && (!mediaRecorderRef.current || !audioStreamRef.current || mediaRecorderRef.current.state !== 'recording') && (
-            <div className="mb-6 p-4 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 rounded-md border-l-4 border-yellow-500">
-              <div className="flex items-center">
-                <MicrophoneIcon className="h-5 w-5 mr-3 flex-shrink-0" />
-                <div>
-                  <h3 className="font-semibold">Audio Streaming Disconnected</h3>
-                  <p className="text-sm mt-1">
-                    Your broadcast is live, but audio streaming has been disconnected. 
-                    Click "Restore Audio" in the live bar above to reconnect your microphone and resume audio streaming.
-                  </p>
-                </div>
+        {/* Audio Restoration Notice - Show when live but audio not streaming */}
+        {workflowState === WORKFLOW_STATES.STREAMING_LIVE && (!mediaRecorderRef.current || !audioStreamRef.current || mediaRecorderRef.current.state !== 'recording') && (
+          <div className="mb-6 p-4 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 rounded-md border-l-4 border-yellow-500">
+            <div className="flex items-center">
+              <MicrophoneIcon className="h-5 w-5 mr-3 flex-shrink-0" />
+              <div>
+                <h3 className="font-semibold">Audio Streaming Disconnected</h3>
+                <p className="text-sm mt-1">
+                  Your broadcast is live, but audio streaming has been disconnected.
+                  Click "Restore Audio" in the live bar above to reconnect your microphone and resume audio streaming.
+                </p>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
         {/* Live Interactive Dashboard - When streaming live */}
         {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
@@ -1084,13 +1166,13 @@ export default function DJDashboard() {
                         const lastName = msg.sender.lastname || '';
                         const fullName = `${firstName} ${lastName}`.trim();
                         const senderName = fullName || msg.sender.email || 'Unknown User';
-                        
+
                         // Check if user is a DJ based on their role or name
                         const isDJ = (msg.sender.role && msg.sender.role.includes("DJ")) || 
                                      (senderName.includes("DJ")) ||
                                      (firstName.includes("DJ")) ||
                                      (lastName.includes("DJ"));
-                        
+
                         const initials = senderName.split(' ').map(part => part[0] || '').join('').toUpperCase().slice(0, 2) || 'U';
 
                         let messageDate;
@@ -1142,13 +1224,13 @@ export default function DJDashboard() {
                       className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-maroon-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       maxLength={1500}
                     />
-                      <button
+                    <button
                       type="submit"
                       disabled={!chatMessage.trim()}
                       className="px-3 py-2 bg-maroon-600 text-white rounded-md hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                     >
                       <PaperAirplaneIcon className="h-4 w-4" />
-                      </button>
+                    </button>
                   </form>
                 </div>
               </div>
@@ -1188,13 +1270,22 @@ export default function DJDashboard() {
                               </div>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="mb-1">
-                                <span className="text-sm font-medium text-gray-900 dark:text-white block">
-                                  {request.songTitle}
-                                </span>
-                                <span className="text-xs text-gray-600 dark:text-gray-300">
-                                  by {request.artist}
-                                </span>
+                              <div className="flex justify-between items-start">
+                                <div className="mb-1">
+                                  <span className="text-sm font-medium text-gray-900 dark:text-white block">
+                                    {request.songTitle}
+                                  </span>
+                                  <span className="text-xs text-gray-600 dark:text-gray-300">
+                                    by {request.artist}
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => handleDeleteSongRequest(request.id)}
+                                  className="text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 transition-colors"
+                                  title="Delete request"
+                                >
+                                  <XMarkIcon className="h-4 w-4" />
+                                </button>
                               </div>
 
                               {request.dedication && (
@@ -1230,7 +1321,7 @@ export default function DJDashboard() {
                       <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded-full">
                         {polls.length}
                       </span>
-                        <button
+                      <button
                         onClick={() => setShowPollCreation(!showPollCreation)}
                         className={`w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-200 ${
                           showPollCreation 
@@ -1275,11 +1366,11 @@ export default function DJDashboard() {
                                 className="px-2 py-2 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                               >
                                 <XMarkIcon className="h-4 w-4" />
-                        </button>
-            )}
+                              </button>
+                            )}
                           </div>
                         ))}
-                </div>
+                      </div>
 
                       <div className="flex items-center justify-between">
                         {newPoll.options.length < 5 && (
@@ -1350,7 +1441,7 @@ export default function DJDashboard() {
                                 return (
                                   <div key={index} className="text-xs">
                                     <div className="flex justify-between mb-1">
-                                      <span className="text-gray-700 dark:text-gray-300">{option.optionText}</span>
+                                      <span className="text-gray-700 dark:text-gray-300">{option.text}</span>
                                       <span className="text-gray-600 dark:text-gray-400">{option.votes || 0} ({percentage}%)</span>
                                     </div>
                                     <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
@@ -1488,9 +1579,8 @@ export default function DJDashboard() {
               </h2>
 
               <div className="space-y-6">
-                {/* Title */}
                 <div>
-                  <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <label htmlFor="title" className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
                     Broadcast Title *
                   </label>
                   <input
@@ -1499,19 +1589,17 @@ export default function DJDashboard() {
                     name="title"
                     value={broadcastForm.title}
                     onChange={handleFormChange}
-                    className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${
-                      formErrors.title ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
-                    }`}
-                    placeholder="Enter broadcast title..."
+                    className="form-input"
+                    placeholder="Enter a title for your broadcast"
+                    disabled={isCreatingBroadcast}
                   />
                   {formErrors.title && (
-                    <p className="mt-1 text-sm text-red-600">{formErrors.title}</p>
+                    <p className="mt-1 text-sm text-red-600 dark:text-red-400">{formErrors.title}</p>
                   )}
                 </div>
 
-                {/* Description */}
                 <div>
-                  <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <label htmlFor="description" className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
                     Description *
                   </label>
                   <textarea
@@ -1519,45 +1607,46 @@ export default function DJDashboard() {
                     name="description"
                     value={broadcastForm.description}
                     onChange={handleFormChange}
-                    rows={3}
-                    className={`w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white ${
-                      formErrors.description ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
-                    }`}
-                    placeholder="Describe your broadcast..."
+                    rows={4}
+                    className="form-input"
+                    placeholder="Describe what your broadcast is about"
+                    disabled={isCreatingBroadcast}
                   />
                   {formErrors.description && (
-                    <p className="mt-1 text-sm text-red-600">{formErrors.description}</p>
+                    <p className="mt-1 text-sm text-red-600 dark:text-red-400">{formErrors.description}</p>
                   )}
                 </div>
 
                 {/* Audio Source Selection */}
                 <AudioSourceSelector disabled={isCreatingBroadcast} />
 
-                {/* Info about scheduling */}
-                <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4">
-                  <div className="flex">
-                    <div className="flex-shrink-0">
-                      <ClockIcon className="h-5 w-5 text-blue-400" />
-                    </div>
-                    <div className="ml-3">
-                      <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                        About Scheduling
-                      </h3>
-                      <div className="mt-1 text-sm text-blue-700 dark:text-blue-300">
-                        <p>This creates your broadcast content. To schedule broadcasts for specific times, use the Schedule page.</p>
-                      </div>
+                {/* About Scheduling Info */}
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                  <div className="flex items-start space-x-2">
+                    <ClockIcon className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-blue-800 dark:text-blue-300">
+                      <p className="font-medium mb-1">About Scheduling</p>
+                      <p>This creates your broadcast content. To schedule broadcasts for specific times, use the Schedule page.</p>
                     </div>
                   </div>
                 </div>
 
-                {/* Create Button */}
-                <div className="flex justify-center">
+                {/* Form Actions */}
+                <div className="flex items-center justify-end space-x-3">
                   <button
+                    type="button"
                     onClick={createBroadcast}
                     disabled={isCreatingBroadcast}
-                    className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                    className="btn-primary"
                   >
-                    {isCreatingBroadcast ? 'Creating...' : 'Create Broadcast'}
+                    {isCreatingBroadcast ? (
+                      <>
+                        <span className="mr-2">Creating...</span>
+                        <span className="animate-spin">⏳</span>
+                      </>
+                    ) : (
+                      'Create Broadcast'
+                    )}
                   </button>
                 </div>
               </div>
@@ -1603,7 +1692,7 @@ export default function DJDashboard() {
                   <XMarkIcon className="h-5 w-5 mr-2" />
                   Cancel Broadcast
                 </button>
-                
+
                 <button
                   onClick={startBroadcast}
                   disabled={!serverConfig}
@@ -1629,55 +1718,55 @@ export default function DJDashboard() {
                 Stream Preview
               </h2>
 
-                  <div className="flex items-center justify-between">
-                      <button 
-                onClick={togglePreview}
-                disabled={!serverConfig?.streamUrl}
-                className={`flex items-center px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed transition-colors ${
-                  previewEnabled
-                    ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200 focus:ring-yellow-500'
-                    : 'bg-gray-100 text-gray-800 hover:bg-gray-200 focus:ring-gray-500'
-                }`}
-              >
-                {previewEnabled ? (
-                  <>
-                    <PauseIcon className="h-4 w-4 mr-2" />
-                              Stop Preview
-                            </>
-                          ) : (
-                            <>
-                    <PlayIcon className="h-4 w-4 mr-2" />
-                    Start Preview
-                            </>
-                          )}
-                        </button>
-
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center justify-between">
                 <button
-                  onClick={toggleMute}
-                  className="p-2 text-gray-700 dark:text-gray-300 hover:text-yellow-600 dark:hover:text-yellow-400"
+                  onClick={togglePreview}
+                  disabled={!serverConfig?.streamUrl}
+                  className={`flex items-center px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed transition-colors ${
+                    previewEnabled
+                      ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200 focus:ring-yellow-500'
+                      : 'bg-gray-100 text-gray-800 hover:bg-gray-200 focus:ring-gray-500'
+                  }`}
                 >
-                  {isMuted ? (
-                    <SpeakerXMarkIcon className="h-5 w-5" />
+                  {previewEnabled ? (
+                    <>
+                      <PauseIcon className="h-4 w-4 mr-2" />
+                      Stop Preview
+                    </>
                   ) : (
-                    <SpeakerWaveIcon className="h-5 w-5" />
+                    <>
+                      <PlayIcon className="h-4 w-4 mr-2" />
+                      Start Preview
+                    </>
                   )}
                 </button>
+
+                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={toggleMute}
+                    className="p-2 text-gray-700 dark:text-gray-300 hover:text-yellow-600 dark:hover:text-yellow-400"
+                  >
+                    {isMuted ? (
+                      <SpeakerXMarkIcon className="h-5 w-5" />
+                    ) : (
+                      <SpeakerWaveIcon className="h-5 w-5" />
+                    )}
+                  </button>
                   <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={volume}
-                  onChange={handleVolumeChange}
-                  className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-600"
-                />
-                <span className="text-sm text-gray-700 dark:text-gray-300 min-w-[2.5rem] text-right">
-                  {volume}%
-                      </span>
-                    </div>
-                    </div>
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={volume}
+                    onChange={handleVolumeChange}
+                    className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-600"
+                  />
+                  <span className="text-sm text-gray-700 dark:text-gray-300 min-w-[2.5rem] text-right">
+                    {volume}%
+                  </span>
                 </div>
-                      </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Network Information - Hidden when live */}
@@ -1685,45 +1774,45 @@ export default function DJDashboard() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
             <div className="p-6">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
-              Network Information
+                Network Information
               </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                    <div>
-                <span className="font-medium text-gray-700 dark:text-gray-300">Server IP:</span>
-                <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.serverIp}</code>
-                      </div>
-              <div>
-                <span className="font-medium text-gray-700 dark:text-gray-300">Server Port:</span>
-                <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.serverPort}</code>
-                    </div>
-                    <div>
-                <span className="font-medium text-gray-700 dark:text-gray-300">WebSocket URL:</span>
-                <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.webSocketUrl}</code>
-                    </div>
-                    <div>
-                <span className="font-medium text-gray-700 dark:text-gray-300">Icecast URL:</span>
-                <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.icecastUrl}</code>
-                      </div>
-              <div className="md:col-span-2">
-                <span className="font-medium text-gray-700 dark:text-gray-300">Stream URL:</span>
-                <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.streamUrl}</code>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">Server IP:</span>
+                  <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.serverIp}</code>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">Server Port:</span>
+                  <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.serverPort}</code>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">WebSocket URL:</span>
+                  <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.webSocketUrl}</code>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">Icecast URL:</span>
+                  <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.icecastUrl}</code>
+                </div>
+                <div className="md:col-span-2">
+                  <span className="font-medium text-gray-700 dark:text-gray-300">Stream URL:</span>
+                  <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.streamUrl}</code>
                 </div>
               </div>
 
-            <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-md">
-              <p className="text-sm text-blue-700 dark:text-blue-200">
+              <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/30 rounded-md">
+                <p className="text-sm text-blue-700 dark:text-blue-200">
                   <strong>Current Status:</strong> {workflowState === WORKFLOW_STATES.CREATE_BROADCAST ? 'Ready to create broadcast' : 
                   workflowState === WORKFLOW_STATES.READY_TO_STREAM ? 'Broadcast created, ready to go live' : 
                   'Broadcasting live'} 
                   {workflowState === WORKFLOW_STATES.STREAMING_LIVE && listenerCount > 0 && 
                   ` • ${listenerCount} listener${listenerCount !== 1 ? 's' : ''} tuned in`}
-              </p>
-                            </div>
-                                </div>
-                            </div>
-                              )}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-                            </div>
+    </div>
   )
 } 

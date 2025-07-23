@@ -3,7 +3,8 @@ import { useAnalytics } from '../context/AnalyticsContext';
 import { useAuth } from '../context/AuthContext';
 import { Spinner } from '../components/ui/spinner';
 import { EnhancedScrollArea } from '../components/ui/enhanced-scroll-area';
-import { format, subDays, subWeeks, subMonths, subYears, startOfDay, startOfWeek, startOfMonth, startOfYear, endOfDay, endOfWeek, endOfMonth, endOfYear } from 'date-fns';
+import { format, subDays, subWeeks, subMonths, subYears, startOfDay, startOfWeek, startOfMonth, startOfYear, endOfDay, endOfWeek, endOfMonth, endOfYear, formatDistanceToNow, parseISO } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -42,6 +43,15 @@ import {
   ArrowUpIcon,
   ArrowDownIcon
 } from '@heroicons/react/24/outline';
+
+// Helper to parse backend timestamp as UTC
+const parseBackendTimestamp = (timestamp) => {
+  if (!timestamp) return null;
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
+    return parseISO(timestamp);
+  }
+  return parseISO(timestamp + 'Z');
+};
 
 export default function AnalyticsDashboard() {
   const { currentUser } = useAuth();
@@ -1085,10 +1095,7 @@ export default function AnalyticsDashboard() {
                         {activity.message || 'Unknown activity'}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {activity.username || 'Unknown user'} • {activity.timestamp 
-                          ? format(new Date(activity.timestamp), 'h:mm a')
-                          : 'Unknown time'
-                        }
+                        {activity.username || 'Unknown user'} • {formatInTimeZone(parseBackendTimestamp(activity.timestamp), 'Asia/Manila', 'h:mm a')}
                       </p>
                     </div>
                   </div>
@@ -1116,7 +1123,7 @@ export default function AnalyticsDashboard() {
               </span>
               {lastUpdated && (
                 <span className="text-gray-500 dark:text-gray-400 ml-2">
-                  • Last refreshed: {format(new Date(lastUpdated), 'h:mm a')}
+                  • Last refreshed: {formatInTimeZone(parseBackendTimestamp(lastUpdated), 'Asia/Manila', 'h:mm a')}
                 </span>
               )}
             </div>

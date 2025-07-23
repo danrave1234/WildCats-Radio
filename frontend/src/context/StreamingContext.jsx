@@ -3,6 +3,7 @@ import { broadcastService, streamService } from '../services/api';
 import { useAuth } from './AuthContext';
 import { useLocalBackend, config } from '../config';
 import { createLogger } from '../services/logger';
+import { globalWebSocketService } from '../services/globalWebSocketService';
 
 const logger = createLogger('StreamingContext');
 
@@ -49,45 +50,19 @@ export function StreamingProvider({ children }) {
   const [serverConfig, setServerConfig] = useState(null);
 
   // WebSocket References
-  const djWebSocketRef = useRef(null);
-  const listenerWebSocketRef = useRef(null);
-  const statusWebSocketRef = useRef(null);
+  const djWebSocketRef = useRef(null); // Still needed for MediaRecorder interaction
   const mediaRecorderRef = useRef(null);
   const audioStreamRef = useRef(null);
   const audioRef = useRef(null);
 
-  // Reconnection management
-  const djReconnectTimerRef = useRef(null);
-  const listenerReconnectTimerRef = useRef(null);
-  const statusReconnectTimerRef = useRef(null);
-
   // Flag to prevent auto-reconnection during pipeline resets
   const pipelineResetInProgressRef = useRef(false);
-  
-  // Industry-standard connection stability management
-  const djConnectionStateRef = useRef('disconnected'); // 'disconnected', 'connecting', 'connected', 'reconnecting'
-  const djReconnectAttemptsRef = useRef(0);
-  const djLastConnectTimeRef = useRef(0);
-  const stabilityWindowTimeoutRef = useRef(null);
-  
-  // Application-level ping/pong for connection health monitoring
-  const djPingTimeoutRef = useRef(null);
-  const djPongTimeoutRef = useRef(null);
-  const djMissedPingsRef = useRef(0);
-  
-  // Constants for connection management
-  const PING_INTERVAL = 30000; // 30 seconds
-  const PONG_TIMEOUT = 5000; // 5 seconds to wait for pong
-  const MAX_MISSED_PINGS = 2; // Number of missed pings before forcing reconnect
-  const STABILITY_WINDOW = 8000; // 8 seconds stability window after successful connection
-  const MAX_RECONNECT_ATTEMPTS = 5;
-  const BASE_RECONNECT_DELAY = 1000; // 1 second base delay for exponential backoff
 
   // WebSocket message size limits (based on backend configuration)
   const MAX_MESSAGE_SIZE = 60000; // 60KB - safety margin below the 64KB server buffer for low latency
 
   // Add new audio source state
-  const [audioSource, setAudioSource] = useState('microphone'); // 'microphone', 'desktop', 'both'
+  const [audioSource, setAudioSource] = useState('desktop'); // Default to 'desktop' for DJ use
   const desktopStreamRef = useRef(null);
 
   // Add DJ audio controls
@@ -139,7 +114,7 @@ export function StreamingProvider({ children }) {
         // Set up listener connections
         checkAndRestoreListenerState();
       }
-      connectStatusWebSocket();
+      connectListenerStatusWebSocket();
     } else {
       // Clean up all connections when logged out
       disconnectAll();
@@ -328,7 +303,7 @@ export function StreamingProvider({ children }) {
   const getDiagnosticMicrophoneAudioStream = async () => {
     try {
       console.log('🔬 Starting diagnostic microphone audio capture...');
-      
+
       // Step 1: Test basic microphone access
       const micStream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -341,7 +316,7 @@ export function StreamingProvider({ children }) {
       });
 
       console.log('✅ Diagnostic microphone stream obtained');
-      
+
       // Step 2: Test audio levels directly from raw stream
       const testContext = new AudioContext({ sampleRate: 48000 });
       const testSource = testContext.createMediaStreamSource(micStream);
@@ -355,7 +330,7 @@ export function StreamingProvider({ children }) {
       let testCount = 0;
 
       console.log('🔬 Testing raw microphone audio levels for 2 seconds...');
-      
+
       await new Promise((resolve) => {
         const testInterval = setInterval(() => {
           testAnalyser.getByteFrequencyData(testData);
@@ -365,7 +340,7 @@ export function StreamingProvider({ children }) {
           }
           const rms = Math.sqrt(sum / testData.length);
           const dB = rms > 0 ? 20 * Math.log10(rms / 255) : -100;
-          
+
           if (rms > maxLevel) maxLevel = rms;
           testCount++;
 
@@ -396,25 +371,25 @@ export function StreamingProvider({ children }) {
         // Test: return the raw stream directly without any processing
         // This will help identify if the issue is in the processing pipeline
         console.log('⚠️ Using DIRECT STREAM mode (no processing) for testing');
-        
+
         // Set up basic references for audio level monitoring
         const testContext = new AudioContext({ sampleRate: 48000 });
         const testSource = testContext.createMediaStreamSource(micStream);
         const testAnalyser = testContext.createAnalyser();
         testSource.connect(testAnalyser);
-        
+
         analyserRef.current = testAnalyser;
         audioContextRef.current = testContext;
-        
+
         // Start basic monitoring
         startSimplifiedAudioLevelMonitoring();
-        
+
         console.log('✅ Direct stream mode active - no audio processing applied');
         return micStream; // Return raw stream directly
-        
+
       } catch (directError) {
         console.warn('⚠️ Direct stream failed, falling back to processing pipeline:', directError);
-        
+
         // Step 5b: Create processing pipeline as fallback
         const audioContext = new AudioContext({
           sampleRate: 48000,
@@ -423,7 +398,7 @@ export function StreamingProvider({ children }) {
         audioContextRef.current = audioContext;
 
         const processedStream = createSimplifiedAudioProcessingPipeline(micStream, audioContext);
-        
+
         // DON'T stop original stream immediately - let processed stream establish first
         setTimeout(() => {
           console.log('🔧 Stopping original microphone stream after processed stream established');
@@ -444,7 +419,7 @@ export function StreamingProvider({ children }) {
   const getFallbackMicrophoneAudioStream = async () => {
     try {
       console.log('🔄 Attempting fallback microphone capture...');
-      
+
       // Try different audio constraints
       const constraints = [
         // Constraint 1: Minimal settings
@@ -477,39 +452,39 @@ export function StreamingProvider({ children }) {
       for (let i = 0; i < constraints.length; i++) {
         try {
           console.log(`🔄 Trying fallback constraint ${i + 1}:`, constraints[i]);
-          
+
           const stream = await navigator.mediaDevices.getUserMedia(constraints[i]);
-          
+
           // Test this stream briefly
           const testCtx = new AudioContext();
           const testSrc = testCtx.createMediaStreamSource(stream);
           const testAna = testCtx.createAnalyser();
           testSrc.connect(testAna);
-          
+
           // Quick test
           const testArr = new Uint8Array(testAna.frequencyBinCount);
           await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms
           testAna.getByteFrequencyData(testArr);
-          
+
           let sum = 0;
           for (let j = 0; j < testArr.length; j++) {
             sum += testArr[j];
           }
           const avgLevel = sum / testArr.length;
-          
+
           testCtx.close();
-          
+
           console.log(`🔄 Fallback constraint ${i + 1} average level: ${avgLevel.toFixed(2)}`);
-          
+
           if (avgLevel > 0.5 || i === constraints.length - 1) { // Accept if any audio or last attempt
             console.log(`✅ Fallback constraint ${i + 1} accepted, using direct stream`);
-            
+
             // Return the stream directly without complex processing
             return stream;
           } else {
             stream.getTracks().forEach(track => track.stop());
           }
-          
+
         } catch (error) {
           console.warn(`⚠️ Fallback constraint ${i + 1} failed:`, error.message);
         }
@@ -610,7 +585,7 @@ export function StreamingProvider({ children }) {
   const validateAndPrepareStream = async (stream, sourceType) => {
     try {
       logger.debug(`Validating ${sourceType} stream for MediaRecorder compatibility...`);
-      
+
       // Check if stream has active audio tracks
       const audioTracks = stream.getAudioTracks();
       if (audioTracks.length === 0) {
@@ -689,7 +664,7 @@ export function StreamingProvider({ children }) {
   // Enhanced function to validate stream just before use (immediate validation)
   const validateStreamBeforeUse = (stream, sourceType) => {
     logger.debug(`Final validation of ${sourceType} stream before MediaRecorder use...`);
-    
+
     if (!stream) {
       throw new Error(`${sourceType} stream is null or undefined`);
     }
@@ -718,7 +693,7 @@ export function StreamingProvider({ children }) {
   const getDesktopAudioStreamWithLifecycleManagement = async () => {
     try {
       logger.debug('Getting desktop audio stream with enhanced lifecycle management...');
-      
+
       // Check if getDisplayMedia is supported
       if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
         throw new Error('Screen capture not supported in this browser');
@@ -757,16 +732,16 @@ export function StreamingProvider({ children }) {
       const audioOnlyStream = new MediaStream();
       audioTracks.forEach(track => {
         audioOnlyStream.addTrack(track);
-        
+
         // Add lifecycle event listeners to track stream health
         track.addEventListener('ended', () => {
           logger.warn('Desktop audio track ended - user likely stopped screen sharing');
         });
-        
+
         track.addEventListener('mute', () => {
           logger.warn('Desktop audio track muted');
         });
-        
+
         track.addEventListener('unmute', () => {
           logger.debug('Desktop audio track unmuted');
         });
@@ -786,7 +761,7 @@ export function StreamingProvider({ children }) {
 
       logger.debug('Desktop audio stream obtained successfully with enhanced lifecycle management');
       return audioOnlyStream;
-      
+
     } catch (error) {
       logger.error('Error getting desktop audio stream:', error);
 
@@ -819,7 +794,7 @@ export function StreamingProvider({ children }) {
 
     isAudioSourceSwitching.current = true;
     logger.info(`🔄 Starting COMPLETE PIPELINE RESET: ${audioSource} → ${newSource}`);
-    
+
     // CRITICAL TIMING MARKER 1: Pipeline reset start
     const pipelineResetStartTime = Date.now();
     logger.info(`⏱️ PIPELINE RESET START TIME: ${new Date(pipelineResetStartTime).toISOString()}`);
@@ -846,7 +821,7 @@ export function StreamingProvider({ children }) {
       // CRITICAL TIMING MARKER 2: WebSocket disconnect
       const websocketDisconnectTime = Date.now();
       logger.info(`⏱️ WEBSOCKET DISCONNECT TIME: ${new Date(websocketDisconnectTime).toISOString()}`);
-      
+
       if (djWebSocketRef.current) {
         try {
           djWebSocketRef.current.close(1000, 'Audio source switching');
@@ -884,9 +859,9 @@ export function StreamingProvider({ children }) {
       const extendedPauseStartTime = Date.now();
       logger.info(`⏱️ EXTENDED PAUSE START: ${new Date(extendedPauseStartTime).toISOString()}`);
       logger.info('⏳ Waiting 3 seconds for FFmpeg process termination and Icecast mount point release...');
-      
+
       await new Promise(resolve => setTimeout(resolve, 3000));
-      
+
       // CRITICAL TIMING MARKER 4: Extended pause end
       const extendedPauseEndTime = Date.now();
       logger.info(`⏱️ EXTENDED PAUSE END: ${new Date(extendedPauseEndTime).toISOString()}`);
@@ -897,7 +872,7 @@ export function StreamingProvider({ children }) {
       // CRITICAL TIMING MARKER 5: New source acquisition start
       const sourceAcquisitionStartTime = Date.now();
       logger.info(`⏱️ NEW SOURCE ACQUISITION START: ${new Date(sourceAcquisitionStartTime).toISOString()}`);
-      
+
       const newStream = await getAudioStreamForSwitching(newSource);
       if (!newStream) {
         throw new Error(`Failed to acquire ${newSource} audio stream`);
@@ -920,8 +895,8 @@ export function StreamingProvider({ children }) {
       // CRITICAL TIMING MARKER 7: New WebSocket connection start
       const newWebSocketStartTime = Date.now();
       logger.info(`⏱️ NEW WEBSOCKET CONNECTION START: ${new Date(newWebSocketStartTime).toISOString()}`);
-      
-      await connectDJWebSocketWithRetry();
+
+              connectDJWebSocket();
 
       // CRITICAL TIMING MARKER 8: New WebSocket connection end
       const newWebSocketEndTime = Date.now();
@@ -932,14 +907,13 @@ export function StreamingProvider({ children }) {
       logger.info('⏳ Step 9/14: Waiting for WebSocket connection establishment');
       let connectionWaitTime = 0;
       const maxWaitTime = 10000; // 10 seconds timeout
-      
-      while ((!djWebSocketRef.current || djWebSocketRef.current.readyState !== WebSocket.OPEN) && 
-             connectionWaitTime < maxWaitTime) {
+
+      while (!globalWebSocketService.isDJWebSocketConnected() && connectionWaitTime < maxWaitTime) {
         await new Promise(resolve => setTimeout(resolve, 100));
         connectionWaitTime += 100;
       }
 
-      if (!djWebSocketRef.current || djWebSocketRef.current.readyState !== WebSocket.OPEN) {
+      if (!globalWebSocketService.isDJWebSocketConnected()) {
         throw new Error(`WebSocket connection failed after ${maxWaitTime}ms timeout`);
       }
 
@@ -963,17 +937,17 @@ export function StreamingProvider({ children }) {
             const headerView = new Uint8Array(buffer.slice(0, 32));
             const isValidWebM = headerView[0] === 0x1a && headerView[1] === 0x45 && 
                                headerView[2] === 0xdf && headerView[3] === 0xa3;
-            
+
             if (!isValidWebM) {
               logger.warn('⚠️ First chunk does not contain valid WebM header, skipping');
               return;
             }
-            
+
             if (buffer.byteLength < 100) {
               logger.warn('⚠️ First chunk too small, waiting for more substantial chunk');
               return;
             }
-            
+
             logger.info('✅ First chunk validated successfully');
             isFirstChunk = false;
           }
@@ -983,12 +957,9 @@ export function StreamingProvider({ children }) {
             return;
           }
 
-          if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
-            try {
-              djWebSocketRef.current.send(buffer);
-            } catch (error) {
-              logger.error('Error sending audio data after source switch:', error);
-            }
+          const success = globalWebSocketService.sendDJBinaryData(buffer);
+          if (!success) {
+            logger.error('Error sending audio data after source switch');
           }
         };
 
@@ -1047,7 +1018,7 @@ export function StreamingProvider({ children }) {
       const pipelineResetEndTime = Date.now();
       logger.info(`⏱️ PIPELINE RESET COMPLETE TIME: ${new Date(pipelineResetEndTime).toISOString()}`);
       logger.info(`⏱️ TOTAL PIPELINE RESET DURATION: ${pipelineResetEndTime - pipelineResetStartTime}ms`);
-      
+
       logger.info(`✅ Step 14/14: Audio source switch completed successfully: ${audioSource} → ${newSource}`);
       logger.info('🎉 COMPLETE PIPELINE RESET SUCCESSFUL');
 
@@ -1061,13 +1032,13 @@ export function StreamingProvider({ children }) {
 
     } catch (error) {
       logger.error(`❌ COMPLETE PIPELINE RESET FAILED: ${error.message}`);
-      
+
       // Cleanup on failure
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach(track => track.stop());
         audioStreamRef.current = null;
       }
-      
+
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         try {
           mediaRecorderRef.current.stop();
@@ -1223,14 +1194,16 @@ export function StreamingProvider({ children }) {
       mediaRecorderRef.current = mediaRecorder;
 
       // Ensure WebSocket is connected
-      if (!djWebSocketRef.current || djWebSocketRef.current.readyState !== WebSocket.OPEN) {
+      if (!globalWebSocketService.isDJWebSocketConnected()) {
         console.log('WebSocket not connected, connecting...');
         connectDJWebSocket();
 
         // Wait for WebSocket to connect
         return new Promise((resolve) => {
           const checkConnection = () => {
-            if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+            if (globalWebSocketService.isDJWebSocketConnected()) {
+              // Update djWebSocketRef to point to the global service's WebSocket
+              djWebSocketRef.current = globalWebSocketService.getDJWebSocket();
               setupMediaRecorderConnection();
               resolve(true);
             } else {
@@ -1247,24 +1220,14 @@ export function StreamingProvider({ children }) {
       function setupMediaRecorderConnection() {
         // Helper function to safely send audio data through WebSocket
         const safelySendAudioData = (buffer) => {
-          if (djWebSocketRef.current && 
-              djWebSocketRef.current.readyState === WebSocket.OPEN) {
-            try {
-              djWebSocketRef.current.send(buffer);
-              return true;
-            } catch (error) {
-              console.error('Error sending audio data through WebSocket:', error);
-              return false;
-            }
-          }
-          return false;
+          return globalWebSocketService.sendDJBinaryData(buffer);
         };
 
         let lastChunkTime = Date.now();
         let chunkCount = 0;
 
         mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+          if (event.data.size > 0 && globalWebSocketService.isDJWebSocketConnected()) {
             // Check buffer size to prevent WebSocket message too large errors
             if (event.data.size > MAX_MESSAGE_SIZE) {
               console.warn(`Audio chunk too large (${event.data.size} bytes), skipping to prevent WebSocket disconnect`);
@@ -1373,7 +1336,7 @@ export function StreamingProvider({ children }) {
         if (parsed.timestamp && (Date.now() - parsed.timestamp) < oneHour) {
           if (parsed.isListening) {
             // Restore listening state
-            connectListenerWebSocket();
+            connectListenerStatusWebSocket();
 
             if (parsed.audioPlaying && serverConfig?.streamUrl) {
               // Attempt to restore audio playback
@@ -1440,411 +1403,155 @@ export function StreamingProvider({ children }) {
 
   // Connect DJ WebSocket for streaming
   const connectDJWebSocket = useCallback(() => {
-    // Prevent duplicate connections - use better check for connection state
-    if (djWebSocketRef.current) {
-      // Check if the connection is already established or in process
-      if (djWebSocketRef.current.readyState === WebSocket.CONNECTING || 
-          djWebSocketRef.current.readyState === WebSocket.OPEN) {
-        console.log('DJ WebSocket connection already exists, not creating a new one');
-        return;
-      } else if (djWebSocketRef.current.readyState !== WebSocket.CLOSED) {
-        // If the connection is closing but not fully closed, wait for it
-        console.log('DJ WebSocket is in the process of closing, waiting to reconnect');
-        setTimeout(() => connectDJWebSocket(), 500);
-        return;
-      }
-    }
+    const wsUrl = getWebSocketUrl('live');
+    globalWebSocketService.connectDJWebSocket(wsUrl);
 
-    try {
-      // Use the getWebSocketUrl function to get the proper WebSocket URL
-      const wsUrl = getWebSocketUrl('live');
+    // Register callbacks to update local state
+    globalWebSocketService.onDJOpen(() => {
+      console.log('DJ WebSocket connected successfully (via global service)');
+      setWebsocketConnected(true);
 
-      console.log('Connecting DJ WebSocket:', wsUrl);
+      // Update djWebSocketRef to point to the global service's WebSocket
+      djWebSocketRef.current = globalWebSocketService.getDJWebSocket();
 
-      // Before creating a new connection, ensure old one is properly cleaned up
-      if (djWebSocketRef.current) {
-        try {
-          djWebSocketRef.current.onclose = null; // Remove old handlers
-          djWebSocketRef.current.onerror = null;
-          djWebSocketRef.current.close();
-        } catch (e) {
-          console.warn('Error cleaning up old WebSocket:', e);
-        }
-      }
+      // If we have an existing MediaRecorder that was recording (after reconnection),
+      // we need to re-establish the data flow to the new WebSocket connection
+      if (mediaRecorderRef.current && audioStreamRef.current && isLive) {
+        console.log('Reconnecting existing MediaRecorder to new WebSocket connection');
 
-      const websocket = new WebSocket(wsUrl);
-      websocket.binaryType = "arraybuffer";
-      djWebSocketRef.current = websocket;
+        // Check if MediaRecorder is still recording
+        if (mediaRecorderRef.current.state === 'recording') {
+          console.log('MediaRecorder is still recording, re-establishing data flow');
 
-      websocket.onopen = () => {
-        console.log('DJ WebSocket connected successfully');
-        setWebsocketConnected(true);
-        djConnectionStateRef.current = 'connected';
-        djReconnectAttemptsRef.current = 0; // Reset reconnect attempts on successful connection
-        djLastConnectTimeRef.current = Date.now();
-
-        // Clear any pending reconnection timer
-        if (djReconnectTimerRef.current) {
-          clearTimeout(djReconnectTimerRef.current);
-          djReconnectTimerRef.current = null;
-        }
-
-        // Start connection health monitoring with ping/pong
-        startDJConnectionHealthMonitoring();
-
-        // If we have an existing MediaRecorder that was recording (after reconnection),
-        // we need to re-establish the data flow to the new WebSocket connection
-        if (mediaRecorderRef.current && audioStreamRef.current && isLive) {
-          console.log('Reconnecting existing MediaRecorder to new WebSocket connection');
-
-          // Check if MediaRecorder is still recording
-          if (mediaRecorderRef.current.state === 'recording') {
-            console.log('MediaRecorder is still recording, re-establishing data flow');
-
-            // Helper function to safely send audio data through WebSocket
-            const safelySendAudioData = (buffer) => {
-              if (djWebSocketRef.current && 
-                  djWebSocketRef.current.readyState === WebSocket.OPEN) {
-                try {
-                  djWebSocketRef.current.send(buffer);
-                  console.log('Audio data sent through reconnected WebSocket, size:', buffer.byteLength);
-                  return true;
-                } catch (error) {
-                  console.error('Error sending audio data through reconnected WebSocket:', error);
-                  return false;
-                }
-              }
-              return false;
-            };
-
-            // Re-establish the ondataavailable handler for the new WebSocket
-            mediaRecorderRef.current.ondataavailable = (event) => {
-              if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
-                event.data.arrayBuffer().then(buffer => {
-                  safelySendAudioData(buffer);
-                }).catch(error => {
-                  console.error('Error processing audio data:', error);
-                });
-              }
-            };
-
-            // The MediaRecorder is already running, so we don't need to restart it
-            console.log('MediaRecorder reconnected successfully to new WebSocket');
-          } else if (mediaRecorderRef.current.state === 'inactive' && audioStreamRef.current.active) {
-            console.log('MediaRecorder was stopped, restarting for reconnected WebSocket');
-
-            // Helper function to safely send audio data through WebSocket
-            const safelySendAudioDataRestart = (buffer) => {
-              if (djWebSocketRef.current && 
-                  djWebSocketRef.current.readyState === WebSocket.OPEN) {
-                try {
-                  djWebSocketRef.current.send(buffer);
-                  console.log('Audio data sent through restarted WebSocket, size:', buffer.byteLength);
-                  return true;
-                } catch (error) {
-                  console.error('Error sending audio data through restarted WebSocket:', error);
-                  return false;
-                }
-              }
-              return false;
-            };
-
-            // Set up the data handler first
-            mediaRecorderRef.current.ondataavailable = (event) => {
-              if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
-                event.data.arrayBuffer().then(buffer => {
-                  safelySendAudioDataRestart(buffer);
-                }).catch(error => {
-                  console.error('Error processing audio data:', error);
-                });
-              }
-            };
-
-            // Restart the MediaRecorder
-            try {
-              mediaRecorderRef.current.start(500);
-              console.log('MediaRecorder restarted successfully');
-            } catch (error) {
-              console.error('Failed to restart MediaRecorder:', error);
+          // Helper function to safely send audio data through WebSocket
+          const safelySendAudioData = (buffer) => {
+            const success = globalWebSocketService.sendDJBinaryData(buffer);
+            if (success) {
+              console.log('Audio data sent through reconnected WebSocket, size:', buffer.byteLength);
+            } else {
+              console.error('Error sending audio data through reconnected WebSocket');
             }
-          } else if (!audioStreamRef.current.active) {
-            console.warn('Audio stream is no longer active, cannot reconnect MediaRecorder');
-          }
-        } else if (isLive && !mediaRecorderRef.current) {
-          console.log('WebSocket reconnected but no MediaRecorder found. This may require manual intervention.');
-        }
-      };
+            return success;
+          };
 
-      // Handle ping/pong messages for connection health monitoring
-      websocket.onmessage = (event) => {
-        try {
-          if (typeof event.data === 'string') {
-            if (event.data === 'pong') {
-              handleDJPongResponse();
-              return;
+          // Re-establish the ondataavailable handler for the new WebSocket
+          mediaRecorderRef.current.ondataavailable = (event) => {
+            if (event.data.size > 0 && globalWebSocketService.isDJWebSocketConnected()) {
+              event.data.arrayBuffer().then(buffer => {
+                safelySendAudioData(buffer);
+              }).catch(error => {
+                console.error('Error processing audio data:', error);
+              });
             }
-            logger.debug('Received unexpected text message:', event.data);
+          };
+
+          // The MediaRecorder is already running, so we don't need to restart it
+          console.log('MediaRecorder reconnected successfully to new WebSocket');
+        } else if (mediaRecorderRef.current.state === 'inactive' && audioStreamRef.current.active) {
+          console.log('MediaRecorder was stopped, restarting for reconnected WebSocket');
+
+          // Helper function to safely send audio data through WebSocket
+          const safelySendAudioDataRestart = (buffer) => {
+            const success = globalWebSocketService.sendDJBinaryData(buffer);
+            if (success) {
+              console.log('Audio data sent through restarted WebSocket, size:', buffer.byteLength);
+            } else {
+              console.error('Error sending audio data through restarted WebSocket');
+            }
+            return success;
+          };
+
+          // Set up the data handler first
+          mediaRecorderRef.current.ondataavailable = (event) => {
+            if (event.data.size > 0 && globalWebSocketService.isDJWebSocketConnected()) {
+              event.data.arrayBuffer().then(buffer => {
+                safelySendAudioDataRestart(buffer);
+              }).catch(error => {
+                console.error('Error processing audio data:', error);
+              });
+            }
+          };
+
+          // Restart the MediaRecorder
+          try {
+            mediaRecorderRef.current.start(500);
+            console.log('MediaRecorder restarted successfully');
+          } catch (error) {
+            console.error('Failed to restart MediaRecorder:', error);
           }
-          // Binary data (audio) is handled by MediaRecorder
-        } catch (error) {
-          logger.warn('Error processing WebSocket message:', error);
+        } else if (!audioStreamRef.current.active) {
+          console.warn('Audio stream is no longer active, cannot reconnect MediaRecorder');
         }
-      };
+      } else if (isLive && !mediaRecorderRef.current) {
+        console.log('WebSocket reconnected but no MediaRecorder found. This may require manual intervention.');
+      }
+    });
 
-      websocket.onerror = (error) => {
-        console.error('DJ WebSocket error:', error);
-        setWebsocketConnected(false);
-        djConnectionStateRef.current = 'error';
-      };
+    globalWebSocketService.onDJMessage((event) => {
+      // Handle messages from DJ WebSocket (e.g., pong responses)
+      if (typeof event.data === 'string' && event.data === 'pong') {
+        // Pong handling is now internal to globalWebSocketService
+      } else {
+        // Process other messages if any
+        logger.debug('Received unexpected message:', event.data);
+      }
+    });
 
-      websocket.onclose = (event) => {
-        console.log('DJ WebSocket disconnected:', event.code, event.reason);
-        setWebsocketConnected(false);
-        djConnectionStateRef.current = 'disconnected';
-
-        // Clear MediaRecorder handler to prevent errors after WebSocket is closed
-        if (mediaRecorderRef.current && mediaRecorderRef.current.ondataavailable) {
-          console.log('Clearing MediaRecorder handler due to WebSocket disconnect');
-          mediaRecorderRef.current.ondataavailable = null;
-        }
-
-        // Don't null out the ref until we're ready to replace it
-        // This helps prevent race conditions
-        if (djWebSocketRef.current === websocket) {
-          djWebSocketRef.current = null;
-        }
-
-        // Enhanced auto-reconnection with exponential backoff and stability window protection
-        if (isLive && event.code !== 1000 && event.code !== 1001 && !pipelineResetInProgressRef.current) {
-          // Check if we should attempt reconnection based on attempts and timing
-          if (djReconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
-            // Exponential backoff with jitter
-            const baseDelay = BASE_RECONNECT_DELAY * Math.pow(2, djReconnectAttemptsRef.current);
-            const jitter = Math.floor(Math.random() * 1000);
-            const reconnectDelay = Math.min(baseDelay + jitter, 30000); // Cap at 30 seconds
-
-            djConnectionStateRef.current = 'reconnecting';
-            console.log(`Scheduling DJ WebSocket reconnection attempt ${djReconnectAttemptsRef.current + 1}/${MAX_RECONNECT_ATTEMPTS} in ${reconnectDelay}ms (code: ${event.code})`);
-
-            djReconnectTimerRef.current = setTimeout(() => {
-              // Double-check conditions before reconnecting
-              if (isLive && !pipelineResetInProgressRef.current && djReconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
-                djReconnectAttemptsRef.current++;
-                console.log('Attempting DJ WebSocket reconnection...');
-                connectDJWebSocket();
-              } else if (pipelineResetInProgressRef.current) {
-                console.log('Reconnection cancelled: pipeline reset/stability window active');
-              } else {
-                console.log('Reconnection cancelled: max attempts reached or no longer live');
-              }
-            }, reconnectDelay);
-          } else {
-            console.error('Max DJ WebSocket reconnection attempts reached, giving up');
-            djConnectionStateRef.current = 'failed';
-          }
-        } else if (pipelineResetInProgressRef.current) {
-          console.log(`DJ WebSocket disconnected during pipeline reset/stability window - auto-reconnection disabled (code: ${event.code}, reason: ${event.reason})`);
-        } else {
-          console.log(`DJ WebSocket disconnected with clean close or not live - no reconnection needed (code: ${event.code}, reason: ${event.reason})`);
-        }
-      };
-    } catch (error) {
-      console.error('Error creating DJ WebSocket:', error);
+    globalWebSocketService.onDJError((error) => {
+      console.error('DJ WebSocket error (via global service):', error);
       setWebsocketConnected(false);
-    }
+    });
+
+    globalWebSocketService.onDJClose((event) => {
+      console.log('DJ WebSocket disconnected (via global service):', event.code, event.reason);
+      setWebsocketConnected(false);
+
+      // Clear MediaRecorder handler to prevent errors after WebSocket is closed
+      if (mediaRecorderRef.current && mediaRecorderRef.current.ondataavailable) {
+        console.log('Clearing MediaRecorder handler due to WebSocket disconnect');
+        mediaRecorderRef.current.ondataavailable = null;
+      }
+
+      // Clear the ref since the global service handles reconnection
+      djWebSocketRef.current = null;
+    });
   }, [isLive]);
 
-  // Connect listener WebSocket for status updates
-  const connectListenerWebSocket = useCallback(() => {
-    // Prevent duplicate connections with better connection state checks
-    if (listenerWebSocketRef.current) {
-      // Check if the connection is already established or in process
-      if (listenerWebSocketRef.current.readyState === WebSocket.CONNECTING || 
-          listenerWebSocketRef.current.readyState === WebSocket.OPEN) {
-        console.log('Listener WebSocket connection already exists, not creating a new one');
-        return;
-      } else if (listenerWebSocketRef.current.readyState !== WebSocket.CLOSED) {
-        // If the connection is closing but not fully closed, wait for it
-        console.log('Listener WebSocket is in the process of closing, waiting to reconnect');
-        setTimeout(() => connectListenerWebSocket(), 500);
-        return;
-      }
-    }
+  // Connect listener/status WebSocket
+  const connectListenerStatusWebSocket = useCallback(() => {
+    // Use the global service to manage the connection
+    const wsUrl = getWebSocketUrl('listener'); // Assuming 'listener' endpoint handles both
+    globalWebSocketService.connectListenerStatusWebSocket(wsUrl);
 
-    try {
-      // Use the getWebSocketUrl function to get the proper WebSocket URL
-      const wsUrl = getWebSocketUrl('listener');
-
-      console.log('Connecting Listener WebSocket:', wsUrl);
-
-      // Before creating a new connection, ensure old one is properly cleaned up
-      if (listenerWebSocketRef.current) {
-        try {
-          listenerWebSocketRef.current.onclose = null; // Remove old handlers
-          listenerWebSocketRef.current.onerror = null;
-          listenerWebSocketRef.current.close();
-        } catch (e) {
-          console.warn('Error cleaning up old Listener WebSocket:', e);
-        }
-      }
-
-      const websocket = new WebSocket(wsUrl);
-      listenerWebSocketRef.current = websocket;
-
-      websocket.onopen = () => {
-        console.log('Listener WebSocket connected successfully');
-        setIsListening(true);
-
-        if (listenerReconnectTimerRef.current) {
-          clearTimeout(listenerReconnectTimerRef.current);
-          listenerReconnectTimerRef.current = null;
-        }
-      };
-
-      websocket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'STREAM_STATUS') {
-            console.log('Stream status update received via Listener WebSocket:', data);
-            setListenerCount(data.listenerCount || 0);
-
-            // Update broadcast status for listeners
-            if (data.isLive !== undefined) {
-              setIsLive(data.isLive);
-            }
+    // Register callbacks for messages, errors, and close events
+    globalWebSocketService.onListenerStatusMessage((event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'STREAM_STATUS') {
+          console.log('Stream status update received via Listener/Status WebSocket:', data);
+          setListenerCount(data.listenerCount || 0);
+          if (data.isLive !== undefined) {
+            setIsLive(data.isLive);
           }
-        } catch (error) {
-          console.error('Error parsing listener WebSocket message:', error);
         }
-      };
-
-      websocket.onerror = (error) => {
-        console.error('Listener WebSocket error:', error);
-      };
-
-      websocket.onclose = (event) => {
-        console.log('Listener WebSocket disconnected:', event.code, event.reason);
-
-        // Don't null out the ref until we're ready to replace it
-        // This helps prevent race conditions
-        if (listenerWebSocketRef.current === websocket) {
-          listenerWebSocketRef.current = null;
-        }
-
-        setIsListening(false);
-
-        // Only auto-reconnect if not a clean close and connection wasn't replaced
-        if (event.code !== 1000 && event.code !== 1001) {
-          // Add random jitter to prevent all clients reconnecting simultaneously
-          const jitter = Math.floor(Math.random() * 1000);
-          const reconnectDelay = 3000 + jitter;
-
-          console.log(`Scheduling Listener WebSocket reconnection in ${reconnectDelay}ms`);
-
-          listenerReconnectTimerRef.current = setTimeout(() => {
-            console.log('Attempting Listener WebSocket reconnection...');
-            connectListenerWebSocket();
-          }, reconnectDelay);
-        }
-      };
-    } catch (error) {
-      console.error('Error creating Listener WebSocket:', error);
-    }
-  }, []);
-
-  // Connect status WebSocket (used by both DJs and listeners)
-  const connectStatusWebSocket = useCallback(() => {
-    // Prevent duplicate connections with better connection state checks
-    if (statusWebSocketRef.current) {
-      // Check if the connection is already established or in process
-      if (statusWebSocketRef.current.readyState === WebSocket.CONNECTING || 
-          statusWebSocketRef.current.readyState === WebSocket.OPEN) {
-        console.log('Status WebSocket connection already exists, not creating a new one');
-        return;
-      } else if (statusWebSocketRef.current.readyState !== WebSocket.CLOSED) {
-        // If the connection is closing but not fully closed, wait for it
-        console.log('Status WebSocket is in the process of closing, waiting to reconnect');
-        setTimeout(() => connectStatusWebSocket(), 500);
-        return;
+      } catch (error) {
+        console.error('Error parsing listener/status WebSocket message:', error);
       }
-    }
+    });
 
-    try {
-      // Use the getWebSocketUrl function to get the proper WebSocket URL
-      const wsUrl = getWebSocketUrl('listener');
+    globalWebSocketService.onListenerStatusError((error) => {
+      console.error('Listener/Status WebSocket error:', error);
+    });
 
-      console.log('Connecting Status WebSocket:', wsUrl);
+    globalWebSocketService.onListenerStatusClose((event) => {
+      console.log('Listener/Status WebSocket disconnected:', event.code, event.reason);
+      setIsListening(false); // Assuming listener status implies listening
+    });
 
-      // Before creating a new connection, ensure old one is properly cleaned up
-      if (statusWebSocketRef.current) {
-        try {
-          statusWebSocketRef.current.onclose = null; // Remove old handlers
-          statusWebSocketRef.current.onerror = null;
-          statusWebSocketRef.current.close();
-        } catch (e) {
-          console.warn('Error cleaning up old Status WebSocket:', e);
-        }
-      }
-
-      const websocket = new WebSocket(wsUrl);
-      statusWebSocketRef.current = websocket;
-
-      websocket.onopen = () => {
-        console.log('Status WebSocket connected successfully');
-
-        if (statusReconnectTimerRef.current) {
-          clearTimeout(statusReconnectTimerRef.current);
-          statusReconnectTimerRef.current = null;
-        }
-      };
-
-      websocket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'STREAM_STATUS') {
-            console.log('Stream status update received via Status WebSocket:', data);
-            setListenerCount(data.listenerCount || 0);
-
-            // Update live status if provided
-            if (data.isLive !== undefined) {
-              setIsLive(data.isLive);
-            }
-          }
-        } catch (error) {
-          console.error('Error parsing status WebSocket message:', error);
-        }
-      };
-
-      websocket.onerror = (error) => {
-        console.error('Status WebSocket error:', error);
-      };
-
-      websocket.onclose = (event) => {
-        console.log('Status WebSocket disconnected:', event.code, event.reason);
-
-        // Don't null out the ref until we're ready to replace it
-        // This helps prevent race conditions
-        if (statusWebSocketRef.current === websocket) {
-          statusWebSocketRef.current = null;
-        }
-
-        // Only auto-reconnect if not a clean close and connection wasn't replaced
-        if (event.code !== 1000 && event.code !== 1001) {
-          // Add random jitter to prevent all clients reconnecting simultaneously
-          const jitter = Math.floor(Math.random() * 1000);
-          const reconnectDelay = 5000 + jitter;
-
-          console.log(`Scheduling Status WebSocket reconnection in ${reconnectDelay}ms`);
-
-          statusReconnectTimerRef.current = setTimeout(() => {
-            console.log('Attempting Status WebSocket reconnection...');
-            connectStatusWebSocket();
-          }, reconnectDelay);
-        }
-      };
-    } catch (error) {
-      console.error('Error creating Status WebSocket:', error);
-    }
+    globalWebSocketService.onListenerStatusOpen(() => {
+      console.log('Listener/Status WebSocket connected successfully');
+      setIsListening(true);
+    });
   }, []);
 
   // Start broadcasting (for DJs)
@@ -1915,28 +1622,18 @@ export function StreamingProvider({ children }) {
 
       // Set up MediaRecorder when WebSocket connects
       const setupRecording = () => {
-        if (djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
-          
+        if (globalWebSocketService.isDJWebSocketConnected()) {
+
           // Helper function to safely send audio data through WebSocket
           const safelySendAudioData = (buffer) => {
-            if (djWebSocketRef.current && 
-                djWebSocketRef.current.readyState === WebSocket.OPEN) {
-              try {
-                djWebSocketRef.current.send(buffer);
-                return true;
-              } catch (error) {
-                console.error('Error sending audio data through WebSocket:', error);
-                return false;
-              }
-            }
-            return false;
+            return globalWebSocketService.sendDJBinaryData(buffer);
           };
 
           let lastChunkTime = Date.now();
           let chunkCount = 0;
 
           mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0 && djWebSocketRef.current && djWebSocketRef.current.readyState === WebSocket.OPEN) {
+            if (event.data.size > 0 && globalWebSocketService.isDJWebSocketConnected()) {
               // Check buffer size to prevent WebSocket message too large errors
               if (event.data.size > MAX_MESSAGE_SIZE) {
                 console.warn(`Audio chunk too large (${event.data.size} bytes), skipping to prevent WebSocket disconnect`);
@@ -2074,7 +1771,7 @@ export function StreamingProvider({ children }) {
       audioRef.current.src = streamUrl;
       await audioRef.current.play();
       logger.info('Audio playback started successfully.');
-      connectListenerWebSocket();
+      connectListenerStatusWebSocket();
       await refreshStreamStatus();
     } catch (error) {
       logger.error('Failed to start audio playback:', error);
@@ -2096,7 +1793,7 @@ export function StreamingProvider({ children }) {
       audioRef.current.src = '';
     }
 
-    disconnectListenerWebSocket();
+    globalWebSocketService.disconnectListenerStatusWebSocket();
     refreshStreamStatus();
   };
 
@@ -2107,16 +1804,16 @@ export function StreamingProvider({ children }) {
         audioRef.current.pause();
       }
       setAudioPlaying(false);
-      if (listenerWebSocketRef.current && listenerWebSocketRef.current.readyState === WebSocket.OPEN) {
-        listenerWebSocketRef.current.send(JSON.stringify({ type: 'LISTENER_STATUS', action: 'STOP_LISTENING' }));
+      if (globalWebSocketService.isListenerStatusWebSocketConnected()) {
+        globalWebSocketService.sendListenerStatusMessage(JSON.stringify({ type: 'LISTENER_STATUS', action: 'STOP_LISTENING' }));
       }
     } else {
       if (audioRef.current) {
         audioRef.current.play().catch(e => logger.error("Error resuming playback:", e));
       }
       setAudioPlaying(true);
-      if (listenerWebSocketRef.current && listenerWebSocketRef.current.readyState === WebSocket.OPEN) {
-        listenerWebSocketRef.current.send(JSON.stringify({ type: 'LISTENER_STATUS', action: 'START_LISTENING' }));
+      if (globalWebSocketService.isListenerStatusWebSocketConnected()) {
+        globalWebSocketService.sendListenerStatusMessage(JSON.stringify({ type: 'LISTENER_STATUS', action: 'START_LISTENING' }));
       }
     }
   };
@@ -2141,44 +1838,9 @@ export function StreamingProvider({ children }) {
   // Disconnect all WebSockets
   const disconnectAll = () => {
     console.log('Disconnecting all WebSocket connections');
+    globalWebSocketService.disconnectAll();
 
-    // Helper function to safely close a WebSocket connection
-    const safelyCloseWebSocket = (wsRef, name) => {
-      if (wsRef && wsRef.current) {
-        try {
-          console.log(`Closing ${name} WebSocket connection`);
-          // Remove event handlers first to prevent reconnection attempts
-          wsRef.current.onclose = null;
-          wsRef.current.onerror = null;
-          wsRef.current.onmessage = null;
-          wsRef.current.onopen = null;
-
-          // Check if connection is already closed
-          if (wsRef.current.readyState !== WebSocket.CLOSED && 
-              wsRef.current.readyState !== WebSocket.CLOSING) {
-            wsRef.current.close(1000, 'User initiated disconnect');
-          }
-        } catch (error) {
-          console.error(`Error closing ${name} WebSocket:`, error);
-        } finally {
-          wsRef.current = null;
-        }
-      }
-    };
-
-    // Safely close all WebSocket connections
-    safelyCloseWebSocket(djWebSocketRef, 'DJ');
-    safelyCloseWebSocket(listenerWebSocketRef, 'Listener');
-    safelyCloseWebSocket(statusWebSocketRef, 'Status');
-
-    // Clear timers
-    [djReconnectTimerRef, listenerReconnectTimerRef, statusReconnectTimerRef].forEach(timer => {
-      if (timer.current) {
-        console.log('Clearing reconnect timer');
-        clearTimeout(timer.current);
-        timer.current = null;
-      }
-    });
+    // Timer clearing is now handled by globalWebSocketService
 
     // Stop audio
     if (audioRef.current) {
@@ -2252,10 +1914,10 @@ export function StreamingProvider({ children }) {
               connectDJWebSocket();
             }
           }
-          // Always ensure status WebSocket is connected
-          if (!statusWebSocketRef.current || statusWebSocketRef.current.readyState !== WebSocket.OPEN) {
-            console.log('Reconnecting status WebSocket after page visibility change');
-            connectStatusWebSocket();
+          // Always ensure listener status WebSocket is connected
+          if (!globalWebSocketService.isListenerStatusWebSocketConnected()) {
+            console.log('Reconnecting listener status WebSocket after page visibility change');
+            connectListenerStatusWebSocket();
           }
         }
       }
@@ -2285,7 +1947,7 @@ export function StreamingProvider({ children }) {
   const createAudioProcessingPipeline = (inputStream, audioContext) => {
     try {
       console.log('🎛️ Creating audio processing pipeline...');
-      
+
       // Create audio processing nodes
       const source = audioContext.createMediaStreamSource(inputStream);
       const analyser = audioContext.createAnalyser();
@@ -2308,7 +1970,7 @@ export function StreamingProvider({ children }) {
       micBoostNode.gain.value = microphoneBoost; // Use state value
       noiseGate.gain.value = 1.0; // Will be controlled by noise gate logic  
       masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
-      
+
       console.log('🎛️ Audio pipeline initial settings:', {
         microphoneBoost: micBoostNode.gain.value,
         noiseGateValue: noiseGate.gain.value,
@@ -2341,7 +2003,7 @@ export function StreamingProvider({ children }) {
   const createSimplifiedAudioProcessingPipeline = (inputStream, audioContext) => {
     try {
       console.log('🎛️ Creating simplified audio processing pipeline...');
-      
+
       // Create minimal processing nodes to avoid timing issues
       const source = audioContext.createMediaStreamSource(inputStream);
       const analyser = audioContext.createAnalyser();
@@ -2362,7 +2024,7 @@ export function StreamingProvider({ children }) {
       // Set initial values - simplified gain staging
       micBoostNode.gain.value = microphoneBoost; // Apply microphone boost
       masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
-      
+
       console.log('🎛️ Simplified audio pipeline settings:', {
         microphoneBoost: micBoostNode.gain.value,
         masterGainValue: masterGain.gain.value,
@@ -2379,31 +2041,31 @@ export function StreamingProvider({ children }) {
 
       // DEBUG: Test each stage of the pipeline
       console.log('🔧 Testing audio pipeline stages...');
-      
+
       // Test raw source audio levels
       const sourceAnalyser = audioContext.createAnalyser();
       sourceAnalyser.fftSize = 256;
       source.connect(sourceAnalyser);
-      
+
       // Test final destination audio levels  
       const destAnalyser = audioContext.createAnalyser();
       destAnalyser.fftSize = 256;
       masterGain.connect(destAnalyser);
-      
+
       // Monitor both for 3 seconds
       let debugCount = 0;
       const debugInterval = setInterval(() => {
         const sourceData = new Uint8Array(sourceAnalyser.frequencyBinCount);
         const destData = new Uint8Array(destAnalyser.frequencyBinCount);
-        
+
         sourceAnalyser.getByteFrequencyData(sourceData);
         destAnalyser.getByteFrequencyData(destData);
-        
+
         const sourceRMS = Math.sqrt(sourceData.reduce((sum, val) => sum + val*val, 0) / sourceData.length);
         const destRMS = Math.sqrt(destData.reduce((sum, val) => sum + val*val, 0) / destData.length);
-        
+
         console.log(`🔧 Pipeline debug ${debugCount}: Source RMS=${sourceRMS.toFixed(2)}, Dest RMS=${destRMS.toFixed(2)}, Boost=${micBoostNode.gain.value}x, Master=${masterGain.gain.value}`);
-        
+
         debugCount++;
         if (debugCount >= 30) { // 3 seconds
           clearInterval(debugInterval);
@@ -2426,7 +2088,7 @@ export function StreamingProvider({ children }) {
   const createFallbackAudioProcessingPipeline = (inputStream) => {
     try {
       console.log('🎛️ Creating fallback audio processing pipeline...');
-      
+
       // Create minimal audio context for basic processing
       const audioContext = new AudioContext({
         sampleRate: inputStream.getAudioTracks()[0].getSettings().sampleRate || 44100,
@@ -2444,7 +2106,7 @@ export function StreamingProvider({ children }) {
 
       // Apply basic microphone boost
       micBoostNode.gain.value = microphoneBoost * (isDJMuted ? 0.0 : djAudioGain);
-      
+
       console.log('🎛️ Fallback audio pipeline settings:', {
         microphoneBoost: microphoneBoost,
         isDJMuted,
@@ -2590,129 +2252,9 @@ export function StreamingProvider({ children }) {
     }
   };
 
-  // Industry-standard WebSocket connection with retry logic and exponential backoff
-  const connectDJWebSocketWithRetry = async () => {
-    return new Promise((resolve) => {
-      const attempt = (attemptNumber = 0) => {
-        if (attemptNumber >= MAX_RECONNECT_ATTEMPTS) {
-          logger.error('Max reconnection attempts reached');
-          djConnectionStateRef.current = 'disconnected';
-          resolve(false);
-          return;
-        }
 
-        // Exponential backoff calculation
-        const delay = attemptNumber === 0 ? 0 : BASE_RECONNECT_DELAY * Math.pow(2, attemptNumber - 1);
-        
-        logger.debug(`Connection attempt ${attemptNumber + 1}/${MAX_RECONNECT_ATTEMPTS}${delay > 0 ? ` (after ${delay}ms delay)` : ''}`);
 
-        setTimeout(() => {
-          djConnectionStateRef.current = 'connecting';
-          djReconnectAttemptsRef.current = attemptNumber + 1;
-          
-          connectDJWebSocket();
 
-          // Check connection success after reasonable timeout
-          setTimeout(() => {
-            if (djWebSocketRef.current?.readyState === WebSocket.OPEN) {
-              djConnectionStateRef.current = 'connected';
-              djReconnectAttemptsRef.current = 0;
-              resolve(true);
-            } else {
-              logger.warn(`Connection attempt ${attemptNumber + 1} failed, retrying...`);
-              attempt(attemptNumber + 1);
-            }
-          }, 3000); // 3 second timeout per attempt
-        }, delay);
-      };
-
-      attempt();
-    });
-  };
-
-  // Application-level connection health monitoring using ping/pong
-  const startDJConnectionHealthMonitoring = () => {
-    // Clear any existing timers
-    if (djPingTimeoutRef.current) clearTimeout(djPingTimeoutRef.current);
-    if (djPongTimeoutRef.current) clearTimeout(djPongTimeoutRef.current);
-    
-    djMissedPingsRef.current = 0;
-
-    const sendPing = () => {
-      if (djWebSocketRef.current?.readyState === WebSocket.OPEN && !pipelineResetInProgressRef.current) {
-        try {
-          djWebSocketRef.current.send('ping');
-          logger.debug('Sent ping to server');
-
-          // Wait for pong response
-          djPongTimeoutRef.current = setTimeout(() => {
-            djMissedPingsRef.current++;
-            logger.warn(`Missed pong response ${djMissedPingsRef.current}/${MAX_MISSED_PINGS}`);
-
-            if (djMissedPingsRef.current >= MAX_MISSED_PINGS) {
-              logger.error('Connection appears unhealthy, forcing reconnection');
-              if (djWebSocketRef.current) {
-                djWebSocketRef.current.close(4000, 'Connection health check failed');
-              }
-            } else {
-              // Schedule next ping
-              djPingTimeoutRef.current = setTimeout(sendPing, PING_INTERVAL);
-            }
-          }, PONG_TIMEOUT);
-        } catch (error) {
-          logger.error('Error sending ping:', error);
-        }
-      }
-    };
-
-    // Start ping cycle
-    djPingTimeoutRef.current = setTimeout(sendPing, PING_INTERVAL);
-  };
-
-  const stopDJConnectionHealthMonitoring = () => {
-    if (djPingTimeoutRef.current) {
-      clearTimeout(djPingTimeoutRef.current);
-      djPingTimeoutRef.current = null;
-    }
-    if (djPongTimeoutRef.current) {
-      clearTimeout(djPongTimeoutRef.current);
-      djPongTimeoutRef.current = null;
-    }
-    djMissedPingsRef.current = 0;
-  };
-
-  // Helper to handle pong responses
-  const handleDJPongResponse = () => {
-    logger.debug('Received pong from server');
-    djMissedPingsRef.current = 0;
-    
-    // Clear pong timeout and schedule next ping
-    if (djPongTimeoutRef.current) {
-      clearTimeout(djPongTimeoutRef.current);
-      djPongTimeoutRef.current = null;
-    }
-    
-    if (djWebSocketRef.current?.readyState === WebSocket.OPEN && !pipelineResetInProgressRef.current) {
-      djPingTimeoutRef.current = setTimeout(() => {
-        const sendPing = () => {
-          if (djWebSocketRef.current?.readyState === WebSocket.OPEN && !pipelineResetInProgressRef.current) {
-            try {
-              djWebSocketRef.current.send('ping');
-              djPongTimeoutRef.current = setTimeout(() => {
-                djMissedPingsRef.current++;
-                if (djMissedPingsRef.current >= MAX_MISSED_PINGS && djWebSocketRef.current) {
-                  djWebSocketRef.current.close(4000, 'Health check failed');
-                }
-              }, PONG_TIMEOUT);
-            } catch (error) {
-              logger.error('Error sending ping:', error);
-            }
-          }
-        };
-        sendPing();
-      }, PING_INTERVAL);
-    }
-  };
 
   const value = {
     // State
@@ -2745,7 +2287,7 @@ export function StreamingProvider({ children }) {
     toggleAudio,
     updateVolume,
     toggleMute,
-    connectListenerWebSocket,
+    connectListenerStatusWebSocket,
 
     // Audio Source Functions
     setAudioSource,
@@ -2763,7 +2305,6 @@ export function StreamingProvider({ children }) {
     setNoiseGateThreshold,
 
     // Shared Functions
-    connectStatusWebSocket,
     disconnectAll,
     getStreamUrl,
     getWebSocketUrl,
@@ -2771,8 +2312,6 @@ export function StreamingProvider({ children }) {
 
     // Refs (for direct access when needed)
     djWebSocketRef,
-    listenerWebSocketRef,
-    statusWebSocketRef,
     audioRef,
     mediaRecorderRef,
     audioStreamRef,

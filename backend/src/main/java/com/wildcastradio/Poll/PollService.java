@@ -64,7 +64,15 @@ public class PollService {
         }
 
         // Build the response
-        return buildPollDTO(savedPoll, options);
+        PollDTO pollDTO = buildPollDTO(savedPoll, options);
+
+        // Notify all clients about the new poll via WebSocket
+        messagingTemplate.convertAndSend(
+                "/topic/broadcast/" + savedPoll.getBroadcast().getId() + "/polls",
+                new PollWebSocketMessage("NEW_POLL", pollDTO, null, null)
+        );
+
+        return pollDTO;
     }
 
     @Transactional(readOnly = true)
@@ -138,7 +146,7 @@ public class PollService {
 
         // Get updated poll results
         PollResultDTO results = getPollResults(poll.getId());
-        
+
         // Notify all clients about the vote
         messagingTemplate.convertAndSend(
                 "/topic/broadcast/" + poll.getBroadcast().getId() + "/polls",
@@ -190,7 +198,7 @@ public class PollService {
 
         List<PollOptionEntity> options = optionRepository.findByPollOrderByIdAsc(savedPoll);
         PollDTO pollDTO = buildPollDTO(savedPoll, options);
-        
+
         // Notify all clients about the poll ending
         messagingTemplate.convertAndSend(
                 "/topic/broadcast/" + savedPoll.getBroadcast().getId() + "/polls",

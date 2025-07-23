@@ -19,6 +19,8 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { Popover, PopoverTrigger, PopoverContent } from './ui/popover';
 import { useState, useEffect } from 'react';
+import { formatInTimeZone } from 'date-fns-tz';
+import { parseISO } from 'date-fns';
 
 // CSS animation for notification bell shake
 const bellShakeStyles = `
@@ -85,6 +87,17 @@ const notificationTypeColors = {
   USER_REGISTERED: { bg: 'bg-indigo-100 dark:bg-indigo-900/20', icon: 'text-indigo-500' },
   GENERAL: { bg: 'bg-gray-100 dark:bg-gray-900/20', icon: 'text-gray-500' },
   default: { bg: 'bg-maroon-100 dark:bg-maroon-900/20', icon: 'text-maroon-600' }
+};
+
+// Helper to parse backend timestamp as UTC
+const parseBackendTimestamp = (timestamp) => {
+  if (!timestamp) return null;
+  // If timestamp already ends with 'Z' or has timezone, parse as is
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
+    return parseISO(timestamp);
+  }
+  // Otherwise, treat as UTC by appending 'Z'
+  return parseISO(timestamp + 'Z');
 };
 
 export default function NotificationBell() {
@@ -369,16 +382,16 @@ export default function NotificationBell() {
                                             <div className="flex items-center justify-between text-xs">
                                                 <div className="flex items-center space-x-2">
                                                     <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-600 font-medium">
-                                                        {format(new Date(notification.timestamp), 'MMM dd, yyyy')}
+                                                        {formatInTimeZone(parseBackendTimestamp(notification.timestamp), 'Asia/Manila', 'MMM dd, yyyy')}
                                                     </span>
                                                     <span className="text-gray-400">•</span>
                                                     <span className="text-gray-500 font-medium">
-                                                        {format(new Date(notification.timestamp), 'h:mm a')}
+                                                        {formatInTimeZone(parseBackendTimestamp(notification.timestamp), 'Asia/Manila', 'h:mm a')}
                                                     </span>
                                                 </div>
                                                 
                                                 <span className="text-gray-400 font-medium bg-gray-50 px-2 py-1 rounded-md group-hover:bg-white transition-colors duration-200">
-                                                    {formatDistanceToNow(new Date(notification.timestamp), { addSuffix: true })}
+                                                    {formatDistanceToNow(parseBackendTimestamp(notification.timestamp), { addSuffix: true })}
                                                 </span>
                                             </div>
                                         </div>

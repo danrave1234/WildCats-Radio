@@ -13,7 +13,6 @@ const Settings = lazy(() => import('./pages/Settings'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const BroadcastHistory = lazy(() => import('./pages/BroadcastHistory'));
 const AnalyticsDashboard = lazy(() => import('./pages/AnalyticsDashboard'));
-const CorsTest = lazy(() => import('./pages/CorsTest'));
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BroadcastHistoryProvider } from './context/BroadcastHistoryContext';
 import { AnalyticsProvider } from './context/AnalyticsContext';
@@ -36,27 +35,27 @@ const LoadingFallback = () => (
 const Logout = () => {
   const navigate = useNavigate();
   const { logout } = useAuth();
-  
+
   useEffect(() => {
     logout();
     navigate('/login', { replace: true });
   }, [logout, navigate]);
-  
+
   return <div className="flex justify-center items-center h-screen">Logging out...</div>;
 };
 
 // Protected route component
 const ProtectedRoute = ({ element, allowedRoles }) => {
   const { isAuthenticated, currentUser, loading } = useAuth();
-  
+
   if (loading) {
     return <LoadingFallback />;
   }
-  
+
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
-  
+
   if (allowedRoles && !allowedRoles.includes(currentUser?.role)) {
     // Redirect to appropriate dashboard based on role
     if (currentUser?.role === 'DJ') {
@@ -67,7 +66,7 @@ const ProtectedRoute = ({ element, allowedRoles }) => {
       return <Navigate to="/dashboard" replace />;
     }
   }
-  
+
   // Wrap the element in Suspense to handle lazy loading
   return (
     <Suspense fallback={<LoadingFallback />}>
@@ -79,7 +78,7 @@ const ProtectedRoute = ({ element, allowedRoles }) => {
 // App Routes component
 const AppRoutes = () => {
   const { isAuthenticated, currentUser } = useAuth();
-  
+
   return (
     <Routes>
       <Route path="/login" element={
@@ -89,7 +88,7 @@ const AppRoutes = () => {
           <Login />
         )
       } />
-      
+
       <Route path="/register" element={
         isAuthenticated ? (
           <Navigate to={currentUser?.role === 'DJ' ? '/dj-dashboard' : currentUser?.role === 'ADMIN' ? '/admin' : '/dashboard'} replace />
@@ -97,24 +96,19 @@ const AppRoutes = () => {
           <Register />
         )
       } />
-      
+
       <Route path="/" element={
         <Layout>
           {isAuthenticated ? (
             <Navigate to={currentUser?.role === 'DJ' ? '/dj-dashboard' : currentUser?.role === 'ADMIN' ? '/admin' : '/dashboard'} replace />
           ) : (
-            <Navigate to="/login" replace />
+            <Suspense fallback={<LoadingFallback />}>
+              <ListenerDashboard />
+            </Suspense>
           )}
         </Layout>
       } />
-      
-      {/* CORS Test - accessible to everyone */}
-      <Route path="/cors-test" element={
-        <Suspense fallback={<LoadingFallback />}>
-          <CorsTest />
-        </Suspense>
-      } />
-      
+
       <Route path="/dashboard" element={
         <Layout>
           <ProtectedRoute 
@@ -123,7 +117,7 @@ const AppRoutes = () => {
           />
         </Layout>
       } />
-      
+
       <Route path="/dj-dashboard" element={
         <Layout>
           <ProtectedRoute 
@@ -132,7 +126,7 @@ const AppRoutes = () => {
           />
         </Layout>
       } />
-      
+
       <Route path="/admin" element={
         <Layout>
           <ProtectedRoute 
@@ -141,7 +135,7 @@ const AppRoutes = () => {
           />
         </Layout>
       } />
-      
+
       <Route path="/schedule" element={
         <Layout>
           <ProtectedRoute 
@@ -150,7 +144,7 @@ const AppRoutes = () => {
           />
         </Layout>
       } />
-      
+
       <Route path="/profile" element={
         <Layout>
           <ProtectedRoute 
@@ -159,7 +153,7 @@ const AppRoutes = () => {
           />
         </Layout>
       } />
-      
+
       <Route path="/settings" element={
         <Layout>
           <ProtectedRoute 
@@ -177,7 +171,7 @@ const AppRoutes = () => {
           />
         </Layout>
       } />
-      
+
       <Route path="/broadcast-history" element={
         <Layout>
           <ProtectedRoute 
@@ -186,7 +180,7 @@ const AppRoutes = () => {
           />
         </Layout>
       } />
-      
+
       <Route path="/analytics" element={
         <Layout>
           <ProtectedRoute 
@@ -195,7 +189,7 @@ const AppRoutes = () => {
           />
         </Layout>
       } />
-      
+
       <Route path="/broadcast/:id" element={
         <Layout>
           <Suspense fallback={<LoadingFallback />}>
@@ -203,9 +197,9 @@ const AppRoutes = () => {
           </Suspense>
         </Layout>
       } />
-      
+
       <Route path="/logout" element={<Logout />} />
-      
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

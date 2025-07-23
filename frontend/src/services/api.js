@@ -306,15 +306,20 @@ export const broadcastService = {
           }
         });
 
-        // Send join broadcast message to notify server that listener joined
-        stompClient.publish({
-          destination: `/app/broadcast/${broadcastId}/join`,
-          body: JSON.stringify({})
-        });
+        // Only send join/leave messages if broadcastId is valid (not null or "null")
+        const shouldSendJoinLeave = broadcastId && broadcastId !== 'null' && broadcastId.toString().trim() !== '';
+
+        if (shouldSendJoinLeave) {
+          // Send join broadcast message to notify server that listener joined
+          stompClient.publish({
+            destination: `/app/broadcast/${broadcastId}/join`,
+            body: JSON.stringify({})
+          });
+        }
 
         const disconnectFunction = () => {
-          // Send leave broadcast message before disconnecting
-          if (stompClient && stompClient.connected) {
+          // Send leave broadcast message before disconnecting (only if valid broadcastId)
+          if (stompClient && stompClient.connected && shouldSendJoinLeave) {
             try {
               stompClient.publish({
                 destination: `/app/broadcast/${broadcastId}/leave`,
@@ -338,7 +343,7 @@ export const broadcastService = {
           isConnected: () => stompClient.connected,
           // Method to send messages to the broadcast channel
           sendMessage: (type, data) => {
-            if (stompClient && stompClient.connected) {
+            if (stompClient && stompClient.connected && shouldSendJoinLeave) {
               stompClient.publish({
                 destination: `/app/broadcast/${broadcastId}/message`,
                 body: JSON.stringify({ type, data })
@@ -510,6 +515,7 @@ export const songRequestService = {
   getRequestsByBroadcast: (broadcastId) => api.get(`/api/broadcasts/${broadcastId}/song-requests`),
   getRequests: (broadcastId) => api.get(`/api/broadcasts/${broadcastId}/song-requests`), // Alias for compatibility
   createRequest: (broadcastId, requestData) => api.post(`/api/broadcasts/${broadcastId}/song-requests`, requestData),
+  deleteRequest: (broadcastId, requestId) => api.delete(`/api/broadcasts/${broadcastId}/song-requests/${requestId}`),
   // FIXME: This endpoint does not seem to exist on the backend
   updateStatus: (requestId, status) => api.put(`/api/song-requests/${requestId}/status?status=${status}`),
 
@@ -565,44 +571,7 @@ export const pollService = {
   hasUserVoted: (pollId) => api.get(`/api/polls/${pollId}/has-voted`),
   getUserVote: (pollId) => api.get(`/api/polls/${pollId}/user-vote`),
 
-  // Subscribe to real-time poll updates for a specific broadcast
-  subscribeToPolls: (broadcastId, callback) => {
-    const stompClient = createWebSocketConnection('/ws-radio');
-
-    const token = getCookie('token');
-    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-
-    return new Promise((resolve, reject) => {
-      stompClient.connect(headers, () => {
-        logger.debug('Connected to Polls WebSocket for broadcast:', broadcastId);
-
-        // Subscribe to broadcast-specific poll updates
-        const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/polls`, (message) => {
-          try {
-            const pollData = JSON.parse(message.body);
-            callback(pollData);
-          } catch (error) {
-            logger.error('Error parsing poll data:', error);
-          }
-        });
-
-        resolve({
-          disconnect: () => {
-            if (subscription) {
-              subscription.unsubscribe();
-            }
-            if (stompClient && stompClient.connected) {
-              stompClient.disconnect();
-            }
-          },
-          isConnected: () => stompClient.connected
-        });
-      }, (error) => {
-        logger.error('Polls WebSocket connection error:', error);
-        reject(error);
-      });
-    });
-  },
+  // Note: WebSocket subscription for polls removed - using HTTP polling only
 };
 
 // Services for Icecast streaming

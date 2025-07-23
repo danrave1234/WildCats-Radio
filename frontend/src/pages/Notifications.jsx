@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNotifications } from '../context/NotificationContext';
 import { formatDistanceToNow, format } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
+import { parseISO } from 'date-fns';
 import { 
   Bell, 
   Search, 
@@ -38,6 +40,15 @@ const notificationTypeColors = {
   USER_REGISTERED: 'text-indigo-600 bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-900/30',
   GENERAL: 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/30',
   default: 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/30'
+};
+
+// Helper to parse backend timestamp as UTC
+const parseBackendTimestamp = (timestamp) => {
+  if (!timestamp) return null;
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
+    return parseISO(timestamp);
+  }
+  return parseISO(timestamp + 'Z');
 };
 
 export default function Notifications() {
@@ -312,9 +323,9 @@ export default function Notifications() {
                               {notification.message}
                             </p>
                             <div className="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
-                              <span>{format(new Date(notification.timestamp), 'MMM d, yyyy • h:mm a')}</span>
+                              <span>{formatInTimeZone(parseBackendTimestamp(notification.timestamp), 'Asia/Manila', 'MMM d, yyyy • h:mm a')}</span>
                               <span>•</span>
-                              <span>{formatDistanceToNow(new Date(notification.timestamp), { addSuffix: true })}</span>
+                              <span>{formatDistanceToNow(parseBackendTimestamp(notification.timestamp), { addSuffix: true })}</span>
                             </div>
                           </div>
 

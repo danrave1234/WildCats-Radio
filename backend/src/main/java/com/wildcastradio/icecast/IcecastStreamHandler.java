@@ -72,6 +72,10 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
         // Build FFmpeg command for dual streaming (OGG + MP3) to support both web and mobile
         List<String> cmd = new ArrayList<>(Arrays.asList(
                 "ffmpeg",
+                // Low-latency flags
+                "-probesize", "32",
+                "-analyzeduration", "0",
+                "-fflags", "+nobuffer",
                 "-f", "webm", "-i", "pipe:0"  // Read WebM from stdin
         ));
 
@@ -98,6 +102,7 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
                 
                 // First output: OGG Vorbis (for web compatibility)
                 "-c:a:0", "libvorbis", "-b:a:0", "128k",
+                "-tune", "zerolatency",
                 "-content_type", "application/ogg",
                 "-ice_name", "WildCats Radio Live (OGG)",
                 "-ice_description", "Live audio broadcast in OGG format",
@@ -105,6 +110,7 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
                 
                 // Second output: MP3 (for mobile compatibility)
                 "-c:a:1", "libmp3lame", "-b:a:1", "128k",
+                "-tune", "zerolatency",
                 "-content_type", "audio/mpeg", 
                 "-ice_name", "WildCats Radio Live (MP3)",
                 "-ice_description", "Live audio broadcast in MP3 format",
