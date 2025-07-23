@@ -306,15 +306,20 @@ export const broadcastService = {
           }
         });
 
-        // Send join broadcast message to notify server that listener joined
-        stompClient.publish({
-          destination: `/app/broadcast/${broadcastId}/join`,
-          body: JSON.stringify({})
-        });
+        // Only send join/leave messages if broadcastId is valid (not null or "null")
+        const shouldSendJoinLeave = broadcastId && broadcastId !== 'null' && broadcastId.toString().trim() !== '';
+
+        if (shouldSendJoinLeave) {
+          // Send join broadcast message to notify server that listener joined
+          stompClient.publish({
+            destination: `/app/broadcast/${broadcastId}/join`,
+            body: JSON.stringify({})
+          });
+        }
 
         const disconnectFunction = () => {
-          // Send leave broadcast message before disconnecting
-          if (stompClient && stompClient.connected) {
+          // Send leave broadcast message before disconnecting (only if valid broadcastId)
+          if (stompClient && stompClient.connected && shouldSendJoinLeave) {
             try {
               stompClient.publish({
                 destination: `/app/broadcast/${broadcastId}/leave`,
@@ -338,7 +343,7 @@ export const broadcastService = {
           isConnected: () => stompClient.connected,
           // Method to send messages to the broadcast channel
           sendMessage: (type, data) => {
-            if (stompClient && stompClient.connected) {
+            if (stompClient && stompClient.connected && shouldSendJoinLeave) {
               stompClient.publish({
                 destination: `/app/broadcast/${broadcastId}/message`,
                 body: JSON.stringify({ type, data })

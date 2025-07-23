@@ -9,15 +9,28 @@ class GlobalWebSocketService {
     this.listenerStatusWebSocket = null; // Consolidated listener and status
     this.djReconnectAttempts = 0;
     this.listenerStatusReconnectAttempts = 0;
-    this.MAX_RECONNECT_ATTEMPTS = 10;
+    this.MAX_RECONNECT_ATTEMPTS = 15; // Increased for DJ reliability
+    this.DJ_MAX_RECONNECT_ATTEMPTS = 20; // More aggressive for DJ websocket
     this.BASE_RECONNECT_DELAY = 1000; // 1 second
     this.djPingInterval = null;
     this.listenerStatusPingInterval = null;
-    
+
     // Reconnection timer references
     this.djReconnectTimer = null;
     this.listenerStatusReconnectTimer = null;
     this.pollReconnectTimer = null;
+
+    // Connection health monitoring
+    this.djLastPongTime = null;
+    this.djConnectionHealthTimer = null;
+    this.networkStatusOnline = navigator.onLine;
+
+    // Connection state persistence
+    this.lastDJUrl = null;
+    this.lastListenerStatusUrl = null;
+
+    // Setup network status monitoring
+    this._setupNetworkMonitoring();
 
     // Callbacks for different WebSocket types
     this.djMessageCallbacks = [];
@@ -34,17 +47,61 @@ class GlobalWebSocketService {
     this.pollOpenCallbacks = [];
   }
 
+  // --- Network Status Monitoring ---
+  _setupNetworkMonitoring() {
+    window.addEventListener('online', () => {
+      logger.info('Network came back online, attempting to reconnect websockets');
+      this.networkStatusOnline = true;
+      this._handleNetworkReconnection();
+    });
+
+    window.addEventListener('offline', () => {
+      logger.warn('Network went offline, websockets will attempt to reconnect when online');
+      this.networkStatusOnline = false;
+    });
+  }
+
+  _handleNetworkReconnection() {
+    // Reset reconnection attempts when network comes back online
+    this.djReconnectAttempts = 0;
+    this.listenerStatusReconnectAttempts = 0;
+
+    // Attempt to reconnect if we have stored URLs and connections are down
+    if (this.lastDJUrl && !this.isDJWebSocketConnected()) {
+      logger.info('Attempting DJ WebSocket reconnection after network recovery');
+      this.connectDJWebSocket(this.lastDJUrl);
+    }
+
+    if (this.lastListenerStatusUrl && !this.isListenerStatusWebSocketConnected()) {
+      logger.info('Attempting Listener/Status WebSocket reconnection after network recovery');
+      this.connectListenerStatusWebSocket(this.lastListenerStatusUrl);
+    }
+  }
+
   // --- Helper for Reconnection Logic ---
   _scheduleReconnect(type, connectFunction, attemptsProperty, timerProperty) {
-    if (this[attemptsProperty] < this.MAX_RECONNECT_ATTEMPTS) {
+    // Use different max attempts for DJ websocket (more critical)
+    const maxAttempts = type === 'DJ' ? this.DJ_MAX_RECONNECT_ATTEMPTS : this.MAX_RECONNECT_ATTEMPTS;
+
+    if (this[attemptsProperty] < maxAttempts) {
       this[attemptsProperty]++;
+
+      // Don't attempt reconnection if network is offline
+      if (!this.networkStatusOnline) {
+        logger.warn(`Network is offline, delaying ${type} WebSocket reconnection attempt ${this[attemptsProperty]}/${maxAttempts}`);
+        this[timerProperty] = setTimeout(() => {
+          this._scheduleReconnect(type, connectFunction, attemptsProperty, timerProperty);
+        }, 5000); // Check again in 5 seconds
+        return;
+      }
+
       const delay = Math.min(this.BASE_RECONNECT_DELAY * Math.pow(2, this[attemptsProperty] - 1) + Math.floor(Math.random() * 1000), 30000); // Max 30s
-      logger.warn(`Scheduling ${type} WebSocket reconnection attempt ${this[attemptsProperty]}/${this.MAX_RECONNECT_ATTEMPTS} in ${delay}ms`);
+      logger.warn(`Scheduling ${type} WebSocket reconnection attempt ${this[attemptsProperty]}/${maxAttempts} in ${delay}ms`);
       this[timerProperty] = setTimeout(() => {
         connectFunction();
       }, delay);
     } else {
-      logger.error(`Max ${type} WebSocket reconnection attempts reached, giving up.`);
+      logger.error(`Max ${type} WebSocket reconnection attempts (${maxAttempts}) reached, giving up.`);
       // Optionally, notify UI or trigger a more severe error state
     }
   }
@@ -64,6 +121,7 @@ class GlobalWebSocketService {
     }
 
     this._clearReconnectTimer('djReconnectTimer'); // Clear any pending reconnect
+    this.lastDJUrl = wsUrl; // Store URL for persistence
 
     logger.info(`Connecting DJ WebSocket to: ${wsUrl}`);
     try {
@@ -73,14 +131,17 @@ class GlobalWebSocketService {
       this.djWebSocket.onopen = () => {
         logger.info('DJ WebSocket connected successfully.');
         this.djReconnectAttempts = 0; // Reset attempts on success
+        this.djLastPongTime = Date.now(); // Initialize pong time
         this.djOpenCallbacks.forEach(cb => cb());
         this._startDJPing();
+        this._startDJConnectionHealthMonitoring();
       };
 
       this.djWebSocket.onmessage = (event) => {
         if (typeof event.data === 'string' && event.data === 'pong') {
-          // Handle pong response
-          logger.debug('Received DJ pong.');
+          // Handle pong response and update health monitoring
+          this.djLastPongTime = Date.now();
+          logger.debug('Received DJ pong, connection healthy.');
         } else {
           this.djMessageCallbacks.forEach(cb => cb(event));
         }
@@ -95,6 +156,7 @@ class GlobalWebSocketService {
         logger.warn(`DJ WebSocket disconnected: Code=${event.code}, Reason=${event.reason}`);
         this.djCloseCallbacks.forEach(cb => cb(event));
         this._stopDJPing();
+        this._stopDJConnectionHealthMonitoring();
         // Only attempt reconnect if not a clean close (1000, 1001)
         if (event.code !== 1000 && event.code !== 1001) {
           this._scheduleReconnect('DJ', () => this.connectDJWebSocket(wsUrl), 'djReconnectAttempts', 'djReconnectTimer');
@@ -130,8 +192,10 @@ class GlobalWebSocketService {
       logger.info('Disconnecting DJ WebSocket.');
       this._clearReconnectTimer('djReconnectTimer');
       this._stopDJPing();
+      this._stopDJConnectionHealthMonitoring();
       this.djWebSocket.close(1000, 'Client initiated disconnect');
       this.djWebSocket = null;
+      this.lastDJUrl = null; // Clear stored URL
     }
   }
 
@@ -157,6 +221,30 @@ class GlobalWebSocketService {
     }
   }
 
+  _startDJConnectionHealthMonitoring() {
+    this._stopDJConnectionHealthMonitoring(); // Ensure no duplicates
+    this.djConnectionHealthTimer = setInterval(() => {
+      if (this.djLastPongTime) {
+        const timeSinceLastPong = Date.now() - this.djLastPongTime;
+        const healthThreshold = 60000; // 60 seconds without pong = unhealthy
+
+        if (timeSinceLastPong > healthThreshold) {
+          logger.warn(`DJ WebSocket appears unhealthy (no pong for ${timeSinceLastPong}ms), forcing reconnection`);
+          if (this.djWebSocket) {
+            this.djWebSocket.close(1006, 'Connection health check failed');
+          }
+        }
+      }
+    }, 30000); // Check every 30 seconds
+  }
+
+  _stopDJConnectionHealthMonitoring() {
+    if (this.djConnectionHealthTimer) {
+      clearInterval(this.djConnectionHealthTimer);
+      this.djConnectionHealthTimer = null;
+    }
+  }
+
   // --- Listener/Status WebSocket (Consolidated) ---
   connectListenerStatusWebSocket(wsUrl) {
     if (this.listenerStatusWebSocket && (this.listenerStatusWebSocket.readyState === WebSocket.CONNECTING || this.listenerStatusWebSocket.readyState === WebSocket.OPEN)) {
@@ -165,6 +253,7 @@ class GlobalWebSocketService {
     }
 
     this._clearReconnectTimer('listenerStatusReconnectTimer'); // Clear any pending reconnect
+    this.lastListenerStatusUrl = wsUrl; // Store URL for persistence
 
     logger.info(`Connecting Listener/Status WebSocket to: ${wsUrl}`);
     try {
@@ -214,6 +303,7 @@ class GlobalWebSocketService {
       this._clearReconnectTimer('listenerStatusReconnectTimer');
       this.listenerStatusWebSocket.close(1000, 'Client initiated disconnect');
       this.listenerStatusWebSocket = null;
+      this.lastListenerStatusUrl = null; // Clear stored URL
     }
   }
 

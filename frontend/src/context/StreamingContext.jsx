@@ -62,7 +62,7 @@ export function StreamingProvider({ children }) {
   const MAX_MESSAGE_SIZE = 60000; // 60KB - safety margin below the 64KB server buffer for low latency
 
   // Add new audio source state
-  const [audioSource, setAudioSource] = useState('microphone'); // 'microphone', 'desktop', 'both'
+  const [audioSource, setAudioSource] = useState('desktop'); // Default to 'desktop' for DJ use
   const desktopStreamRef = useRef(null);
 
   // Add DJ audio controls
@@ -303,7 +303,7 @@ export function StreamingProvider({ children }) {
   const getDiagnosticMicrophoneAudioStream = async () => {
     try {
       console.log('🔬 Starting diagnostic microphone audio capture...');
-      
+
       // Step 1: Test basic microphone access
       const micStream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
@@ -316,7 +316,7 @@ export function StreamingProvider({ children }) {
       });
 
       console.log('✅ Diagnostic microphone stream obtained');
-      
+
       // Step 2: Test audio levels directly from raw stream
       const testContext = new AudioContext({ sampleRate: 48000 });
       const testSource = testContext.createMediaStreamSource(micStream);
@@ -330,7 +330,7 @@ export function StreamingProvider({ children }) {
       let testCount = 0;
 
       console.log('🔬 Testing raw microphone audio levels for 2 seconds...');
-      
+
       await new Promise((resolve) => {
         const testInterval = setInterval(() => {
           testAnalyser.getByteFrequencyData(testData);
@@ -340,7 +340,7 @@ export function StreamingProvider({ children }) {
           }
           const rms = Math.sqrt(sum / testData.length);
           const dB = rms > 0 ? 20 * Math.log10(rms / 255) : -100;
-          
+
           if (rms > maxLevel) maxLevel = rms;
           testCount++;
 
@@ -371,25 +371,25 @@ export function StreamingProvider({ children }) {
         // Test: return the raw stream directly without any processing
         // This will help identify if the issue is in the processing pipeline
         console.log('⚠️ Using DIRECT STREAM mode (no processing) for testing');
-        
+
         // Set up basic references for audio level monitoring
         const testContext = new AudioContext({ sampleRate: 48000 });
         const testSource = testContext.createMediaStreamSource(micStream);
         const testAnalyser = testContext.createAnalyser();
         testSource.connect(testAnalyser);
-        
+
         analyserRef.current = testAnalyser;
         audioContextRef.current = testContext;
-        
+
         // Start basic monitoring
         startSimplifiedAudioLevelMonitoring();
-        
+
         console.log('✅ Direct stream mode active - no audio processing applied');
         return micStream; // Return raw stream directly
-        
+
       } catch (directError) {
         console.warn('⚠️ Direct stream failed, falling back to processing pipeline:', directError);
-        
+
         // Step 5b: Create processing pipeline as fallback
         const audioContext = new AudioContext({
           sampleRate: 48000,
@@ -398,7 +398,7 @@ export function StreamingProvider({ children }) {
         audioContextRef.current = audioContext;
 
         const processedStream = createSimplifiedAudioProcessingPipeline(micStream, audioContext);
-        
+
         // DON'T stop original stream immediately - let processed stream establish first
         setTimeout(() => {
           console.log('🔧 Stopping original microphone stream after processed stream established');
@@ -419,7 +419,7 @@ export function StreamingProvider({ children }) {
   const getFallbackMicrophoneAudioStream = async () => {
     try {
       console.log('🔄 Attempting fallback microphone capture...');
-      
+
       // Try different audio constraints
       const constraints = [
         // Constraint 1: Minimal settings
@@ -452,39 +452,39 @@ export function StreamingProvider({ children }) {
       for (let i = 0; i < constraints.length; i++) {
         try {
           console.log(`🔄 Trying fallback constraint ${i + 1}:`, constraints[i]);
-          
+
           const stream = await navigator.mediaDevices.getUserMedia(constraints[i]);
-          
+
           // Test this stream briefly
           const testCtx = new AudioContext();
           const testSrc = testCtx.createMediaStreamSource(stream);
           const testAna = testCtx.createAnalyser();
           testSrc.connect(testAna);
-          
+
           // Quick test
           const testArr = new Uint8Array(testAna.frequencyBinCount);
           await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms
           testAna.getByteFrequencyData(testArr);
-          
+
           let sum = 0;
           for (let j = 0; j < testArr.length; j++) {
             sum += testArr[j];
           }
           const avgLevel = sum / testArr.length;
-          
+
           testCtx.close();
-          
+
           console.log(`🔄 Fallback constraint ${i + 1} average level: ${avgLevel.toFixed(2)}`);
-          
+
           if (avgLevel > 0.5 || i === constraints.length - 1) { // Accept if any audio or last attempt
             console.log(`✅ Fallback constraint ${i + 1} accepted, using direct stream`);
-            
+
             // Return the stream directly without complex processing
             return stream;
           } else {
             stream.getTracks().forEach(track => track.stop());
           }
-          
+
         } catch (error) {
           console.warn(`⚠️ Fallback constraint ${i + 1} failed:`, error.message);
         }
@@ -585,7 +585,7 @@ export function StreamingProvider({ children }) {
   const validateAndPrepareStream = async (stream, sourceType) => {
     try {
       logger.debug(`Validating ${sourceType} stream for MediaRecorder compatibility...`);
-      
+
       // Check if stream has active audio tracks
       const audioTracks = stream.getAudioTracks();
       if (audioTracks.length === 0) {
@@ -664,7 +664,7 @@ export function StreamingProvider({ children }) {
   // Enhanced function to validate stream just before use (immediate validation)
   const validateStreamBeforeUse = (stream, sourceType) => {
     logger.debug(`Final validation of ${sourceType} stream before MediaRecorder use...`);
-    
+
     if (!stream) {
       throw new Error(`${sourceType} stream is null or undefined`);
     }
@@ -693,7 +693,7 @@ export function StreamingProvider({ children }) {
   const getDesktopAudioStreamWithLifecycleManagement = async () => {
     try {
       logger.debug('Getting desktop audio stream with enhanced lifecycle management...');
-      
+
       // Check if getDisplayMedia is supported
       if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
         throw new Error('Screen capture not supported in this browser');
@@ -732,16 +732,16 @@ export function StreamingProvider({ children }) {
       const audioOnlyStream = new MediaStream();
       audioTracks.forEach(track => {
         audioOnlyStream.addTrack(track);
-        
+
         // Add lifecycle event listeners to track stream health
         track.addEventListener('ended', () => {
           logger.warn('Desktop audio track ended - user likely stopped screen sharing');
         });
-        
+
         track.addEventListener('mute', () => {
           logger.warn('Desktop audio track muted');
         });
-        
+
         track.addEventListener('unmute', () => {
           logger.debug('Desktop audio track unmuted');
         });
@@ -761,7 +761,7 @@ export function StreamingProvider({ children }) {
 
       logger.debug('Desktop audio stream obtained successfully with enhanced lifecycle management');
       return audioOnlyStream;
-      
+
     } catch (error) {
       logger.error('Error getting desktop audio stream:', error);
 
@@ -794,7 +794,7 @@ export function StreamingProvider({ children }) {
 
     isAudioSourceSwitching.current = true;
     logger.info(`🔄 Starting COMPLETE PIPELINE RESET: ${audioSource} → ${newSource}`);
-    
+
     // CRITICAL TIMING MARKER 1: Pipeline reset start
     const pipelineResetStartTime = Date.now();
     logger.info(`⏱️ PIPELINE RESET START TIME: ${new Date(pipelineResetStartTime).toISOString()}`);
@@ -821,7 +821,7 @@ export function StreamingProvider({ children }) {
       // CRITICAL TIMING MARKER 2: WebSocket disconnect
       const websocketDisconnectTime = Date.now();
       logger.info(`⏱️ WEBSOCKET DISCONNECT TIME: ${new Date(websocketDisconnectTime).toISOString()}`);
-      
+
       if (djWebSocketRef.current) {
         try {
           djWebSocketRef.current.close(1000, 'Audio source switching');
@@ -859,9 +859,9 @@ export function StreamingProvider({ children }) {
       const extendedPauseStartTime = Date.now();
       logger.info(`⏱️ EXTENDED PAUSE START: ${new Date(extendedPauseStartTime).toISOString()}`);
       logger.info('⏳ Waiting 3 seconds for FFmpeg process termination and Icecast mount point release...');
-      
+
       await new Promise(resolve => setTimeout(resolve, 3000));
-      
+
       // CRITICAL TIMING MARKER 4: Extended pause end
       const extendedPauseEndTime = Date.now();
       logger.info(`⏱️ EXTENDED PAUSE END: ${new Date(extendedPauseEndTime).toISOString()}`);
@@ -872,7 +872,7 @@ export function StreamingProvider({ children }) {
       // CRITICAL TIMING MARKER 5: New source acquisition start
       const sourceAcquisitionStartTime = Date.now();
       logger.info(`⏱️ NEW SOURCE ACQUISITION START: ${new Date(sourceAcquisitionStartTime).toISOString()}`);
-      
+
       const newStream = await getAudioStreamForSwitching(newSource);
       if (!newStream) {
         throw new Error(`Failed to acquire ${newSource} audio stream`);
@@ -895,7 +895,7 @@ export function StreamingProvider({ children }) {
       // CRITICAL TIMING MARKER 7: New WebSocket connection start
       const newWebSocketStartTime = Date.now();
       logger.info(`⏱️ NEW WEBSOCKET CONNECTION START: ${new Date(newWebSocketStartTime).toISOString()}`);
-      
+
               connectDJWebSocket();
 
       // CRITICAL TIMING MARKER 8: New WebSocket connection end
@@ -907,7 +907,7 @@ export function StreamingProvider({ children }) {
       logger.info('⏳ Step 9/14: Waiting for WebSocket connection establishment');
       let connectionWaitTime = 0;
       const maxWaitTime = 10000; // 10 seconds timeout
-      
+
       while (!globalWebSocketService.isDJWebSocketConnected() && connectionWaitTime < maxWaitTime) {
         await new Promise(resolve => setTimeout(resolve, 100));
         connectionWaitTime += 100;
@@ -937,17 +937,17 @@ export function StreamingProvider({ children }) {
             const headerView = new Uint8Array(buffer.slice(0, 32));
             const isValidWebM = headerView[0] === 0x1a && headerView[1] === 0x45 && 
                                headerView[2] === 0xdf && headerView[3] === 0xa3;
-            
+
             if (!isValidWebM) {
               logger.warn('⚠️ First chunk does not contain valid WebM header, skipping');
               return;
             }
-            
+
             if (buffer.byteLength < 100) {
               logger.warn('⚠️ First chunk too small, waiting for more substantial chunk');
               return;
             }
-            
+
             logger.info('✅ First chunk validated successfully');
             isFirstChunk = false;
           }
@@ -1018,7 +1018,7 @@ export function StreamingProvider({ children }) {
       const pipelineResetEndTime = Date.now();
       logger.info(`⏱️ PIPELINE RESET COMPLETE TIME: ${new Date(pipelineResetEndTime).toISOString()}`);
       logger.info(`⏱️ TOTAL PIPELINE RESET DURATION: ${pipelineResetEndTime - pipelineResetStartTime}ms`);
-      
+
       logger.info(`✅ Step 14/14: Audio source switch completed successfully: ${audioSource} → ${newSource}`);
       logger.info('🎉 COMPLETE PIPELINE RESET SUCCESSFUL');
 
@@ -1032,13 +1032,13 @@ export function StreamingProvider({ children }) {
 
     } catch (error) {
       logger.error(`❌ COMPLETE PIPELINE RESET FAILED: ${error.message}`);
-      
+
       // Cleanup on failure
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach(track => track.stop());
         audioStreamRef.current = null;
       }
-      
+
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         try {
           mediaRecorderRef.current.stop();
@@ -1623,7 +1623,7 @@ export function StreamingProvider({ children }) {
       // Set up MediaRecorder when WebSocket connects
       const setupRecording = () => {
         if (globalWebSocketService.isDJWebSocketConnected()) {
-          
+
           // Helper function to safely send audio data through WebSocket
           const safelySendAudioData = (buffer) => {
             return globalWebSocketService.sendDJBinaryData(buffer);
@@ -1947,7 +1947,7 @@ export function StreamingProvider({ children }) {
   const createAudioProcessingPipeline = (inputStream, audioContext) => {
     try {
       console.log('🎛️ Creating audio processing pipeline...');
-      
+
       // Create audio processing nodes
       const source = audioContext.createMediaStreamSource(inputStream);
       const analyser = audioContext.createAnalyser();
@@ -1970,7 +1970,7 @@ export function StreamingProvider({ children }) {
       micBoostNode.gain.value = microphoneBoost; // Use state value
       noiseGate.gain.value = 1.0; // Will be controlled by noise gate logic  
       masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
-      
+
       console.log('🎛️ Audio pipeline initial settings:', {
         microphoneBoost: micBoostNode.gain.value,
         noiseGateValue: noiseGate.gain.value,
@@ -2003,7 +2003,7 @@ export function StreamingProvider({ children }) {
   const createSimplifiedAudioProcessingPipeline = (inputStream, audioContext) => {
     try {
       console.log('🎛️ Creating simplified audio processing pipeline...');
-      
+
       // Create minimal processing nodes to avoid timing issues
       const source = audioContext.createMediaStreamSource(inputStream);
       const analyser = audioContext.createAnalyser();
@@ -2024,7 +2024,7 @@ export function StreamingProvider({ children }) {
       // Set initial values - simplified gain staging
       micBoostNode.gain.value = microphoneBoost; // Apply microphone boost
       masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
-      
+
       console.log('🎛️ Simplified audio pipeline settings:', {
         microphoneBoost: micBoostNode.gain.value,
         masterGainValue: masterGain.gain.value,
@@ -2041,31 +2041,31 @@ export function StreamingProvider({ children }) {
 
       // DEBUG: Test each stage of the pipeline
       console.log('🔧 Testing audio pipeline stages...');
-      
+
       // Test raw source audio levels
       const sourceAnalyser = audioContext.createAnalyser();
       sourceAnalyser.fftSize = 256;
       source.connect(sourceAnalyser);
-      
+
       // Test final destination audio levels  
       const destAnalyser = audioContext.createAnalyser();
       destAnalyser.fftSize = 256;
       masterGain.connect(destAnalyser);
-      
+
       // Monitor both for 3 seconds
       let debugCount = 0;
       const debugInterval = setInterval(() => {
         const sourceData = new Uint8Array(sourceAnalyser.frequencyBinCount);
         const destData = new Uint8Array(destAnalyser.frequencyBinCount);
-        
+
         sourceAnalyser.getByteFrequencyData(sourceData);
         destAnalyser.getByteFrequencyData(destData);
-        
+
         const sourceRMS = Math.sqrt(sourceData.reduce((sum, val) => sum + val*val, 0) / sourceData.length);
         const destRMS = Math.sqrt(destData.reduce((sum, val) => sum + val*val, 0) / destData.length);
-        
+
         console.log(`🔧 Pipeline debug ${debugCount}: Source RMS=${sourceRMS.toFixed(2)}, Dest RMS=${destRMS.toFixed(2)}, Boost=${micBoostNode.gain.value}x, Master=${masterGain.gain.value}`);
-        
+
         debugCount++;
         if (debugCount >= 30) { // 3 seconds
           clearInterval(debugInterval);
@@ -2088,7 +2088,7 @@ export function StreamingProvider({ children }) {
   const createFallbackAudioProcessingPipeline = (inputStream) => {
     try {
       console.log('🎛️ Creating fallback audio processing pipeline...');
-      
+
       // Create minimal audio context for basic processing
       const audioContext = new AudioContext({
         sampleRate: inputStream.getAudioTracks()[0].getSettings().sampleRate || 44100,
@@ -2106,7 +2106,7 @@ export function StreamingProvider({ children }) {
 
       // Apply basic microphone boost
       micBoostNode.gain.value = microphoneBoost * (isDJMuted ? 0.0 : djAudioGain);
-      
+
       console.log('🎛️ Fallback audio pipeline settings:', {
         microphoneBoost: microphoneBoost,
         isDJMuted,

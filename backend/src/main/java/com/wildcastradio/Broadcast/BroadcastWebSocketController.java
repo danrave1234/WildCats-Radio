@@ -37,9 +37,26 @@ public class BroadcastWebSocketController {
      */
     @MessageMapping("/broadcast/{broadcastId}/join")
     public BroadcastWebSocketMessage joinBroadcast(
-            @DestinationVariable Long broadcastId,
+            @DestinationVariable String broadcastId,
             @Payload BroadcastWebSocketMessage message,
             SimpMessageHeaderAccessor headerAccessor) {
+
+        // Validate broadcastId - handle null, "null", or invalid values
+        if (broadcastId == null || "null".equals(broadcastId) || broadcastId.trim().isEmpty()) {
+            // For null or invalid broadcast IDs, return a generic acknowledgment
+            // This handles cases where frontend sends null for global subscriptions
+            return new BroadcastWebSocketMessage("JOIN_ACK", (BroadcastDTO) null);
+        }
+
+        Long parsedBroadcastId;
+        try {
+            parsedBroadcastId = Long.parseLong(broadcastId);
+        } catch (NumberFormatException e) {
+            // Invalid broadcast ID format, return error acknowledgment
+            BroadcastWebSocketMessage errorMessage = new BroadcastWebSocketMessage("JOIN_ERROR", (Long) null);
+            errorMessage.setData("Invalid broadcast ID format");
+            return errorMessage;
+        }
 
         // Get the authenticated user if available
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -51,10 +68,10 @@ public class BroadcastWebSocketController {
         }
 
         // Record the listener joining (could update analytics)
-        broadcastService.recordListenerJoin(broadcastId, user);
+        broadcastService.recordListenerJoin(parsedBroadcastId, user);
 
         // Get the broadcast info to return
-        Optional<BroadcastEntity> broadcastOpt = broadcastService.getBroadcastById(broadcastId);
+        Optional<BroadcastEntity> broadcastOpt = broadcastService.getBroadcastById(parsedBroadcastId);
         BroadcastDTO broadcastDTO = null;
 
         if (broadcastOpt.isPresent()) {
@@ -74,9 +91,24 @@ public class BroadcastWebSocketController {
      */
     @MessageMapping("/broadcast/{broadcastId}/leave")
     public void leaveBroadcast(
-            @DestinationVariable Long broadcastId,
+            @DestinationVariable String broadcastId,
             @Payload BroadcastWebSocketMessage message,
             SimpMessageHeaderAccessor headerAccessor) {
+
+        // Validate broadcastId - handle null, "null", or invalid values
+        if (broadcastId == null || "null".equals(broadcastId) || broadcastId.trim().isEmpty()) {
+            // For null or invalid broadcast IDs, silently ignore the leave request
+            // This handles cases where frontend sends null for global subscriptions
+            return;
+        }
+
+        Long parsedBroadcastId;
+        try {
+            parsedBroadcastId = Long.parseLong(broadcastId);
+        } catch (NumberFormatException e) {
+            // Invalid broadcast ID format, silently ignore
+            return;
+        }
 
         // Get the authenticated user if available
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -88,7 +120,7 @@ public class BroadcastWebSocketController {
         }
 
         // Record the listener leaving (could update analytics)
-        broadcastService.recordListenerLeave(broadcastId, user);
+        broadcastService.recordListenerLeave(parsedBroadcastId, user);
     }
 
     // Additional WebSocket handling methods can be added here as needed
