@@ -98,7 +98,7 @@ export const config = {
   // WebSocket Configuration
   wsReconnectDelay: isLocalEnvironment ? 3000 : 5000,
   wsReconnectJitter: isLocalEnvironment ? 1000 : 2000,
-  wsHeartbeatInterval: isLocalEnvironment ? 10000 : 25000,
+  wsHeartbeatInterval: isLocalEnvironment ? 10000 : 20000,
   wsMaxReconnectAttempts: isLocalEnvironment ? 5 : 10,
 
   // Audio/Media Configuration
