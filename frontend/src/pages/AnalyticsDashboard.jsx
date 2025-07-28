@@ -3,7 +3,7 @@ import { useAnalytics } from '../context/AnalyticsContext';
 import { useAuth } from '../context/AuthContext';
 import { Spinner } from '../components/ui/spinner';
 import { EnhancedScrollArea } from '../components/ui/enhanced-scroll-area';
-import { format, subDays, subWeeks, subMonths, subYears, startOfDay, startOfWeek, startOfMonth, startOfYear, endOfDay, endOfWeek, endOfMonth, endOfYear, formatDistanceToNow, parseISO } from 'date-fns';
+import { format, subDays, subWeeks, subMonths, subYears, startOfDay, startOfWeek, startOfMonth, startOfYear, endOfDay, endOfWeek, endOfMonth, endOfYear, parseISO } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import {
   Chart as ChartJS,
@@ -53,6 +53,20 @@ const parseBackendTimestamp = (timestamp) => {
   return parseISO(timestamp + 'Z');
 };
 
+// Safe date formatting helper to prevent "Invalid time value" errors
+const safeFormatInTimeZone = (timestamp, timezone, format) => {
+  try {
+    const parsedDate = parseBackendTimestamp(timestamp);
+    if (!parsedDate || isNaN(parsedDate.getTime())) {
+      return 'Invalid date';
+    }
+    return formatInTimeZone(parsedDate, timezone, format);
+  } catch (error) {
+    console.warn('Date formatting error:', error, 'for timestamp:', timestamp);
+    return 'Invalid date';
+  }
+};
+
 export default function AnalyticsDashboard() {
   const { currentUser } = useAuth();
   const { 
@@ -77,27 +91,12 @@ export default function AnalyticsDashboard() {
     refreshData();
   }, []); // Empty dependency array - only run once on mount
 
-  // Security check: Only allow DJs and Admins to access this feature
-  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <ShieldExclamationIcon className="h-16 w-16 mx-auto text-red-500 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Access Restricted</h3>
-          <p className="text-gray-600 dark:text-gray-400">
-            The Analytics Dashboard is only available to DJs and Administrators.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   // Filter activities by timeframe, similar to Notifications.jsx filtering approach
   const filteredActivities = useMemo(() => {
     if (!activityStats.recentActivities) return [];
-    
+
     let filtered = [...activityStats.recentActivities];
-    
+
     if (selectedTimeframe === 'today') {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -107,19 +106,19 @@ export default function AnalyticsDashboard() {
       weekStart.setDate(weekStart.getDate() - 7);
       filtered = filtered.filter(activity => new Date(activity.timestamp) >= weekStart);
     }
-    
+
     return filtered;
   }, [activityStats.recentActivities, selectedTimeframe]);
 
   // Calculate engagement comparison data using real data from activities/notifications
   const engagementComparison = useMemo(() => {
     if (!activityStats.recentActivities) return null;
-    
+
     const now = new Date();
-    
+
     // Define current and comparison periods with actual dates
     let currentPeriodStart, currentPeriodEnd, comparisonPeriodStart, comparisonPeriodEnd;
-    
+
     switch (comparisonPeriod) {
       case 'yesterday':
         currentPeriodStart = startOfDay(now);
@@ -148,29 +147,29 @@ export default function AnalyticsDashboard() {
       default:
         return null;
     }
-    
+
     // Filter activities for comparison period to get actual historical data  
     const comparisonActivities = activityStats.recentActivities.filter(activity => {
       if (!activity.timestamp) return false;
       const activityDate = new Date(activity.timestamp);
       return activityDate >= comparisonPeriodStart && activityDate <= comparisonPeriodEnd;
     });
-    
+
     // Calculate comparison metrics from actual historical activities
     const calculateComparisonMetrics = () => {
       // For a new database, we have no historical data, so return all zeros
       // Activity logs don't represent actual user/engagement counts from previous periods
-      
+
       // Only count actual broadcast activities from historical data
       const broadcastActivities = comparisonActivities.filter(a => 
         a.type && (a.type.includes('BROADCAST') || a.message.toLowerCase().includes('broadcast'))
       ).length;
-      
+
       // Only count actual chat message activities from historical data  
       const messageActivities = comparisonActivities.filter(a => 
         a.message && (a.message.toLowerCase().includes('message') || a.message.toLowerCase().includes('chat'))
       ).length;
-      
+
       // Return only real historical activity data - no fake metrics
       return {
         messageInteractions: messageActivities, // Only actual chat activities
@@ -181,16 +180,16 @@ export default function AnalyticsDashboard() {
         comparisonPeriodEndDate: format(comparisonPeriodEnd, 'MMM d')
       };
     };
-    
+
     const comparisonMetrics = calculateComparisonMetrics();
-    
+
     // Calculate percentage changes
     const calculateChange = (current, comparison) => {
       // If no historical data exists, don't show percentage change
       if (comparison === 0) return 0;
       return ((current - comparison) / comparison) * 100;
     };
-    
+
     return {
       current: {
         messageInteractions: engagementStats.totalChatMessages || 0,
@@ -210,6 +209,21 @@ export default function AnalyticsDashboard() {
     };
   }, [activityStats.recentActivities, engagementStats.totalChatMessages, engagementStats.totalSongRequests, broadcastStats.totalBroadcasts, userStats.totalUsers, comparisonPeriod]);
 
+  // Security check: Only allow DJs and Admins to access this feature
+  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <ShieldExclamationIcon className="h-16 w-16 mx-auto text-red-500 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Access Restricted</h3>
+          <p className="text-gray-600 dark:text-gray-400">
+            The Analytics Dashboard is only available to DJs and Administrators.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // Function to render a number with a + sign if positive
   const formatDelta = (num) => {
     if (num > 0) return `+${num}`;
@@ -226,10 +240,9 @@ export default function AnalyticsDashboard() {
 
   // Format percentage change with color and icon
   const formatPercentageChange = (change) => {
-    const absChange = Math.abs(change);
     const isPositive = change > 0;
     const isNeutral = change === 0;
-    
+
     if (isNeutral) {
       return {
         value: '0%',
@@ -237,7 +250,7 @@ export default function AnalyticsDashboard() {
         icon: null
       };
     }
-    
+
     return {
       value: `${isPositive ? '+' : ''}${change.toFixed(1)}%`,
       color: isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400',
@@ -331,7 +344,7 @@ export default function AnalyticsDashboard() {
             </div>
           </div>
         </div>
-        
+
         {/* Show error message on refresh failure but still show data */}
         {error && lastUpdated && (
           <div className="mb-6 p-4 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 rounded-lg">
@@ -345,7 +358,7 @@ export default function AnalyticsDashboard() {
             </div>
           </div>
         )}
-        
+
         {/* Show info message for non-admin users */}
         {currentUser && currentUser.role !== 'ADMIN' && (
           <div className="mb-6 p-4 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded-lg">
@@ -362,7 +375,7 @@ export default function AnalyticsDashboard() {
             </div>
           </div>
         )}
-        
+
         {/* Main content */}
         <div className="space-y-8">
           {/* Summary Cards Row */}
@@ -510,7 +523,7 @@ export default function AnalyticsDashboard() {
                   </p>
                 </div>
               </div>
-              
+
               {/* Compact Segmented Time Range Control */}
               <div className="flex flex-col items-end space-y-2">
                 <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1 text-sm">
@@ -714,7 +727,7 @@ export default function AnalyticsDashboard() {
                                   const datasetLabel = context.dataset.label;
                                   const value = context.formattedValue;
                                   const metricType = context.label;
-                                  
+
                                   // Get percentage change for this metric
                                   let change = 0;
                                   if (metricType === 'Chat Messages') {
@@ -726,7 +739,7 @@ export default function AnalyticsDashboard() {
                                   } else if (metricType === 'Total Users') {
                                     change = engagementComparison.changes.userInteractions;
                                   }
-                                  
+
                                   const changeText = change !== 0 ? ` (${change > 0 ? '+' : ''}${change.toFixed(1)}%)` : '';
                                   return `${datasetLabel}: ${value}${context.datasetIndex === 0 ? changeText : ''}`;
                                 },
@@ -793,7 +806,7 @@ export default function AnalyticsDashboard() {
                     const change = formatPercentageChange(metric.change);
                     const IconComponent = metric.icon;
                     const ChangeIcon = change.icon;
-                    
+
                     return (
                       <div key={index} className="bg-gray-800/30 dark:bg-gray-900/40 backdrop-blur-sm border border-gray-700/50 dark:border-gray-600/50 rounded-xl p-4 hover:bg-gray-800/40 dark:hover:bg-gray-900/50 transition-all duration-200">
                                                  <div className="flex items-center justify-between mb-3">
@@ -817,7 +830,7 @@ export default function AnalyticsDashboard() {
                             </div>
                           )}
                         </div>
-                        
+
                         <div className="space-y-1">
                           <p className="text-xs font-medium text-gray-400 dark:text-gray-500">{metric.label}</p>
                           <div className="flex items-baseline space-x-2">
@@ -845,7 +858,7 @@ export default function AnalyticsDashboard() {
                         </div>
                       </div>
                     </div>
-                    
+
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -853,7 +866,7 @@ export default function AnalyticsDashboard() {
                         </p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">vs {engagementComparison.comparison.broadcastActivities}</p>
                       </div>
-                      
+
                       {(() => {
                         const change = formatPercentageChange(engagementComparison.changes.broadcastActivities);
                         const IconComponent = change.icon;
@@ -880,7 +893,7 @@ export default function AnalyticsDashboard() {
                         </div>
                       </div>
                     </div>
-                    
+
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -888,7 +901,7 @@ export default function AnalyticsDashboard() {
                         </p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">vs {engagementComparison.comparison.userInteractions}</p>
                       </div>
-                      
+
                       {(() => {
                         const change = formatPercentageChange(engagementComparison.changes.userInteractions);
                         const IconComponent = change.icon;
@@ -915,7 +928,7 @@ export default function AnalyticsDashboard() {
                         </div>
                       </div>
                     </div>
-                    
+
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -923,7 +936,7 @@ export default function AnalyticsDashboard() {
                         </p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">vs {engagementComparison.comparison.messageInteractions}</p>
                       </div>
-                      
+
                       {(() => {
                         const change = formatPercentageChange(engagementComparison.changes.messageInteractions);
                         const IconComponent = change.icon;
@@ -957,7 +970,7 @@ export default function AnalyticsDashboard() {
                             </span>
                           )}
                         </p>
-                        
+
                         <p>
                           <strong>Song Requests:</strong> {engagementComparison.current.songRequests} 
                           {engagementComparison.changes.songRequests !== 0 && (
@@ -966,7 +979,7 @@ export default function AnalyticsDashboard() {
                             </span>
                           )}
                         </p>
-                        
+
                         <p>
                           <strong>Broadcasts:</strong> {engagementComparison.current.broadcastActivities} 
                           {engagementComparison.changes.broadcastActivities !== 0 && (
@@ -975,7 +988,7 @@ export default function AnalyticsDashboard() {
                             </span>
                           )}
                         </p>
-                        
+
                         <p>
                           <strong>Total Users:</strong> {engagementComparison.current.userInteractions}
                           {engagementComparison.changes.userInteractions !== 0 && (
@@ -1013,7 +1026,7 @@ export default function AnalyticsDashboard() {
                   Top 5
                 </div>
               </div>
-              
+
               <div className="space-y-4">
                 {mostPopularBroadcasts?.length > 0 ? mostPopularBroadcasts.map((broadcast, index) => (
                   <div key={broadcast.id} className="flex items-center space-x-4">
@@ -1063,7 +1076,7 @@ export default function AnalyticsDashboard() {
                   </select>
                 </div>
               </div>
-              
+
               <EnhancedScrollArea className="max-h-80">
                 <div className="space-y-4">
                 {filteredActivities.length > 0 ? filteredActivities.map((activity, index) => (
@@ -1095,7 +1108,7 @@ export default function AnalyticsDashboard() {
                         {activity.message || 'Unknown activity'}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {activity.username || 'Unknown user'} • {formatInTimeZone(parseBackendTimestamp(activity.timestamp), 'Asia/Manila', 'h:mm a')}
+                        {activity.username || 'Unknown user'} • {safeFormatInTimeZone(activity.timestamp, 'Asia/Manila', 'h:mm a')}
                       </p>
                     </div>
                   </div>
@@ -1123,7 +1136,7 @@ export default function AnalyticsDashboard() {
               </span>
               {lastUpdated && (
                 <span className="text-gray-500 dark:text-gray-400 ml-2">
-                  • Last refreshed: {formatInTimeZone(parseBackendTimestamp(lastUpdated), 'Asia/Manila', 'h:mm a')}
+                  • Last refreshed: {safeFormatInTimeZone(lastUpdated, 'Asia/Manila', 'h:mm a')}
                 </span>
               )}
             </div>

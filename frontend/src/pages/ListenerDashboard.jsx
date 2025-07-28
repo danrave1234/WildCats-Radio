@@ -70,7 +70,9 @@ export default function ListenerDashboard() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatMessage, setChatMessage] = useState('');
 
-  // Song request
+  // Song request state
+  const [isSongRequestMode, setIsSongRequestMode] = useState(false);
+  const [songRequestText, setSongRequestText] = useState('');
 
   // Poll state
   const [activePoll, setActivePoll] = useState(null);
@@ -269,9 +271,9 @@ export default function ListenerDashboard() {
     };
   }, [serverConfig, volume, isMuted]);
 
-  
 
-  
+
+
 
   // Stream status checking from ListenerDashboard2.jsx
   useEffect(() => {
@@ -1190,13 +1192,22 @@ export default function ListenerDashboard() {
     }
     if (!currentBroadcastId) return;
 
-    const title = window.prompt('Enter song title');
-    if (!title) return;
+    if (!isSongRequestMode) {
+      // Enter song request mode
+      setIsSongRequestMode(true);
+      setSongRequestText('');
+    } else {
+      // Submit the song request
+      if (!songRequestText.trim()) return;
 
-    try {
-      await songRequestService.createRequest(currentBroadcastId, { songTitle: title });
-    } catch (error) {
-      logger.error('Error submitting song request:', error);
+      try {
+        await songRequestService.createRequest(currentBroadcastId, { songTitle: songRequestText.trim() });
+        // Reset to normal chat mode after successful submission
+        setIsSongRequestMode(false);
+        setSongRequestText('');
+      } catch (error) {
+        logger.error('Error submitting song request:', error);
+      }
     }
   };
 
@@ -1377,39 +1388,77 @@ export default function ListenerDashboard() {
       <form onSubmit={handleChatSubmit} className="flex items-center space-x-2">
         <input
           type="text"
-          value={chatMessage}
+          value={isSongRequestMode ? songRequestText : chatMessage}
           onChange={(e) => {
             // Limit input to 1500 characters
             if (e.target.value.length <= 1500) {
-              setChatMessage(e.target.value);
+              if (isSongRequestMode) {
+                setSongRequestText(e.target.value);
+              } else {
+                setChatMessage(e.target.value);
+              }
             }
           }}
-          placeholder="Type your message..."
-          className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 focus:border-transparent"
+          placeholder={isSongRequestMode ? "Enter song title..." : "Type your message..."}
+          className={`flex-1 p-2 border rounded-l-md text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:border-transparent transition-all duration-300 ease-in-out ${
+            isSongRequestMode 
+              ? "border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-500 focus:ring-yellow-500 animate-pulse" 
+              : "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 focus:ring-maroon-500"
+          }`}
           disabled={!isLive}
           maxLength={1500}
         />
-        <button
-          type="submit"
-          disabled={!isLive || !chatMessage.trim() || chatMessage.length > 1500}
-          className={`p-2 rounded-r-md ${
-            isLive && chatMessage.trim() && chatMessage.length <= 1500
-              ? "bg-maroon-700 hover:bg-maroon-800 text-white"
-              : "bg-gray-300 text-gray-500 cursor-not-allowed"
-          }`}
-        >
-          <PaperAirplaneIcon className="h-5 w-5" />
-        </button>
-        <button
-          type="button"
-          onClick={handleSongRequest}
-          disabled={!isLive}
-          className={`p-2 rounded-md ${
-            isLive ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-          }`}
-        >
-          Request Song
-        </button>
+
+        {/* Swap button positions when in song request mode */}
+        {isSongRequestMode ? (
+          <>
+            <button
+              type="button"
+              onClick={handleSongRequest}
+              disabled={!isLive}
+              className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 ${
+                isLive ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              }`}
+            >
+              Request
+            </button>
+            <button
+              type="submit"
+              disabled={!isLive || (!isSongRequestMode && !chatMessage.trim()) || (isSongRequestMode && !songRequestText.trim())}
+              className={`p-2 rounded-r-md transition-all duration-300 ${
+                isLive && ((isSongRequestMode && songRequestText.trim()) || (!isSongRequestMode && chatMessage.trim()))
+                  ? "bg-maroon-700 hover:bg-maroon-800 text-white"
+                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
+              }`}
+            >
+              <PaperAirplaneIcon className="h-5 w-5" />
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="submit"
+              disabled={!isLive || (!isSongRequestMode && !chatMessage.trim()) || (isSongRequestMode && !songRequestText.trim())}
+              className={`p-2 rounded-r-md transition-all duration-300 ${
+                isLive && ((isSongRequestMode && songRequestText.trim()) || (!isSongRequestMode && chatMessage.trim()))
+                  ? "bg-maroon-700 hover:bg-maroon-800 text-white"
+                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
+              }`}
+            >
+              <PaperAirplaneIcon className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={handleSongRequest}
+              disabled={!isLive}
+              className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 ${
+                isLive ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              }`}
+            >
+              Song Request
+            </button>
+          </>
+        )}
       </form>
     );
   };

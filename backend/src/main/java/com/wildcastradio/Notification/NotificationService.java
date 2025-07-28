@@ -6,6 +6,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.wildcastradio.Notification.DTO.NotificationDTO;
 import com.wildcastradio.User.UserEntity;
@@ -23,13 +24,14 @@ public class NotificationService {
         this.messagingTemplate = messagingTemplate;
     }
 
+    @Transactional
     public NotificationEntity sendNotification(UserEntity recipient, String message, NotificationType type) {
         NotificationEntity notification = new NotificationEntity(message, type, recipient);
         NotificationEntity savedNotification = notificationRepository.save(notification);
 
         // Create DTO for the notification
         NotificationDTO notificationDTO = NotificationDTO.fromEntity(savedNotification);
-        
+
         // Send real-time notification to the user if they're online
         messagingTemplate.convertAndSendToUser(
                 recipient.getEmail(),
@@ -40,18 +42,21 @@ public class NotificationService {
         return savedNotification;
     }
 
+    @Transactional(readOnly = true)
     public List<NotificationDTO> getNotificationsForUser(UserEntity user) {
         return notificationRepository.findByRecipient(user).stream()
                 .map(NotificationDTO::fromEntity)
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<NotificationDTO> getUnreadNotificationsForUser(UserEntity user) {
         return notificationRepository.findByRecipientAndIsReadOrderByTimestampDesc(user, false).stream()
                 .map(NotificationDTO::fromEntity)
                 .collect(Collectors.toList());
     }
 
+    @Transactional
     public NotificationEntity markAsRead(Long notificationId) {
         NotificationEntity notification = notificationRepository.findById(notificationId)
                 .orElseThrow(() -> new RuntimeException("Notification not found"));
@@ -64,12 +69,14 @@ public class NotificationService {
         return notificationRepository.countByRecipientAndIsRead(user, false);
     }
 
+    @Transactional(readOnly = true)
     public List<NotificationDTO> getRecentNotifications(UserEntity user, LocalDateTime since) {
         return notificationRepository.findByRecipientAndTimestampAfter(user, since).stream()
                 .map(NotificationDTO::fromEntity)
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<NotificationDTO> getNotificationsByType(UserEntity user, NotificationType type) {
         return notificationRepository.findByRecipientAndType(user, type).stream()
                 .map(NotificationDTO::fromEntity)

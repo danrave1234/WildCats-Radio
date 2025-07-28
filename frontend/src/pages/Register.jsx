@@ -21,6 +21,7 @@ export default function Register() {
     email: "",
     password: "",
     confirmPassword: "",
+    birthdate: "",
   })
   const [error, setError] = useState("")
   const [showPasswords, setShowPasswords] = useState(false)
@@ -62,6 +63,26 @@ export default function Register() {
       return
     }
 
+    // Validate birthdate (must be at least 13 years old)
+    if (formData.birthdate) {
+      const birthDate = new Date(formData.birthdate)
+      const today = new Date()
+      let age = today.getFullYear() - birthDate.getFullYear()
+      const monthDiff = today.getMonth() - birthDate.getMonth()
+
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--
+      }
+
+      if (age < 13) {
+        setError('You must be at least 13 years old to register')
+        return
+      }
+    } else {
+      setError('Please enter your date of birth')
+      return
+    }
+
     try {
       // Remove confirmPassword before sending to backend
       const { confirmPassword, ...registerData } = formData
@@ -88,7 +109,7 @@ export default function Register() {
               className="h-40 w-auto"
             />
           </div>
-          
+
           {/* Title Section */}
           <div className="text-center mb-3 sm:mb-4 px-4">
             <p className="text-sm text-gray-600 uppercase tracking-wider max-w-sm mx-auto font-semibold">
@@ -129,7 +150,7 @@ export default function Register() {
                       className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                     />
                   </div>
-                  
+
                   <div className="space-y-1.5">
                     <Label htmlFor="lastname" className="text-xs font-semibold text-gray-700">
                       Last Name
@@ -147,7 +168,7 @@ export default function Register() {
                     />
                   </div>
                 </div>
-                
+
                 {/* Email Field */}
                 <div className="space-y-1.5">
                   <Label htmlFor="email" className="text-xs font-semibold text-gray-700">
@@ -169,7 +190,26 @@ export default function Register() {
                     <span>Only cit.edu email addresses are allowed</span>
                   </p>
                 </div>
-                
+
+                {/* Birthdate Field */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="birthdate" className="text-xs font-semibold text-gray-700">
+                    Date of Birth
+                  </Label>
+                  <Input
+                    id="birthdate"
+                    name="birthdate"
+                    type="date"
+                    required
+                    value={formData.birthdate}
+                    onChange={handleChange}
+                    className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
+                  />
+                  <p className="text-xs text-gray-500 pt-1">
+                    Used for analytics and age-appropriate content
+                  </p>
+                </div>
+
                 {/* Password Field */}
                 <div className="space-y-1.5">
                   <Label htmlFor="password" className="text-xs font-semibold text-gray-700">
@@ -203,7 +243,7 @@ export default function Register() {
                     </Button>
                   </div>
                 </div>
-                
+
                 {/* Confirm Password Field */}
                 <div className="space-y-1.5">
                   <Label htmlFor="confirmPassword" className="text-xs font-semibold text-gray-700">

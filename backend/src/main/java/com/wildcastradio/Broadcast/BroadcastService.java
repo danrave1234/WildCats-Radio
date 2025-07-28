@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import com.wildcastradio.ActivityLog.ActivityLogEntity;
 import com.wildcastradio.ActivityLog.ActivityLogService;
+import com.wildcastradio.Analytics.ListenerTrackingService;
 import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 import com.wildcastradio.Broadcast.DTO.CreateBroadcastRequest;
 import com.wildcastradio.Notification.NotificationService;
@@ -37,6 +38,9 @@ public class BroadcastService {
 
     @Autowired
     private ActivityLogService activityLogService;
+
+    @Autowired
+    private ListenerTrackingService listenerTrackingService;
 
     @Autowired
     private NotificationService notificationService;
@@ -431,8 +435,8 @@ public class BroadcastService {
                 );
             }
 
-            // Here you could update listener count analytics
-            // This could be stored in a separate table or in-memory
+            // Record listener join in tracking service for real-time analytics
+            listenerTrackingService.recordListenerJoin(broadcastId, user != null ? user.getId() : null);
         }
     }
 
@@ -452,8 +456,8 @@ public class BroadcastService {
         if (broadcastOpt.isPresent()) {
             BroadcastEntity broadcast = broadcastOpt.get();
 
-            // Here you could update listener count analytics
-            // This could be stored in a separate table or in-memory
+            // Record listener leave in tracking service for real-time analytics
+            listenerTrackingService.recordListenerLeave(broadcastId, user != null ? user.getId() : null);
         }
     }
 
@@ -479,7 +483,7 @@ public class BroadcastService {
 
     public double getAverageBroadcastDuration() {
         List<BroadcastEntity> completedBroadcasts = broadcastRepository.findByStatus(BroadcastEntity.BroadcastStatus.ENDED);
-        
+
         if (completedBroadcasts.isEmpty()) {
             return 0.0;
         }

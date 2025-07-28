@@ -1,5 +1,7 @@
 package com.wildcastradio.User;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -48,36 +50,51 @@ public class UserEntity {
     private boolean verified = false;
     private String verificationCode;
 
-    // Relationships
-    @OneToMany(mappedBy = "createdBy", cascade = CascadeType.ALL)
+
+    @Column
+    private LocalDateTime lastLoginAt; // Track user activity
+
+    @Column
+    private boolean isActive = true; // Soft delete capability
+
+    @Column
+    private LocalDateTime createdAt; // User registration date
+
+    @Column
+    private LocalDate birthdate; // User birthdate for analytics
+
+    // Relationships - Fixed cascade types for better performance and data integrity
+    @OneToMany(mappedBy = "createdBy", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     private List<BroadcastEntity> broadcasts = new ArrayList<>();
 
-    @OneToMany(mappedBy = "sender", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "sender", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     private List<ChatMessageEntity> chatMessages = new ArrayList<>();
 
-    @OneToMany(mappedBy = "requestedBy", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "requestedBy", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     private List<SongRequestEntity> songRequests = new ArrayList<>();
 
-    @OneToMany(mappedBy = "recipient", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "recipient", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     private List<NotificationEntity> notifications = new ArrayList<>();
 
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     private List<ActivityLogEntity> activityLogs = new ArrayList<>();
 
     // User roles enum
     public enum UserRole {
         ADMIN, DJ, LISTENER
     }
-    
+
     // Default constructor
     public UserEntity() {
+        this.createdAt = LocalDateTime.now();
     }
-    
+
     // All args constructor
     public UserEntity(Long id, String firstname, String lastname, String email, String password, UserRole role, 
-                    boolean verified, String verificationCode, List<BroadcastEntity> broadcasts,
-                    List<ChatMessageEntity> chatMessages, List<SongRequestEntity> songRequests,
-                    List<NotificationEntity> notifications, List<ActivityLogEntity> activityLogs) {
+                    boolean verified, String verificationCode, LocalDateTime lastLoginAt, boolean isActive, LocalDateTime createdAt,
+                    LocalDate birthdate, List<BroadcastEntity> broadcasts, List<ChatMessageEntity> chatMessages, 
+                    List<SongRequestEntity> songRequests, List<NotificationEntity> notifications, 
+                    List<ActivityLogEntity> activityLogs) {
         this.id = id;
         this.firstname = firstname;
         this.lastname = lastname;
@@ -86,13 +103,17 @@ public class UserEntity {
         this.role = role;
         this.verified = verified;
         this.verificationCode = verificationCode;
+        this.lastLoginAt = lastLoginAt;
+        this.isActive = isActive;
+        this.createdAt = createdAt != null ? createdAt : LocalDateTime.now();
+        this.birthdate = birthdate;
         this.broadcasts = broadcasts;
         this.chatMessages = chatMessages;
         this.songRequests = songRequests;
         this.notifications = notifications;
         this.activityLogs = activityLogs;
     }
-    
+
     // Getters and Setters
     public Long getId() {
         return id;
@@ -197,4 +218,46 @@ public class UserEntity {
     public void setActivityLogs(List<ActivityLogEntity> activityLogs) {
         this.activityLogs = activityLogs;
     }
-} 
+
+
+    public LocalDateTime getLastLoginAt() {
+        return lastLoginAt;
+    }
+
+    public void setLastLoginAt(LocalDateTime lastLoginAt) {
+        this.lastLoginAt = lastLoginAt;
+    }
+
+    public boolean isActive() {
+        return isActive;
+    }
+
+    public void setActive(boolean active) {
+        isActive = active;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public LocalDate getBirthdate() {
+        return birthdate;
+    }
+
+    public void setBirthdate(LocalDate birthdate) {
+        this.birthdate = birthdate;
+    }
+
+    // Helper methods
+    public String getFullName() {
+        return firstname + " " + lastname;
+    }
+
+    public String getDisplayNameOrFullName() {
+        return getFullName();
+    }
+}

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useBroadcastHistory } from '../context/BroadcastHistoryContext';
 import { useAuth } from '../context/AuthContext';
 import { formatDistanceToNow, format } from 'date-fns';
@@ -15,7 +15,17 @@ import {
   SpeakerWaveIcon,
   ChartBarIcon,
   ClockIcon,
-  ShieldExclamationIcon
+  ShieldExclamationIcon,
+  EyeIcon,
+  ChatBubbleLeftRightIcon,
+  MusicalNoteIcon,
+  PlayIcon,
+  StopIcon,
+  UserIcon,
+  Squares2X2Icon,
+  ListBulletIcon,
+  XMarkIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
 
 const broadcastTypeIcons = {
@@ -49,33 +59,31 @@ export default function BroadcastHistory() {
   const { currentUser } = useAuth();
   const { 
     broadcastHistory, 
+    detailedBroadcasts,
+    selectedBroadcastAnalytics,
     stats,
     loading,
     error,
     fetchBroadcastHistory,
     fetchRecentBroadcastHistory,
-    fetchBroadcastHistoryByType
+    fetchBroadcastHistoryByType,
+    fetchDetailedBroadcastAnalytics,
+    fetchBroadcastAnalytics
   } = useBroadcastHistory();
-  
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const [timeFilter, setTimeFilter] = useState('all');
+  const [viewMode, setViewMode] = useState('notifications'); // 'notifications' or 'analytics'
+  const [selectedBroadcastId, setSelectedBroadcastId] = useState(null);
 
-  // Security check: Only allow DJs and Admins to access this feature
-  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <ShieldExclamationIcon className="h-16 w-16 mx-auto text-red-500 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Access Restricted</h3>
-          <p className="text-gray-600 dark:text-gray-400">
-            This feature is only available to DJs and Administrators.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // Load analytics data when switching to analytics view
+  useEffect(() => {
+    if (viewMode === 'analytics') {
+      fetchDetailedBroadcastAnalytics();
+    }
+  }, [viewMode, fetchDetailedBroadcastAnalytics]);
 
   const filteredAndSortedHistory = useMemo(() => {
     let filtered = broadcastHistory;
@@ -105,6 +113,57 @@ export default function BroadcastHistory() {
 
     return filtered;
   }, [broadcastHistory, searchTerm, selectedFilter, sortBy]);
+
+  // Filter and sort analytics data
+  const filteredAndSortedAnalytics = useMemo(() => {
+    if (!detailedBroadcasts) return [];
+
+    let filtered = [...detailedBroadcasts];
+
+    // Apply search filter for analytics
+    if (searchTerm) {
+      filtered = filtered.filter(broadcast =>
+        broadcast.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        broadcast.createdBy?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    // Apply status filter for analytics
+    if (selectedFilter !== 'all') {
+      filtered = filtered.filter(broadcast => broadcast.status === selectedFilter);
+    }
+
+    // Apply sorting for analytics
+    filtered.sort((a, b) => {
+      if (sortBy === 'newest') {
+        return new Date(b.actualStart || b.scheduledStart) - new Date(a.actualStart || a.scheduledStart);
+      } else if (sortBy === 'oldest') {
+        return new Date(a.actualStart || a.scheduledStart) - new Date(b.actualStart || b.scheduledStart);
+      } else if (sortBy === 'duration') {
+        return (b.durationMinutes || 0) - (a.durationMinutes || 0);
+      } else if (sortBy === 'interactions') {
+        return (b.totalInteractions || 0) - (a.totalInteractions || 0);
+      }
+      return 0;
+    });
+
+    return filtered;
+  }, [detailedBroadcasts, searchTerm, selectedFilter, sortBy]);
+
+  // Security check: Only allow DJs and Admins to access this feature
+  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <ShieldExclamationIcon className="h-16 w-16 mx-auto text-red-500 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Access Restricted</h3>
+          <p className="text-gray-600 dark:text-gray-400">
+            This feature is only available to DJs and Administrators.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const getBroadcastIcon = (type) => {
     const IconComponent = broadcastTypeIcons[type] || broadcastTypeIcons.default;
@@ -181,15 +240,43 @@ export default function BroadcastHistory() {
       <div className="max-w-4xl mx-auto p-6">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center space-x-3 mb-6">
-            <div className="p-2 bg-maroon-100 dark:bg-maroon-900/30 rounded-lg">
-              <RadioIcon className="h-8 w-8 text-maroon-600 dark:text-maroon-400" />
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-maroon-100 dark:bg-maroon-900/30 rounded-lg">
+                <RadioIcon className="h-8 w-8 text-maroon-600 dark:text-maroon-400" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Broadcast History</h1>
+                <p className="text-gray-600 dark:text-gray-400">
+                  {viewMode === 'notifications' ? 'Track all broadcast events and activities' : 'View detailed broadcast analytics and metrics'}
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Broadcast History</h1>
-              <p className="text-gray-600 dark:text-gray-400">
-                Track all broadcast events and activities
-              </p>
+
+            {/* View Mode Toggle */}
+            <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              <button
+                onClick={() => setViewMode('notifications')}
+                className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+                  viewMode === 'notifications'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <ListBulletIcon className="h-4 w-4 mr-2" />
+                Notifications
+              </button>
+              <button
+                onClick={() => setViewMode('analytics')}
+                className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+                  viewMode === 'analytics'
+                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <ChartBarIcon className="h-4 w-4 mr-2" />
+                Analytics
+              </button>
             </div>
           </div>
 
@@ -205,7 +292,7 @@ export default function BroadcastHistory() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center">
                   <CalendarIcon className="h-8 w-8 text-blue-600 dark:text-blue-400" />
@@ -215,7 +302,7 @@ export default function BroadcastHistory() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center">
                   <MicrophoneIcon className="h-8 w-8 text-green-600 dark:text-green-400" />
@@ -225,7 +312,7 @@ export default function BroadcastHistory() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center">
                   <SpeakerWaveIcon className="h-8 w-8 text-red-600 dark:text-red-400" />
@@ -235,7 +322,7 @@ export default function BroadcastHistory() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center">
                   <ClockIcon className="h-8 w-8 text-purple-600 dark:text-purple-400" />
@@ -255,39 +342,58 @@ export default function BroadcastHistory() {
               <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search broadcast history..."
+                placeholder={viewMode === 'notifications' ? "Search broadcast history..." : "Search broadcasts by title or DJ..."}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               />
             </div>
 
-            {/* Time Filter */}
-            <select
-              value={timeFilter}
-              onChange={(e) => handleTimeFilterChange(e.target.value)}
-              className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-maroon-500"
-            >
-              <option value="all">All Time</option>
-              <option value="today">Today</option>
-              <option value="week">This Week</option>
-              <option value="month">This Month</option>
-            </select>
+            {/* Time Filter - Only for notifications view */}
+            {viewMode === 'notifications' && (
+              <select
+                value={timeFilter}
+                onChange={(e) => handleTimeFilterChange(e.target.value)}
+                className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-maroon-500"
+              >
+                <option value="all">All Time</option>
+                <option value="today">Today</option>
+                <option value="week">This Week</option>
+                <option value="month">This Month</option>
+              </select>
+            )}
 
-            {/* Type Filter */}
+            {/* Filter */}
             <div className="flex items-center space-x-2">
               <FunnelIcon className="h-5 w-5 text-gray-400" />
               <select
                 value={selectedFilter}
-                onChange={(e) => handleTypeFilter(e.target.value)}
+                onChange={(e) => {
+                  setSelectedFilter(e.target.value);
+                  if (viewMode === 'notifications') {
+                    handleTypeFilter(e.target.value);
+                  }
+                }}
                 className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-maroon-500"
               >
-                <option value="all">All Types</option>
-                <option value="BROADCAST_SCHEDULED">Scheduled</option>
-                <option value="BROADCAST_STARTING_SOON">Starting Soon</option>
-                <option value="BROADCAST_STARTED">Started</option>
-                <option value="BROADCAST_ENDED">Ended</option>
-                <option value="NEW_BROADCAST_POSTED">New Posted</option>
+                {viewMode === 'notifications' ? (
+                  <>
+                    <option value="all">All Types</option>
+                    <option value="BROADCAST_SCHEDULED">Scheduled</option>
+                    <option value="BROADCAST_STARTING_SOON">Starting Soon</option>
+                    <option value="BROADCAST_STARTED">Started</option>
+                    <option value="BROADCAST_ENDED">Ended</option>
+                    <option value="NEW_BROADCAST_POSTED">New Posted</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="all">All Status</option>
+                    <option value="SCHEDULED">Scheduled</option>
+                    <option value="LIVE">Live</option>
+                    <option value="ENDED">Ended</option>
+                    <option value="TESTING">Testing</option>
+                  </>
+                )}
               </select>
             </div>
 
@@ -299,7 +405,24 @@ export default function BroadcastHistory() {
             >
               <option value="newest">Newest First</option>
               <option value="oldest">Oldest First</option>
+              {viewMode === 'analytics' && (
+                <>
+                  <option value="duration">By Duration</option>
+                  <option value="interactions">By Interactions</option>
+                </>
+              )}
             </select>
+
+            {/* Refresh button for analytics */}
+            {viewMode === 'analytics' && (
+              <button
+                onClick={fetchDetailedBroadcastAnalytics}
+                disabled={loading}
+                className="flex items-center px-3 py-2 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 transition-colors disabled:opacity-50"
+              >
+                <ArrowPathIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+            )}
           </div>
         </div>
 
@@ -320,7 +443,7 @@ export default function BroadcastHistory() {
           ) : (
             filteredAndSortedHistory.map((broadcast) => {
               const IconComponent = getBroadcastIcon(broadcast.type);
-              
+
               return (
                 <div
                   key={broadcast.id}

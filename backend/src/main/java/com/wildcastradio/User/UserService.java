@@ -40,7 +40,7 @@ public class UserService implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
-        UserEntity user = userRepository.findByEmail(email)
+        UserEntity user = userRepository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + email));
 
         Collection<GrantedAuthority> authorities = Collections.singletonList(
@@ -57,7 +57,7 @@ public class UserService implements UserDetailsService {
     }
 
     public UserEntity registerUser(RegisterRequest request) {
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (userRepository.existsByEmailIgnoreCase(request.getEmail())) {
             throw new IllegalArgumentException("Email already in use");
         }
 
@@ -66,6 +66,7 @@ public class UserService implements UserDetailsService {
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setFirstname(request.getFirstname());
         user.setLastname(request.getLastname());
+        user.setBirthdate(request.getBirthdate());
         user.setRole(UserEntity.UserRole.LISTENER); // Default role
         user.setVerified(false);
         user.setVerificationCode(generateVerificationCode());
@@ -85,7 +86,7 @@ public class UserService implements UserDetailsService {
 
 
     public LoginResponse loginUser(LoginRequest request) {
-        Optional<UserEntity> userOpt = userRepository.findByEmail(request.getEmail());
+        Optional<UserEntity> userOpt = userRepository.findByEmailIgnoreCase(request.getEmail());
 
         if (userOpt.isPresent()) {
             UserEntity user = userOpt.get();
@@ -109,7 +110,7 @@ public class UserService implements UserDetailsService {
     }
 
     public String sendVerificationCode(String email) {
-        Optional<UserEntity> userOpt = userRepository.findByEmail(email);
+        Optional<UserEntity> userOpt = userRepository.findByEmailIgnoreCase(email);
 
         if (!userOpt.isPresent()) {
             throw new IllegalArgumentException("User not found");
@@ -185,7 +186,7 @@ public class UserService implements UserDetailsService {
     }
 
     public boolean verifyCode(String email, String code) {
-        Optional<UserEntity> userOpt = userRepository.findByEmail(email);
+        Optional<UserEntity> userOpt = userRepository.findByEmailIgnoreCase(email);
 
         if (userOpt.isPresent()) {
             UserEntity user = userOpt.get();
@@ -258,11 +259,11 @@ public class UserService implements UserDetailsService {
     }
 
     public boolean existsByEmail(String email) {
-        return userRepository.existsByEmail(email);
+        return userRepository.existsByEmailIgnoreCase(email);
     }
 
     public Optional<UserEntity> getUserByEmail(String email) {
-        return userRepository.findByEmail(email);
+        return userRepository.findByEmailIgnoreCase(email);
     }
 
     private String generateVerificationCode() {
@@ -315,7 +316,7 @@ public class UserService implements UserDetailsService {
         // Since we don't have createdAt field, we'll provide a simple estimate
         // This could be enhanced later with proper timestamp tracking if needed
         long totalUsers = getTotalUserCount();
-        
+
         // Provide a reasonable estimate: assume 10% of users joined this month
         // This is a simplified approach without requiring new database fields
         return Math.max(0, Math.round(totalUsers * 0.1));
@@ -323,5 +324,9 @@ public class UserService implements UserDetailsService {
 
     public long getNewUsersThisMonth() {
         return getNewUsersThisMonthCount();
+    }
+
+    public List<UserEntity> getAllUsers() {
+        return userRepository.findAll();
     }
 } 

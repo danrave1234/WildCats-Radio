@@ -615,9 +615,14 @@ export const analyticsService = {
   getUserStats: () => api.get('/api/analytics/users'),
   getEngagementStats: () => api.get('/api/analytics/engagement'),
   getActivityStats: () => api.get('/api/analytics/activity'),
+  getRealtimeStats: () => api.get('/api/analytics/realtime'),
+  getDemographicAnalytics: () => api.get('/api/analytics/demographics'),
   getPopularBroadcasts: () => api.get('/api/analytics/popular-broadcasts'),
   getAnalyticsSummary: () => api.get('/api/analytics/summary'),
   getHealthStatus: () => api.get('/api/analytics/health'),
+  // Individual broadcast analytics
+  getBroadcastAnalytics: (broadcastId) => api.get(`/api/analytics/broadcast/${broadcastId}`),
+  getAllBroadcastAnalytics: () => api.get('/api/analytics/broadcasts/detailed'),
 };
 
 export default api;

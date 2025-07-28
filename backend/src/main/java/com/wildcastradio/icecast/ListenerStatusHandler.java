@@ -269,8 +269,16 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
      */
     public void broadcastStatus() {
         try {
-            Map<String, Object> streamStatus = icecastService.getStreamStatus();
-            Integer listenerCount = icecastService.getCurrentListenerCount();
+            // Skip polling if no listeners are connected and no broadcasts are active
+            if (listenerSessions.isEmpty() && !icecastService.isAnyBroadcastActive()) {
+                logger.debug("Skipping status broadcast - no listeners connected and no active broadcasts");
+                return;
+            }
+
+            // Suppress warnings if no broadcasts are active to reduce log noise
+            boolean logWarnings = icecastService.isAnyBroadcastActive();
+            Map<String, Object> streamStatus = icecastService.getStreamStatus(logWarnings);
+            Integer listenerCount = icecastService.getCurrentListenerCount(logWarnings);
 
             Map<String, Object> message = new HashMap<>();
             message.put("type", "STREAM_STATUS");
@@ -327,8 +335,10 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
                 return;
             }
 
-            Map<String, Object> streamStatus = icecastService.getStreamStatus();
-            Integer listenerCount = icecastService.getCurrentListenerCount();
+            // Suppress warnings if no broadcasts are active to reduce log noise
+            boolean logWarnings = icecastService.isAnyBroadcastActive();
+            Map<String, Object> streamStatus = icecastService.getStreamStatus(logWarnings);
+            Integer listenerCount = icecastService.getCurrentListenerCount(logWarnings);
 
             Map<String, Object> message = new HashMap<>();
             message.put("type", "STREAM_STATUS");

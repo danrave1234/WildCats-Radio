@@ -118,16 +118,37 @@ const AudioSourceSelector = ({ disabled = false }) => {
           logger.debug('Current audio device set:', deviceInfo);
         } else {
           logger.warn('Audio stream exists but has no audio tracks');
-          setCurrentAudioDevice(null);
+          // If audioSource is set but no tracks, show as selected but inactive
+          if (audioSource) {
+            setCurrentAudioDevice({
+              label: 'Desktop Audio (Selected)',
+              kind: 'desktop',
+              enabled: false,
+              readyState: 'inactive'
+            });
+          } else {
+            setCurrentAudioDevice(null);
+          }
         }
       } else {
-        logger.debug('No audio stream reference found, clearing current audio device');
-        setCurrentAudioDevice(null);
+        logger.debug('No audio stream reference found');
+        // If audioSource is set but no stream reference, show as selected but not connected
+        if (audioSource && audioSource !== 'none') {
+          logger.debug('Audio source is set but no stream reference, showing as selected');
+          setCurrentAudioDevice({
+            label: 'Desktop Audio (Selected)',
+            kind: 'desktop',
+            enabled: false,
+            readyState: 'selected'
+          });
+        } else {
+          setCurrentAudioDevice(null);
+        }
       }
     };
 
     getCurrentAudioDevice();
-  }, [audioStreamRef, isLive]);
+  }, [audioStreamRef, isLive, audioSource]);
 
   // Load devices when component mounts or when showing selector
   useEffect(() => {

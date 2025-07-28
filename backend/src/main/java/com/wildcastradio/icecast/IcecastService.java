@@ -148,6 +148,16 @@ public class IcecastService {
      * @return true if the stream is live on Icecast or there are active broadcasts
      */
     public boolean isStreamLive() {
+        return isStreamLive(true);
+    }
+
+    /**
+     * Check if the stream is live
+     * This checks both the Icecast server status and our internal tracking of active broadcasts
+     * @param logWarnings whether to log warnings when unable to check Icecast status
+     * @return true if the stream is live on Icecast or there are active broadcasts
+     */
+    public boolean isStreamLive(boolean logWarnings) {
         // First check if we have any active broadcasts
         if (!activeBroadcasts.isEmpty()) {
             return true;
@@ -177,7 +187,11 @@ public class IcecastService {
                 }
             }
         } catch (IOException e) {
-            logger.warn("Failed to check Icecast stream status: {}", e.getMessage());
+            if (logWarnings) {
+                logger.warn("Failed to check Icecast stream status: {}", e.getMessage());
+            } else {
+                logger.debug("Failed to check Icecast stream status: {}", e.getMessage());
+            }
         }
         return false;
     }
@@ -187,6 +201,15 @@ public class IcecastService {
      * @return Number of current listeners
      */
     public Integer getCurrentListenerCount() {
+        return getCurrentListenerCount(true);
+    }
+
+    /**
+     * Get the current listener count from Icecast and active WebSocket listeners
+     * @param logWarnings whether to log warnings when unable to get count from Icecast
+     * @return Number of current listeners
+     */
+    public Integer getCurrentListenerCount(boolean logWarnings) {
         int icecastListeners = 0;
         int webSocketListeners = listenerStatusHandler != null ? listenerStatusHandler.getActiveListenersCount() : 0;
 
@@ -219,7 +242,11 @@ public class IcecastService {
                 }
             }
         } catch (Exception e) {
-            logger.warn("Failed to get listener count from Icecast: {}", e.getMessage());
+            if (logWarnings) {
+                logger.warn("Failed to get listener count from Icecast: {}", e.getMessage());
+            } else {
+                logger.debug("Failed to get listener count from Icecast: {}", e.getMessage());
+            }
         }
 
         return icecastListeners + webSocketListeners;
@@ -230,6 +257,15 @@ public class IcecastService {
      * @return true if Icecast server is reachable
      */
     public boolean isServerUp() {
+        return isServerUp(true);
+    }
+
+    /**
+     * Check if Icecast server is running and reachable
+     * @param logWarnings whether to log warnings when server is not reachable
+     * @return true if Icecast server is reachable
+     */
+    public boolean isServerUp(boolean logWarnings) {
         try {
             URL url = new URL(getIcecastStreamingUrl() + "/status.xsl");
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -245,7 +281,11 @@ public class IcecastService {
 
             return isUp;
         } catch (IOException e) {
-            logger.warn("Icecast server is not reachable: {}", e.getMessage());
+            if (logWarnings) {
+                logger.warn("Icecast server is not reachable: {}", e.getMessage());
+            } else {
+                logger.debug("Icecast server is not reachable: {}", e.getMessage());
+            }
             return false;
         }
     }
@@ -255,11 +295,23 @@ public class IcecastService {
      * @return Map containing stream status details
      */
     public Map<String, Object> getStreamStatus() {
+        return getStreamStatus(true);
+    }
+
+    /**
+     * Get comprehensive stream status information
+     * @param logWarnings whether to log warnings when unable to check Icecast status
+     * @return Map containing stream status details
+     */
+    public Map<String, Object> getStreamStatus(boolean logWarnings) {
         Map<String, Object> status = new HashMap<>();
 
+        // If no active broadcasts, suppress warnings to reduce log noise
+        boolean shouldLogWarnings = logWarnings && !activeBroadcasts.isEmpty();
+
         // Check actual Icecast stream status
-        boolean icecastLive = isStreamLive();
-        boolean serverUp = isServerUp();
+        boolean icecastLive = isStreamLive(shouldLogWarnings);
+        boolean serverUp = isServerUp(shouldLogWarnings);
 
         // Consider a stream live if either Icecast reports it as live OR we have active broadcasts
         boolean isLive = icecastLive || !activeBroadcasts.isEmpty();
@@ -339,6 +391,15 @@ public class IcecastService {
      * @return Map containing mount point status information
      */
     public Map<String, Object> checkMountPointStatus() {
+        return checkMountPointStatus(true);
+    }
+
+    /**
+     * Check if the /live.ogg mount point is active and streaming
+     * @param logWarnings whether to log warnings when unable to check mount point status
+     * @return Map containing mount point status information
+     */
+    public Map<String, Object> checkMountPointStatus(boolean logWarnings) {
         Map<String, Object> status = new HashMap<>();
         status.put("mountPoint", icecastMount);
         status.put("serverReachable", false);
@@ -395,7 +456,11 @@ public class IcecastService {
                                     int listeners = Integer.parseInt(listenersStr);
                                     status.put("listenerCount", listeners);
                                 } catch (NumberFormatException e) {
-                                    logger.warn("Could not parse listener count: {}", listenersStr);
+                                    if (logWarnings) {
+                                        logger.warn("Could not parse listener count: {}", listenersStr);
+                                    } else {
+                                        logger.debug("Could not parse listener count: {}", listenersStr);
+                                    }
                                 }
                             }
                         }
@@ -409,16 +474,28 @@ public class IcecastService {
 
                     } else {
                         status.put("errorMessage", "Mount point " + icecastMount + " not found in server response");
-                        logger.warn("Mount point {} not found in Icecast server response", icecastMount);
+                        if (logWarnings) {
+                            logger.warn("Mount point {} not found in Icecast server response", icecastMount);
+                        } else {
+                            logger.debug("Mount point {} not found in Icecast server response", icecastMount);
+                        }
                     }
                 }
             } else {
                 status.put("errorMessage", "Icecast server returned HTTP " + responseCode);
-                logger.warn("Icecast server returned HTTP {}", responseCode);
+                if (logWarnings) {
+                    logger.warn("Icecast server returned HTTP {}", responseCode);
+                } else {
+                    logger.debug("Icecast server returned HTTP {}", responseCode);
+                }
             }
         } catch (IOException e) {
             status.put("errorMessage", "Cannot connect to Icecast server: " + e.getMessage());
-            logger.warn("Failed to check Icecast mount point status: {}", e.getMessage());
+            if (logWarnings) {
+                logger.warn("Failed to check Icecast mount point status: {}", e.getMessage());
+            } else {
+                logger.debug("Failed to check Icecast mount point status: {}", e.getMessage());
+            }
         }
 
         return status;
