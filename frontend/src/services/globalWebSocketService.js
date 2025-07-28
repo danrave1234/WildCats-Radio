@@ -245,6 +245,23 @@ class GlobalWebSocketService {
     }
   }
 
+  _startListenerStatusPing() {
+    this._stopListenerStatusPing();
+    this.listenerStatusPingInterval = setInterval(() => {
+      if (this.listenerStatusWebSocket && this.listenerStatusWebSocket.readyState === WebSocket.OPEN) {
+        this.listenerStatusWebSocket.send('ping');
+        logger.debug('Sent listener/status ping.');
+      }
+    }, 60000); // Ping every minute
+  }
+
+  _stopListenerStatusPing() {
+    if (this.listenerStatusPingInterval) {
+      clearInterval(this.listenerStatusPingInterval);
+      this.listenerStatusPingInterval = null;
+    }
+  }
+
   // --- Listener/Status WebSocket (Consolidated) ---
   connectListenerStatusWebSocket(wsUrl) {
     if (this.listenerStatusWebSocket && (this.listenerStatusWebSocket.readyState === WebSocket.CONNECTING || this.listenerStatusWebSocket.readyState === WebSocket.OPEN)) {
@@ -263,7 +280,7 @@ class GlobalWebSocketService {
         logger.info('Listener/Status WebSocket connected successfully.');
         this.listenerStatusReconnectAttempts = 0; // Reset attempts on success
         this.listenerStatusOpenCallbacks.forEach(cb => cb());
-        // No ping/pong for listener status as it's less critical and server-driven
+        this._startListenerStatusPing();
       };
 
       this.listenerStatusWebSocket.onmessage = (event) => {
@@ -278,6 +295,7 @@ class GlobalWebSocketService {
       this.listenerStatusWebSocket.onclose = (event) => {
         logger.warn(`Listener/Status WebSocket disconnected: Code=${event.code}, Reason=${event.reason}`);
         this.listenerStatusCloseCallbacks.forEach(cb => cb(event));
+        this._stopListenerStatusPing();
         if (event.code !== 1000 && event.code !== 1001) {
           this._scheduleReconnect('Listener/Status', () => this.connectListenerStatusWebSocket(wsUrl), 'listenerStatusReconnectAttempts', 'listenerStatusReconnectTimer');
         }
@@ -301,6 +319,7 @@ class GlobalWebSocketService {
     if (this.listenerStatusWebSocket) {
       logger.info('Disconnecting Listener/Status WebSocket.');
       this._clearReconnectTimer('listenerStatusReconnectTimer');
+      this._stopListenerStatusPing();
       this.listenerStatusWebSocket.close(1000, 'Client initiated disconnect');
       this.listenerStatusWebSocket = null;
       this.lastListenerStatusUrl = null; // Clear stored URL

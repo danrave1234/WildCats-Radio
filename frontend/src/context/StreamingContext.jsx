@@ -1729,11 +1729,6 @@ export function StreamingProvider({ children }) {
       noiseGateRef.current = null;
       gainNodeRef.current = null;
 
-      // Clear reconnection timer
-      if (djReconnectTimerRef.current) {
-        clearTimeout(djReconnectTimerRef.current);
-        djReconnectTimerRef.current = null;
-      }
 
       // Reset state
       setIsLive(false);

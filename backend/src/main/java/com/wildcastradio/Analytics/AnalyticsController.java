@@ -3,7 +3,6 @@ package com.wildcastradio.Analytics;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Period;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,14 +19,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.wildcastradio.ActivityLog.ActivityLogService;
-import com.wildcastradio.Analytics.ListenerTrackingService;
 import com.wildcastradio.Broadcast.BroadcastEntity;
-import com.wildcastradio.Broadcast.BroadcastService;
 import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
-import com.wildcastradio.ChatMessage.ChatMessageService;
-import com.wildcastradio.SongRequest.SongRequestService;
-import com.wildcastradio.User.UserService;
+import com.wildcastradio.Broadcast.BroadcastService;
+import com.wildcastradio.Analytics.ListenerTrackingService;
 
 /**
  * Analytics Controller for retrieving application statistics and metrics
@@ -39,19 +34,10 @@ public class AnalyticsController {
     private static final Logger logger = LoggerFactory.getLogger(AnalyticsController.class);
 
     @Autowired
+    private AnalyticsService analyticsService;
+
+    @Autowired
     private BroadcastService broadcastService;
-
-    @Autowired
-    private UserService userService;
-
-    @Autowired
-    private SongRequestService songRequestService;
-
-    @Autowired
-    private ActivityLogService activityLogService;
-
-    @Autowired
-    private ChatMessageService chatMessageService;
 
     @Autowired
     private ListenerTrackingService listenerTrackingService;
@@ -62,18 +48,7 @@ public class AnalyticsController {
     @GetMapping("/broadcasts")
     @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> getBroadcastStats() {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("totalBroadcasts", broadcastService.getTotalBroadcastCount());
-        stats.put("liveBroadcasts", broadcastService.getLiveBroadcastCount());
-        stats.put("upcomingBroadcasts", broadcastService.getUpcomingBroadcastCount());
-        stats.put("completedBroadcasts", broadcastService.getCompletedBroadcastCount());
-        stats.put("averageDuration", broadcastService.getAverageBroadcastDuration());
-
-        // Add real-time listener data
-        stats.put("currentListeners", listenerTrackingService.getCurrentListenerCount());
-        stats.put("streamLive", listenerTrackingService.isStreamLive());
-
-        return ResponseEntity.ok(stats);
+        return ResponseEntity.ok(analyticsService.getBroadcastStats());
     }
 
     /**
@@ -82,14 +57,7 @@ public class AnalyticsController {
     @GetMapping("/users")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> getUserStats() {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("totalUsers", userService.getTotalUserCount());
-        stats.put("listeners", userService.getListenerCount());
-        stats.put("djs", userService.getDjCount());
-        stats.put("admins", userService.getAdminCount());
-        stats.put("newUsersThisMonth", userService.getNewUsersThisMonthCount());
-
-        return ResponseEntity.ok(stats);
+        return ResponseEntity.ok(analyticsService.getUserStats());
     }
 
     /**
@@ -98,13 +66,7 @@ public class AnalyticsController {
     @GetMapping("/engagement")
     @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> getEngagementStats() {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("totalChatMessages", chatMessageService.getTotalMessageCount());
-        stats.put("totalSongRequests", songRequestService.getTotalSongRequestCount());
-        stats.put("averageMessagesPerBroadcast", chatMessageService.getAverageMessagesPerBroadcast());
-        stats.put("averageRequestsPerBroadcast", songRequestService.getAverageRequestsPerBroadcast());
-
-        return ResponseEntity.ok(stats);
+        return ResponseEntity.ok(analyticsService.getEngagementStats());
     }
 
     /**
@@ -113,13 +75,7 @@ public class AnalyticsController {
     @GetMapping("/activity")
     @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> getActivityStats() {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("todayActivities", activityLogService.getTodayActivityCount());
-        stats.put("weekActivities", activityLogService.getWeekActivityCount());
-        stats.put("monthActivities", activityLogService.getMonthActivityCount());
-        stats.put("recentActivities", activityLogService.getRecentActivities(10));
-
-        return ResponseEntity.ok(stats);
+        return ResponseEntity.ok(analyticsService.getActivityStats());
     }
 
     /**
@@ -141,8 +97,7 @@ public class AnalyticsController {
     @GetMapping("/realtime")
     @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> getRealtimeAnalytics() {
-        Map<String, Object> realtimeMetrics = listenerTrackingService.getAnalyticsMetrics();
-        return ResponseEntity.ok(realtimeMetrics);
+        return ResponseEntity.ok(analyticsService.getRealtimeAnalytics());
     }
 
     /**
@@ -151,58 +106,9 @@ public class AnalyticsController {
     @GetMapping("/demographics")
     @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> getDemographicAnalytics() {
-        Map<String, Object> demographics = new HashMap<>();
-
         try {
-            // Get all users with birthdates
-            List<com.wildcastradio.User.UserEntity> users = userService.getAllUsers();
-
-            // Age group counters
-            int teens = 0; // 13-19
-            int youngAdults = 0; // 20-29
-            int adults = 0; // 30-49
-            int middleAged = 0; // 50-64
-            int seniors = 0; // 65+
-            int unknown = 0; // No birthdate
-
-            LocalDate today = LocalDate.now();
-
-            for (com.wildcastradio.User.UserEntity user : users) {
-                if (user.getBirthdate() != null) {
-                    int age = Period.between(user.getBirthdate(), today).getYears();
-
-                    if (age >= 13 && age <= 19) {
-                        teens++;
-                    } else if (age >= 20 && age <= 29) {
-                        youngAdults++;
-                    } else if (age >= 30 && age <= 49) {
-                        adults++;
-                    } else if (age >= 50 && age <= 64) {
-                        middleAged++;
-                    } else if (age >= 65) {
-                        seniors++;
-                    }
-                } else {
-                    unknown++;
-                }
-            }
-
-            // Age group statistics
-            Map<String, Object> ageGroups = new HashMap<>();
-            ageGroups.put("teens", teens); // 13-19
-            ageGroups.put("youngAdults", youngAdults); // 20-29
-            ageGroups.put("adults", adults); // 30-49
-            ageGroups.put("middleAged", middleAged); // 50-64
-            ageGroups.put("seniors", seniors); // 65+
-            ageGroups.put("unknown", unknown);
-
-            demographics.put("ageGroups", ageGroups);
-            demographics.put("totalUsers", users.size());
-            demographics.put("usersWithBirthdate", users.size() - unknown);
-            demographics.put("lastUpdated", System.currentTimeMillis());
-
+            Map<String, Object> demographics = analyticsService.getDemographicAnalytics();
             return ResponseEntity.ok(demographics);
-
         } catch (Exception e) {
             logger.error("Error getting demographic analytics: ", e);
             return ResponseEntity.internalServerError().build();
@@ -525,16 +431,7 @@ public class AnalyticsController {
     @GetMapping("/summary")
     @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> getAnalyticsSummary() {
-        Map<String, Object> summary = new HashMap<>();
-
-        summary.put("broadcasts", getBroadcastStats().getBody());
-        summary.put("users", getUserStats().getBody());
-        summary.put("engagement", getEngagementStats().getBody());
-        summary.put("activity", getActivityStats().getBody());
-        summary.put("realtime", getRealtimeAnalytics().getBody());
-        summary.put("lastUpdated", System.currentTimeMillis());
-
-        return ResponseEntity.ok(summary);
+        return ResponseEntity.ok(analyticsService.getAnalyticsSummary());
     }
 
     /**
