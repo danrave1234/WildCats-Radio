@@ -41,7 +41,8 @@ export default function ListenerDashboard() {
     toggleAudio,
     updateVolume,
     toggleMute,
-    serverConfig
+    serverConfig,
+    audioRef
   } = useStreaming();
 
   // If we're accessing a specific broadcast by ID, set it as the current broadcast
@@ -85,6 +86,11 @@ export default function ListenerDashboard() {
   // Local audio state for the dashboard player (separate from streaming context)
   const [localAudioPlaying, setLocalAudioPlaying] = useState(false);
 
+  // Sync local audio state with global streaming context
+  useEffect(() => {
+    setLocalAudioPlaying(audioPlaying);
+  }, [audioPlaying]);
+
   // Local listener count state (fallback if streaming context doesn't update)
   const [localListenerCount, setLocalListenerCount] = useState(0);
 
@@ -112,7 +118,6 @@ export default function ListenerDashboard() {
   const abortControllerRef = useRef(null);
 
   // Audio refs from ListenerDashboard2.jsx
-  const audioRef = useRef(null);
   const statusCheckInterval = useRef(null);
 
   // Add state for listener WebSocket connection
@@ -260,12 +265,7 @@ export default function ListenerDashboard() {
     }
 
     return () => {
-      // Cleanup audio element on unmount
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-        audioRef.current = null;
-      }
+      // Do not stop the audio on unmount so the MiniPlayer can continue playing
     };
   }, [serverConfig, volume, isMuted]);
 
