@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import NewSidebar from './Sidebar';
 import Header from './Header';
+import MiniPlayer from './MiniPlayer';
 import { SidebarProvider } from './ui/sidebar';
 import { EnhancedScrollArea } from './ui/enhanced-scroll-area';
 
@@ -43,6 +44,7 @@ const Layout = ({ children }) => {
           <Outlet />
           {children}
         </MainContent>
+        <MiniPlayer />
       </div>
     </SidebarProvider>
   );

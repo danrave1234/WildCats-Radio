@@ -214,6 +214,7 @@ public class BroadcastService {
 
         broadcast.setActualStart(LocalDateTime.now());
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
+        broadcast.setStartedBy(dj);
 
         BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
 
