@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "@react-native-community/netinfo": "^11.4.1",
-    "@react-navigation/stack": "^7.3.2"
-  }
-}
