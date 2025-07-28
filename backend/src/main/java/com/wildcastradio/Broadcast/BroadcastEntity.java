@@ -55,6 +55,10 @@ public class BroadcastEntity {
     @JoinColumn(name = "created_by_id", nullable = false)
     private UserEntity createdBy;
 
+    @ManyToOne
+    @JoinColumn(name = "started_by_id")
+    private UserEntity startedBy;
+
     @OneToOne
     @JoinColumn(name = "schedule_id", nullable = false)
     private ScheduleEntity schedule;
@@ -76,8 +80,8 @@ public class BroadcastEntity {
     
     // All args constructor
     public BroadcastEntity(Long id, String title, String description, LocalDateTime actualStart,
-                          LocalDateTime actualEnd, BroadcastStatus status, String streamUrl, 
-                          UserEntity createdBy, ScheduleEntity schedule,
+                          LocalDateTime actualEnd, BroadcastStatus status, String streamUrl,
+                          UserEntity createdBy, UserEntity startedBy, ScheduleEntity schedule,
                           List<ChatMessageEntity> chatMessages, List<SongRequestEntity> songRequests) {
         this.id = id;
         this.title = title;
@@ -87,6 +91,7 @@ public class BroadcastEntity {
         this.status = status;
         this.streamUrl = streamUrl;
         this.createdBy = createdBy;
+        this.startedBy = startedBy;
         this.schedule = schedule;
         this.chatMessages = chatMessages;
         this.songRequests = songRequests;
@@ -156,6 +161,14 @@ public class BroadcastEntity {
 
     public void setCreatedBy(UserEntity createdBy) {
         this.createdBy = createdBy;
+    }
+
+    public UserEntity getStartedBy() {
+        return startedBy;
+    }
+
+    public void setStartedBy(UserEntity startedBy) {
+        this.startedBy = startedBy;
     }
 
     public ScheduleEntity getSchedule() {
