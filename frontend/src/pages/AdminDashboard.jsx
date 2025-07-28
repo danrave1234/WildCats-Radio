@@ -38,6 +38,34 @@ const AdminDashboard = () => {
   // State for live broadcasts
   const [liveBroadcasts, setLiveBroadcasts] = useState([]);
 
+  // Fetch live broadcasts and update stats
+  const fetchLiveBroadcasts = async () => {
+    try {
+      // Fetch live broadcasts
+      const response = await broadcastService.getLive();
+      const broadcasts = response.data;
+      setLiveBroadcasts(broadcasts);
+
+      // Update stats
+      setStats(prev => ({
+        ...prev,
+        activeBroadcasts: broadcasts.length
+      }));
+
+      // Fetch upcoming broadcasts to update scheduledBroadcasts count
+      const upcomingResponse = await broadcastService.getUpcoming();
+      const upcomingBroadcasts = upcomingResponse.data;
+
+      setStats(prev => ({
+        ...prev,
+        scheduledBroadcasts: upcomingBroadcasts.length,
+        totalBroadcasts: broadcasts.length + upcomingBroadcasts.length
+      }));
+    } catch (error) {
+      console.error('Error fetching broadcasts:', error);
+    }
+  };
+
   // Fetch users when component mounts
   useEffect(() => {
     if (activeTab === 'users') {
@@ -47,32 +75,6 @@ const AdminDashboard = () => {
 
   // Fetch live broadcasts and update stats
   useEffect(() => {
-    const fetchLiveBroadcasts = async () => {
-      try {
-        // Fetch live broadcasts
-        const response = await broadcastService.getLive();
-        const broadcasts = response.data;
-        setLiveBroadcasts(broadcasts);
-
-        // Update stats
-        setStats(prev => ({
-          ...prev,
-          activeBroadcasts: broadcasts.length
-        }));
-
-        // Fetch upcoming broadcasts to update scheduledBroadcasts count
-        const upcomingResponse = await broadcastService.getUpcoming();
-        const upcomingBroadcasts = upcomingResponse.data;
-
-        setStats(prev => ({
-          ...prev,
-          scheduledBroadcasts: upcomingBroadcasts.length,
-          totalBroadcasts: broadcasts.length + upcomingBroadcasts.length
-        }));
-      } catch (error) {
-        console.error('Error fetching broadcasts:', error);
-      }
-    };
 
     // Fetch broadcasts when dashboard tab is active or every minute
     if (activeTab === 'dashboard' || activeTab === 'broadcasts') {
