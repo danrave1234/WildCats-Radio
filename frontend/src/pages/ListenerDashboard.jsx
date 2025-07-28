@@ -69,17 +69,14 @@ export default function ListenerDashboard() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatMessage, setChatMessage] = useState('');
 
-  // Song request state
-  const [songRequest, setSongRequest] = useState({ title: '', artist: '' });
-  const [songRequestLoading, setSongRequestLoading] = useState(false);
-  const [requestError, setRequestError] = useState(null);
+  // Song request
 
   // Poll state
   const [activePoll, setActivePoll] = useState(null);
   const [userVotes, setUserVotes] = useState({});
 
   // UI state
-  const [activeTab, setActiveTab] = useState("song");
+  const [activeTab, setActiveTab] = useState("poll");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [_currentSong, _setCurrentSong] = useState(null);
   const [broadcastLoading, setBroadcastLoading] = useState(false);
@@ -1186,32 +1183,20 @@ export default function ListenerDashboard() {
   }
 
   // Handle song request submission
-  const handleSongRequestSubmit = async (e) => {
-    e.preventDefault();
+  const handleSongRequest = async () => {
     if (!currentUser) {
       handleLoginRedirect();
       return;
     }
-    if (!songRequest.title.trim() || !songRequest.artist.trim() || !currentBroadcastId) return;
+    if (!currentBroadcastId) return;
+
+    const title = window.prompt('Enter song title');
+    if (!title) return;
 
     try {
-      // Create song request object to send to the server
-      const requestData = {
-        songTitle: songRequest.title,
-        artist: songRequest.artist,
-        dedication: songRequest.dedication
-      };
-
-      // Send song request to the server
-      await songRequestService.createRequest(currentBroadcastId, requestData);
-
-      // Reset the form
-      setSongRequest({ title: '', artist: '', dedication: '' });
+      await songRequestService.createRequest(currentBroadcastId, { songTitle: title });
     } catch (error) {
-      logger.error("Error submitting song request:", error);
-      setRequestError("Failed to submit request. Please try again.");
-    } finally {
-      setSongRequestLoading(false);
+      logger.error('Error submitting song request:', error);
     }
   };
 
@@ -1389,7 +1374,7 @@ export default function ListenerDashboard() {
     }
 
     return (
-      <form onSubmit={handleChatSubmit} className="flex items-center">
+      <form onSubmit={handleChatSubmit} className="flex items-center space-x-2">
         <input
           type="text"
           value={chatMessage}
@@ -1414,6 +1399,16 @@ export default function ListenerDashboard() {
           }`}
         >
           <PaperAirplaneIcon className="h-5 w-5" />
+        </button>
+        <button
+          type="button"
+          onClick={handleSongRequest}
+          disabled={!isLive}
+          className={`p-2 rounded-md ${
+            isLive ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+          }`}
+        >
+          Request Song
         </button>
       </form>
     );
@@ -1484,7 +1479,7 @@ export default function ListenerDashboard() {
 
       {/* Desktop: Grid layout */}
       <div className="hidden lg:grid lg:grid-cols-3 lg:gap-6">
-        {/* Desktop Left Column - Broadcast + Song Request/Poll */}
+        {/* Desktop Left Column - Broadcast + Poll */}
         <div className="lg:col-span-2 space-y-6">
           {/* Broadcast Stream Visualizer */}
           <div className="bg-maroon-700 rounded-lg overflow-hidden h-[200px] flex flex-col justify-center relative">
@@ -1512,13 +1507,8 @@ export default function ListenerDashboard() {
             {isLive ? (
               <>
                 <div className="flex p-4">
-                  {/* Album art / Left section */}
-                  <div className="w-24 h-24 bg-maroon-800 flex items-center justify-center text-white text-2xl rounded-lg">
-                    $
-                  </div>
-
                   {/* Track info */}
-                  <div className="ml-4 text-white">
+                  <div className="text-white flex-1">
                     <h3 className="text-xl font-bold">{broadcastLoading ? "Loading..." : currentBroadcast?.title || "No Title"}</h3>
                     <p className="text-sm opacity-80">
                       {currentBroadcast?.host?.name 
@@ -1612,23 +1602,10 @@ export default function ListenerDashboard() {
             )}
           </div>
 
-          {/* Desktop Song Request/Poll section */}
+          {/* Desktop Poll section */}
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-grow">
-            {/* Tab headers */}
+            {/* Tab header */}
             <div className="flex">
-              <button
-                onClick={() => setActiveTab("song")}
-                className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
-                  activeTab === "song"
-                    ? "border-b-2 border-maroon-700 text-maroon-700 dark:border-maroon-500 dark:text-maroon-400"
-                    : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 border-b border-gray-200 dark:border-gray-700"
-                }`}
-              >
-                <div className="flex justify-center items-center">
-                  <MusicalNoteIcon className="h-5 w-5 mr-2" />
-                  Song Request
-                </div>
-              </button>
               <button
                 onClick={() => setActiveTab("poll")}
                 className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
@@ -1659,120 +1636,6 @@ export default function ListenerDashboard() {
 
             {/* Desktop Tab content */}
             <div className="bg-white dark:bg-gray-800 flex-grow flex flex-col h-[450px]">
-              {/* Song Request Tab */}
-              {activeTab === "song" && (
-                <div className="p-6 flex-grow flex flex-col h-full">
-                  {isLive ? (
-                    <>
-                      {!currentUser ? (
-                        <div className="flex items-center justify-center h-full">
-                          <div className="text-center w-full">
-                            <div className="flex items-center mb-6 justify-center">
-                              <div className="bg-yellow-100 dark:bg-yellow-900/30 rounded-full p-3 mr-4">
-                                <MusicalNoteIcon className="h-6 w-6 text-yellow-600 dark:text-yellow-400" />
-                              </div>
-                              <div>
-                                <h3 className="font-medium text-gray-900 dark:text-white text-lg">Request a Song</h3>
-                                <p className="text-sm text-gray-500 dark:text-gray-400">Let the DJ know what you'd like to hear</p>
-                              </div>
-                            </div>
-                            <p className="text-gray-600 dark:text-gray-400 mb-4">
-                              Login or create an account to request songs during live broadcasts
-                            </p>
-                            <div className="flex space-x-3 justify-center">
-                              <button
-                                onClick={handleLoginRedirect}
-                                className="flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
-                              >
-                                <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
-                                Login
-                              </button>
-                              <button
-                                onClick={handleRegisterRedirect}
-                                className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
-                              >
-                                <UserPlusIcon className="h-4 w-4 mr-2" />
-                                Register
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <form onSubmit={handleSongRequestSubmit} className="space-y-5 flex-grow flex flex-col">
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              Song Title
-                            </label>
-                            <input
-                              type="text"
-                              value={songRequest.title}
-                              onChange={(e) => setSongRequest({ ...songRequest, title: e.target.value })}
-                              placeholder="Enter song title"
-                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                              required
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              Artist
-                            </label>
-                            <input
-                              type="text"
-                              value={songRequest.artist}
-                              onChange={(e) => setSongRequest({ ...songRequest, artist: e.target.value })}
-                              placeholder="Enter artist name"
-                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                              required
-                            />
-                          </div>
-
-                          <div className="flex-grow">
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              Dedication (Optional)
-                            </label>
-                            <textarea
-                              value={songRequest.dedication}
-                              onChange={(e) => setSongRequest({ ...songRequest, dedication: e.target.value })}
-                              placeholder="Add a message or dedication"
-                              className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white h-full min-h-[120px]"
-                            />
-                          </div>
-
-                          <div className="mt-auto flex justify-between items-center">
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              Song requests are subject to availability and DJ's playlist.
-                            </p>
-                            <button
-                              type="submit"
-                              className="bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-2 px-6 rounded"
-                            >
-                              Submit Request
-                            </button>
-                          </div>
-                        </form>
-                      )}
-                    </>
-                  ) : (
-                    <div className="flex items-center justify-center h-full">
-                      <div className="text-center w-full">
-                        <div className="flex items-center mb-8 justify-center">
-                          <div className="bg-pink-100 dark:bg-maroon-900/30 rounded-full p-3 mr-4">
-                            <MusicalNoteIcon className="h-6 w-6 text-maroon-600 dark:text-maroon-400" />
-                          </div>
-                          <div>
-                            <h3 className="font-medium text-gray-900 dark:text-white text-lg">Request a Song</h3>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">Let us know what you'd like to hear next</p>
-                          </div>
-                        </div>
-                        <p className="text-gray-500 dark:text-gray-400">Song requests are only available during live broadcasts</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Desktop Poll Tab */}
               {activeTab === "poll" && (
                 <div className="p-6 flex-grow flex flex-col h-full">
                   {isLive ? (
@@ -2019,7 +1882,7 @@ export default function ListenerDashboard() {
                       </div>
                     </div>
                   ) : (
-                    <form onSubmit={handleChatSubmit} className="flex items-center">
+                    <form onSubmit={handleChatSubmit} className="flex items-center space-x-2">
                       <input
                         type="text"
                         value={chatMessage}
@@ -2036,13 +1899,23 @@ export default function ListenerDashboard() {
                       <button
                         type="submit"
                         disabled={!isLive || !chatMessage.trim() || chatMessage.length > 1500}
-                        className={`p-2 rounded-r-md ${
+                        className={`p-2 rounded-md ${
                           isLive && chatMessage.trim() && chatMessage.length <= 1500
                             ? "bg-maroon-700 hover:bg-maroon-800 text-white"
                             : "bg-gray-300 text-gray-500 cursor-not-allowed"
                         }`}
                       >
                         <PaperAirplaneIcon className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSongRequest}
+                        disabled={!isLive}
+                        className={`p-2 rounded-md ${
+                          isLive ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        }`}
+                      >
+                        Request Song
                       </button>
                     </form>
                   )}
@@ -2085,13 +1958,8 @@ export default function ListenerDashboard() {
           {isLive ? (
             <>
               <div className="flex p-4">
-                {/* Album art / Left section */}
-                <div className="w-24 h-24 bg-maroon-800 flex items-center justify-center text-white text-2xl rounded-lg">
-                  $
-                </div>
-
                 {/* Track info */}
-                <div className="ml-4 text-white">
+                <div className="text-white flex-1">
                   <h3 className="text-xl font-bold">{broadcastLoading ? "Loading..." : currentBroadcast?.title || "No Title"}</h3>
                   <p className="text-sm opacity-80">
                     {currentBroadcast?.host?.name 
@@ -2200,16 +2068,6 @@ export default function ListenerDashboard() {
               Live Chat
             </button>
             <button
-              onClick={() => setActiveTab("song")}
-              className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
-                activeTab === "song"
-                  ? "border-b-2 border-maroon-700 text-maroon-700 dark:border-maroon-500 dark:text-maroon-400"
-                  : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 border-b border-gray-200 dark:border-gray-700"
-              }`}
-            >
-              Song Request
-            </button>
-            <button
               onClick={() => setActiveTab("poll")}
               className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
                 activeTab === "poll"
@@ -2227,11 +2085,6 @@ export default function ListenerDashboard() {
               <div>
                 {renderChatMessages()}
                 {renderChatInput()}
-              </div>
-            )}
-            {activeTab === "song" && (
-              <div>
-                {/* Song Request form */}
               </div>
             )}
             {activeTab === "poll" && (

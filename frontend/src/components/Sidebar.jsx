@@ -126,6 +126,21 @@ const navigationSections = {
   ],
   PUBLIC: [
     {
+      title: "MAIN",
+      items: [
+        {
+          label: "Listen",
+          href: "/dashboard",
+          icon: <Music className="h-5 w-5" />,
+        },
+        {
+          label: "Schedule",
+          href: "/schedule",
+          icon: <Calendar className="h-5 w-5" />,
+        }
+      ]
+    },
+    {
       title: "AUTH",
       items: [
         {
@@ -137,7 +152,7 @@ const navigationSections = {
           label: "Register",
           href: "/register",
           icon: <UserPlusIcon className="h-5 w-5" />,
-        },
+        }
       ]
     }
   ]
