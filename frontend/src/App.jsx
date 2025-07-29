@@ -17,11 +17,11 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { BroadcastHistoryProvider } from './context/BroadcastHistoryContext';
 import { AnalyticsProvider } from './context/AnalyticsContext';
 import { StreamingProvider } from './context/StreamingContext';
-import './App.css';
 import './styles/custom-scrollbar.css';
 import {NotificationProvider} from "./context/NotificationContext.jsx";
 
 import { Spinner } from './components/ui/spinner';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Loading component
 const LoadingFallback = () => (
@@ -121,7 +121,11 @@ const AppRoutes = () => {
       <Route path="/dj-dashboard" element={
         <Layout>
           <ProtectedRoute 
-            element={<DJDashboard />} 
+            element={
+              <ErrorBoundary>
+                <DJDashboard />
+              </ErrorBoundary>
+            } 
             allowedRoles={['DJ', 'ADMIN']} 
           />
         </Layout>

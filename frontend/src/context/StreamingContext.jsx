@@ -62,7 +62,10 @@ export function StreamingProvider({ children }) {
   const MAX_MESSAGE_SIZE = 60000; // 60KB - safety margin below the 64KB server buffer for low latency
 
   // Add new audio source state
-  const [audioSource, setAudioSource] = useState('desktop'); // Default to 'desktop' for DJ use
+  const [audioSource, setAudioSource] = useState(() => {
+    const saved = localStorage.getItem('wildcats_audio_source');
+    return saved || 'desktop'; // Default to 'desktop' for DJ use
+  });
   const desktopStreamRef = useRef(null);
 
   // Add DJ audio controls
@@ -103,6 +106,11 @@ export function StreamingProvider({ children }) {
   useEffect(() => {
     persistListenerState();
   }, [isListening, audioPlaying, volume, isMuted]);
+
+  // Persist audio source changes
+  useEffect(() => {
+    localStorage.setItem('wildcats_audio_source', audioSource);
+  }, [audioSource]);
 
   // Auto-connect/reconnect when authenticated
   useEffect(() => {
@@ -1071,15 +1079,12 @@ export function StreamingProvider({ children }) {
             return desktopStream;
           } catch (error) {
             console.warn('Desktop audio capture failed, falling back to microphone:', error.message);
-            // Show user-friendly message about the fallback
-            const fallbackMessage = `Desktop audio capture failed: ${error.message}\n\nFalling back to microphone only. You can change the audio source in the settings above.`;
-            console.log('Fallback message:', fallbackMessage);
-
+            
             // Set audio source back to microphone
             setAudioSource('microphone');
 
-            // Throw the original error with fallback info
-            throw new Error(fallbackMessage);
+            // Throw the original error
+            throw error;
           }
 
         case 'both':
@@ -1128,15 +1133,12 @@ export function StreamingProvider({ children }) {
             return desktopStream;
           } catch (error) {
             console.warn('Desktop audio capture failed, falling back to microphone:', error.message);
-            // Show user-friendly message about the fallback
-            const fallbackMessage = `Desktop audio capture failed: ${error.message}\n\nFalling back to microphone only. You can change the audio source in the settings above.`;
-            console.log('Fallback message:', fallbackMessage);
-
+            
             // Set audio source back to microphone
             setAudioSource('microphone');
 
-            // Throw the original error with fallback info
-            throw new Error(fallbackMessage);
+            // Throw the original error
+            throw error;
           }
 
         case 'both':
@@ -1604,10 +1606,12 @@ export function StreamingProvider({ children }) {
       // Start the broadcast
       await broadcastService.start(createdBroadcast.id);
 
-      // Get audio stream based on selected source
-      const stream = await getAudioStream();
-
-      audioStreamRef.current = stream;
+      // Get audio stream based on selected source (only if not already available)
+      let stream = audioStreamRef.current;
+      if (!stream) {
+        stream = await getAudioStream();
+        audioStreamRef.current = stream;
+      }
 
       // Create MediaRecorder
       const mediaRecorder = new MediaRecorder(stream, {
@@ -1729,6 +1733,11 @@ export function StreamingProvider({ children }) {
       noiseGateRef.current = null;
       gainNodeRef.current = null;
 
+      // Clear reconnection timer
+      if (djReconnectTimerRef.current) {
+        clearTimeout(djReconnectTimerRef.current);
+        djReconnectTimerRef.current = null;
+      }
 
       // Reset state
       setIsLive(false);

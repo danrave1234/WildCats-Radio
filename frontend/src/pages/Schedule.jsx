@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   CalendarDaysIcon,
   ViewColumnsIcon,
@@ -16,6 +16,7 @@ import { broadcastService } from "../services/api" // Import the broadcast servi
 import Toast from "../components/Toast" // Import Toast component
 import { DateSelector, TimeSelector } from "../components/DateTimeSelector" // Import our custom date/time selectors
 import { createLogger } from '../services/logger';
+import { format } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import { parseISO } from 'date-fns';
 
@@ -104,6 +105,11 @@ export default function Schedule() {
     setIsEditMode(false)
   }
 
+  // Function to handle cancel of form
+  const handleCancelForm = () => {
+    setShowScheduleForm(false)
+    resetToCreateMode()
+  }
 
   // Show toast notification
   const showToast = (message, type = 'success') => {
@@ -152,7 +158,7 @@ export default function Schedule() {
   }
 
   // Helper function to validate time input in real-time
-  const validateTimeInput = (time) => {
+  const validateTimeInput = (time, fieldName) => {
     if (!broadcastDetails.date || !time) return true
 
     // Use proper date construction to avoid timezone issues
@@ -638,7 +644,7 @@ export default function Schedule() {
                           <TimeSelector
                               value={broadcastDetails.startTime}
                               onChange={(time) => {
-                                const isValid = validateTimeInput(time)
+                                const isValid = validateTimeInput(time, 'startTime')
                                 if (isValid || !time) {
                                   handleBroadcastDetailsChange({ target: { name: 'startTime', value: time } })
                                 }
@@ -648,7 +654,7 @@ export default function Schedule() {
                               required={true}
                               min={getMinTime()}
                           />
-                          {broadcastDetails.startTime && !validateTimeInput(broadcastDetails.startTime) && (
+                          {broadcastDetails.startTime && !validateTimeInput(broadcastDetails.startTime, 'startTime') && (
                             <p className="mt-1 text-sm text-red-600">Start time cannot be in the past</p>
                           )}
                         </div>

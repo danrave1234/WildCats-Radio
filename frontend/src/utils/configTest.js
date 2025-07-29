@@ -5,141 +5,112 @@
  * and API proxy base functionality.
  */
 
-import { config, configUtils, isLocalEnvironment, isDeployedEnvironment } from '../config';
-import { apiProxy } from '../services/api';
+import { config, configUtils, apiProxy } from '../config';
+import { createLogger } from '../services/logger';
 
-/**
- * Test the configuration system
- */
-export const testConfiguration = () => {
-  console.group('🧪 Configuration System Test');
-  
+const logger = createLogger('ConfigTest');
+
+export function runConfigurationTests() {
+  logger.info('🚀 Running WildCats Radio Configuration Tests...\n');
+
   // Test environment detection
-  console.log('Environment Detection:');
-  console.log(`- Current Environment: ${config.environment}`);
-  console.log(`- Is Local: ${isLocalEnvironment}`);
-  console.log(`- Is Deployed: ${isDeployedEnvironment}`);
-  console.log(`- Hostname: ${window.location.hostname}`);
-  
-  // Test URL configuration
-  console.log('\nURL Configuration:');
-  console.log(`- API Base URL: ${config.apiBaseUrl}`);
-  console.log(`- WebSocket Base URL: ${config.wsBaseUrl}`);
-  console.log(`- SockJS Base URL: ${config.sockJsBaseUrl}`);
-  console.log(`- Icecast URL: ${config.icecastUrl}`);
-  
-  // Test configuration utilities
-  console.log('\nConfiguration Utilities:');
-  console.log(`- API URL for /test: ${configUtils.getApiUrl('/test')}`);
-  console.log(`- WebSocket URL for /ws-test: ${configUtils.getWsUrl('/ws-test')}`);
-  console.log(`- SockJS URL for /sockjs-test: ${configUtils.getSockJsUrl('/sockjs-test')}`);
-  
-  // Test environment-specific settings
-  console.log('\nEnvironment-Specific Settings:');
-  console.log(`- API Timeout: ${config.apiTimeout}ms`);
-  console.log(`- Max Retries: ${config.maxRetries}`);
-  console.log(`- Retry Delay: ${config.retryDelay}ms`);
-  console.log(`- WebSocket Reconnect Delay: ${config.wsReconnectDelay}ms`);
-  console.log(`- Debug Logs Enabled: ${config.enableDebugLogs}`);
-  
-  // Test API proxy
-  console.log('\nAPI Proxy Information:');
-  console.log(`- Proxy Environment: ${apiProxy.config.environment}`);
-  console.log(`- Proxy API URL: ${apiProxy.config.apiBaseUrl}`);
-  
-  console.groupEnd();
-  
-  return {
-    environment: config.environment,
-    isLocal: isLocalEnvironment,
-    isDeployed: isDeployedEnvironment,
-    apiBaseUrl: config.apiBaseUrl,
-    wsBaseUrl: config.wsBaseUrl,
-    sockJsBaseUrl: config.sockJsBaseUrl,
-    debugEnabled: config.enableDebugLogs
-  };
-};
+  const isLocalEnvironment = config.environment === 'local';
+  const isDeployedEnvironment = config.environment === 'deployed';
 
-/**
- * Test URL switching functionality
- * This demonstrates how easy it is to change environments
- */
-export const testUrlSwitching = () => {
-  console.group('🔄 URL Switching Test');
-  
-  console.log('Current URLs:');
-  console.log(`- API: ${config.apiBaseUrl}`);
-  console.log(`- WebSocket: ${config.wsBaseUrl}`);
-  console.log(`- SockJS: ${config.sockJsBaseUrl}`);
-  
-  console.log('\nTo switch environments, you can:');
-  console.log('1. Set REACT_APP_FORCE_LOCAL=true for local environment');
-  console.log('2. Set REACT_APP_FORCE_DEPLOYED=true for deployed environment');
-  console.log('3. Override specific URLs with environment variables:');
-  console.log('   - REACT_APP_API_BASE_URL');
-  console.log('   - REACT_APP_WS_BASE_URL');
-  console.log('   - REACT_APP_SOCKJS_BASE_URL');
-  
-  console.log('\nExample environment variables:');
-  console.log('REACT_APP_API_BASE_URL=https://new-backend.example.com');
-  console.log('REACT_APP_WS_BASE_URL=wss://new-backend.example.com');
-  console.log('REACT_APP_SOCKJS_BASE_URL=https://new-backend.example.com');
-  
-  console.groupEnd();
-};
+  logger.info('Environment Detection:');
+  logger.info(`- Current Environment: ${config.environment}`);
+  logger.info(`- Is Local: ${isLocalEnvironment}`);
+  logger.info(`- Is Deployed: ${isDeployedEnvironment}`);
+  logger.info(`- Hostname: ${window.location.hostname}`);
 
-/**
- * Simulate API calls to test the proxy system
- */
-export const testApiProxy = async () => {
-  console.group('🌐 API Proxy Test');
-  
-  try {
-    // Test URL construction
-    const testEndpoint = '/api/test';
-    const fullUrl = configUtils.getApiUrl(testEndpoint);
-    console.log(`Testing endpoint: ${testEndpoint}`);
-    console.log(`Full URL: ${fullUrl}`);
-    
-    // Test axios instance configuration
-    const axiosInstance = apiProxy.getAxiosInstance();
-    console.log('Axios instance configuration:');
-    console.log(`- Base URL: ${axiosInstance.defaults.baseURL}`);
-    console.log(`- Timeout: ${axiosInstance.defaults.timeout}ms`);
-    console.log(`- Content-Type: ${axiosInstance.defaults.headers['Content-Type']}`);
-    
-    console.log('\n✅ API Proxy system is working correctly!');
-    
-  } catch (error) {
-    console.error('❌ API Proxy test failed:', error);
-  }
-  
-  console.groupEnd();
-};
+  logger.info('\nURL Configuration:');
+  logger.info(`- API Base URL: ${config.apiBaseUrl}`);
+  logger.info(`- WebSocket Base URL: ${config.wsBaseUrl}`);
+  logger.info(`- SockJS Base URL: ${config.sockJsBaseUrl}`);
+  logger.info(`- Icecast URL: ${config.icecastUrl}`);
 
-/**
- * Run all configuration tests
- */
-export const runAllTests = () => {
-  console.log('🚀 Running WildCats Radio Configuration Tests...\n');
-  
-  const configResult = testConfiguration();
-  testUrlSwitching();
-  testApiProxy();
-  
-  console.log('\n✅ All configuration tests completed!');
-  console.log('\n📋 Summary:');
-  console.log(`Environment: ${configResult.environment}`);
-  console.log(`API URL: ${configResult.apiBaseUrl}`);
-  console.log(`Debug Mode: ${configResult.debugEnabled ? 'ON' : 'OFF'}`);
-  
-  return configResult;
-};
+  logger.info('\nConfiguration Utilities:');
+  logger.info(`- API URL for /test: ${configUtils.getApiUrl('/test')}`);
+  logger.info(`- WebSocket URL for /ws-test: ${configUtils.getWsUrl('/ws-test')}`);
+  logger.info(`- SockJS URL for /sockjs-test: ${configUtils.getSockJsUrl('/sockjs-test')}`);
 
-// Auto-run tests in development mode
-if (config.enableDebugLogs) {
-  // Run tests after a short delay to ensure everything is loaded
-  setTimeout(() => {
-    runAllTests();
-  }, 1000);
+  logger.info('\nEnvironment-Specific Settings:');
+  logger.info(`- API Timeout: ${config.apiTimeout}ms`);
+  logger.info(`- Max Retries: ${config.maxRetries}`);
+  logger.info(`- Retry Delay: ${config.retryDelay}ms`);
+  logger.info(`- WebSocket Reconnect Delay: ${config.wsReconnectDelay}ms`);
+  logger.info(`- Debug Logs Enabled: ${config.enableDebugLogs}`);
+
+  logger.info('\nAPI Proxy Information:');
+  logger.info(`- Proxy Environment: ${apiProxy.config.environment}`);
+  logger.info(`- Proxy API URL: ${apiProxy.config.apiBaseUrl}`);
+
+  // Test API endpoint
+  const testEndpoint = '/api/test';
+  const fullUrl = configUtils.getApiUrl(testEndpoint);
+
+  logger.info(`Testing endpoint: ${testEndpoint}`);
+  logger.info(`Full URL: ${fullUrl}`);
+
+  // Test axios instance configuration
+  const axiosInstance = apiProxy.getAxiosInstance();
+  logger.info('Axios instance configuration:');
+  logger.info(`- Base URL: ${axiosInstance.defaults.baseURL}`);
+  logger.info(`- Timeout: ${axiosInstance.defaults.timeout}ms`);
+  logger.info(`- Content-Type: ${axiosInstance.defaults.headers['Content-Type']}`);
+
+  logger.info('\n✅ API Proxy system is working correctly!');
+
+  // Test actual API call
+  return axiosInstance.get('/api/test')
+    .then(response => {
+      logger.info('✅ API test call successful:', response.data);
+      return {
+        success: true,
+        environment: config.environment,
+        apiBaseUrl: config.apiBaseUrl,
+        debugEnabled: config.enableDebugLogs
+      };
+    })
+    .catch(error => {
+      logger.error('❌ API Proxy test failed:', error);
+      return {
+        success: false,
+        error: error.message,
+        environment: config.environment,
+        apiBaseUrl: config.apiBaseUrl,
+        debugEnabled: config.enableDebugLogs
+      };
+    });
+}
+
+export function logCurrentConfiguration() {
+  logger.info('Current URLs:');
+  logger.info(`- API: ${config.apiBaseUrl}`);
+  logger.info(`- WebSocket: ${config.wsBaseUrl}`);
+  logger.info(`- SockJS: ${config.sockJsBaseUrl}`);
+
+  logger.info('\nTo switch environments, you can:');
+  logger.info('1. Set REACT_APP_FORCE_LOCAL=true for local environment');
+  logger.info('2. Set REACT_APP_FORCE_DEPLOYED=true for deployed environment');
+  logger.info('3. Override specific URLs with environment variables:');
+  logger.info('   - REACT_APP_API_BASE_URL');
+  logger.info('   - REACT_APP_WS_BASE_URL');
+  logger.info('   - REACT_APP_SOCKJS_BASE_URL');
+
+  logger.info('\nExample environment variables:');
+  logger.info('REACT_APP_API_BASE_URL=https://new-backend.example.com');
+  logger.info('REACT_APP_WS_BASE_URL=wss://new-backend.example.com');
+  logger.info('REACT_APP_SOCKJS_BASE_URL=https://new-backend.example.com');
+}
+
+// Auto-run tests if this module is imported directly
+if (typeof window !== 'undefined') {
+  runConfigurationTests().then(configResult => {
+    logger.info('\n✅ All configuration tests completed!');
+    logger.info('\n📋 Summary:');
+    logger.info(`Environment: ${configResult.environment}`);
+    logger.info(`API URL: ${configResult.apiBaseUrl}`);
+    logger.info(`Debug Mode: ${configResult.debugEnabled ? 'ON' : 'OFF'}`);
+  });
 }

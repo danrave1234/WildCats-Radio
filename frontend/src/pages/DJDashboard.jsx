@@ -9,10 +9,10 @@ import {
   SpeakerWaveIcon,
   SpeakerXMarkIcon,
   PlusIcon,
-  CheckIcon,
   ClockIcon,
   ExclamationTriangleIcon,
   XMarkIcon,
+  CheckIcon,
 } from "@heroicons/react/24/solid"
 import { 
   ChatBubbleLeftRightIcon,
@@ -55,7 +55,10 @@ export default function DJDashboard() {
     restoreDJStreaming,
     serverConfig,
     mediaRecorderRef,
-    audioStreamRef
+    audioStreamRef,
+    audioSource,
+    setAudioSource,
+    getAudioStream
   } = useStreaming()
 
   // Core workflow state
@@ -663,6 +666,8 @@ export default function DJDashboard() {
         title: '',
         description: ''
       })
+      
+
 
       logger.debug("Broadcast created successfully:", createdBroadcast)
     } catch (error) {
@@ -681,6 +686,53 @@ export default function DJDashboard() {
 
     try {
       setStreamError(null)
+
+      // Check if audio source is already active or if an audio source has been selected
+      if (!audioStreamRef.current && !audioSource) {
+        logger.info("No audio source selected, prompting for selection")
+        
+        try {
+          // Prompt user to select audio source
+          const stream = await getAudioStream()
+          if (!stream) {
+            throw new Error("Failed to get audio stream")
+          }
+          logger.info("Audio source selected successfully")
+        } catch (error) {
+          logger.error("Error selecting audio source:", error)
+          setStreamError(
+            `Audio Source Selection Failed: ${error.message}\n\n` +
+            "💡 Please:\n" +
+            "• Select an audio source from the options above\n" +
+            "• Allow microphone/screen sharing access when prompted\n" +
+            "• Make sure you're using a supported browser (Chrome, Firefox, Edge)\n" +
+            "• Try refreshing the page if the issue persists"
+          )
+          return
+        }
+      } else if (!audioStreamRef.current && audioSource) {
+        logger.info("Audio source selected but stream not active, re-acquiring stream")
+        
+        try {
+          // Re-acquire the audio stream for the selected source
+          const stream = await getAudioStream(audioSource)
+          if (!stream) {
+            throw new Error("Failed to get audio stream")
+          }
+          logger.info("Audio stream re-acquired successfully")
+        } catch (error) {
+          logger.error("Error re-acquiring audio stream:", error)
+          setStreamError(
+            `Audio Stream Re-acquisition Failed: ${error.message}\n\n` +
+            "💡 Please:\n" +
+            "• Try selecting the audio source again from the options above\n" +
+            "• Allow microphone/screen sharing access when prompted\n" +
+            "• Make sure you're using a supported browser (Chrome, Firefox, Edge)\n" +
+            "• Try refreshing the page if the issue persists"
+          )
+          return
+        }
+      }
 
       // Use the global streaming context to start the broadcast
       await startStreamingBroadcast({
@@ -773,10 +825,9 @@ export default function DJDashboard() {
       setCurrentBroadcast(null)
       setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
 
-      logger.debug("Broadcast canceled successfully")
     } catch (error) {
       logger.error("Error canceling broadcast:", error)
-      setStreamError(error.response?.data?.message || "Failed to cancel broadcast")
+      setStreamError(`Error canceling broadcast: ${error.message}`)
     }
   }
 
@@ -857,9 +908,16 @@ export default function DJDashboard() {
     if (!chatMessage.trim() || !currentBroadcast) return
 
     try {
-      const messageData = { content: chatMessage.trim() }
-      await chatService.sendMessage(currentBroadcast.id, messageData)
-      setChatMessage('')
+      // Use WebSocket to send message if available, otherwise fallback to HTTP
+      if (chatWsRef.current && chatWsRef.current.sendMessage) {
+        chatWsRef.current.sendMessage(chatMessage.trim())
+        setChatMessage('')
+      } else {
+        // Fallback to HTTP API
+        const messageData = { content: chatMessage.trim() }
+        await chatService.sendMessage(currentBroadcast.id, messageData)
+        setChatMessage('')
+      }
     } catch (error) {
       logger.error('Error sending chat message:', error)
     }
@@ -962,6 +1020,8 @@ export default function DJDashboard() {
 
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
   }
+
+
 
   return (
     <div className="relative min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -1162,18 +1222,24 @@ export default function DJDashboard() {
                         if (!msg || !msg.sender) return null;
 
                         // Construct name from firstname and lastname fields (backend sends these, not a single 'name' field)
-                        const firstName = msg.sender.firstname || '';
-                        const lastName = msg.sender.lastname || '';
+                        const firstName = msg.sender?.firstname || '';
+                        const lastName = msg.sender?.lastname || '';
                         const fullName = `${firstName} ${lastName}`.trim();
-                        const senderName = fullName || msg.sender.email || 'Unknown User';
+                        const senderName = fullName || msg.sender?.email || 'Unknown User';
 
                         // Check if user is a DJ based on their role or name
-                        const isDJ = (msg.sender.role && msg.sender.role.includes("DJ")) || 
+                        const isDJ = (msg.sender?.role && msg.sender.role.includes("DJ")) || 
                                      (senderName.includes("DJ")) ||
                                      (firstName.includes("DJ")) ||
                                      (lastName.includes("DJ"));
 
-                        const initials = senderName.split(' ').map(part => part[0] || '').join('').toUpperCase().slice(0, 2) || 'U';
+                        const initials = (() => {
+                          try {
+                            return senderName.split(' ').map(part => part[0] || '').join('').toUpperCase().slice(0, 2) || 'U';
+                          } catch (error) {
+                            return 'U';
+                          }
+                        })();
 
                         let messageDate;
                         try {
@@ -1183,9 +1249,15 @@ export default function DJDashboard() {
                         }
 
                         // Format relative time (updated every minute due to chatTimestampTick)
-                        const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
-                          ? formatDistanceToNow(messageDate, { addSuffix: true }) 
-                          : 'Just now';
+                        const timeAgo = (() => {
+                          try {
+                            return messageDate && !isNaN(messageDate.getTime()) 
+                              ? formatDistanceToNow(messageDate, { addSuffix: true }) 
+                              : 'Just now';
+                          } catch (error) {
+                            return 'Just now';
+                          }
+                        })();
 
                         return (
                           <div key={msg.id} className="flex items-start space-x-3">
@@ -1295,10 +1367,25 @@ export default function DJDashboard() {
                               )}
 
                               <div className="text-xs text-gray-500 dark:text-gray-400">
-                                {request.requestedBy?.firstName && request.requestedBy?.lastName 
-                                  ? `${request.requestedBy.firstName} ${request.requestedBy.lastName}`
-                                  : request.requestedBy?.firstName || request.requestedBy?.name || 'Anonymous'} 
-                                • {formatDistanceToNow(new Date(request.createdAt || request.timestamp), { addSuffix: true })}
+                                {(() => {
+                                  try {
+                                    return request.requestedBy?.firstName && request.requestedBy?.lastName 
+                                      ? `${request.requestedBy.firstName} ${request.requestedBy.lastName}`
+                                      : request.requestedBy?.firstName || request.requestedBy?.name || 'Anonymous';
+                                  } catch (error) {
+                                    return 'Anonymous';
+                                  }
+                                })()} 
+                                • {(() => {
+                                    try {
+                                      const requestDate = new Date(request.createdAt || request.timestamp);
+                                      return !isNaN(requestDate.getTime()) 
+                                        ? formatDistanceToNow(requestDate, { addSuffix: true })
+                                        : 'Just now';
+                                    } catch (error) {
+                                      return 'Just now';
+                                    }
+                                  })()}
                               </div>
                             </div>
                           </div>
@@ -1412,7 +1499,13 @@ export default function DJDashboard() {
                   ) : (
                     <div className="p-4 space-y-4">
                       {polls.map((poll) => {
-                        const totalVotes = poll.options?.reduce((sum, option) => sum + (option.votes || 0), 0) || 0;
+                        const totalVotes = (() => {
+                          try {
+                            return poll.options?.reduce((sum, option) => sum + (option.votes || 0), 0) || 0;
+                          } catch (error) {
+                            return 0;
+                          }
+                        })();
                         return (
                           <div key={poll.id} className={`rounded-lg border-2 p-3 ${
                             activePoll?.id === poll.id 
@@ -1436,23 +1529,29 @@ export default function DJDashboard() {
                             </div>
 
                             <div className="space-y-2">
-                              {poll.options?.map((option, index) => {
-                                const percentage = totalVotes > 0 ? Math.round((option.votes || 0) / totalVotes * 100) : 0;
-                                return (
-                                  <div key={index} className="text-xs">
-                                    <div className="flex justify-between mb-1">
-                                      <span className="text-gray-700 dark:text-gray-300">{option.text}</span>
-                                      <span className="text-gray-600 dark:text-gray-400">{option.votes || 0} ({percentage}%)</span>
-                                    </div>
-                                    <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
-                                      <div 
-                                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                                        style={{ width: `${percentage}%` }}
-                                      />
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                              {(() => {
+                                try {
+                                  return poll.options?.map((option, index) => {
+                                    const percentage = totalVotes > 0 ? Math.round((option.votes || 0) / totalVotes * 100) : 0;
+                                    return (
+                                      <div key={index} className="text-xs">
+                                        <div className="flex justify-between mb-1">
+                                          <span className="text-gray-700 dark:text-gray-300">{option.text}</span>
+                                          <span className="text-gray-600 dark:text-gray-400">{option.votes || 0} ({percentage}%)</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                                          <div 
+                                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                            style={{ width: `${percentage}%` }}
+                                          />
+                                        </div>
+                                      </div>
+                                    );
+                                  });
+                                } catch (error) {
+                                  return <div className="text-xs text-gray-500">Error loading poll options</div>;
+                                }
+                              })()}
                             </div>
                           </div>
                         );
@@ -1680,6 +1779,10 @@ export default function DJDashboard() {
 
               {/* Audio Source Selection */}
               <div className="mb-6">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-3">
+                  Audio Source
+                </h3>
+                
                 <AudioSourceSelector />
               </div>
 

@@ -44,13 +44,18 @@ import {
   ArrowDownIcon
 } from '@heroicons/react/24/outline';
 
-// Helper to parse backend timestamp as UTC
+// Helper to parse backend timestamp as local time (Philippines time)
 const parseBackendTimestamp = (timestamp) => {
   if (!timestamp) return null;
+  
+  // If it already has timezone info (ends with Z or has timezone offset), parse as UTC
   if (/Z$|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
     return parseISO(timestamp);
   }
-  return parseISO(timestamp + 'Z');
+  
+  // If no timezone info, treat as local time (Philippines time)
+  // Parse the date string directly as local time
+  return new Date(timestamp);
 };
 
 // Safe date formatting helper to prevent "Invalid time value" errors
@@ -93,25 +98,87 @@ export default function AnalyticsDashboard() {
 
   // Filter activities by timeframe, similar to Notifications.jsx filtering approach
   const filteredActivities = useMemo(() => {
-    if (!activityStats.recentActivities) return [];
-
-    let filtered = [...activityStats.recentActivities];
-
-    if (selectedTimeframe === 'today') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      filtered = filtered.filter(activity => new Date(activity.timestamp) >= today);
-    } else if (selectedTimeframe === 'week') {
-      const weekStart = new Date();
-      weekStart.setDate(weekStart.getDate() - 7);
-      filtered = filtered.filter(activity => new Date(activity.timestamp) >= weekStart);
+    if (!activityStats.recentActivities || activityStats.recentActivities.length === 0) {
+      return [];
     }
 
-    return filtered;
+    const now = new Date();
+    let cutoffDate;
+
+    switch (selectedTimeframe) {
+      case 'today':
+        cutoffDate = startOfDay(now);
+        break;
+      case 'week':
+        cutoffDate = startOfWeek(now, { weekStartsOn: 1 }); // Monday start
+        break;
+      case 'month':
+        cutoffDate = startOfMonth(now);
+        break;
+      case 'year':
+        cutoffDate = startOfYear(now);
+        break;
+      default:
+        cutoffDate = startOfWeek(now, { weekStartsOn: 1 });
+    }
+
+    return activityStats.recentActivities.filter(activity => {
+      try {
+        const activityDate = parseBackendTimestamp(activity.timestamp);
+        return activityDate && activityDate >= cutoffDate;
+      } catch (error) {
+        console.warn('Error parsing activity timestamp:', error);
+        return false;
+      }
+    });
   }, [activityStats.recentActivities, selectedTimeframe]);
 
-  // Calculate engagement comparison data using real data from activities/notifications
-  const engagementComparison = useMemo(() => {
+  // Memoize chart data to prevent unnecessary re-renders
+  const chartData = useMemo(() => {
+    if (!filteredActivities.length) {
+      return {
+        labels: [],
+        datasets: [{
+          label: 'Activities',
+          data: [],
+          backgroundColor: 'rgba(145, 64, 62, 0.8)',
+          borderColor: 'rgba(145, 64, 62, 1)',
+          borderWidth: 1
+        }]
+      };
+    }
+
+    // Group activities by day
+    const activitiesByDay = {};
+    filteredActivities.forEach(activity => {
+      try {
+        const activityDate = parseBackendTimestamp(activity.timestamp);
+        if (activityDate) {
+          const dayKey = format(activityDate, 'yyyy-MM-dd');
+          activitiesByDay[dayKey] = (activitiesByDay[dayKey] || 0) + 1;
+        }
+      } catch (error) {
+        console.warn('Error processing activity for chart:', error);
+      }
+    });
+
+    const labels = Object.keys(activitiesByDay).sort();
+    const data = labels.map(day => activitiesByDay[day]);
+
+    return {
+      labels: labels.map(day => format(parseISO(day), 'MMM dd')),
+      datasets: [{
+        label: 'Activities',
+        data: data,
+        backgroundColor: 'rgba(145, 64, 62, 0.8)',
+        borderColor: 'rgba(145, 64, 62, 1)',
+        borderWidth: 1
+      }]
+    };
+  }, [filteredActivities]);
+
+  // Memoize comparison metrics
+  const comparisonMetrics = useMemo(() => {
     if (!activityStats.recentActivities) return null;
 
     const now = new Date();
@@ -569,12 +636,12 @@ export default function AnalyticsDashboard() {
                   </button>
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400">
-                  {engagementComparison?.current?.currentPeriodDate} vs {engagementComparison?.comparison?.comparisonPeriodDate}
+                  {comparisonMetrics?.current?.currentPeriodDate} vs {comparisonMetrics?.comparison?.comparisonPeriodDate}
                 </div>
               </div>
             </div>
 
-            {engagementComparison ? (
+            {comparisonMetrics ? (
               <div className="space-y-6">
                 {/* Professional Chart.js Implementation */}
                 <div className="bg-gray-800/40 dark:bg-gray-900/60 backdrop-blur-sm border border-gray-700/50 dark:border-gray-600/50 rounded-2xl overflow-hidden shadow-xl">
@@ -588,10 +655,10 @@ export default function AnalyticsDashboard() {
                             {
                               label: getComparisonLabel().current,
                               data: [
-                                engagementComparison.current.messageInteractions,
-                                engagementComparison.current.songRequests,
-                                engagementComparison.current.broadcastActivities,
-                                engagementComparison.current.userInteractions
+                                comparisonMetrics.current.messageInteractions,
+                                comparisonMetrics.current.songRequests,
+                                comparisonMetrics.current.broadcastActivities,
+                                comparisonMetrics.current.userInteractions
                               ],
                               backgroundColor: [
                                 'rgba(16, 185, 129, 0.8)', // Emerald
@@ -612,10 +679,10 @@ export default function AnalyticsDashboard() {
                             {
                               label: getComparisonLabel().comparison,
                               data: [
-                                engagementComparison.comparison.messageInteractions,
-                                engagementComparison.comparison.songRequests,
-                                engagementComparison.comparison.broadcastActivities,
-                                engagementComparison.comparison.userInteractions
+                                comparisonMetrics.comparison.messageInteractions,
+                                comparisonMetrics.comparison.songRequests,
+                                comparisonMetrics.comparison.broadcastActivities,
+                                comparisonMetrics.comparison.userInteractions
                               ],
                               backgroundColor: [
                                 'rgba(16, 185, 129, 0.4)', // Emerald (lighter)
@@ -731,13 +798,13 @@ export default function AnalyticsDashboard() {
                                   // Get percentage change for this metric
                                   let change = 0;
                                   if (metricType === 'Chat Messages') {
-                                    change = engagementComparison.changes.messageInteractions;
+                                    change = comparisonMetrics.changes.messageInteractions;
                                   } else if (metricType === 'Song Requests') {
-                                    change = engagementComparison.changes.songRequests;
+                                    change = comparisonMetrics.changes.songRequests;
                                   } else if (metricType === 'Broadcasts') {
-                                    change = engagementComparison.changes.broadcastActivities;
+                                    change = comparisonMetrics.changes.broadcastActivities;
                                   } else if (metricType === 'Total Users') {
-                                    change = engagementComparison.changes.userInteractions;
+                                    change = comparisonMetrics.changes.userInteractions;
                                   }
 
                                   const changeText = change !== 0 ? ` (${change > 0 ? '+' : ''}${change.toFixed(1)}%)` : '';
@@ -772,33 +839,33 @@ export default function AnalyticsDashboard() {
                   {[
                     {
                       label: 'Chat Messages',
-                      change: engagementComparison.changes.messageInteractions,
-                      current: engagementComparison.current.messageInteractions,
-                      previous: engagementComparison.comparison.messageInteractions,
+                      change: comparisonMetrics.changes.messageInteractions,
+                      current: comparisonMetrics.current.messageInteractions,
+                      previous: comparisonMetrics.comparison.messageInteractions,
                       color: 'emerald',
                       icon: ChatBubbleOvalLeftIcon
                     },
                     {
                       label: 'Song Requests',
-                      change: engagementComparison.changes.songRequests,
-                      current: engagementComparison.current.songRequests,
-                      previous: engagementComparison.comparison.songRequests,
+                      change: comparisonMetrics.changes.songRequests,
+                      current: comparisonMetrics.current.songRequests,
+                      previous: comparisonMetrics.comparison.songRequests,
                       color: 'purple',
                       icon: MusicalNoteIcon
                     },
                     {
                       label: 'Broadcasts',
-                      change: engagementComparison.changes.broadcastActivities,
-                      current: engagementComparison.current.broadcastActivities,
-                      previous: engagementComparison.comparison.broadcastActivities,
+                      change: comparisonMetrics.changes.broadcastActivities,
+                      current: comparisonMetrics.current.broadcastActivities,
+                      previous: comparisonMetrics.comparison.broadcastActivities,
                       color: 'blue',
                       icon: RadioIcon
                     },
                     {
                       label: 'Total Users',
-                      change: engagementComparison.changes.userInteractions,
-                      current: engagementComparison.current.userInteractions,
-                      previous: engagementComparison.comparison.userInteractions,
+                      change: comparisonMetrics.changes.userInteractions,
+                      current: comparisonMetrics.current.userInteractions,
+                      previous: comparisonMetrics.comparison.userInteractions,
                       color: 'amber',
                       icon: UsersIcon
                     }
@@ -862,13 +929,13 @@ export default function AnalyticsDashboard() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-lg font-semibold text-gray-900 dark:text-white">
-                          {engagementComparison.current.broadcastActivities}
+                          {comparisonMetrics.current.broadcastActivities}
                         </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">vs {engagementComparison.comparison.broadcastActivities}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">vs {comparisonMetrics.comparison.broadcastActivities}</p>
                       </div>
 
                       {(() => {
-                        const change = formatPercentageChange(engagementComparison.changes.broadcastActivities);
+                        const change = formatPercentageChange(comparisonMetrics.changes.broadcastActivities);
                         const IconComponent = change.icon;
                         return (
                           <div className={`flex items-center ${change.color}`}>
@@ -897,13 +964,13 @@ export default function AnalyticsDashboard() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-lg font-semibold text-gray-900 dark:text-white">
-                          {engagementComparison.current.userInteractions}
+                          {comparisonMetrics.current.userInteractions}
                         </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">vs {engagementComparison.comparison.userInteractions}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">vs {comparisonMetrics.comparison.userInteractions}</p>
                       </div>
 
                       {(() => {
-                        const change = formatPercentageChange(engagementComparison.changes.userInteractions);
+                        const change = formatPercentageChange(comparisonMetrics.changes.userInteractions);
                         const IconComponent = change.icon;
                         return (
                           <div className={`flex items-center ${change.color}`}>
@@ -932,13 +999,13 @@ export default function AnalyticsDashboard() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-lg font-semibold text-gray-900 dark:text-white">
-                          {engagementComparison.current.messageInteractions}
+                          {comparisonMetrics.current.messageInteractions}
                         </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">vs {engagementComparison.comparison.messageInteractions}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">vs {comparisonMetrics.comparison.messageInteractions}</p>
                       </div>
 
                       {(() => {
-                        const change = formatPercentageChange(engagementComparison.changes.messageInteractions);
+                        const change = formatPercentageChange(comparisonMetrics.changes.messageInteractions);
                         const IconComponent = change.icon;
                         return (
                           <div className={`flex items-center ${change.color}`}>
@@ -959,41 +1026,41 @@ export default function AnalyticsDashboard() {
                     </div>
                     <div>
                       <h4 className="text-sm font-medium text-blue-900 dark:text-blue-200 mb-2">
-                        Engagement Analysis ({engagementComparison.current.currentPeriodDate} vs {engagementComparison.comparison.comparisonPeriodDate})
+                        Engagement Analysis ({comparisonMetrics.current.currentPeriodDate} vs {comparisonMetrics.comparison.comparisonPeriodDate})
                       </h4>
                       <div className="text-sm text-blue-800 dark:text-blue-300 space-y-1">
                         <p>
-                          <strong>Chat Messages:</strong> {engagementComparison.current.messageInteractions} 
-                          {engagementComparison.changes.messageInteractions !== 0 && (
-                            <span className={engagementComparison.changes.messageInteractions > 0 ? 'text-green-600' : 'text-red-600'}>
-                              {' '}({formatPercentageChange(engagementComparison.changes.messageInteractions).value})
+                          <strong>Chat Messages:</strong> {comparisonMetrics.current.messageInteractions} 
+                          {comparisonMetrics.changes.messageInteractions !== 0 && (
+                            <span className={comparisonMetrics.changes.messageInteractions > 0 ? 'text-green-600' : 'text-red-600'}>
+                              {' '}({formatPercentageChange(comparisonMetrics.changes.messageInteractions).value})
                             </span>
                           )}
                         </p>
 
                         <p>
-                          <strong>Song Requests:</strong> {engagementComparison.current.songRequests} 
-                          {engagementComparison.changes.songRequests !== 0 && (
-                            <span className={engagementComparison.changes.songRequests > 0 ? 'text-green-600' : 'text-red-600'}>
-                              {' '}({formatPercentageChange(engagementComparison.changes.songRequests).value})
+                          <strong>Song Requests:</strong> {comparisonMetrics.current.songRequests} 
+                          {comparisonMetrics.changes.songRequests !== 0 && (
+                            <span className={comparisonMetrics.changes.songRequests > 0 ? 'text-green-600' : 'text-red-600'}>
+                              {' '}({formatPercentageChange(comparisonMetrics.changes.songRequests).value})
                             </span>
                           )}
                         </p>
 
                         <p>
-                          <strong>Broadcasts:</strong> {engagementComparison.current.broadcastActivities} 
-                          {engagementComparison.changes.broadcastActivities !== 0 && (
-                            <span className={engagementComparison.changes.broadcastActivities > 0 ? 'text-green-600' : 'text-red-600'}>
-                              {' '}({formatPercentageChange(engagementComparison.changes.broadcastActivities).value})
+                          <strong>Broadcasts:</strong> {comparisonMetrics.current.broadcastActivities} 
+                          {comparisonMetrics.changes.broadcastActivities !== 0 && (
+                            <span className={comparisonMetrics.changes.broadcastActivities > 0 ? 'text-green-600' : 'text-red-600'}>
+                              {' '}({formatPercentageChange(comparisonMetrics.changes.broadcastActivities).value})
                             </span>
                           )}
                         </p>
 
                         <p>
-                          <strong>Total Users:</strong> {engagementComparison.current.userInteractions}
-                          {engagementComparison.changes.userInteractions !== 0 && (
-                            <span className={engagementComparison.changes.userInteractions > 0 ? 'text-green-600' : 'text-red-600'}>
-                              {' '}({formatPercentageChange(engagementComparison.changes.userInteractions).value})
+                          <strong>Total Users:</strong> {comparisonMetrics.current.userInteractions}
+                          {comparisonMetrics.changes.userInteractions !== 0 && (
+                            <span className={comparisonMetrics.changes.userInteractions > 0 ? 'text-green-600' : 'text-red-600'}>
+                              {' '}({formatPercentageChange(comparisonMetrics.changes.userInteractions).value})
                             </span>
                           )}
                         </p>

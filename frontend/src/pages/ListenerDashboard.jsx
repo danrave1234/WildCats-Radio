@@ -695,22 +695,29 @@ export default function ListenerDashboard() {
     setChatMessage(''); // Clear input immediately for better UX
 
     try {
-      // Create message object to send to the server
-      const messageData = {
-        content: messageToSend
-      };
+      // Use WebSocket to send message if available, otherwise fallback to HTTP
+      if (chatWsRef.current && chatWsRef.current.sendMessage) {
+        chatWsRef.current.sendMessage(messageToSend);
+        // Message will appear via WebSocket when server broadcasts it
+        scrollToBottom();
+      } else {
+        // Fallback to HTTP API
+        const messageData = {
+          content: messageToSend
+        };
 
-      // Send message to the server
-      const response = await chatService.sendMessage(currentBroadcastId, messageData);
+        // Send message to the server
+        const response = await chatService.sendMessage(currentBroadcastId, messageData);
 
-      // Important: Always fetch messages after sending to ensure consistency
-      const updatedMessages = await chatService.getMessages(currentBroadcastId);
+        // Important: Always fetch messages after sending to ensure consistency
+        const updatedMessages = await chatService.getMessages(currentBroadcastId);
 
-      // Update local state with fresh data from server
-      setChatMessages(updatedMessages.data);
+        // Update local state with fresh data from server
+        setChatMessages(updatedMessages.data);
 
-      // Always scroll to bottom after sending your own message
-      scrollToBottom();
+        // Always scroll to bottom after sending your own message
+        scrollToBottom();
+      }
     } catch (error) {
       logger.error("Error sending chat message:", error);
       if (error.response?.data?.message?.includes("1500 characters")) {
@@ -1211,6 +1218,11 @@ export default function ListenerDashboard() {
     }
   };
 
+  const handleCancelSongRequest = () => {
+    setIsSongRequestMode(false);
+    setSongRequestText('');
+  };
+
   // Handle poll option selection
   const handlePollOptionSelect = (optionId) => {
     if (!currentUser) {
@@ -1409,44 +1421,30 @@ export default function ListenerDashboard() {
           maxLength={1500}
         />
 
-        {/* Swap button positions when in song request mode */}
+        {/* Request Song button on the left, Send button on the right */}
         {isSongRequestMode ? (
           <>
             <button
               type="button"
               onClick={handleSongRequest}
-              disabled={!isLive}
+              disabled={!isLive || !songRequestText.trim()}
               className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 ${
-                isLive ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                isLive && songRequestText.trim() ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               }`}
             >
               Request
             </button>
             <button
-              type="submit"
-              disabled={!isLive || (!isSongRequestMode && !chatMessage.trim()) || (isSongRequestMode && !songRequestText.trim())}
-              className={`p-2 rounded-r-md transition-all duration-300 ${
-                isLive && ((isSongRequestMode && songRequestText.trim()) || (!isSongRequestMode && chatMessage.trim()))
-                  ? "bg-maroon-700 hover:bg-maroon-800 text-white"
-                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
-              }`}
+              type="button"
+              onClick={handleCancelSongRequest}
+              disabled={!isLive}
+              className="px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 bg-red-500 hover:bg-red-600 text-white"
             >
-              <PaperAirplaneIcon className="h-5 w-5" />
+              Cancel
             </button>
           </>
         ) : (
           <>
-            <button
-              type="submit"
-              disabled={!isLive || (!isSongRequestMode && !chatMessage.trim()) || (isSongRequestMode && !songRequestText.trim())}
-              className={`p-2 rounded-r-md transition-all duration-300 ${
-                isLive && ((isSongRequestMode && songRequestText.trim()) || (!isSongRequestMode && chatMessage.trim()))
-                  ? "bg-maroon-700 hover:bg-maroon-800 text-white"
-                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
-              }`}
-            >
-              <PaperAirplaneIcon className="h-5 w-5" />
-            </button>
             <button
               type="button"
               onClick={handleSongRequest}
@@ -1455,7 +1453,18 @@ export default function ListenerDashboard() {
                 isLive ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               }`}
             >
-              Song Request
+              Request Song
+            </button>
+            <button
+              type="submit"
+              disabled={!isLive || !chatMessage.trim()}
+              className={`p-2 rounded-r-md transition-all duration-300 ${
+                isLive && chatMessage.trim()
+                  ? "bg-maroon-700 hover:bg-maroon-800 text-white"
+                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
+              }`}
+            >
+              <PaperAirplaneIcon className="h-5 w-5" />
             </button>
           </>
         )}
@@ -1934,38 +1943,74 @@ export default function ListenerDashboard() {
                     <form onSubmit={handleChatSubmit} className="flex items-center space-x-2">
                       <input
                         type="text"
-                        value={chatMessage}
+                        value={isSongRequestMode ? songRequestText : chatMessage}
                         onChange={(e) => {
+                          // Limit input to 1500 characters
                           if (e.target.value.length <= 1500) {
-                            setChatMessage(e.target.value);
+                            if (isSongRequestMode) {
+                              setSongRequestText(e.target.value);
+                            } else {
+                              setChatMessage(e.target.value);
+                            }
                           }
                         }}
-                        placeholder="Type your message..."
-                        className="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-l-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 focus:border-transparent"
+                        placeholder={isSongRequestMode ? "Enter song title..." : "Type your message..."}
+                        className={`flex-1 p-2 border rounded-l-md text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:border-transparent transition-all duration-300 ease-in-out ${
+                          isSongRequestMode 
+                            ? "border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-500 focus:ring-yellow-500 animate-pulse" 
+                            : "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 focus:ring-maroon-500"
+                        }`}
                         disabled={!isLive}
                         maxLength={1500}
                       />
-                      <button
-                        type="submit"
-                        disabled={!isLive || !chatMessage.trim() || chatMessage.length > 1500}
-                        className={`p-2 rounded-md ${
-                          isLive && chatMessage.trim() && chatMessage.length <= 1500
-                            ? "bg-maroon-700 hover:bg-maroon-800 text-white"
-                            : "bg-gray-300 text-gray-500 cursor-not-allowed"
-                        }`}
-                      >
-                        <PaperAirplaneIcon className="h-5 w-5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSongRequest}
-                        disabled={!isLive}
-                        className={`p-2 rounded-md ${
-                          isLive ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                        }`}
-                      >
-                        Request Song
-                      </button>
+
+                      {/* Request Song button on the left, Send button on the right */}
+                      {isSongRequestMode ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleSongRequest}
+                            disabled={!isLive || !songRequestText.trim()}
+                            className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 ${
+                              isLive && songRequestText.trim() ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            }`}
+                          >
+                            Request
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCancelSongRequest}
+                            disabled={!isLive}
+                            className="px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 bg-red-500 hover:bg-red-600 text-white"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleSongRequest}
+                            disabled={!isLive}
+                            className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 ${
+                              isLive ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            }`}
+                          >
+                            Request Song
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={!isLive || !chatMessage.trim()}
+                            className={`p-2 rounded-r-md transition-all duration-300 ${
+                              isLive && chatMessage.trim()
+                                ? "bg-maroon-700 hover:bg-maroon-800 text-white"
+                                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                            }`}
+                          >
+                            <PaperAirplaneIcon className="h-5 w-5" />
+                          </button>
+                        </>
+                      )}
                     </form>
                   )}
                 </div>

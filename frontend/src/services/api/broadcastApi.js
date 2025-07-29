@@ -97,6 +97,88 @@ export const broadcastApi = {
       });
     });
   },
+
+  // Global broadcast status WebSocket for real-time broadcast detection
+  subscribeToGlobalBroadcastStatus: (callback) => {
+    const stompClient = createWebSocketConnection('/ws-radio');
+
+    const token = getCookie('token');
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+    return new Promise((resolve, reject) => {
+      stompClient.connect(headers, () => {
+        logger.debug('Connected to Global Broadcast Status WebSocket');
+
+        // Subscribe to global broadcast status updates
+        const subscription = stompClient.subscribe('/topic/broadcast/status', (message) => {
+          try {
+            const statusMessage = JSON.parse(message.body);
+            callback(statusMessage);
+          } catch (error) {
+            logger.error('Error parsing broadcast status message:', error);
+          }
+        });
+
+        const disconnectFunction = () => {
+          if (subscription) {
+            subscription.unsubscribe();
+          }
+          if (stompClient && stompClient.connected) {
+            stompClient.disconnect();
+          }
+        };
+
+        resolve({
+          disconnect: disconnectFunction,
+          isConnected: () => stompClient.connected
+        });
+      }, (error) => {
+        logger.error('Global Broadcast Status WebSocket connection error:', error);
+        reject(error);
+      });
+    });
+  },
+
+  // Live broadcast status WebSocket for real-time updates
+  subscribeToLiveBroadcastStatus: (callback) => {
+    const stompClient = createWebSocketConnection('/ws-radio');
+
+    const token = getCookie('token');
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+    return new Promise((resolve, reject) => {
+      stompClient.connect(headers, () => {
+        logger.debug('Connected to Live Broadcast Status WebSocket');
+
+        // Subscribe to live broadcast status updates
+        const subscription = stompClient.subscribe('/topic/broadcast/live', (message) => {
+          try {
+            const liveStatusMessage = JSON.parse(message.body);
+            callback(liveStatusMessage);
+          } catch (error) {
+            logger.error('Error parsing live broadcast status message:', error);
+          }
+        });
+
+        const disconnectFunction = () => {
+          if (subscription) {
+            subscription.unsubscribe();
+          }
+          if (stompClient && stompClient.connected) {
+            stompClient.disconnect();
+          }
+        };
+
+        resolve({
+          disconnect: disconnectFunction,
+          isConnected: () => stompClient.connected
+        });
+      }, (error) => {
+        logger.error('Live Broadcast Status WebSocket connection error:', error);
+        reject(error);
+      });
+    });
+  },
 };
 
 export default broadcastApi;

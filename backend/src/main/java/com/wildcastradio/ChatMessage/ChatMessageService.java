@@ -80,6 +80,10 @@ public class ChatMessageService {
         ChatMessageDTO messageDTO = ChatMessageDTO.fromEntity(savedMessage);
 
         // Notify all clients about the new chat message
+        System.out.println("Broadcasting chat message to /topic/broadcast/" + broadcastId + "/chat");
+        System.out.println("Message content: " + messageDTO.getContent());
+        System.out.println("Sender: " + (messageDTO.getSender() != null ? messageDTO.getSender().getEmail() : "null"));
+        
         messagingTemplate.convertAndSend(
                 "/topic/broadcast/" + broadcastId + "/chat",
                 messageDTO

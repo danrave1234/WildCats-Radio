@@ -73,16 +73,38 @@ const AdminDashboard = () => {
     }
   }, [activeTab]);
 
-  // Fetch live broadcasts and update stats
+  // Setup WebSocket for live broadcast updates
   useEffect(() => {
+    if (!isAuthenticated) return;
 
-    // Fetch broadcasts when dashboard tab is active or every minute
-    if (activeTab === 'dashboard' || activeTab === 'broadcasts') {
-      fetchLiveBroadcasts();
-      const interval = setInterval(fetchLiveBroadcasts, 60000); // Check every minute
-      return () => clearInterval(interval);
-    }
-  }, [activeTab]);
+    let liveBroadcastWs = null;
+
+    const setupLiveBroadcastWebSocket = async () => {
+      try {
+        logger.debug('Setting up live broadcast WebSocket for admin dashboard');
+        
+        liveBroadcastWs = await broadcastApi.subscribeToLiveBroadcastStatus((statusMessage) => {
+          logger.debug('Received live broadcast update in admin dashboard:', statusMessage);
+          
+          // Refresh live broadcasts when status changes
+          fetchLiveBroadcasts();
+        });
+
+        logger.debug('Live broadcast WebSocket connected successfully for admin dashboard');
+      } catch (error) {
+        logger.error('Failed to setup live broadcast WebSocket for admin dashboard:', error);
+      }
+    };
+
+    setupLiveBroadcastWebSocket();
+
+    return () => {
+      if (liveBroadcastWs) {
+        liveBroadcastWs.disconnect();
+        logger.debug('Live broadcast WebSocket disconnected from admin dashboard');
+      }
+    };
+  }, [isAuthenticated]);
 
   // Fetch users from the backend
   const fetchUsers = async () => {
