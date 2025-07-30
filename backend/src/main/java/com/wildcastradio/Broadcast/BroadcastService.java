@@ -253,11 +253,15 @@ public class BroadcastService {
         // Allow any DJ to end a broadcast, not just the creator
         // This enables site-wide broadcast control
 
-        // End the stream (no specific action needed with Icecast as WebSocket close will handle this)
+        // End the stream
         broadcast.setActualEnd(LocalDateTime.now());
         broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
 
         BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+
+        // CRITICAL FIX: Clear all active broadcasts from IcecastService to ensure stream status is updated
+        // This fixes the issue where the stream still shows as live after ending
+        icecastService.clearAllActiveBroadcasts();
 
         // Log the activity
         activityLogService.logActivity(
@@ -294,6 +298,10 @@ public class BroadcastService {
 
         BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
 
+        // CRITICAL FIX: Clear all active broadcasts from IcecastService to ensure stream status is updated
+        // This fixes the issue where the stream still shows as live after ending
+        icecastService.clearAllActiveBroadcasts();
+
         logger.info("Broadcast ended without user info: {}", savedBroadcast.getTitle());
 
         return savedBroadcast;
@@ -323,7 +331,16 @@ public class BroadcastService {
     }
 
     public List<BroadcastEntity> getLiveBroadcasts() {
-        return broadcastRepository.findByStatus(BroadcastEntity.BroadcastStatus.LIVE);
+        return broadcastRepository.findByStatusOrderByActualStartDesc(BroadcastEntity.BroadcastStatus.LIVE);
+    }
+    
+    /**
+     * Get the most recent live broadcast (the one that should be active)
+     * This ensures we always get the current live broadcast, not an old one
+     */
+    public Optional<BroadcastEntity> getCurrentLiveBroadcast() {
+        List<BroadcastEntity> liveBroadcasts = getLiveBroadcasts();
+        return liveBroadcasts.isEmpty() ? Optional.empty() : Optional.of(liveBroadcasts.get(0));
     }
 
     public List<BroadcastEntity> getUpcomingBroadcasts() {
@@ -482,7 +499,7 @@ public class BroadcastService {
     }
 
     public double getAverageBroadcastDuration() {
-        List<BroadcastEntity> completedBroadcasts = broadcastRepository.findByStatus(BroadcastEntity.BroadcastStatus.ENDED);
+        List<BroadcastEntity> completedBroadcasts = broadcastRepository.findByStatusOrderByActualStartDesc(BroadcastEntity.BroadcastStatus.ENDED);
 
         if (completedBroadcasts.isEmpty()) {
             return 0.0;

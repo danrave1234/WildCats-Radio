@@ -283,7 +283,7 @@ export const broadcastService = {
   getAnalytics: (id) => api.get(`/api/broadcasts/${id}/analytics`),
   getUpcoming: () => api.get('/api/broadcasts/upcoming'),
   getLive: () => api.get('/api/broadcasts/live'),
-  getActiveBroadcast: () => api.get('/api/broadcasts/live').then(response => response.data[0] || null),
+  getActiveBroadcast: () => api.get('/api/broadcasts/live/current').then(response => response.data).catch(() => null),
 
   // Subscribe to real-time broadcast updates (for broadcast status, listener count, etc.)
   subscribeToBroadcastUpdates: (broadcastId, callback) => {

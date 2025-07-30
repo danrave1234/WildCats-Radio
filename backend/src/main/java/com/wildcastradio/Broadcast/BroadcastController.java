@@ -1,6 +1,7 @@
 package com.wildcastradio.Broadcast;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -121,7 +122,7 @@ public class BroadcastController {
     }
 
     @PostMapping("/{id}/start")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN') or hasRole('LISTENER')") // Temporarily allow LISTENER role for development
     public ResponseEntity<BroadcastDTO> startBroadcast(
             @PathVariable Long id,
             Authentication authentication) {
@@ -170,6 +171,14 @@ public class BroadcastController {
                 .map(BroadcastDTO::fromEntity)
                 .collect(java.util.stream.Collectors.toList());
         return ResponseEntity.ok(broadcasts);
+    }
+    
+    @GetMapping("/live/current")
+    public ResponseEntity<BroadcastDTO> getCurrentLiveBroadcast() {
+        Optional<BroadcastEntity> currentLive = broadcastService.getCurrentLiveBroadcast();
+        return currentLive
+                .map(broadcast -> ResponseEntity.ok(BroadcastDTO.fromEntity(broadcast)))
+                .orElse(ResponseEntity.notFound().build());
     }
 
     /**

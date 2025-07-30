@@ -117,6 +117,20 @@ public class IcecastService {
     }
 
     /**
+     * Clear all active broadcasts (used when ending broadcasts via HTTP endpoint)
+     * This ensures the stream status is properly updated when broadcasts are ended
+     */
+    public void clearAllActiveBroadcasts() {
+        logger.info("Clearing all active broadcasts from session tracking");
+        activeBroadcasts.clear();
+        
+        // Notify listener status handler if available
+        if (listenerStatusHandler != null) {
+            listenerStatusHandler.triggerStatusUpdate();
+        }
+    }
+
+    /**
      * Get the Icecast URL for web interface (through reverse proxy)
      * @return URL for web access to Icecast (admin, status pages)
      */

@@ -314,20 +314,19 @@ const AudioSourceSelector = ({ disabled = false }) => {
       </div>
 
       {/* Current Connected Audio Source Display */}
-      {currentAudioDevice && !showSourceSelector && (
-        <div className="p-4 bg-green-50 border-2 border-green-200 rounded-lg dark:bg-green-900/20 dark:border-green-800">
+      {currentAudioDevice && (
+        <div className="p-4 bg-green-50 border-2 border-green-200 rounded-lg dark:bg-green-900/20 dark:border-green-600">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className="relative">
-                <ComputerDesktopIcon className="w-6 h-6 text-green-600 dark:text-green-400" />
-                <CheckCircleIcon className="w-4 h-4 text-green-600 dark:text-green-400 absolute -top-1 -right-1 bg-white dark:bg-gray-900 rounded-full" />
+              <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center">
+                <ComputerDesktopIcon className="w-4 h-4 text-green-600" />
               </div>
               <div>
-                <h4 className="font-medium text-green-800 dark:text-green-200">
-                  Connected: {currentAudioDevice.label}
+                <h4 className="font-medium text-green-700 dark:text-green-300">
+                  {currentAudioDevice.label || 'Desktop Audio'}
                 </h4>
-                <p className="text-sm text-green-600 dark:text-green-300">
-                  Status: {currentAudioDevice.readyState === 'live' ? 'Active' : 'Inactive'}
+                <p className="text-sm text-green-600 dark:text-green-400">
+                  {currentAudioDevice.enabled ? 'Connected and Ready' : 'Selected but not connected'}
                 </p>
               </div>
             </div>

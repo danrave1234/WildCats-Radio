@@ -19,6 +19,10 @@ public class BroadcastDTO {
     private UserDTO createdBy;
     private UserDTO startedBy;
     
+    // Analytics fields
+    private Integer peakListeners;
+    private Integer totalInteractions;
+    
     // For displaying formatted dates in frontend
     private String formattedStart;
     private String formattedEnd;
@@ -29,7 +33,8 @@ public class BroadcastDTO {
     
     public BroadcastDTO(Long id, String title, String description, LocalDateTime scheduledStart,
                        LocalDateTime scheduledEnd, LocalDateTime actualStart, LocalDateTime actualEnd,
-                       String status, String streamUrl, UserDTO createdBy, UserDTO startedBy) {
+                       String status, String streamUrl, UserDTO createdBy, UserDTO startedBy,
+                       Integer peakListeners, Integer totalInteractions) {
         this.id = id;
         this.title = title;
         this.description = description;
@@ -41,6 +46,8 @@ public class BroadcastDTO {
         this.streamUrl = streamUrl;
         this.createdBy = createdBy;
         this.startedBy = startedBy;
+        this.peakListeners = peakListeners;
+        this.totalInteractions = totalInteractions;
         
         // Format the dates for frontend display
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -79,7 +86,9 @@ public class BroadcastDTO {
             broadcast.getStatus().toString(),
             broadcast.getStreamUrl(),
             userDTO,
-            startedByDTO
+            startedByDTO,
+            broadcast.getPeakListeners(),
+            broadcast.getTotalInteractions()
         );
     }
     
@@ -186,5 +195,21 @@ public class BroadcastDTO {
     
     public void setFormattedEnd(String formattedEnd) {
         this.formattedEnd = formattedEnd;
+    }
+    
+    public Integer getPeakListeners() {
+        return peakListeners;
+    }
+    
+    public void setPeakListeners(Integer peakListeners) {
+        this.peakListeners = peakListeners;
+    }
+    
+    public Integer getTotalInteractions() {
+        return totalInteractions;
+    }
+    
+    public void setTotalInteractions(Integer totalInteractions) {
+        this.totalInteractions = totalInteractions;
     }
 } 

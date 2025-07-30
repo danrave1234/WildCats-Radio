@@ -54,6 +54,7 @@ export function StreamingProvider({ children }) {
   const mediaRecorderRef = useRef(null);
   const audioStreamRef = useRef(null);
   const audioRef = useRef(null);
+  const djReconnectTimerRef = useRef(null);
 
   // Flag to prevent auto-reconnection during pipeline resets
   const pipelineResetInProgressRef = useRef(false);
@@ -68,24 +69,10 @@ export function StreamingProvider({ children }) {
   });
   const desktopStreamRef = useRef(null);
 
-  // Add DJ audio controls
-  const [isDJMuted, setIsDJMuted] = useState(false);
-  const [djAudioGain, setDJAudioGain] = useState(1.0); // 0.0 to 1.0
-  const audioContextRef = useRef(null);
-  const gainNodeRef = useRef(null);
-
-  // Add noise gate and audio monitoring
-  const [noiseGateEnabled, setNoiseGateEnabled] = useState(false); // DISABLED by default for troubleshooting
-  const [noiseGateThreshold, setNoiseGateThreshold] = useState(-60); // dB - more lenient threshold
+  // Audio monitoring for status display
   const [audioLevel, setAudioLevel] = useState(0);
-  const analyserRef = useRef(null);
-  const noiseGateRef = useRef(null);
   const audioLevelIntervalRef = useRef(null);
-  const lastAudioAboveThresholdRef = useRef(0); // Track when audio was last above threshold
-
-  // Add microphone boost control state
-  const [microphoneBoost, setMicrophoneBoost] = useState(3.0); // Default 3x boost (~9.5dB)
-  const microphoneBoostRef = useRef(null);
+  const analyserRef = useRef(null);
 
   // Audio source switching control
   const isAudioSourceSwitching = useRef(false);
@@ -387,10 +374,9 @@ export function StreamingProvider({ children }) {
         testSource.connect(testAnalyser);
 
         analyserRef.current = testAnalyser;
-        audioContextRef.current = testContext;
 
         // Start basic monitoring
-        startSimplifiedAudioLevelMonitoring();
+        startAudioLevelMonitoring();
 
         console.log('✅ Direct stream mode active - no audio processing applied');
         return micStream; // Return raw stream directly
@@ -398,14 +384,9 @@ export function StreamingProvider({ children }) {
       } catch (directError) {
         console.warn('⚠️ Direct stream failed, falling back to processing pipeline:', directError);
 
-        // Step 5b: Create processing pipeline as fallback
-        const audioContext = new AudioContext({
-          sampleRate: 48000,
-          latencyHint: 'interactive'
-        });
-        audioContextRef.current = audioContext;
-
-        const processedStream = createSimplifiedAudioProcessingPipeline(micStream, audioContext);
+        // Step 5b: Use direct stream as fallback
+        console.log('Using direct microphone stream as fallback');
+        const processedStream = micStream;
 
         // DON'T stop original stream immediately - let processed stream establish first
         setTimeout(() => {
@@ -514,7 +495,7 @@ export function StreamingProvider({ children }) {
       const destination = audioContext.createMediaStreamDestination();
 
       // Store audio context reference for later use
-      audioContextRef.current = audioContext;
+
 
       // Create audio sources
       const micSource = audioContext.createMediaStreamSource(micStream);
@@ -525,13 +506,12 @@ export function StreamingProvider({ children }) {
       const desktopGain = audioContext.createGain();
       const masterGain = audioContext.createGain();
 
-      // Store master gain reference for DJ controls
-      gainNodeRef.current = masterGain;
+
 
       // Set initial gain levels (can be adjusted)
       micGain.gain.value = 1.0; // 100% microphone volume
       desktopGain.gain.value = 0.8; // 80% desktop volume to prevent overwhelming
-      masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
+      masterGain.gain.value = 1.0; // Full volume since controls are handled by third-party software
 
       // Connect the audio graph
       micSource.connect(micGain);
@@ -548,46 +528,7 @@ export function StreamingProvider({ children }) {
     }
   };
 
-  // DJ Audio Control Functions
-  const toggleDJMute = () => {
-    const newMutedState = !isDJMuted;
-    setIsDJMuted(newMutedState);
 
-    // Apply mute to gain node if available
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = newMutedState ? 0.0 : djAudioGain;
-    }
-
-    logger.debug('DJ mute toggled:', newMutedState);
-  };
-
-  const setDJAudioLevel = (level) => {
-    // Clamp level between 0 and 1
-    const clampedLevel = Math.max(0, Math.min(1, level));
-    setDJAudioGain(clampedLevel);
-
-    // Apply gain to gain node if available and not muted
-    if (gainNodeRef.current && !isDJMuted) {
-      gainNodeRef.current.gain.value = clampedLevel;
-    }
-
-    logger.debug('DJ audio level set to:', clampedLevel);
-  };
-
-  // Microphone Boost Control Function
-  const setMicrophoneBoostLevel = (boostMultiplier) => {
-    // Clamp boost between 0.1 and 10.0 (equivalent to -20dB to +20dB)
-    const clampedBoost = Math.max(0.1, Math.min(10.0, boostMultiplier));
-    setMicrophoneBoost(clampedBoost);
-
-    // Apply boost to microphone gain node if available
-    if (microphoneBoostRef.current) {
-      microphoneBoostRef.current.gain.value = clampedBoost;
-      console.log(`🎤 Microphone boost set to ${clampedBoost.toFixed(1)}x (~${(20 * Math.log10(clampedBoost)).toFixed(1)}dB)`);
-    }
-
-    logger.debug('Microphone boost level set to:', clampedBoost);
-  };
 
   // Helper function to validate and prepare audio stream for MediaRecorder
   const validateAndPrepareStream = async (stream, sourceType) => {
@@ -788,280 +729,8 @@ export function StreamingProvider({ children }) {
     }
   };
 
-  // Enhanced function to switch audio source during broadcast with industry-standard stability patterns
-  const switchAudioSourceLive = async (newSource) => {
-    if (!isLive || !currentBroadcast) {
-      logger.warn('Cannot switch audio source: not currently live or no active broadcast');
-      throw new Error('Cannot switch audio source when not live');
-    }
 
-    if (isAudioSourceSwitching.current) {
-      logger.warn('Audio source switch already in progress, ignoring new request');
-      return;
-    }
-
-    isAudioSourceSwitching.current = true;
-    logger.info(`🔄 Starting COMPLETE PIPELINE RESET: ${audioSource} → ${newSource}`);
-
-    // CRITICAL TIMING MARKER 1: Pipeline reset start
-    const pipelineResetStartTime = Date.now();
-    logger.info(`⏱️ PIPELINE RESET START TIME: ${new Date(pipelineResetStartTime).toISOString()}`);
-
-    try {
-      // Step 1: Stop audio level monitoring immediately
-      logger.info('📊 Step 1/14: Stopping audio level monitoring');
-      stopAudioLevelMonitoring();
-
-      // Step 2: Stop current MediaRecorder if active
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        logger.info('🎤 Step 2/14: Stopping current MediaRecorder');
-        try {
-          if (mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop();
-          }
-        } catch (error) {
-          logger.warn('Error stopping MediaRecorder:', error);
-        }
-      }
-
-      // Step 3: CRITICAL - Disconnect DJ WebSocket to terminate FFmpeg process
-      logger.info('🔌 Step 3/14: Disconnecting DJ WebSocket (triggers FFmpeg termination)');
-      // CRITICAL TIMING MARKER 2: WebSocket disconnect
-      const websocketDisconnectTime = Date.now();
-      logger.info(`⏱️ WEBSOCKET DISCONNECT TIME: ${new Date(websocketDisconnectTime).toISOString()}`);
-
-      if (djWebSocketRef.current) {
-        try {
-          djWebSocketRef.current.close(1000, 'Audio source switching');
-          logger.info('DJ WebSocket disconnected for audio source switching');
-        } catch (error) {
-          logger.warn('Error closing DJ WebSocket:', error);
-        }
-        djWebSocketRef.current = null;
-      }
-
-      // Step 4: Clean up all audio stream tracks
-      logger.info('🎵 Step 4/14: Cleaning up current audio stream tracks');
-      if (audioStreamRef.current) {
-        audioStreamRef.current.getTracks().forEach(track => {
-          track.stop();
-          logger.debug(`Stopped track: ${track.kind} - ${track.label}`);
-        });
-        audioStreamRef.current = null;
-      }
-
-      // Step 5: Close audio context
-      logger.info('🔊 Step 5/14: Closing audio context');
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        try {
-          await audioContextRef.current.close();
-        } catch (error) {
-          logger.warn('Error closing audio context:', error);
-        }
-        audioContextRef.current = null;
-      }
-
-      // Step 6: EXTENDED PAUSE - Critical for FFmpeg termination and Icecast mount point release
-      logger.info('⏸️ Step 6/14: Extended pause for FFmpeg termination and mount point release');
-      // CRITICAL TIMING MARKER 3: Extended pause start
-      const extendedPauseStartTime = Date.now();
-      logger.info(`⏱️ EXTENDED PAUSE START: ${new Date(extendedPauseStartTime).toISOString()}`);
-      logger.info('⏳ Waiting 3 seconds for FFmpeg process termination and Icecast mount point release...');
-
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      // CRITICAL TIMING MARKER 4: Extended pause end
-      const extendedPauseEndTime = Date.now();
-      logger.info(`⏱️ EXTENDED PAUSE END: ${new Date(extendedPauseEndTime).toISOString()}`);
-      logger.info(`⏱️ Extended pause duration: ${extendedPauseEndTime - extendedPauseStartTime}ms`);
-
-      // Step 7: Acquire and validate new audio source
-      logger.info(`🎯 Step 7/14: Acquiring new audio source: ${newSource}`);
-      // CRITICAL TIMING MARKER 5: New source acquisition start
-      const sourceAcquisitionStartTime = Date.now();
-      logger.info(`⏱️ NEW SOURCE ACQUISITION START: ${new Date(sourceAcquisitionStartTime).toISOString()}`);
-
-      const newStream = await getAudioStreamForSwitching(newSource);
-      if (!newStream) {
-        throw new Error(`Failed to acquire ${newSource} audio stream`);
-      }
-
-      // CRITICAL TIMING MARKER 6: New source acquisition end
-      const sourceAcquisitionEndTime = Date.now();
-      logger.info(`⏱️ NEW SOURCE ACQUISITION END: ${new Date(sourceAcquisitionEndTime).toISOString()}`);
-      logger.info(`⏱️ Source acquisition duration: ${sourceAcquisitionEndTime - sourceAcquisitionStartTime}ms`);
-
-      // Validate stream before proceeding
-      const isValidStream = validateStreamBeforeUse(newStream, newSource);
-      if (!isValidStream) {
-        newStream.getTracks().forEach(track => track.stop());
-        throw new Error(`Invalid ${newSource} stream - no active audio tracks`);
-      }
-
-      // Step 8: Connect new DJ WebSocket (triggers fresh FFmpeg process)
-      logger.info('🔗 Step 8/14: Connecting new DJ WebSocket (triggers fresh FFmpeg process)');
-      // CRITICAL TIMING MARKER 7: New WebSocket connection start
-      const newWebSocketStartTime = Date.now();
-      logger.info(`⏱️ NEW WEBSOCKET CONNECTION START: ${new Date(newWebSocketStartTime).toISOString()}`);
-
-              connectDJWebSocket();
-
-      // CRITICAL TIMING MARKER 8: New WebSocket connection end
-      const newWebSocketEndTime = Date.now();
-      logger.info(`⏱️ NEW WEBSOCKET CONNECTION END: ${new Date(newWebSocketEndTime).toISOString()}`);
-      logger.info(`⏱️ New WebSocket connection duration: ${newWebSocketEndTime - newWebSocketStartTime}ms`);
-
-      // Step 9: Wait for WebSocket connection to be established
-      logger.info('⏳ Step 9/14: Waiting for WebSocket connection establishment');
-      let connectionWaitTime = 0;
-      const maxWaitTime = 10000; // 10 seconds timeout
-
-      while (!globalWebSocketService.isDJWebSocketConnected() && connectionWaitTime < maxWaitTime) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        connectionWaitTime += 100;
-      }
-
-      if (!globalWebSocketService.isDJWebSocketConnected()) {
-        throw new Error(`WebSocket connection failed after ${maxWaitTime}ms timeout`);
-      }
-
-      logger.info(`✅ WebSocket connected successfully after ${connectionWaitTime}ms`);
-
-      // Step 10: Create new MediaRecorder with fresh timestamps
-      logger.info('🎬 Step 10/14: Creating new MediaRecorder with fresh timestamps');
-      let isFirstChunk = true;
-
-      try {
-        const mediaRecorder = new MediaRecorder(newStream, {
-          mimeType: 'audio/webm;codecs=opus',
-          audioBitsPerSecond: 128000
-        });
-
-        // Enhanced data handling with buffer size checking and validation
-        const safelySendAudioData = (buffer) => {
-          // CRITICAL: Validate first chunk for proper WebM headers
-          if (isFirstChunk) {
-            logger.info('🔍 Validating first audio chunk after source switch');
-            const headerView = new Uint8Array(buffer.slice(0, 32));
-            const isValidWebM = headerView[0] === 0x1a && headerView[1] === 0x45 && 
-                               headerView[2] === 0xdf && headerView[3] === 0xa3;
-
-            if (!isValidWebM) {
-              logger.warn('⚠️ First chunk does not contain valid WebM header, skipping');
-              return;
-            }
-
-            if (buffer.byteLength < 100) {
-              logger.warn('⚠️ First chunk too small, waiting for more substantial chunk');
-              return;
-            }
-
-            logger.info('✅ First chunk validated successfully');
-            isFirstChunk = false;
-          }
-
-          if (buffer.byteLength > MAX_MESSAGE_SIZE) {
-            logger.warn(`⚠️ Audio chunk too large: ${buffer.byteLength} bytes, skipping`);
-            return;
-          }
-
-          const success = globalWebSocketService.sendDJBinaryData(buffer);
-          if (!success) {
-            logger.error('Error sending audio data after source switch');
-          }
-        };
-
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data && event.data.size > 0) {
-            event.data.arrayBuffer().then(safelySendAudioData).catch(error => {
-              logger.error('Error processing audio data:', error);
-            });
-          }
-        };
-
-        mediaRecorder.onerror = (event) => {
-          logger.error('MediaRecorder error after source switch:', event.error);
-        };
-
-        mediaRecorder.onstart = () => {
-          logger.info('🎤 New MediaRecorder started successfully after source switch');
-        };
-
-        mediaRecorderRef.current = mediaRecorder;
-      } catch (error) {
-        newStream.getTracks().forEach(track => track.stop());
-        throw new Error(`Failed to create MediaRecorder for ${newSource}: ${error.message}`);
-      }
-
-      // Step 11: Start new recorder with zero timestamps
-      logger.info('▶️ Step 11/14: Starting new MediaRecorder with zero timestamps');
-      try {
-        mediaRecorderRef.current.start(100); // 100ms chunks for responsiveness
-        logger.info('✅ New MediaRecorder started successfully');
-      } catch (error) {
-        newStream.getTracks().forEach(track => track.stop());
-        throw new Error(`Failed to start new MediaRecorder: ${error.message}`);
-      }
-
-      // Step 12: Update references
-      logger.info('🔄 Step 12/14: Updating audio stream references');
-      audioStreamRef.current = newStream;
-      setAudioSource(newSource);
-
-      // Step 13: Restart monitoring with fallback mechanism
-      logger.info('📊 Step 13/14: Restarting audio level monitoring with fallback');
-      try {
-        startAudioLevelMonitoring();
-      } catch (error) {
-        logger.warn('Failed to restart audio level monitoring, using fallback:', error);
-        try {
-          startSimplifiedAudioLevelMonitoring();
-        } catch (fallbackError) {
-          logger.error('Fallback audio monitoring also failed:', fallbackError);
-        }
-      }
-
-      // Step 14: Final success logging
-      // CRITICAL TIMING MARKER 9: Pipeline reset complete
-      const pipelineResetEndTime = Date.now();
-      logger.info(`⏱️ PIPELINE RESET COMPLETE TIME: ${new Date(pipelineResetEndTime).toISOString()}`);
-      logger.info(`⏱️ TOTAL PIPELINE RESET DURATION: ${pipelineResetEndTime - pipelineResetStartTime}ms`);
-
-      logger.info(`✅ Step 14/14: Audio source switch completed successfully: ${audioSource} → ${newSource}`);
-      logger.info('🎉 COMPLETE PIPELINE RESET SUCCESSFUL');
-
-      // TIMING SUMMARY
-      logger.info('📊 PIPELINE RESET TIMING SUMMARY:');
-      logger.info(`   • WebSocket disconnect: ${websocketDisconnectTime - pipelineResetStartTime}ms`);
-      logger.info(`   • Extended pause duration: ${extendedPauseEndTime - extendedPauseStartTime}ms`);
-      logger.info(`   • Source acquisition: ${sourceAcquisitionEndTime - sourceAcquisitionStartTime}ms`);
-      logger.info(`   • New WebSocket connection: ${newWebSocketEndTime - newWebSocketStartTime}ms`);
-      logger.info(`   • Total duration: ${pipelineResetEndTime - pipelineResetStartTime}ms`);
-
-    } catch (error) {
-      logger.error(`❌ COMPLETE PIPELINE RESET FAILED: ${error.message}`);
-
-      // Cleanup on failure
-      if (audioStreamRef.current) {
-        audioStreamRef.current.getTracks().forEach(track => track.stop());
-        audioStreamRef.current = null;
-      }
-
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        try {
-          mediaRecorderRef.current.stop();
-        } catch (stopError) {
-          logger.warn('Error stopping MediaRecorder during cleanup:', stopError);
-        }
-        mediaRecorderRef.current = null;
-      }
-
-      throw error;
-    } finally {
-      isAudioSourceSwitching.current = false;
-      logger.info('🔓 Audio source switching lock released');
-    }
-  };
+    
 
   // Enhanced function to get audio stream specifically for switching (with better lifecycle management)
   const getAudioStreamForSwitching = async (source = audioSource) => {
@@ -1710,11 +1379,7 @@ export function StreamingProvider({ children }) {
         djWebSocketRef.current = null;
       }
 
-      // Close audio context
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        await audioContextRef.current.close();
-        audioContextRef.current = null;
-      }
+
 
       // Stop audio stream
       if (audioStreamRef.current) {
@@ -1730,8 +1395,6 @@ export function StreamingProvider({ children }) {
 
       // Clear audio processing references
       analyserRef.current = null;
-      noiseGateRef.current = null;
-      gainNodeRef.current = null;
 
       // Clear reconnection timer
       if (djReconnectTimerRef.current) {
@@ -1947,279 +1610,13 @@ export function StreamingProvider({ children }) {
     };
   }, [isAuthenticated, currentUser, isLive, websocketConnected]);
 
-  // Function to create noise gate and audio processing pipeline
-  const createAudioProcessingPipeline = (inputStream, audioContext) => {
-    try {
-      console.log('🎛️ Creating audio processing pipeline...');
-
-      // Create audio processing nodes
-      const source = audioContext.createMediaStreamSource(inputStream);
-      const analyser = audioContext.createAnalyser();
-      const micBoostNode = audioContext.createGain(); // NEW: Microphone boost stage
-      const noiseGate = audioContext.createGain();
-      const masterGain = audioContext.createGain();
-      const destination = audioContext.createMediaStreamDestination();
-
-      // Configure analyser for audio level monitoring
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
-
-      // Store references
-      analyserRef.current = analyser;
-      noiseGateRef.current = noiseGate;
-      gainNodeRef.current = masterGain;
-      microphoneBoostRef.current = micBoostNode; // Store microphone boost reference
-
-      // Set initial values with microphone boost
-      micBoostNode.gain.value = microphoneBoost; // Use state value
-      noiseGate.gain.value = 1.0; // Will be controlled by noise gate logic  
-      masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
-
-      console.log('🎛️ Audio pipeline initial settings:', {
-        microphoneBoost: micBoostNode.gain.value,
-        noiseGateValue: noiseGate.gain.value,
-        masterGainValue: masterGain.gain.value,
-        isDJMuted,
-        djAudioGain,
-        noiseGateEnabled,
-        noiseGateThreshold
-      });
-
-      // Connect audio pipeline: Source -> Analyser -> MicBoost -> NoiseGate -> MasterGain -> Destination
-      source.connect(analyser);
-      analyser.connect(micBoostNode);
-      micBoostNode.connect(noiseGate);
-      noiseGate.connect(masterGain);
-      masterGain.connect(destination);
-
-      // Start audio level monitoring and noise gate
-      startAudioLevelMonitoring();
-
-      console.log('✅ Audio processing pipeline created with microphone boost and noise gate');
-      return destination.stream;
-    } catch (error) {
-      console.error('❌ Error creating audio processing pipeline:', error);
-      throw error;
-    }
-  };
-
-  // Simplified audio processing pipeline to avoid timing issues  
-  const createSimplifiedAudioProcessingPipeline = (inputStream, audioContext) => {
-    try {
-      console.log('🎛️ Creating simplified audio processing pipeline...');
-
-      // Create minimal processing nodes to avoid timing issues
-      const source = audioContext.createMediaStreamSource(inputStream);
-      const analyser = audioContext.createAnalyser();
-      const micBoostNode = audioContext.createGain();
-      const masterGain = audioContext.createGain();
-      const destination = audioContext.createMediaStreamDestination();
-
-      // Configure analyser with less aggressive settings
-      analyser.fftSize = 128; // Smaller FFT to reduce processing overhead
-      analyser.smoothingTimeConstant = 0.9; // More smoothing
-
-      // Store references
-      analyserRef.current = analyser;
-      gainNodeRef.current = masterGain;
-      microphoneBoostRef.current = micBoostNode;
-      noiseGateRef.current = null; // Disable noise gate temporarily to avoid timing issues
-
-      // Set initial values - simplified gain staging
-      micBoostNode.gain.value = microphoneBoost; // Apply microphone boost
-      masterGain.gain.value = isDJMuted ? 0.0 : djAudioGain;
-
-      console.log('🎛️ Simplified audio pipeline settings:', {
-        microphoneBoost: micBoostNode.gain.value,
-        masterGainValue: masterGain.gain.value,
-        isDJMuted,
-        djAudioGain,
-        noiseGateEnabled: false // Disabled to prevent timing issues
-      });
-
-      // Connect simplified pipeline: Source -> Analyser -> MicBoost -> MasterGain -> Destination
-      source.connect(analyser);
-      analyser.connect(micBoostNode);
-      micBoostNode.connect(masterGain);
-      masterGain.connect(destination);
-
-      // DEBUG: Test each stage of the pipeline
-      console.log('🔧 Testing audio pipeline stages...');
-
-      // Test raw source audio levels
-      const sourceAnalyser = audioContext.createAnalyser();
-      sourceAnalyser.fftSize = 256;
-      source.connect(sourceAnalyser);
-
-      // Test final destination audio levels  
-      const destAnalyser = audioContext.createAnalyser();
-      destAnalyser.fftSize = 256;
-      masterGain.connect(destAnalyser);
-
-      // Monitor both for 3 seconds
-      let debugCount = 0;
-      const debugInterval = setInterval(() => {
-        const sourceData = new Uint8Array(sourceAnalyser.frequencyBinCount);
-        const destData = new Uint8Array(destAnalyser.frequencyBinCount);
-
-        sourceAnalyser.getByteFrequencyData(sourceData);
-        destAnalyser.getByteFrequencyData(destData);
-
-        const sourceRMS = Math.sqrt(sourceData.reduce((sum, val) => sum + val*val, 0) / sourceData.length);
-        const destRMS = Math.sqrt(destData.reduce((sum, val) => sum + val*val, 0) / destData.length);
-
-        console.log(`🔧 Pipeline debug ${debugCount}: Source RMS=${sourceRMS.toFixed(2)}, Dest RMS=${destRMS.toFixed(2)}, Boost=${micBoostNode.gain.value}x, Master=${masterGain.gain.value}`);
-
-        debugCount++;
-        if (debugCount >= 30) { // 3 seconds
-          clearInterval(debugInterval);
-          console.log('🔧 Pipeline debugging complete');
-        }
-      }, 100);
-
-      // Start simplified audio level monitoring
-      startSimplifiedAudioLevelMonitoring();
-
-      console.log('✅ Simplified audio processing pipeline created without noise gate');
-      return destination.stream;
-    } catch (error) {
-      console.error('❌ Error creating simplified audio processing pipeline:', error);
-      throw error;
-    }
-  };
-
-  // Minimal processing for fallback streams - just basic volume control
-  const createFallbackAudioProcessingPipeline = (inputStream) => {
-    try {
-      console.log('🎛️ Creating fallback audio processing pipeline...');
-
-      // Create minimal audio context for basic processing
-      const audioContext = new AudioContext({
-        sampleRate: inputStream.getAudioTracks()[0].getSettings().sampleRate || 44100,
-        latencyHint: 'interactive'
-      });
-      audioContextRef.current = audioContext;
-
-      const source = audioContext.createMediaStreamSource(inputStream);
-      const micBoostNode = audioContext.createGain();
-      const destination = audioContext.createMediaStreamDestination();
-
-      // Store essential references
-      microphoneBoostRef.current = micBoostNode;
-      gainNodeRef.current = micBoostNode; // Use boost as master gain for simplicity
-
-      // Apply basic microphone boost
-      micBoostNode.gain.value = microphoneBoost * (isDJMuted ? 0.0 : djAudioGain);
-
-      console.log('🎛️ Fallback audio pipeline settings:', {
-        microphoneBoost: microphoneBoost,
-        isDJMuted,
-        djAudioGain,
-        totalGain: micBoostNode.gain.value
-      });
-
-      // Simple connection: Source -> MicBoost -> Destination
-      source.connect(micBoostNode);
-      micBoostNode.connect(destination);
-
-      console.log('✅ Fallback audio processing pipeline created with minimal processing');
-      return destination.stream;
-    } catch (error) {
-      console.error('❌ Error creating fallback audio processing pipeline:', error);
-      // Return original stream if processing fails
-      return inputStream;
-    }
-  };
-
-  // Audio level monitoring and noise gate logic
+  // Simple audio level monitoring for status display
   const startAudioLevelMonitoring = () => {
     if (!analyserRef.current || audioLevelIntervalRef.current) return;
 
     const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-    const HOLD_TIME_MS = 500; // Hold gate open for 500ms after sound drops below threshold
 
-    console.log('🎵 Starting audio level monitoring with noise gate:', {
-      noiseGateEnabled,
-      noiseGateThreshold,
-      holdTimeMs: HOLD_TIME_MS
-    });
-
-    audioLevelIntervalRef.current = setInterval(() => {
-      if (!analyserRef.current) return;
-
-      analyserRef.current.getByteFrequencyData(dataArray);
-
-      // Calculate RMS (Root Mean Square) for audio level
-      let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        sum += dataArray[i] * dataArray[i];
-      }
-      const rms = Math.sqrt(sum / dataArray.length);
-
-      // Convert to dB scale (0-255 -> -∞ to 0 dB)
-      const dB = rms > 0 ? 20 * Math.log10(rms / 255) : -100;
-      setAudioLevel(Math.max(-60, dB)); // Clamp to reasonable range
-
-      // Log audio levels more frequently during initial setup (every 1 second instead of 2)
-      if (Date.now() % 1000 < 50) {
-        console.log('🎵 Audio levels:', {
-          rms: rms.toFixed(2),
-          dB: dB.toFixed(1),
-          threshold: noiseGateThreshold,
-          aboveThreshold: dB >= noiseGateThreshold,
-          gateEnabled: noiseGateEnabled,
-          micBoostApplied: true
-        });
-      }
-
-      // Apply noise gate with hold time (only if enabled)
-      if (noiseGateEnabled && noiseGateRef.current) {
-        const now = Date.now();
-
-        // If audio is above threshold, update the timestamp
-        if (dB >= noiseGateThreshold) {
-          lastAudioAboveThresholdRef.current = now;
-        }
-
-        // Check if we're within the hold time
-        const isWithinHoldTime = (now - lastAudioAboveThresholdRef.current) < HOLD_TIME_MS;
-
-        if (dB >= noiseGateThreshold || isWithinHoldTime) {
-          // Above threshold or within hold time - keep audio on
-          if (noiseGateRef.current.gain.value < 0.9) {
-            console.log('🔊 Noise gate OPENING (audio detected)');
-          }
-          noiseGateRef.current.gain.exponentialRampToValueAtTime(
-            1.0,
-            audioContextRef.current.currentTime + 0.01
-          );
-        } else {
-          // Below threshold and past hold time - gradually reduce to silence
-          if (noiseGateRef.current.gain.value > 0.1) {
-            console.log('🔇 Noise gate CLOSING (audio below threshold)');
-          }
-          noiseGateRef.current.gain.exponentialRampToValueAtTime(
-            0.001, // Very small value instead of 0 to prevent Math errors
-            audioContextRef.current.currentTime + 0.2 // Slower fade out (200ms)
-          );
-        }
-      } else {
-        // Noise gate disabled - ensure full volume
-        if (noiseGateRef.current && noiseGateRef.current.gain.value < 0.9) {
-          console.log('🔊 Noise gate DISABLED - setting full volume');
-          noiseGateRef.current.gain.value = 1.0;
-        }
-      }
-    }, 25); // Faster refresh rate (every 25ms) for more responsive audio level indicator
-  };
-
-  // Simplified audio level monitoring without noise gate to avoid timing issues
-  const startSimplifiedAudioLevelMonitoring = () => {
-    if (!analyserRef.current || audioLevelIntervalRef.current) return;
-
-    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-
-    console.log('🎵 Starting simplified audio level monitoring (no noise gate)');
+    console.log('🎵 Starting audio level monitoring for status display');
 
     audioLevelIntervalRef.current = setInterval(() => {
       if (!analyserRef.current) return;
@@ -2239,10 +1636,9 @@ export function StreamingProvider({ children }) {
 
       // Less frequent logging to reduce console noise
       if (Date.now() % 2000 < 100) {
-        console.log('🎵 Audio levels (simplified):', {
+        console.log('🎵 Audio levels (status display):', {
           rms: rms.toFixed(2),
-          dB: dB.toFixed(1),
-          micBoostApplied: microphoneBoostRef.current?.gain.value.toFixed(1) + 'x'
+          dB: dB.toFixed(1)
         });
       }
     }, 50); // Slower refresh rate (every 50ms) to reduce processing overhead
@@ -2272,12 +1668,7 @@ export function StreamingProvider({ children }) {
     isMuted,
     serverConfig,
     audioSource,
-    isDJMuted,
-    djAudioGain,
-    noiseGateEnabled,
-    noiseGateThreshold,
     audioLevel,
-    microphoneBoost,
 
     // DJ Functions
     startBroadcast,
@@ -2300,19 +1691,12 @@ export function StreamingProvider({ children }) {
     getMicrophoneAudioStream,
     mixAudioStreams,
 
-    // DJ Audio Control Functions
-    toggleDJMute,
-    setDJAudioLevel,
-    setMicrophoneBoostLevel,
-    switchAudioSourceLive,
-    setNoiseGateEnabled,
-    setNoiseGateThreshold,
-
     // Shared Functions
     disconnectAll,
     getStreamUrl,
     getWebSocketUrl,
     refreshStreamStatus,
+    refreshStream: refreshStreamStatus, // Alias for compatibility
 
     // Refs (for direct access when needed)
     djWebSocketRef,

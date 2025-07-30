@@ -23,7 +23,7 @@ export const broadcastApi = {
   getAnalytics: (id) => api.get(`/api/broadcasts/${id}/analytics`),
   getUpcoming: () => api.get('/api/broadcasts/upcoming'),
   getLive: () => api.get('/api/broadcasts/live'),
-  getActiveBroadcast: () => api.get('/api/broadcasts/live').then(response => response.data[0] || null),
+  getActiveBroadcast: () => api.get('/api/broadcasts/live/current').then(response => response.data).catch(() => null),
 
   // Real-time WebSocket subscription for broadcast updates
   subscribeToBroadcastUpdates: (broadcastId, callback) => {

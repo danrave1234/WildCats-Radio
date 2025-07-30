@@ -16,7 +16,12 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
     
     List<BroadcastEntity> findByCreatedBy(UserEntity dj);
     
-    List<BroadcastEntity> findByStatus(BroadcastStatus status);
+    List<BroadcastEntity> findByStatusOrderByActualStartDesc(BroadcastStatus status);
+    
+    // Backward compatibility method - returns broadcasts ordered by actual start time (newest first)
+    default List<BroadcastEntity> findByStatus(BroadcastStatus status) {
+        return findByStatusOrderByActualStartDesc(status);
+    }
     
     List<BroadcastEntity> findByCreatedByAndStatus(UserEntity dj, BroadcastStatus status);
     

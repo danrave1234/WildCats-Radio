@@ -98,9 +98,13 @@ export default function Notifications() {
     // Apply sorting
     filtered.sort((a, b) => {
       if (sortBy === 'newest') {
-        return new Date(b.timestamp) - new Date(a.timestamp);
+        const aTs = typeof a.timestamp === 'string' && !a.timestamp.endsWith('Z') ? a.timestamp + 'Z' : a.timestamp;
+        const bTs = typeof b.timestamp === 'string' && !b.timestamp.endsWith('Z') ? b.timestamp + 'Z' : b.timestamp;
+        return new Date(bTs) - new Date(aTs);
       } else if (sortBy === 'oldest') {
-        return new Date(a.timestamp) - new Date(b.timestamp);
+        const aTs = typeof a.timestamp === 'string' && !a.timestamp.endsWith('Z') ? a.timestamp + 'Z' : a.timestamp;
+        const bTs = typeof b.timestamp === 'string' && !b.timestamp.endsWith('Z') ? b.timestamp + 'Z' : b.timestamp;
+        return new Date(aTs) - new Date(bTs);
       } else if (sortBy === 'unread') {
         return b.read - a.read; // Unread first
       }

@@ -21,6 +21,7 @@ import { useStreaming } from "../context/StreamingContext";
 import { useLocalBackend, config } from "../config";
 import { createLogger } from "../services/logger";
 import { globalWebSocketService } from '../services/globalWebSocketService';
+import SpotifyPlayer from '../components/SpotifyPlayer';
 
 const logger = createLogger('ListenerDashboard');
 
@@ -124,6 +125,9 @@ export default function ListenerDashboard() {
 
   // Add state for listener WebSocket connection
   const [listenerWsConnected, setListenerWsConnected] = useState(false);
+
+  // Add this with other state declarations
+  const [broadcastSession, setBroadcastSession] = useState(0);
 
   // Navigation functions
   const handleLoginRedirect = () => {
@@ -402,7 +406,7 @@ export default function ListenerDashboard() {
       }
       setChatMessages([]);
     };
-  }, [currentBroadcastId, isLive]);
+  }, [currentBroadcastId, broadcastSession]); // Add broadcastSession as a dependency
 
   // Setup WebSocket connections for real-time updates after initial data is loaded
   // This replaces most HTTP polling with real-time WebSocket communication:
@@ -411,10 +415,20 @@ export default function ListenerDashboard() {
   // - Poll updates: Real-time via WebSocket
   // - Broadcast status: Real-time via WebSocket
   // - Listener count: Real-time via WebSocket
+  // 
+  // CRITICAL: We depend on both currentBroadcastId and broadcastSession
+  // - currentBroadcastId: When switching to a different broadcast (each broadcast has unique ID)
+  // - broadcastSession: When the same broadcast goes live (DJ starts streaming)
+  //   This ensures WebSocket connections are refreshed when the DJ goes live
+  // 
+  // IMPORTANT: WebSocket connections should be established immediately when a broadcast goes live,
+  // regardless of whether the user is playing audio or not. This ensures chat and song requests
+  // work even if the user hasn't started listening yet.
   useEffect(() => {
     // Guard: Only setup WebSockets if we have a valid broadcast ID
     // We allow unauthenticated users to connect to WebSockets for listening to chat/polls
     if (!currentBroadcastId || currentBroadcastId <= 0) {
+      logger.debug('Listener Dashboard: No valid broadcast ID, cleaning up WebSocket connections');
       // Cleanup broadcast-specific connections when no valid broadcast
       if (chatWsRef.current) {
         chatWsRef.current.disconnect();
@@ -433,7 +447,8 @@ export default function ListenerDashboard() {
       return;
     }
 
-    logger.debug('Listener Dashboard: Setting up WebSocket connections for broadcast:', currentBroadcastId);
+    logger.debug('Listener Dashboard: Setting up WebSocket connections for broadcast:', currentBroadcastId, 'session:', broadcastSession);
+    logger.debug('Listener Dashboard: Note: WebSocket connections are independent of audio playback - they work even if user is not listening');
 
     // Setup Chat WebSocket
     const setupChatWebSocket = async () => {
@@ -493,7 +508,7 @@ export default function ListenerDashboard() {
         }, 3000);
 
         chatWsRef.current = connection;
-        logger.debug('Listener Dashboard: Chat WebSocket connected successfully');
+        logger.debug('Listener Dashboard: Chat WebSocket connected successfully for broadcast:', currentBroadcastId, 'session:', broadcastSession);
       } catch (error) {
         logger.error('Listener Dashboard: Failed to connect chat WebSocket:', error);
 
@@ -538,7 +553,7 @@ export default function ListenerDashboard() {
           }
         });
         songRequestWsRef.current = connection;
-        logger.debug('Listener Dashboard: Song request WebSocket connected successfully');
+        logger.debug('Listener Dashboard: Song request WebSocket connected successfully for broadcast:', currentBroadcastId, 'session:', broadcastSession);
       } catch (error) {
         logger.error('Listener Dashboard: Failed to connect song request WebSocket:', error);
       }
@@ -563,16 +578,15 @@ export default function ListenerDashboard() {
           switch (message.type) {
             case 'BROADCAST_STARTED':
               logger.debug('Stream started via WebSocket');
-              // CRITICAL FIX: Always fetch the latest broadcast information when a new broadcast starts
-              // This ensures the UI shows the correct title and details immediately
               if (message.broadcast) {
                 logger.debug('Broadcast information included in message:', message.broadcast);
+                logger.debug('Updating broadcast ID from', currentBroadcastId, 'to', message.broadcast.id);
                 setCurrentBroadcast(message.broadcast);
                 setCurrentBroadcastId(message.broadcast.id);
               }
-              // Always fetch full details as well, regardless of message content
               logger.debug('Fetching complete broadcast information after BROADCAST_STARTED');
               fetchCurrentBroadcastInfo();
+              setBroadcastSession((s) => s + 1); // <--- increment session
               break;
 
             case 'BROADCAST_ENDED':
@@ -590,14 +604,14 @@ export default function ListenerDashboard() {
 
             case 'BROADCAST_STATUS_UPDATE':
               logger.debug('Broadcast status updated via WebSocket:', message.broadcast?.status === 'LIVE');
-              // Update broadcast information when status changes
               if (message.broadcast) {
                 setCurrentBroadcast(message.broadcast);
-                if (message.broadcast.status === 'LIVE' && !currentBroadcastId) {
+                if (message.broadcast.status === 'LIVE') {
+                  logger.debug('Updating broadcast ID from', currentBroadcastId, 'to', message.broadcast.id, 'due to LIVE status');
                   setCurrentBroadcastId(message.broadcast.id);
-                  // Fetch complete details when broadcast goes live
                   logger.debug('Fetching complete broadcast information after status update to LIVE');
                   fetchCurrentBroadcastInfo();
+                  setBroadcastSession((s) => s + 1); // <--- increment session when broadcast goes live
                 }
               }
               break;
@@ -625,33 +639,77 @@ export default function ListenerDashboard() {
         });
 
         broadcastWsRef.current = connection;
-        logger.debug('Listener Dashboard: Broadcast WebSocket connected successfully');
+        logger.debug('Listener Dashboard: Broadcast WebSocket connected successfully for broadcast:', currentBroadcastId, 'session:', broadcastSession);
       } catch (error) {
         logger.error('Listener Dashboard: Failed to connect broadcast WebSocket:', error);
       }
     };
 
     // Setup WebSockets immediately - no delay needed with proper guards
-    setupChatWebSocket();
-    setupSongRequestWebSocket();
-    setupBroadcastWebSocket();
+    logger.debug('Listener Dashboard: Setting up WebSocket connections for broadcast:', currentBroadcastId, 'session:', broadcastSession);
+    
+    // Ensure we have a valid broadcast ID before setting up WebSockets
+    if (currentBroadcastId && currentBroadcastId > 0) {
+      // Check if we already have WebSocket connections for this broadcast ID
+      const hasExistingConnections = chatWsRef.current || songRequestWsRef.current || broadcastWsRef.current;
+      
+      if (hasExistingConnections) {
+        logger.debug('Listener Dashboard: Cleaning up existing WebSocket connections before setting up new ones');
+        // Clean up existing connections first
+        if (chatWsRef.current) {
+          chatWsRef.current.disconnect();
+          chatWsRef.current = null;
+        }
+        if (songRequestWsRef.current) {
+          songRequestWsRef.current.disconnect();
+          songRequestWsRef.current = null;
+        }
+        if (broadcastWsRef.current) {
+          broadcastWsRef.current.disconnect();
+          broadcastWsRef.current = null;
+        }
+      }
+      
+      // Set up WebSocket connections immediately when broadcast ID is available
+      // These connections work independently of audio playback
+      setupChatWebSocket();
+      setupSongRequestWebSocket();
+      setupBroadcastWebSocket();
+    } else {
+      logger.warn('Listener Dashboard: Skipping WebSocket setup - invalid broadcast ID:', currentBroadcastId);
+    }
 
     return () => {
-      logger.debug('Listener Dashboard: Cleaning up WebSocket connections for broadcast:', currentBroadcastId);
+      logger.debug('Listener Dashboard: Cleaning up WebSocket connections for broadcast:', currentBroadcastId, 'session:', broadcastSession);
+      
+      // Clean up all WebSocket connections
       if (chatWsRef.current) {
+        logger.debug('Listener Dashboard: Disconnecting chat WebSocket');
         chatWsRef.current.disconnect();
         chatWsRef.current = null;
       }
       if (songRequestWsRef.current) {
+        logger.debug('Listener Dashboard: Disconnecting song request WebSocket');
         songRequestWsRef.current.disconnect();
         songRequestWsRef.current = null;
       }
       if (broadcastWsRef.current) {
+        logger.debug('Listener Dashboard: Disconnecting broadcast WebSocket');
         broadcastWsRef.current.disconnect();
         broadcastWsRef.current = null;
       }
     };
-  }, [currentBroadcastId]); // Removed chatMessages.length and activePoll?.id dependencies to prevent unnecessary re-runs
+  }, [currentBroadcastId, broadcastSession]); // Depend on currentBroadcastId and broadcastSession
+
+  // Track broadcast ID changes for debugging
+  useEffect(() => {
+    logger.debug('Listener Dashboard: Broadcast ID changed to:', currentBroadcastId, 'session:', broadcastSession);
+    
+    // If we have a valid broadcast ID, ensure WebSocket connections are set up
+    if (currentBroadcastId && currentBroadcastId > 0) {
+      logger.debug('Listener Dashboard: Valid broadcast ID detected, ensuring WebSocket connections are active');
+    }
+  }, [currentBroadcastId, broadcastSession]);
 
 
   // Update chat timestamps every minute
@@ -837,12 +895,16 @@ export default function ListenerDashboard() {
               // reconnects and creates a new broadcast session
               if (message.broadcast) {
                 logger.debug('Updating to new broadcast from global WebSocket:', message.broadcast);
+                logger.debug('Updating broadcast ID from', currentBroadcastId, 'to', message.broadcast.id, 'via global WebSocket');
                 setCurrentBroadcast(message.broadcast);
                 setCurrentBroadcastId(message.broadcast.id);
+                // This will immediately trigger WebSocket setup for chat and song requests
+                logger.debug('Broadcast ID updated, WebSocket connections will be established immediately');
               }
               // Always fetch complete details to ensure UI is up-to-date
               logger.debug('Fetching complete broadcast information via global WebSocket after BROADCAST_STARTED');
               fetchCurrentBroadcastInfo();
+              setBroadcastSession((s) => s + 1); // <--- increment session when broadcast starts
               break;
 
             case 'BROADCAST_ENDED':
@@ -860,11 +922,15 @@ export default function ListenerDashboard() {
               if (message.broadcast && message.broadcast.status === 'LIVE') {
                 // New broadcast went live
                 logger.debug('New broadcast went live via global status update:', message.broadcast);
+                logger.debug('Updating broadcast ID from', currentBroadcastId, 'to', message.broadcast.id, 'via global status update');
                 setCurrentBroadcast(message.broadcast);
                 setCurrentBroadcastId(message.broadcast.id);
+                // This will immediately trigger WebSocket setup for chat and song requests
+                logger.debug('Broadcast went live, WebSocket connections will be established immediately');
                 // Fetch complete details for the new live broadcast
                 logger.debug('Fetching complete broadcast information for newly live broadcast');
                 fetchCurrentBroadcastInfo();
+                setBroadcastSession((s) => s + 1); // <--- increment session when broadcast goes live
               } else if (message.broadcast && message.broadcast.status !== 'LIVE') {
                 // If this was the current broadcast and it's no longer live
                 if (currentBroadcastId === message.broadcast.id) {
@@ -1304,7 +1370,9 @@ export default function ListenerDashboard() {
       // Handle date parsing more robustly
       let messageDate;
       try {
-        messageDate = msg.createdAt ? new Date(msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z') : null;
+        messageDate = msg.createdAt
+          ? new Date(typeof msg.createdAt === 'string' && !msg.createdAt.endsWith('Z') ? msg.createdAt + 'Z' : msg.createdAt)
+          : null;
       } catch (error) {
         logger.error('Error parsing message date:', error);
         messageDate = new Date();
@@ -1539,126 +1607,8 @@ export default function ListenerDashboard() {
       <div className="hidden lg:grid lg:grid-cols-3 lg:gap-6">
         {/* Desktop Left Column - Broadcast + Poll */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Broadcast Stream Visualizer */}
-          <div className="bg-maroon-700 rounded-lg overflow-hidden h-[200px] flex flex-col justify-center relative">
-            {/* Live indicator */}
-            <div className="absolute top-4 left-4 z-10">
-              {isLive ? (
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-600 text-white">
-                  <span className="h-2 w-2 rounded-full bg-white mr-1 animate-pulse"></span>
-                  LIVE ({Math.max(listenerCount, localListenerCount)} listeners)
-                </span>
-              ) : (
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-600 text-white">
-                  OFF AIR
-                </span>
-              )}
-            </div>
-
-            {/* Stream Error Display */}
-            {streamError && (
-              <div className="absolute top-12 left-4 right-4 p-2 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md text-xs">
-                {streamError}
-              </div>
-            )}
-
-            {isLive ? (
-              <>
-                <div className="flex p-4">
-                  {/* Track info */}
-                  <div className="text-white flex-1">
-                    <h3 className="text-xl font-bold">{broadcastLoading ? "Loading..." : currentBroadcast?.title || "No Title"}</h3>
-                    <p className="text-sm opacity-80">
-                      {currentBroadcast?.host?.name 
-                        ? `Hosted by ${currentBroadcast.host.name}` 
-                        : currentBroadcast?.dj?.name 
-                          ? `Hosted by ${currentBroadcast.dj.name}`
-                          : "Loading..."}
-                    </p>
-
-                    <div className="mt-4">
-                      <p className="text-xs uppercase opacity-60">NOW PLAYING</p>
-                      {_currentSong ? (
-                        <>
-                          <p className="text-sm font-medium">{_currentSong.title}</p>
-                          <p className="text-xs opacity-70">{_currentSong.artist}</p>
-                        </>
-                      ) : (
-                        <p className="text-sm opacity-70">No track information available</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Play/Pause and Refresh Controls */}
-                  <div className="ml-auto flex flex-col items-center justify-center space-y-2">
-                    <button
-                      onClick={togglePlay}
-                      disabled={!serverConfig || isPlaybackLoading}
-                      className={`p-3 rounded-full ${
-                        !serverConfig
-                          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                          : localAudioPlaying
-                          ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
-                          : 'bg-green-100 text-green-800 hover:bg-green-200'
-                      }`}
-                      aria-label={localAudioPlaying ? 'Pause' : 'Play'}
-                    >
-                      {isPlaybackLoading ? (
-                        <svg className="animate-spin h-6 w-6 text-gray-800" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                      ) : localAudioPlaying ? (
-                        <PauseIcon className="h-6 w-6" />
-                      ) : (
-                        <PlayIcon className="h-6 w-6" />
-                      )}
-                    </button>
-
-                    <button
-                      onClick={refreshStream}
-                      className="p-2 text-white hover:text-gray-300"
-                      aria-label="Refresh Stream"
-                    >
-                      <ArrowPathIcon className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Volume control */}
-                <div className="flex items-center px-4 py-3">
-                  <button onClick={handleMuteToggle} className="text-white mr-2">
-                    {isMuted ? (
-                      <SpeakerXMarkIcon className="h-5 w-5" />
-                    ) : (
-                      <SpeakerWaveIcon className="h-5 w-5" />
-                    )}
-                  </button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={volume}
-                    onChange={handleVolumeChange}
-                    className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                  />
-                  <div className="ml-2 text-white text-xs w-7 text-right">{volume}%</div>
-                </div>
-              </>
-            ) : (
-              <div className="text-center text-white">
-                <h2 className="text-2xl font-bold mb-3">WildCats Radio</h2>
-                <p className="mb-2">No broadcast currently active</p>
-                {nextBroadcast ? (
-                  <p className="text-sm opacity-70">
-                    Next broadcast: {nextBroadcast.title} on {nextBroadcast.date} at {nextBroadcast.time}
-                  </p>
-                ) : (
-                  <p className="text-sm opacity-70">No upcoming broadcasts scheduled</p>
-                )}
-              </div>
-            )}
-          </div>
+          {/* Spotify-style Music Player */}
+          <SpotifyPlayer />
 
           {/* Desktop Poll section */}
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-grow">
@@ -1846,10 +1796,13 @@ export default function ListenerDashboard() {
                           </div>
                         </div>
                       ) : (
-                        <div className="text-center py-8 flex-grow flex items-center justify-center">
-                          <div>
-                            <p className="text-gray-500 dark:text-gray-400 mb-2">No active polls</p>
-                            <p className="text-sm text-gray-400 dark:text-gray-500">Active polls will appear during live broadcasts</p>
+                        <div className="flex items-center justify-center h-full">
+                          <div className="text-center w-full">
+                            <div className="mb-8">
+                              <h3 className="text-xl font-medium text-gray-900 dark:text-white">Vote</h3>
+                              <p className="text-sm text-gray-500 dark:text-gray-400">selects which you prefer the most?</p>
+                            </div>
+                            <p className="text-gray-500 dark:text-gray-400">Polls are only available during live broadcasts</p>
                           </div>
                         </div>
                       )}
@@ -2026,126 +1979,8 @@ export default function ListenerDashboard() {
 
       {/* Mobile: Single column layout */}
       <div className="lg:hidden space-y-6">
-        {/* Mobile Broadcast Stream Visualizer */}
-        <div className="bg-maroon-700 rounded-lg overflow-hidden h-[200px] flex flex-col justify-center relative">
-          {/* Live indicator */}
-          <div className="absolute top-4 left-4 z-10">
-            {isLive ? (
-              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-600 text-white">
-                <span className="h-2 w-2 rounded-full bg-white mr-1 animate-pulse"></span>
-                LIVE ({Math.max(listenerCount, localListenerCount)} listeners)
-              </span>
-            ) : (
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-600 text-white">
-                OFF AIR
-              </span>
-            )}
-          </div>
-
-          {/* Stream Error Display */}
-          {streamError && (
-            <div className="absolute top-12 left-4 right-4 p-2 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md text-xs">
-              {streamError}
-            </div>
-          )}
-
-          {isLive ? (
-            <>
-              <div className="flex p-4">
-                {/* Track info */}
-                <div className="text-white flex-1">
-                  <h3 className="text-xl font-bold">{broadcastLoading ? "Loading..." : currentBroadcast?.title || "No Title"}</h3>
-                  <p className="text-sm opacity-80">
-                    {currentBroadcast?.host?.name 
-                      ? `Hosted by ${currentBroadcast.host.name}` 
-                      : currentBroadcast?.dj?.name 
-                        ? `Hosted by ${currentBroadcast.dj.name}`
-                        : "Loading..."}
-                  </p>
-
-                  <div className="mt-4">
-                    <p className="text-xs uppercase opacity-60">NOW PLAYING</p>
-                    {_currentSong ? (
-                      <>
-                        <p className="text-sm font-medium">{_currentSong.title}</p>
-                        <p className="text-xs opacity-70">{_currentSong.artist}</p>
-                      </>
-                    ) : (
-                      <p className="text-sm opacity-70">No track information available</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Play/Pause and Refresh Controls */}
-                <div className="ml-auto flex flex-col items-center justify-center space-y-2">
-                  <button
-                    onClick={togglePlay}
-                    disabled={!serverConfig || isPlaybackLoading}
-                    className={`p-3 rounded-full ${
-                      !serverConfig
-                        ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                        : localAudioPlaying
-                        ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
-                        : 'bg-green-100 text-green-800 hover:bg-green-200'
-                    }`}
-                    aria-label={localAudioPlaying ? 'Pause' : 'Play'}
-                  >
-                    {isPlaybackLoading ? (
-                      <svg className="animate-spin h-6 w-6 text-gray-800" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                    ) : localAudioPlaying ? (
-                      <PauseIcon className="h-6 w-6" />
-                    ) : (
-                      <PlayIcon className="h-6 w-6" />
-                    )}
-                  </button>
-
-                  <button
-                    onClick={refreshStream}
-                    className="p-2 text-white hover:text-gray-300"
-                    aria-label="Refresh Stream"
-                  >
-                    <ArrowPathIcon className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Volume control */}
-              <div className="flex items-center px-4 py-3">
-                <button onClick={handleMuteToggle} className="text-white mr-2">
-                  {isMuted ? (
-                    <SpeakerXMarkIcon className="h-5 w-5" />
-                  ) : (
-                    <SpeakerWaveIcon className="h-5 w-5" />
-                  )}
-                </button>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={volume}
-                  onChange={handleVolumeChange}
-                  className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                />
-                <div className="ml-2 text-white text-xs w-7 text-right">{volume}%</div>
-              </div>
-            </>
-          ) : (
-            <div className="text-center text-white">
-              <h2 className="text-2xl font-bold mb-3">WildCats Radio</h2>
-              <p className="mb-2">No broadcast currently active</p>
-              {nextBroadcast ? (
-                <p className="text-sm opacity-70">
-                  Next broadcast: {nextBroadcast.title} on {nextBroadcast.date} at {nextBroadcast.time}
-                </p>
-              ) : (
-                <p className="text-sm opacity-70">No upcoming broadcasts scheduled</p>
-              )}
-            </div>
-          )}
-        </div>
+        {/* Mobile Spotify-style Music Player */}
+        <SpotifyPlayer />
 
         {/* Mobile Tabs */}
         <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
