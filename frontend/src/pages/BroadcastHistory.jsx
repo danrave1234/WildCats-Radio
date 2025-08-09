@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useBroadcastHistory } from '../context/BroadcastHistoryContext';
+import { chatService, analyticsService, broadcastService } from '../services/api/index.js';
 import { useAuth } from '../context/AuthContext';
 import { formatDistanceToNow, format } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
@@ -75,8 +76,17 @@ export default function BroadcastHistory() {
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const [timeFilter, setTimeFilter] = useState('all');
-  const [viewMode, setViewMode] = useState('notifications'); // 'notifications' or 'analytics'
+  const [viewMode, setViewMode] = useState('notifications'); // 'notifications' | 'analytics' | 'broadcasts'
   const [selectedBroadcastId, setSelectedBroadcastId] = useState(null);
+  const [downloadingId, setDownloadingId] = useState(null);
+  const [broadcastHistoryList, setBroadcastHistoryList] = useState([]); // ended broadcasts from Broadcast entity
+  const [broadcastsLoading, setBroadcastsLoading] = useState(false);
+
+  const DAYS = 24 * 60 * 60 * 1000;
+  const isExpiredByDate = (dateObj) => {
+    if (!dateObj || isNaN(dateObj.getTime())) return false;
+    return (Date.now() - dateObj.getTime()) > (7 * DAYS);
+  };
 
   // Load analytics data when switching to analytics view
   useEffect(() => {
@@ -84,6 +94,25 @@ export default function BroadcastHistory() {
       fetchDetailedBroadcastAnalytics();
     }
   }, [viewMode, fetchDetailedBroadcastAnalytics]);
+
+  // Load broadcasts history when switching to broadcasts view
+  useEffect(() => {
+    const loadBroadcasts = async () => {
+      try {
+        setBroadcastsLoading(true);
+        const days = timeFilter === 'today' ? 1 : timeFilter === 'week' ? 7 : timeFilter === 'month' ? 30 : 365;
+        const resp = await broadcastService.getHistory(days);
+        setBroadcastHistoryList(resp.data || []);
+      } catch (e) {
+        console.error('Failed to load broadcasts history', e);
+      } finally {
+        setBroadcastsLoading(false);
+      }
+    };
+    if (true) {
+      loadBroadcasts();
+    }
+  }, [timeFilter]);
 
   const filteredAndSortedHistory = useMemo(() => {
     let filtered = broadcastHistory;
@@ -149,6 +178,98 @@ export default function BroadcastHistory() {
 
     return filtered;
   }, [detailedBroadcasts, searchTerm, selectedFilter, sortBy]);
+
+  // Filter and sort for broadcasts history (ended broadcasts)
+  const filteredAndSortedBroadcasts = useMemo(() => {
+    const list = [...broadcastHistoryList];
+    let filtered = list;
+    if (searchTerm) {
+      filtered = filtered.filter(b => (b.title || '').toLowerCase().includes(searchTerm.toLowerCase()));
+    }
+    if (selectedFilter !== 'all') {
+      filtered = filtered.filter(b => (b.status || '').toUpperCase() === selectedFilter);
+    }
+    filtered.sort((a, b) => {
+      const aTime = new Date(a.actualEnd || a.actualStart || a.scheduledStart).getTime();
+      const bTime = new Date(b.actualEnd || b.actualStart || b.scheduledStart).getTime();
+      if (sortBy === 'newest') return bTime - aTime;
+      if (sortBy === 'oldest') return aTime - bTime;
+      return 0;
+    });
+    return filtered;
+  }, [broadcastHistoryList, searchTerm, selectedFilter, sortBy]);
+
+  const handleDownloadChat = async (broadcastId) => {
+    try {
+      setDownloadingId(broadcastId);
+      // Use broadcast-centric export endpoint
+      const response = await broadcastService.exportChat(broadcastId);
+      const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `broadcast_${broadcastId}_messages.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      // If 404 or similar, likely cleaned up after 7 days
+      alert('Chat messages may no longer be available for download (kept for 7 days).');
+      console.error('Download chat error:', err);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  // Try to map a notification to a broadcast by title and time proximity, then download
+  const extractTitleFromMessage = (message = '') => {
+    try {
+      const parts = message.split(':');
+      if (parts.length >= 2) {
+        return parts.slice(1).join(':').trim();
+      }
+      return message.trim();
+    } catch {
+      return message?.trim() || '';
+    }
+  };
+
+  const handleDownloadFromNotification = async (notification) => {
+    const possibleTitle = extractTitleFromMessage(notification?.message || '');
+    try {
+      setDownloadingId(notification.id);
+      // Use lightweight broadcasts endpoint to avoid heavy analytics and lazy-loading issues
+      const resp = await broadcastService.getHistory(30);
+      const list = resp?.data || [];
+      const notifTime = parseBackendTimestamp(notification.timestamp)?.getTime?.() || 0;
+      const candidates = list.filter((b) => (b.title || '').toLowerCase() === possibleTitle.toLowerCase());
+      const best = (candidates.length ? candidates : list)
+        .map((b) => {
+          const t = new Date(b.actualStart || b.scheduledStart || b.createdAt || 0).getTime();
+          return { b, dt: Math.abs((t || 0) - notifTime) };
+        })
+        .sort((a, b) => a.dt - b.dt)[0]?.b;
+
+      if (!best?.id) throw new Error('Broadcast not found');
+
+      const response = await chatService.exportMessages(best.id);
+      const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `broadcast_${best.id}_messages.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Unable to download chat for this entry (may be unavailable after 7 days).');
+      console.error('Download from notification error:', err);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   // Security check: Only allow DJs and Admins to access this feature
   if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
@@ -253,31 +374,7 @@ export default function BroadcastHistory() {
               </div>
             </div>
 
-            {/* View Mode Toggle */}
-            <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-              <button
-                onClick={() => setViewMode('notifications')}
-                className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                  viewMode === 'notifications'
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-                }`}
-              >
-                <ListBulletIcon className="h-4 w-4 mr-2" />
-                Notifications
-              </button>
-              <button
-                onClick={() => setViewMode('analytics')}
-                className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
-                  viewMode === 'analytics'
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-                }`}
-              >
-                <ChartBarIcon className="h-4 w-4 mr-2" />
-                Analytics
-              </button>
-            </div>
+            {/* Broadcast History - single view (no tabs) */}
           </div>
 
           {/* Stats Cards */}
@@ -349,8 +446,8 @@ export default function BroadcastHistory() {
               />
             </div>
 
-            {/* Time Filter - Only for notifications view */}
-            {viewMode === 'notifications' && (
+            {/* Time Filter - Notifications and Broadcasts */}
+            {true && (
               <select
                 value={timeFilter}
                 onChange={(e) => handleTimeFilterChange(e.target.value)}
@@ -426,63 +523,61 @@ export default function BroadcastHistory() {
           </div>
         </div>
 
-        {/* Broadcast History List */}
-        <div className="space-y-3">
-          {filteredAndSortedHistory.length === 0 ? (
-            <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-              <RadioIcon className="h-16 w-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                {searchTerm || selectedFilter !== 'all' ? 'No matching broadcasts' : 'No broadcast history'}
-              </h3>
-              <p className="text-gray-600 dark:text-gray-400">
-                {searchTerm || selectedFilter !== 'all' 
-                  ? 'Try adjusting your search or filter criteria.' 
-                  : 'Broadcast events will appear here when they occur.'}
-              </p>
-            </div>
-          ) : (
-            filteredAndSortedHistory.map((broadcast) => {
-              const IconComponent = getBroadcastIcon(broadcast.type);
-
-              return (
-                <div
-                  key={broadcast.id}
-                  className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 transition-all duration-200 hover:shadow-md"
-                >
-                  <div className="p-6">
-                    <div className="flex items-start space-x-4">
-                      {/* Icon */}
-                      <div className={`flex-shrink-0 p-2 rounded-lg ${getBroadcastColor(broadcast.type)}`}>
-                        <IconComponent className="h-6 w-6" />
-                      </div>
-
-                      {/* Content */}
-                      <div className="flex-1">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-2 mb-1">
-                              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                                {formatBroadcastType(broadcast.type)}
+        {
+          // Broadcasts history view (from Broadcast entity)
+          <div className="space-y-3">
+            {broadcastsLoading ? (
+              <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-maroon-600 mx-auto mb-4"></div>
+                <p className="text-gray-600 dark:text-gray-400">Loading broadcasts…</p>
+              </div>
+            ) : filteredAndSortedBroadcasts.length === 0 ? (
+              <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                <RadioIcon className="h-16 w-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No broadcasts</h3>
+                <p className="text-gray-600 dark:text-gray-400">Try adjusting your search or time filter.</p>
+              </div>
+            ) : (
+              filteredAndSortedBroadcasts.map((b) => {
+                const startForExpiry = parseBackendTimestamp(b.actualStart || b.scheduledStart);
+                const expired = isExpiredByDate(startForExpiry);
+                return (
+                  <div key={b.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                    <div className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-base font-semibold text-gray-900 dark:text-white">{b.title || 'Untitled Broadcast'}</h3>
+                          <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                            <span className="mr-2">Status: {b.status}</span>
+                            {b.actualEnd || b.actualStart || b.scheduledStart ? (
+                              <span>
+                                • {formatInTimeZone(parseBackendTimestamp(b.actualEnd || b.actualStart || b.scheduledStart), 'Asia/Manila', 'MMM d, yyyy • h:mm a')}
                               </span>
-                            </div>
-                            <p className="text-gray-900 dark:text-white font-medium mb-1">
-                              {broadcast.message}
-                            </p>
-                            <div className="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
-                              <span>{formatInTimeZone(parseBackendTimestamp(broadcast.timestamp), 'Asia/Manila', 'MMM d, yyyy • h:mm a')}</span>
-                              <span>•</span>
-                              <span>{formatDistanceToNow(parseBackendTimestamp(broadcast.timestamp), { addSuffix: true })}</span>
-                            </div>
+                            ) : null}
                           </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {expired ? (
+                            <span className="px-3 py-1.5 text-sm bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-md" title="Chat download expired after 7 days">Expired</span>
+                          ) : (
+                            <button
+                              onClick={() => handleDownloadChat(b.id)}
+                              disabled={downloadingId === b.id}
+                              className="px-3 py-1.5 text-sm bg-maroon-600 text-white rounded-md hover:bg-maroon-700 disabled:opacity-50"
+                              title="Download chat messages as Excel (available for 7 days)"
+                            >
+                              {downloadingId === b.id ? 'Downloading...' : 'Download Chat'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              );
-            })
-          )}
-        </div>
+                );
+              })
+            )}
+          </div>
+        }
       </div>
     </div>
   );

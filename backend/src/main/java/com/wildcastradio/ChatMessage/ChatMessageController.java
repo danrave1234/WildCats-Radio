@@ -1,7 +1,6 @@
 package com.wildcastradio.ChatMessage;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,13 +25,14 @@ import com.wildcastradio.User.UserService;
 public class ChatMessageController {
 
     @Autowired
-    private ChatMessageService chatMessageService;
+    public ChatMessageService chatMessageService;
 
     @Autowired
     private UserService userService;
 
     @Autowired
     private ChatMessageCleanupService cleanupService;
+
 
     @GetMapping("/{broadcastId}")
     public ResponseEntity<List<ChatMessageDTO>> getMessages(@PathVariable Long broadcastId) {
@@ -175,4 +175,6 @@ public class ChatMessageController {
             this.content = content;
         }
     }
+
+    // no-op
 }

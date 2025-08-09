@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { broadcastService, streamService } from '../services/api';
+import { broadcastService, streamService } from '../services/api/index.js';
 import { useAuth } from './AuthContext';
 import { useLocalBackend, config } from '../config';
 import { createLogger } from '../services/logger';
@@ -1204,6 +1204,14 @@ export function StreamingProvider({ children }) {
           if (data.isLive !== undefined) {
             setIsLive(data.isLive);
           }
+          // Expose last stream status globally for other components (read-only usage)
+          try {
+            window.__wildcats_stream_state__ = {
+              isLive: !!data.isLive,
+              broadcastId: data.broadcastId || null,
+              timestamp: data.timestamp || Date.now()
+            };
+          } catch (_e) { /* noop for SSR safety */ }
         }
       } catch (error) {
         console.error('Error parsing listener/status WebSocket message:', error);
@@ -1421,7 +1429,10 @@ export function StreamingProvider({ children }) {
 
   // Start listening (for listeners)
   const startListening = async () => {
-    if (isListening || !serverConfig?.streamUrl) return;
+    if (isListening) return;
+
+    const baseUrl = serverConfig?.streamUrl || config.icecastUrl;
+    if (!baseUrl) return;
 
     logger.info('Attempting to start listening...');
     setIsListening(true);
@@ -1434,7 +1445,7 @@ export function StreamingProvider({ children }) {
     }
 
     try {
-      const streamUrl = `${serverConfig.streamUrl}?_=${Date.now()}`;
+      const streamUrl = `${baseUrl}?_=${Date.now()}`;
       audioRef.current.src = streamUrl;
       await audioRef.current.play();
       logger.info('Audio playback started successfully.');
@@ -1465,23 +1476,37 @@ export function StreamingProvider({ children }) {
   };
 
   // Toggle audio playback for listeners
-  const toggleAudio = () => {
-    if (audioPlaying) {
-      if (audioRef.current) {
-        audioRef.current.pause();
+  const toggleAudio = async () => {
+    try {
+      // If there's no audio element or no src yet, initialize listening first
+      if (!audioRef.current || !audioRef.current.src) {
+        await startListening();
+        return;
       }
-      setAudioPlaying(false);
-      if (globalWebSocketService.isListenerStatusWebSocketConnected()) {
-        globalWebSocketService.sendListenerStatusMessage(JSON.stringify({ type: 'LISTENER_STATUS', action: 'STOP_LISTENING' }));
+
+      if (audioPlaying) {
+        if (audioRef.current) {
+          audioRef.current.pause();
+        }
+        setAudioPlaying(false);
+        if (globalWebSocketService.isListenerStatusWebSocketConnected()) {
+          globalWebSocketService.sendListenerStatusMessage(
+            JSON.stringify({ type: 'LISTENER_STATUS', action: 'STOP_LISTENING' })
+          );
+        }
+      } else {
+        if (audioRef.current) {
+          await audioRef.current.play().catch(e => logger.error('Error resuming playback:', e));
+        }
+        setAudioPlaying(true);
+        if (globalWebSocketService.isListenerStatusWebSocketConnected()) {
+          globalWebSocketService.sendListenerStatusMessage(
+            JSON.stringify({ type: 'LISTENER_STATUS', action: 'START_LISTENING' })
+          );
+        }
       }
-    } else {
-      if (audioRef.current) {
-        audioRef.current.play().catch(e => logger.error("Error resuming playback:", e));
-      }
-      setAudioPlaying(true);
-      if (globalWebSocketService.isListenerStatusWebSocketConnected()) {
-        globalWebSocketService.sendListenerStatusMessage(JSON.stringify({ type: 'LISTENER_STATUS', action: 'START_LISTENING' }));
-      }
+    } catch (error) {
+      logger.error('Error toggling audio:', error);
     }
   };
 

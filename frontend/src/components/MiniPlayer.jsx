@@ -15,8 +15,8 @@ const MiniPlayer = () => {
     return null;
   }
 
-  // Only students should see the mini player
-  if (currentUser?.role !== 'STUDENT') {
+  // Only listeners should see the mini player
+  if (currentUser?.role !== 'LISTENER') {
     return null;
   }
 

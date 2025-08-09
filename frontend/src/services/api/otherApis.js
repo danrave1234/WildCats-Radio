@@ -9,6 +9,7 @@ export const notificationApi = {
   getUnread: () => api.get('/api/notifications/unread'),
   getUnreadCount: () => api.get('/api/notifications/count-unread'),
   markAsRead: (id) => api.put(`/api/notifications/${id}/read`),
+  markAllAsRead: () => api.put('/api/notifications/read-all'),
   getByType: (type) => api.get(`/api/notifications/by-type/${type}`),
   getRecent: (since) => api.get(`/api/notifications/recent?since=${since}`),
 
@@ -51,25 +52,10 @@ export const notificationApi = {
         logger.error('WebSocket connection error:', error);
         isConnected = false;
 
-        // Fallback to polling if WebSocket connection fails
-        logger.info('WebSocket connection failed. Falling back to polling.');
-        pollingInterval = setInterval(async () => {
-          try {
-            const response = await notificationApi.getUnread();
-            if (response.data && response.data.length > 0) {
-              response.data.forEach(notification => callback(notification));
-            }
-          } catch (pollError) {
-            logger.error('Polling error:', pollError);
-          }
-        }, 30000); // Poll every 30 seconds as fallback
-
+        // Do not start additional polling here; NotificationContext handles periodic refresh.
         resolve({
           disconnect: () => {
-            if (pollingInterval) {
-              clearInterval(pollingInterval);
-              pollingInterval = null;
-            }
+            // no-op since no WS or polling were started
           },
           isConnected: () => false
         });
@@ -167,8 +153,47 @@ export const pollApi = {
   endPoll: (pollId) => api.post(`/api/polls/${pollId}/end`),
   hasUserVoted: (pollId) => api.get(`/api/polls/${pollId}/has-voted`),
   getUserVote: (pollId) => api.get(`/api/polls/${pollId}/user-vote`),
+  showPoll: (pollId) => api.post(`/api/polls/${pollId}/show`),
+  deletePoll: (pollId) => api.delete(`/api/polls/${pollId}`),
 
-  // Note: WebSocket subscription for polls removed - using HTTP polling only
+  // WebSocket subscription for polls
+  subscribeToPolls: (broadcastId, callback) => {
+    return new Promise((resolve, reject) => {
+      const stompClient = createWebSocketConnection('/ws-radio');
+
+      const token = getCookie('token');
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+      stompClient.connect(headers, () => {
+        logger.debug('Connected to Polls WebSocket for broadcast:', broadcastId);
+
+        // Subscribe to broadcast-specific poll updates
+        const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/polls`, (message) => {
+          try {
+            const pollData = JSON.parse(message.body);
+            callback(pollData);
+          } catch (error) {
+            logger.error('Error parsing poll data:', error);
+          }
+        });
+
+        resolve({
+          disconnect: () => {
+            if (subscription) {
+              subscription.unsubscribe();
+            }
+            if (stompClient && stompClient.connected) {
+              stompClient.disconnect();
+            }
+          },
+          isConnected: () => stompClient.connected
+        });
+      }, (error) => {
+        logger.error('Polls WebSocket connection error:', error);
+        reject(error);
+      });
+    });
+  }
 };
 
 /**

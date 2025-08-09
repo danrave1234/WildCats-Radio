@@ -8,7 +8,7 @@ import {
   MusicalNoteIcon
 } from '@heroicons/react/24/solid';
 import { useStreaming } from '../context/StreamingContext';
-import { broadcastService } from '../services/api';
+import { broadcastService } from '../services/api/index.js';
 
 const SpotifyPlayer = () => {
   const { 

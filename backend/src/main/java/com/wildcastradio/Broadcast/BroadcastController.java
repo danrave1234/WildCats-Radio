@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
@@ -23,7 +24,6 @@ import com.wildcastradio.Schedule.ScheduleEntity;
 import com.wildcastradio.Schedule.ScheduleService;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
-import com.wildcastradio.util.DateTimeUtil;
 
 import jakarta.validation.Valid;
 
@@ -41,7 +41,8 @@ public class BroadcastController {
     private UserService userService;
 
     @Autowired
-    private DateTimeUtil dateTimeUtil;
+    private com.wildcastradio.ChatMessage.ChatMessageService chatMessageService;
+
 
     @PostMapping
     @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
@@ -172,6 +173,20 @@ public class BroadcastController {
                 .collect(java.util.stream.Collectors.toList());
         return ResponseEntity.ok(broadcasts);
     }
+
+    // Broadcast-centric history (no Notification dependency)
+    @GetMapping("/history")
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    public ResponseEntity<List<BroadcastDTO>> getBroadcastHistory(
+            @RequestParam(name = "days", defaultValue = "30") int days) {
+        int safeDays = Math.max(1, Math.min(days, 365));
+        java.time.LocalDateTime since = java.time.LocalDateTime.now().minusDays(safeDays);
+        List<BroadcastEntity> ended = broadcastService.getEndedBroadcastsSince(since);
+        List<BroadcastDTO> dtos = ended.stream()
+                .map(BroadcastDTO::fromEntity)
+                .collect(java.util.stream.Collectors.toList());
+        return ResponseEntity.ok(dtos);
+    }
     
     @GetMapping("/live/current")
     public ResponseEntity<BroadcastDTO> getCurrentLiveBroadcast() {
@@ -205,5 +220,23 @@ public class BroadcastController {
     public ResponseEntity<String> getBroadcastAnalytics(@PathVariable Long id) {
         String analytics = broadcastService.getAnalytics(id);
         return ResponseEntity.ok(analytics);
+    }
+
+    // Direct export endpoint under broadcasts (convenience wrapper around chat export)
+    @GetMapping("/{id}/chat/export")
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    public org.springframework.http.ResponseEntity<byte[]> exportBroadcastChat(
+            @PathVariable Long id) {
+        try {
+            byte[] excelData = chatMessageService.exportMessagesToExcel(id);
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setContentType(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM);
+            headers.setContentDispositionFormData("attachment", "broadcast_" + id + "_messages.xlsx");
+            return org.springframework.http.ResponseEntity.ok().headers(headers).body(excelData);
+        } catch (IllegalArgumentException e) {
+            return org.springframework.http.ResponseEntity.notFound().build();
+        } catch (java.io.IOException e) {
+            return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
     }
 }

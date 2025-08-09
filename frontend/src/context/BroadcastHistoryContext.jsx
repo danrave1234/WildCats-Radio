@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { notificationService, analyticsService } from '../services/api';
+import { notificationService, analyticsService } from '../services/api/index.js';
 import { useAuth } from './AuthContext';
 
 const BroadcastHistoryContext = createContext();

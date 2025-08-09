@@ -6,6 +6,7 @@ import java.util.Optional;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -85,6 +86,20 @@ public class PollController {
     public ResponseEntity<PollDTO> endPoll(@PathVariable Long pollId, Authentication authentication) {
         PollDTO poll = pollService.endPoll(pollId);
         return ResponseEntity.ok(poll);
+    }
+
+    @PostMapping("/{pollId}/show")
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    public ResponseEntity<PollDTO> showPoll(@PathVariable Long pollId, Authentication authentication) {
+        PollDTO poll = pollService.showPoll(pollId);
+        return ResponseEntity.ok(poll);
+    }
+
+    @DeleteMapping("/{pollId}")
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    public ResponseEntity<Void> deletePoll(@PathVariable Long pollId, Authentication authentication) {
+        pollService.deletePoll(pollId);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{pollId}/has-voted")

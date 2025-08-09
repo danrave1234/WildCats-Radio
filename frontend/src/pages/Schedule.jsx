@@ -12,7 +12,7 @@ import {
   PlusCircleIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline"
-import { broadcastService } from "../services/api" // Import the broadcast service
+import { broadcastService } from "../services/api/index.js" // Import the broadcast service
 import Toast from "../components/Toast" // Import Toast component
 import { DateSelector, TimeSelector } from "../components/DateTimeSelector" // Import our custom date/time selectors
 import { createLogger } from '../services/logger';

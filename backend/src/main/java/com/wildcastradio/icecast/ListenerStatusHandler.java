@@ -27,6 +27,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.wildcastradio.Broadcast.BroadcastService;
 import com.wildcastradio.User.UserService;
 import com.wildcastradio.config.JwtUtil;
 
@@ -51,6 +52,9 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private BroadcastService broadcastService;
 
     @Autowired
     public ListenerStatusHandler(IcecastService icecastService) {
@@ -286,6 +290,13 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
             message.put("listenerCount", listenerCount != null ? listenerCount : 0);
             message.put("timestamp", System.currentTimeMillis());
 
+            // Include current live broadcast id (if any) to let clients switch contexts immediately
+            try {
+                broadcastService.getCurrentLiveBroadcast().ifPresent(b -> {
+                    message.put("broadcastId", b.getId());
+                });
+            } catch (Exception ignored) { /* keep status resilient */ }
+
             String jsonMessage = objectMapper.writeValueAsString(message);
 
             // Send to all connected listener sessions and clean up any closed or error sessions
@@ -345,6 +356,13 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
             message.put("isLive", streamStatus.get("live"));
             message.put("listenerCount", listenerCount != null ? listenerCount : 0);
             message.put("timestamp", System.currentTimeMillis());
+
+            // Include current live broadcast id (if any)
+            try {
+                broadcastService.getCurrentLiveBroadcast().ifPresent(b -> {
+                    message.put("broadcastId", b.getId());
+                });
+            } catch (Exception ignored) { }
 
             String jsonMessage = objectMapper.writeValueAsString(message);
 

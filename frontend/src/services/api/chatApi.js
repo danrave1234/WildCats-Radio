@@ -9,6 +9,9 @@ export const chatApi = {
   getMessages: (broadcastId) => api.get(`/api/chats/${broadcastId}`),
   sendMessage: (broadcastId, message) => api.post(`/api/chats/${broadcastId}`, message),
 
+  // Export chat messages as an Excel file (blob response)
+  exportMessages: (broadcastId) => api.get(`/api/chats/${broadcastId}/export`, { responseType: 'blob' }),
+
   // Real-time WebSocket subscription for chat messages
   subscribeToChatMessages: (broadcastId, callback) => {
     const stompClient = createWebSocketConnection('/ws-radio');

@@ -78,10 +78,13 @@ public class BroadcastService {
             "Broadcast created: " + savedBroadcast.getTitle()
         );
 
-        // Send notification to all users about the new broadcast
-        String notificationMessage = "New broadcast scheduled: " + savedBroadcast.getTitle() + 
-                                    " at " + savedBroadcast.getScheduledStart();
-        sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_SCHEDULED);
+        // Only send a schedule notification if this broadcast is not being immediately started
+        if (savedBroadcast.getScheduledStart() != null &&
+            savedBroadcast.getScheduledStart().isAfter(LocalDateTime.now().plusMinutes(1))) {
+            String notificationMessage = "New broadcast scheduled: " + savedBroadcast.getTitle() +
+                                        " at " + savedBroadcast.getScheduledStart();
+            sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_SCHEDULED);
+        }
 
         return BroadcastDTO.fromEntity(savedBroadcast);
     }
@@ -114,10 +117,13 @@ public class BroadcastService {
             "Broadcast created: " + savedBroadcast.getTitle()
         );
 
-        // Send notification to all users about the new broadcast
-        String notificationMessage = "New broadcast scheduled: " + savedBroadcast.getTitle() + 
-                                    " at " + savedBroadcast.getScheduledStart();
-        sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_SCHEDULED);
+        // Only send a schedule notification if this broadcast is not being immediately started
+        if (savedBroadcast.getScheduledStart() != null &&
+            savedBroadcast.getScheduledStart().isAfter(LocalDateTime.now().plusMinutes(1))) {
+            String notificationMessage = "New broadcast scheduled: " + savedBroadcast.getTitle() +
+                                        " at " + savedBroadcast.getScheduledStart();
+            sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_SCHEDULED);
+        }
 
         return BroadcastDTO.fromEntity(savedBroadcast);
     }
@@ -235,6 +241,11 @@ public class BroadcastService {
             String notificationMessage = "Broadcast started: " + savedBroadcast.getTitle();
             sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_STARTED);
 
+            // Clear transient key used for "starting soon" notifications for this broadcast
+            if (savedBroadcast.getId() != null) {
+                notificationService.clearTransientKey("starting-soon:" + savedBroadcast.getId());
+            }
+
             // WebSocket status updates are handled by the broadcast WebSocket controller
         }
 
@@ -308,12 +319,6 @@ public class BroadcastService {
     }
 
     public BroadcastEntity testBroadcast(Long broadcastId, UserEntity dj) {
-        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
-
-        // Allow any DJ to test a broadcast, not just the creator
-        // This enables site-wide broadcast control
-
         // Use startBroadcastTestMode to bypass server checks and start a test broadcast
         return startBroadcastTestMode(broadcastId, dj);
     }
@@ -348,6 +353,10 @@ public class BroadcastService {
             BroadcastEntity.BroadcastStatus.SCHEDULED, 
             LocalDateTime.now()
         );
+    }
+
+    public List<BroadcastEntity> getEndedBroadcastsSince(LocalDateTime since) {
+        return broadcastRepository.findEndedSince(since);
     }
 
     // Method to get engagement data for analytics
@@ -411,12 +420,17 @@ public class BroadcastService {
             .collect(java.util.stream.Collectors.toList());
 
         for (BroadcastEntity broadcast : upcomingBroadcasts) {
-            // Send notification to all users that the broadcast is about to start
-            String notificationMessage = "Broadcast starting soon: " + broadcast.getTitle() + 
+            // Send notification to all users that the broadcast is about to start, once per user per broadcast
+            String notificationMessage = "Broadcast starting soon: " + broadcast.getTitle() +
                                         " at " + broadcast.getScheduledStart();
-            sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_STARTING_SOON);
+            String baseKey = "starting-soon:" + broadcast.getId();
+            List<UserEntity> allUsers = userRepository.findAll();
+            for (UserEntity user : allUsers) {
+                notificationService.sendTransientNotificationOnce(baseKey + ":" + user.getId(), user,
+                        notificationMessage, NotificationType.BROADCAST_STARTING_SOON);
+            }
 
-            logger.info("Sent 'starting soon' notification for broadcast: {}", broadcast.getTitle());
+            logger.info("Ensured 'starting soon' notification for broadcast: {} (deduped)", broadcast.getTitle());
         }
     }
 
@@ -471,8 +485,6 @@ public class BroadcastService {
         // Get the broadcast
         Optional<BroadcastEntity> broadcastOpt = getBroadcastById(broadcastId);
         if (broadcastOpt.isPresent()) {
-            BroadcastEntity broadcast = broadcastOpt.get();
-
             // Record listener leave in tracking service for real-time analytics
             listenerTrackingService.recordListenerLeave(broadcastId, user != null ? user.getId() : null);
         }

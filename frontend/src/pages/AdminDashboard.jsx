@@ -5,7 +5,7 @@ import {
   UserIcon,
   ShieldCheckIcon
 } from '@heroicons/react/24/outline';
-import { authService, broadcastService } from '../services/api';
+import { authService, broadcastService, logger } from '../services/api/index.js';
 import { Spinner } from '../components/ui/spinner';
 
 const AdminDashboard = () => {
@@ -83,7 +83,7 @@ const AdminDashboard = () => {
       try {
         logger.debug('Setting up live broadcast WebSocket for admin dashboard');
         
-        liveBroadcastWs = await broadcastApi.subscribeToLiveBroadcastStatus((statusMessage) => {
+        liveBroadcastWs = await broadcastService.subscribeToLiveBroadcastStatus((statusMessage) => {
           logger.debug('Received live broadcast update in admin dashboard:', statusMessage);
           
           // Refresh live broadcasts when status changes

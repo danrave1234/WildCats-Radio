@@ -78,6 +78,15 @@ public class NotificationController {
         return ResponseEntity.ok(notifications);
     }
 
+    @PutMapping("/read-all")
+    public ResponseEntity<Integer> markAllAsRead(Authentication authentication) {
+        UserEntity user = userService.getUserByEmail(authentication.getName())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        int updated = notificationService.markAllAsRead(user);
+        return ResponseEntity.ok(updated);
+    }
+
     @GetMapping("/by-type/{type}")
     public ResponseEntity<List<NotificationDTO>> getNotificationsByType(
             @PathVariable String type,

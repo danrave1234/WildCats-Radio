@@ -23,7 +23,17 @@ export const broadcastApi = {
   getAnalytics: (id) => api.get(`/api/broadcasts/${id}/analytics`),
   getUpcoming: () => api.get('/api/broadcasts/upcoming'),
   getLive: () => api.get('/api/broadcasts/live'),
-  getActiveBroadcast: () => api.get('/api/broadcasts/live/current').then(response => response.data).catch(() => null),
+  // New history and chat export endpoints
+  getHistory: (days = 30) => api.get(`/api/broadcasts/history?days=${days}`),
+  exportChat: (broadcastId) => api.get(`/api/broadcasts/${broadcastId}/chat/export`, { responseType: 'blob' }),
+  getActiveBroadcast: () =>
+    api
+      .get('/api/broadcasts/live')
+      .then((response) => {
+        const broadcasts = Array.isArray(response.data) ? response.data : [];
+        return broadcasts.length > 0 ? broadcasts[0] : null;
+      })
+      .catch(() => null),
 
   // Real-time WebSocket subscription for broadcast updates
   subscribeToBroadcastUpdates: (broadcastId, callback) => {

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { notificationService } from '../services/api';
+import { notificationService } from '../services/api/index.js';
 import { useAuth } from './AuthContext';
 import { createLogger } from '../services/logger';
 
@@ -124,12 +124,7 @@ export function NotificationProvider({ children }) {
 
   const markAllAsRead = async () => {
     try {
-      const unreadNotifications = notifications.filter(n => !n.read);
-      await Promise.all(
-        unreadNotifications.map(n => 
-          notificationService.markAsRead(n.id)
-        )
-      );
+      await notificationService.markAllAsRead();
       setNotifications(notifications.map(n => ({ ...n, read: true })));
       setUnreadCount(0);
       logger.debug('Marked all notifications as read');
@@ -140,7 +135,13 @@ export function NotificationProvider({ children }) {
 
   const addNotification = (notification) => {
     logger.debug('Adding new notification:', notification);
-    setNotifications(prev => [notification, ...prev]);
+    setNotifications(prev => {
+      // Frontend dedupe: avoid inserting when same id already present
+      if (prev.some(n => n.id === notification.id)) {
+        return prev;
+      }
+      return [notification, ...prev];
+    });
     if (!notification.read) {
       setUnreadCount(prev => prev + 1);
     }

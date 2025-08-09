@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { config } from '../config';
 import { useAuth } from './AuthContext';
-import { analyticsService } from '../services/api';
+import { analyticsService } from '../services/api/index.js';
 import SockJS from 'sockjs-client';
 import { Stomp } from '@stomp/stompjs';
 

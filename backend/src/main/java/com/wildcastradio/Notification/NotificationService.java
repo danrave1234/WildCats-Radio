@@ -1,7 +1,9 @@
 package com.wildcastradio.Notification;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -16,6 +18,8 @@ public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    // Tracks notifications already broadcasted for ephemeral events (e.g., "starting soon")
+    private final Set<String> transientNotificationKeys = new HashSet<>();
 
     public NotificationService(
             NotificationRepository notificationRepository,
@@ -26,6 +30,23 @@ public class NotificationService {
 
     @Transactional
     public NotificationEntity sendNotification(UserEntity recipient, String message, NotificationType type) {
+        // Basic deduplication: avoid saving the exact same notification for the same user
+        // within the last minute.
+        LocalDateTime oneMinuteAgo = LocalDateTime.now().minusMinutes(1);
+        boolean recentDuplicateExists = notificationRepository
+                .existsByRecipientAndMessageAndTypeAndTimestampAfter(recipient, message, type, oneMinuteAgo);
+
+        if (recentDuplicateExists) {
+            // Return the latest existing one without creating/spamming more
+            return notificationRepository
+                    .findTopByRecipientAndMessageAndTypeOrderByTimestampDesc(recipient, message, type)
+                    .orElseGet(() -> {
+                        // Fallback in the unlikely case the record was deleted between checks
+                        NotificationEntity fallback = new NotificationEntity(message, type, recipient);
+                        return notificationRepository.save(fallback);
+                    });
+        }
+
         NotificationEntity notification = new NotificationEntity(message, type, recipient);
         NotificationEntity savedNotification = notificationRepository.save(notification);
 
@@ -42,9 +63,29 @@ public class NotificationService {
         return savedNotification;
     }
 
+    /**
+     * Send a transient (non-repeating) broadcast-style notification that should not
+     * fire multiple times for the same logical event key (e.g., a specific broadcast id).
+     *
+     * The key is caller-defined (e.g., "starting-soon:123").
+     */
+    @Transactional
+    public boolean sendTransientNotificationOnce(String dedupeKey, UserEntity recipient, String message, NotificationType type) {
+        if (transientNotificationKeys.contains(dedupeKey)) {
+            return false; // already sent during app lifetime
+        }
+        transientNotificationKeys.add(dedupeKey);
+        sendNotification(recipient, message, type);
+        return true;
+    }
+
+    public void clearTransientKey(String dedupeKey) {
+        transientNotificationKeys.remove(dedupeKey);
+    }
+
     @Transactional(readOnly = true)
     public List<NotificationDTO> getNotificationsForUser(UserEntity user) {
-        return notificationRepository.findByRecipient(user).stream()
+        return notificationRepository.findByRecipientOrderByTimestampDesc(user).stream()
                 .map(NotificationDTO::fromEntity)
                 .collect(Collectors.toList());
     }
@@ -81,5 +122,10 @@ public class NotificationService {
         return notificationRepository.findByRecipientAndType(user, type).stream()
                 .map(NotificationDTO::fromEntity)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public int markAllAsRead(UserEntity user) {
+        return notificationRepository.markAllAsReadForUser(user);
     }
 } 

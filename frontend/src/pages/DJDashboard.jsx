@@ -17,8 +17,9 @@ import {
   PaperAirplaneIcon,
   UserIcon,
   HeartIcon,
+  ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline"
-import { broadcastService, chatService, songRequestService, pollService } from "../services/api"
+import { broadcastService, chatService, songRequestService, pollService } from "../services/api/index.js"
 import { useAuth } from "../context/AuthContext"
 import { useStreaming } from "../context/StreamingContext"
 import { formatDistanceToNow } from "date-fns"
@@ -116,6 +117,7 @@ export default function DJDashboard() {
   // Chat State
   const [chatMessages, setChatMessages] = useState([])
   const [chatMessage, setChatMessage] = useState("")
+  const [isDownloadingChat, setIsDownloadingChat] = useState(false)
 
   // Song Requests State
   const [songRequests, setSongRequests] = useState([])
@@ -952,6 +954,28 @@ export default function DJDashboard() {
     }
   }
 
+  const handleDownloadChat = async () => {
+    if (!currentBroadcast?.id) return
+    try {
+      setIsDownloadingChat(true)
+      const response = await chatService.exportMessages(currentBroadcast.id)
+      const blob = new Blob([response.data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `broadcast_${currentBroadcast.id}_messages.xlsx`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      logger.error("Error downloading chat messages:", error)
+      alert("Failed to download chat messages. Please try again.")
+    } finally {
+      setIsDownloadingChat(false)
+    }
+  }
+
   const handleDeleteSongRequest = async (requestId) => {
     if (!currentBroadcast) return
 
@@ -992,16 +1016,14 @@ export default function DJDashboard() {
       const response = await pollService.createPoll(pollData)
       const createdPoll = response.data
 
-      logger.debug("DJ Dashboard: Poll created successfully:", createdPoll)
+      logger.debug("DJ Dashboard: Poll created successfully (draft):", createdPoll)
 
-      // Add poll to local state
+      // Add draft poll to local state (not active yet)
       setPolls((prev) => {
         const exists = prev.some((poll) => poll.id === createdPoll.id)
         if (exists) return prev
         return [createdPoll, ...prev]
       })
-
-      setActivePoll(createdPoll)
 
       // Track poll creation
       setTotalPolls((prev) => prev + 1)
@@ -1013,6 +1035,43 @@ export default function DJDashboard() {
       logger.error("Error creating poll:", error)
     } finally {
       setIsCreatingPoll(false)
+    }
+  }
+
+  // --- Poll Controls ---
+  const handlePostPoll = async (pollId) => {
+    try {
+      const response = await pollService.showPoll(pollId)
+      const posted = response.data
+      logger.debug("DJ Dashboard: Poll posted:", posted)
+      setPolls((prev) => prev.map((p) => (p.id === posted.id ? posted : p)))
+      setActivePoll(posted)
+    } catch (error) {
+      logger.error("DJ Dashboard: Failed to post poll:", error)
+    }
+  }
+
+  const handleStopPoll = async (pollId) => {
+    try {
+      const response = await pollService.endPoll(pollId)
+      const ended = response.data
+      logger.debug("DJ Dashboard: Poll stopped:", ended)
+      setPolls((prev) => prev.map((p) => (p.id === ended.id ? ended : p)))
+      setActivePoll((prev) => (prev && prev.id === ended.id ? null : prev))
+    } catch (error) {
+      logger.error("DJ Dashboard: Failed to stop poll:", error)
+    }
+  }
+
+  const handleDeletePoll = async (pollId) => {
+    try {
+      await pollService.deletePoll(pollId)
+      logger.debug("DJ Dashboard: Poll deleted:", pollId)
+      setPolls((prev) => prev.filter((p) => p.id !== pollId))
+      setActivePoll((prev) => (prev && prev.id === pollId ? null : prev))
+      setTotalPolls((prev) => (prev > 0 ? prev - 1 : 0))
+    } catch (error) {
+      logger.error("DJ Dashboard: Failed to delete poll:", error)
     }
   }
 
@@ -1258,9 +1317,20 @@ export default function DJDashboard() {
                           <ChatBubbleLeftRightIcon className="h-4 w-4 mr-2" />
                           <h3 className="font-semibold text-sm">Live Chat</h3>
                         </div>
-                        <span className="text-xs bg-white bg-opacity-20 px-2 py-0.5 rounded-full">
-                      {chatMessages.length} messages
-                    </span>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs bg-white bg-opacity-20 px-2 py-0.5 rounded-full">
+                            {chatMessages.length} messages
+                          </span>
+                          <button
+                            onClick={handleDownloadChat}
+                            disabled={isDownloadingChat || !currentBroadcast?.id}
+                            className="inline-flex items-center text-xs px-2 py-1 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Download chat messages as Excel (available for 7 days)"
+                          >
+                            <ArrowDownTrayIcon className={`h-3.5 w-3.5 mr-1 ${isDownloadingChat ? "animate-pulse" : ""}`} />
+                            {isDownloadingChat ? "Downloading..." : "Download"}
+                          </button>
+                        </div>
                       </div>
                     </div>
                     <div className="h-[400px] flex flex-col">
@@ -1605,6 +1675,44 @@ export default function DJDashboard() {
                                           return <div className="text-xs text-gray-500">Error loading poll options</div>
                                         }
                                       })()}
+                                    </div>
+                                    {/* Poll Controls */}
+                                    <div className="mt-2 flex items-center space-x-2">
+                                      {!poll.active ? (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() => handlePostPoll(poll.id)}
+                                            className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                                          >
+                                            Post
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeletePoll(poll.id)}
+                                            className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleStopPoll(poll.id)}
+                                            className="px-2 py-1 text-xs bg-yellow-500 text-black rounded hover:bg-yellow-600"
+                                          >
+                                            Stop
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeletePoll(poll.id)}
+                                            className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                               )

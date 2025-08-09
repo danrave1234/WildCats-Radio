@@ -52,8 +52,9 @@ public class PollService {
         BroadcastEntity broadcast = broadcastRepository.findById(request.getBroadcastId())
                 .orElseThrow(() -> new RuntimeException("Broadcast not found"));
 
-        // Create the poll
+        // Create the poll as DRAFT (not active until explicitly shown)
         PollEntity poll = new PollEntity(request.getQuestion(), user, broadcast);
+        poll.setActive(false); // create as draft
         PollEntity savedPoll = pollRepository.save(poll);
 
         // Create options
@@ -66,13 +67,50 @@ public class PollService {
         // Build the response
         PollDTO pollDTO = buildPollDTO(savedPoll, options);
 
-        // Notify all clients about the new poll via WebSocket
+        // Do NOT broadcast yet. Poll will be visible when DJ posts it via showPoll()
+        return pollDTO;
+    }
+
+    /**
+     * Post/show a poll to listeners (make active=true and broadcast NEW_POLL)
+     */
+    @Transactional
+    public PollDTO showPoll(Long pollId) {
+        PollEntity poll = pollRepository.findById(pollId)
+                .orElseThrow(() -> new RuntimeException("Poll not found"));
+
+        if (!poll.isActive()) {
+            poll.setActive(true);
+            poll = pollRepository.save(poll);
+        }
+
+        List<PollOptionEntity> options = optionRepository.findByPollOrderByIdAsc(poll);
+        PollDTO pollDTO = buildPollDTO(poll, options);
+
+        // Notify listeners that a new poll is now visible
         messagingTemplate.convertAndSend(
-                "/topic/broadcast/" + savedPoll.getBroadcast().getId() + "/polls",
+                "/topic/broadcast/" + poll.getBroadcast().getId() + "/polls",
                 new PollWebSocketMessage("NEW_POLL", pollDTO, null, null)
         );
 
         return pollDTO;
+    }
+
+    /**
+     * Delete a poll and notify listeners to remove it from view
+     */
+    @Transactional
+    public void deletePoll(Long pollId) {
+        PollEntity poll = pollRepository.findById(pollId)
+                .orElseThrow(() -> new RuntimeException("Poll not found"));
+        Long broadcastId = poll.getBroadcast().getId();
+        pollRepository.delete(poll);
+
+        // Notify listeners that the poll was deleted
+        messagingTemplate.convertAndSend(
+                "/topic/broadcast/" + broadcastId + "/polls",
+                new PollWebSocketMessage("POLL_DELETED", pollId, null)
+        );
     }
 
     @Transactional(readOnly = true)
