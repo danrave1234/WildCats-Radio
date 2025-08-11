@@ -330,7 +330,10 @@ public class IcecastService {
         // Consider a stream live if either Icecast reports it as live OR we have active broadcasts
         boolean isLive = icecastLive || !activeBroadcasts.isEmpty();
 
+        // Backward-compatible fields and aliases expected by frontend
         status.put("live", isLive);
+        status.put("isLive", isLive); // alias used by frontend
+        status.put("listenerCount", getCurrentListenerCount(false));
         status.put("server", serverUp ? "UP" : "DOWN");
         status.put("streamUrl", getStreamUrl());
         status.put("icecastUrl", getIcecastUrl());

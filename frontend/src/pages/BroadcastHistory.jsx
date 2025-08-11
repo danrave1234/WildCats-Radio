@@ -258,7 +258,8 @@ export default function BroadcastHistory() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `broadcast_${best.id}_messages.xlsx`;
+      const safeTitle = (best.title || 'messages').replace(/[\\/:*?"<>|]/g, '_').trim() || 'messages';
+      link.download = `${safeTitle}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();

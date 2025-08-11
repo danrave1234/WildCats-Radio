@@ -30,20 +30,24 @@ public class SongRequestController {
     }
 
     @PostMapping
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<SongRequestDTO> createSongRequest(
             @PathVariable Long broadcastId,
             @RequestBody SongRequestCreateRequest request,
             Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).build();
+        }
         UserEntity requestedBy = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-
+        
         SongRequestEntity songRequest = songRequestService.createSongRequest(
                 broadcastId,
                 requestedBy,
                 request.getSongTitle(),
                 request.getArtist()
         );
-
+        
         return ResponseEntity.ok(SongRequestDTO.fromEntity(songRequest));
     }
 

@@ -75,6 +75,15 @@ export default function ListenerDashboard() {
   const [isSongRequestMode, setIsSongRequestMode] = useState(false);
   const [songRequestText, setSongRequestText] = useState('');
 
+  // Relative time tick for auto-refreshing "x mins ago" labels
+  const [relativeTimeTick, setRelativeTimeTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setRelativeTimeTick((prev) => prev + 1);
+    }, 60000); // refresh every minute
+    return () => clearInterval(interval);
+  }, []);
+
   // Poll state
   const [activePoll, setActivePoll] = useState(null);
   const [userVotes, setUserVotes] = useState({});
@@ -570,10 +579,8 @@ export default function ListenerDashboard() {
             switch (pollUpdate.type) {
               case 'NEW_POLL': {
                 const p = pollUpdate.poll;
-                if (p && p.isActive) {
+                if (p && p.active) {
                   setActivePoll(p);
-                } else if (p && !p.isActive) {
-                  setActivePoll(null);
                 }
                 break;
               }
@@ -592,7 +599,7 @@ export default function ListenerDashboard() {
               case 'POLL_UPDATED': {
                 const p = pollUpdate.poll;
                 if (p) {
-                  if (p.isActive) {
+                  if (p.active) {
                     setActivePoll(p);
                   } else {
                     setActivePoll(null);
@@ -1487,7 +1494,7 @@ export default function ListenerDashboard() {
       // Format relative time
       const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
         ? formatDistanceToNow(messageDate, { addSuffix: false }) 
-        : 'Just now';
+        : 'just now';
 
       const formattedTimeAgo = timeAgo
         .replace(' seconds', ' sec')

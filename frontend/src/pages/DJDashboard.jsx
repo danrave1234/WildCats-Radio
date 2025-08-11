@@ -292,9 +292,10 @@ export default function DJDashboard() {
         if (currentBroadcast?.id === currentBroadcast?.id && !signal.aborted) {
           setPolls(pollsResponse.data || [])
 
-          // Set active poll (most recent one)
+          // Set active poll: prefer the first active poll, otherwise none
           if (pollsResponse.data && pollsResponse.data.length > 0) {
-            setActivePoll(pollsResponse.data[0])
+            const firstActive = pollsResponse.data.find(p => p.active) || null
+            setActivePoll(firstActive)
           }
         }
       } catch (error) {
@@ -471,7 +472,7 @@ export default function DJDashboard() {
             case "POLL_UPDATED":
               logger.debug("DJ Dashboard: Processing poll update:", pollUpdate.poll)
 
-              if (pollUpdate.poll && !pollUpdate.poll.isActive) {
+              if (pollUpdate.poll && !pollUpdate.poll.active) {
                 // Poll ended
                 setActivePoll((prev) => (prev?.id === pollUpdate.poll.id ? null : prev))
               }
@@ -542,75 +543,6 @@ export default function DJDashboard() {
     }
   }, [workflowState, currentBroadcast?.id]) // Removed unnecessary dependencies to prevent re-runs
 
-  // Setup 3-second interval for poll results fetching alongside WebSocket
-  useEffect(() => {
-    // Guard: Only setup interval if we have a valid broadcast and are in streaming state
-    if (workflowState !== WORKFLOW_STATES.STREAMING_LIVE || !currentBroadcast || !currentBroadcast.id) {
-      return
-    }
-
-    logger.debug("DJ Dashboard: Setting up 3-second poll results interval for broadcast:", currentBroadcast.id)
-
-    const fetchPollResults = async () => {
-      try {
-        // Fetch current polls for the broadcast
-        const pollsResponse = await pollService.getPollsForBroadcast(currentBroadcast.id)
-
-        if (pollsResponse.data && pollsResponse.data.length > 0) {
-          logger.debug("DJ Dashboard: Interval fetched poll results:", pollsResponse.data.length)
-
-          // Update polls state with fresh data
-          setPolls((prevPolls) => {
-            const updatedPolls = pollsResponse.data.map((fetchedPoll) => {
-              const existingPoll = prevPolls.find((p) => p.id === fetchedPoll.id)
-
-              // Only update if there are actual changes to avoid unnecessary re-renders
-              if (
-                  existingPoll &&
-                  existingPoll.totalVotes === fetchedPoll.totalVotes &&
-                  JSON.stringify(existingPoll.options) === JSON.stringify(fetchedPoll.options)
-              ) {
-                return existingPoll
-              }
-
-              return fetchedPoll
-            })
-
-            return updatedPolls
-          })
-
-          // Update active poll if it exists in the fetched data
-          setActivePoll((prevActivePoll) => {
-            if (!prevActivePoll) return prevActivePoll
-
-            const updatedActivePoll = pollsResponse.data.find((p) => p.id === prevActivePoll.id)
-
-            if (
-                updatedActivePoll &&
-                (prevActivePoll.totalVotes !== updatedActivePoll.totalVotes ||
-                    JSON.stringify(prevActivePoll.options) !== JSON.stringify(updatedActivePoll.options))
-            ) {
-              logger.debug("DJ Dashboard: Interval updated active poll results")
-              return updatedActivePoll
-            }
-
-            return prevActivePoll
-          })
-        }
-      } catch (error) {
-        logger.error("DJ Dashboard: Error fetching poll results via interval:", error)
-      }
-    }
-
-    // Set up the interval
-    const intervalId = setInterval(fetchPollResults, 3000) // 3 seconds
-
-    // Cleanup function
-    return () => {
-      logger.debug("DJ Dashboard: Cleaning up poll results interval")
-      clearInterval(intervalId)
-    }
-  }, [workflowState, currentBroadcast?.id])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -963,7 +895,8 @@ export default function DJDashboard() {
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement("a")
       link.href = url
-      link.download = `broadcast_${currentBroadcast.id}_messages.xlsx`
+      const safeTitle = (currentBroadcast.title || 'messages').replace(/[\\/:*?"<>|]/g, '_').trim() || 'messages'
+      link.download = `${safeTitle}.xlsx`
       document.body.appendChild(link)
       link.click()
       link.remove()
@@ -1386,9 +1319,9 @@ export default function DJDashboard() {
                                     try {
                                       return messageDate && !isNaN(messageDate.getTime())
                                           ? formatDistanceToNow(messageDate, { addSuffix: true })
-                                          : "Just now"
+                                          : "just now"
                                     } catch (error) {
-                                      return "Just now"
+                                      return "just now"
                                     }
                                   })()
 
@@ -1473,6 +1406,20 @@ export default function DJDashboard() {
                                     {request.songTitle}
                                   </span>
                                           <span className="text-xs text-gray-600 dark:text-gray-300">by {request.artist}</span>
+                                          {request.requestedBy && (
+                                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                                              Requested by {(() => {
+                                                try {
+                                                  const f = request.requestedBy?.firstname || '';
+                                                  const l = request.requestedBy?.lastname || '';
+                                                  const full = `${f} ${l}`.trim();
+                                                  return full || request.requestedBy?.email || 'Unknown User';
+                                                } catch (_) {
+                                                  return 'Unknown User';
+                                                }
+                                              })()}
+                                            </div>
+                                          )}
                                         </div>
                                         <button
                                             onClick={() => handleDeleteSongRequest(request.id)}
@@ -1495,9 +1442,9 @@ export default function DJDashboard() {
                                             const requestDate = ts ? new Date(ts) : null;
                                             return requestDate && !isNaN(requestDate.getTime())
                                                 ? formatDistanceToNow(requestDate, { addSuffix: true })
-                                                : "Just now"
+                                                : "just now"
                                           } catch (error) {
-                                            return "Just now"
+                                            return "just now"
                                           }
                                         })()}• {(() => {
                                         try {
@@ -1506,9 +1453,9 @@ export default function DJDashboard() {
                                           const requestDate = ts ? new Date(ts) : null;
                                           return requestDate && !isNaN(requestDate.getTime())
                                               ? formatDistanceToNow(requestDate, { addSuffix: true })
-                                              : "Just now"
+                                              : "just now"
                                         } catch (error) {
-                                          return "Just now"
+                                          return "just now"
                                         }
                                       })()}
                                       </div>

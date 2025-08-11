@@ -79,6 +79,22 @@ public class PollService {
         PollEntity poll = pollRepository.findById(pollId)
                 .orElseThrow(() -> new RuntimeException("Poll not found"));
 
+        // Ensure only one active poll per broadcast by ending others first
+        List<PollEntity> currentlyActive = pollRepository.findByBroadcastAndActiveTrue(poll.getBroadcast());
+        for (PollEntity other : currentlyActive) {
+            if (!other.getId().equals(pollId)) {
+                other.endPoll();
+                PollEntity ended = pollRepository.save(other);
+                // Broadcast update for ended poll so clients can clear it
+                List<PollOptionEntity> endedOptions = optionRepository.findByPollOrderByIdAsc(ended);
+                PollDTO endedDTO = buildPollDTO(ended, endedOptions);
+                messagingTemplate.convertAndSend(
+                        "/topic/broadcast/" + ended.getBroadcast().getId() + "/polls",
+                        new PollWebSocketMessage("POLL_UPDATED", endedDTO, null, null)
+                );
+            }
+        }
+
         if (!poll.isActive()) {
             poll.setActive(true);
             poll = pollRepository.save(poll);

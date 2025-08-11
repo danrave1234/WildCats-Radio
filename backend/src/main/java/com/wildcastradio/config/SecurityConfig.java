@@ -54,7 +54,12 @@ public class SecurityConfig {
                 .requestMatchers("/ws-radio/**").permitAll()
                 .requestMatchers("/ws-radio/info/**").permitAll()
                 .requestMatchers("/ws-radio/info").permitAll()
-                .requestMatchers("/api/broadcasts/**").permitAll()
+                // Public read-only API for listening experience
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/broadcasts/**").permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/chats/*").permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/broadcast/**").permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/*/results").permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/*").permitAll()
                 // Swagger UI endpoints if you use it
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 // Health check endpoints

@@ -185,7 +185,7 @@ public class ChatMessageService {
 
         // Create header row
         Row headerRow = sheet.createRow(0);
-        String[] headers = {"Message ID", "Sender Name", "Sender Email", "Message Content", "Timestamp"};
+        String[] headers = {"Sender Name", "Sender Email", "Message Content", "Timestamp"};
 
         for (int i = 0; i < headers.length; i++) {
             Cell cell = headerRow.createCell(i);
@@ -201,11 +201,10 @@ public class ChatMessageService {
         for (ChatMessageEntity message : messages) {
             Row row = sheet.createRow(rowNum++);
 
-            row.createCell(0).setCellValue(message.getId());
-            row.createCell(1).setCellValue(message.getSender().getDisplayNameOrFullName());
-            row.createCell(2).setCellValue(message.getSender().getEmail());
-            row.createCell(3).setCellValue(message.getContent());
-            row.createCell(4).setCellValue(message.getCreatedAt().format(formatter));
+            row.createCell(0).setCellValue(message.getSender().getDisplayNameOrFullName());
+            row.createCell(1).setCellValue(message.getSender().getEmail());
+            row.createCell(2).setCellValue(message.getContent());
+            row.createCell(3).setCellValue(message.getCreatedAt().format(formatter));
         }
 
         // Auto-size columns

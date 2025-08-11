@@ -99,7 +99,7 @@ export function StreamingProvider({ children }) {
     localStorage.setItem('wildcats_audio_source', audioSource);
   }, [audioSource]);
 
-  // Auto-connect/reconnect when authenticated
+  // Auto-connect/reconnect depending on authentication
   useEffect(() => {
     if (isAuthenticated && currentUser) {
       if (currentUser.role === 'DJ' || currentUser.role === 'ADMIN') {
@@ -109,10 +109,16 @@ export function StreamingProvider({ children }) {
         // Set up listener connections
         checkAndRestoreListenerState();
       }
+      // Authenticated users also receive status updates
       connectListenerStatusWebSocket();
+      // Also refresh status once immediately
+      refreshStreamStatus();
     } else {
-      // Clean up all connections when logged out
+      // When unauthenticated, disconnect any DJ or poll connections,
+      // but still connect to listener status WS and refresh status so guests can see live state
       disconnectAll();
+      connectListenerStatusWebSocket();
+      refreshStreamStatus();
     }
 
     return () => {

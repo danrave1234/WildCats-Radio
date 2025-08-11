@@ -62,7 +62,11 @@ public class PollController {
     }
 
     @PostMapping("/{pollId}/vote")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<PollResultDTO> vote(@PathVariable Long pollId, @RequestBody VoteRequest request, Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).build();
+        }
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
         
@@ -103,7 +107,11 @@ public class PollController {
     }
 
     @GetMapping("/{pollId}/has-voted")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Boolean> hasUserVoted(@PathVariable Long pollId, Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).build();
+        }
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
         
@@ -112,7 +120,11 @@ public class PollController {
     }
 
     @GetMapping("/{pollId}/user-vote")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Long> getUserVote(@PathVariable Long pollId, Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).build();
+        }
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
         

@@ -229,9 +229,15 @@ public class BroadcastController {
             @PathVariable Long id) {
         try {
             byte[] excelData = chatMessageService.exportMessagesToExcel(id);
+            // Determine filename from broadcast title
+            java.util.Optional<com.wildcastradio.Broadcast.BroadcastEntity> b = broadcastService.getBroadcastById(id);
+            String title = b.map(com.wildcastradio.Broadcast.BroadcastEntity::getTitle).orElse("messages");
+            String filename = title.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+            if (filename.isBlank()) filename = "messages";
+            filename = filename + ".xlsx";
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM);
-            headers.setContentDispositionFormData("attachment", "broadcast_" + id + "_messages.xlsx");
+            headers.setContentDispositionFormData("attachment", filename);
             return org.springframework.http.ResponseEntity.ok().headers(headers).body(excelData);
         } catch (IllegalArgumentException e) {
             return org.springframework.http.ResponseEntity.notFound().build();

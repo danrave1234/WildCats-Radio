@@ -19,6 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.wildcastradio.ChatMessage.DTO.ChatMessageDTO;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
+import com.wildcastradio.Broadcast.BroadcastEntity;
+import com.wildcastradio.Broadcast.BroadcastRepository;
 
 @RestController
 @RequestMapping("/api/chats")
@@ -32,6 +34,9 @@ public class ChatMessageController {
 
     @Autowired
     private ChatMessageCleanupService cleanupService;
+
+    @Autowired
+    private BroadcastRepository broadcastRepository;
 
 
     @GetMapping("/{broadcastId}")
@@ -74,9 +79,14 @@ public class ChatMessageController {
         try {
             byte[] excelData = chatMessageService.exportMessagesToExcel(broadcastId);
 
+            // Determine filename from broadcast title
+            BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
+                .orElseThrow(() -> new IllegalArgumentException("Broadcast not found with ID: " + broadcastId));
+            String filename = sanitizeFilename(broadcast.getTitle()) + ".xlsx";
+
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
-            headers.setContentDispositionFormData("attachment", "broadcast_" + broadcastId + "_messages.xlsx");
+            headers.setContentDispositionFormData("attachment", filename);
 
             return ResponseEntity.ok()
                     .headers(headers)
@@ -118,6 +128,19 @@ public class ChatMessageController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(new CleanupResponse(0, "Cleanup failed: " + e.getMessage()));
         }
+    }
+
+    private static String sanitizeFilename(String input) {
+        if (input == null || input.isBlank()) {
+            return "messages";
+        }
+        // Replace characters not allowed in filenames on Windows and trim
+        String sanitized = input.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        // Avoid empty string after sanitization
+        if (sanitized.isBlank()) {
+            sanitized = "messages";
+        }
+        return sanitized;
     }
 
     // Response classes
