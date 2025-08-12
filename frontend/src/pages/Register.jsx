@@ -45,11 +45,6 @@ export default function Register() {
     e.preventDefault()
     setError("")
 
-    // Validate email is from cit.edu domain
-    if (!formData.email.endsWith('@cit.edu')) {
-      setError('Only cit.edu email addresses are allowed to register')
-      return
-    }
 
     // Validate password match
     if (formData.password !== formData.confirmPassword) {
@@ -182,13 +177,9 @@ export default function Register() {
                     required
                     value={formData.email}
                     onChange={handleChange}
-                    placeholder="your.email@cit.edu"
+                    placeholder="your.email@example.com"
                     className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
                   />
-                  <p className="text-xs text-wildcats-maroon flex items-center space-x-1 pt-1">
-                    <AlertCircle className="h-3 w-3" />
-                    <span>Only cit.edu email addresses are allowed</span>
-                  </p>
                 </div>
 
                 {/* Birthdate Field */}
