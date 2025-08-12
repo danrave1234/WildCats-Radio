@@ -1,0 +1,172 @@
+# WildCats Radio - Project Configuration for ChatGPT Codex
+# This file helps AI assistants understand the project structure and context
+
+project:
+  name: "WildCats Radio"
+  description: "A comprehensive radio broadcasting platform for schools with web, mobile, and streaming capabilities"
+  type: "Full-stack web application with mobile app and streaming server"
+  version: "1.0.0"
+  
+technology_stack:
+  backend:
+    framework: "Spring Boot"
+    language: "Java"
+    database: "PostgreSQL (NEON)"
+    authentication: "JWT"
+    build_tool: "Maven"
+    deployment: "Heroku"
+  
+  frontend:
+    framework: "React + Vite"
+    language: "JavaScript/JSX"
+    styling: "Tailwind CSS"
+    ui_components: "Custom components with Lucide icons"
+    build_tool: "Vite"
+    deployment: "Vercel"
+  
+  mobile:
+    framework: "React Native + Expo"
+    language: "TypeScript"
+    styling: "NativeWind (Tailwind for React Native)"
+    audio: "expo-av"
+    navigation: "Expo Router"
+  
+  streaming:
+    server: "Icecast"
+    format: "OGG Vorbis"
+    deployment: "Google Cloud VM"
+
+directories:
+  backend:
+    path: "./backend"
+    purpose: "Spring Boot REST API server"
+    description: "Handles user authentication, broadcast management, chat, song requests, analytics, and streaming coordination"
+    key_files:
+      - "pom.xml: Maven configuration and dependencies"
+      - "src/main/java: Java source code with entity models, repositories, services, and controllers"
+      - "src/main/resources: Configuration files and database migrations"
+      - ".env: Environment variables for database and external services"
+      - "Dockerfile: Container configuration for deployment"
+    
+  frontend:
+    path: "./frontend"
+    purpose: "React web application for listeners and DJs"
+    description: "Web interface for listening to broadcasts, managing DJ functions, analytics dashboard, and user interactions"
+    key_files:
+      - "package.json: NPM dependencies and scripts"
+      - "src/: React components, pages, services, and context providers"
+      - "src/components/: Reusable UI components"
+      - "src/pages/: Main application pages (Dashboard, Analytics, etc.)"
+      - "src/services/: API communication and WebSocket services"
+      - "src/context/: React Context providers for state management"
+      - "vite.config.js: Vite build configuration"
+      - "tailwind.config.js: Tailwind CSS configuration"
+      - ".env: Environment variables for API endpoints"
+    
+  mobile:
+    path: "./mobile"
+    purpose: "React Native mobile app for listeners"
+    description: "Mobile application for listening to broadcasts, participating in chat, and submitting song requests"
+    key_files:
+      - "package.json: NPM dependencies and Expo configuration"
+      - "app.json: Expo app configuration"
+      - "app/: Main application screens using Expo Router"
+      - "components/: Reusable React Native components"
+      - "services/: API communication, audio streaming, and WebSocket services"
+      - "context/: React Context providers for mobile state management"
+      - "hooks/: Custom React hooks for mobile functionality"
+      - "tailwind.config.js: NativeWind configuration"
+    
+  Icecast:
+    path: "./Icecast"
+    purpose: "Audio streaming server"
+    description: "Icecast server installation for broadcasting live audio streams"
+    key_files:
+      - "icecast.xml: Main Icecast server configuration"
+      - "icecast.bat: Windows batch file to start the server"
+      - "web/: Web interface for Icecast administration"
+      - "admin/: Administrative interface files"
+
+key_features:
+  user_roles:
+    - "ADMIN: Full system access, analytics, user management"
+    - "DJ: Broadcast management, streaming controls, analytics"
+    - "LISTENER: Listen to broadcasts, chat, song requests"
+    - "GUEST: Listen-only access without authentication"
+  
+  core_functionality:
+    - "Live audio streaming via Icecast server"
+    - "Real-time chat during broadcasts using WebSockets"
+    - "Song request system with queue management"
+    - "Broadcast scheduling and management"
+    - "User authentication and profile management"
+    - "Analytics dashboard with engagement metrics"
+    - "Activity logging and audit trails"
+    - "Mobile app for on-the-go listening"
+    - "Responsive web interface"
+
+api_endpoints:
+  base_url: "https://wildcat-radio-f05d362144e6.autoidleapp.com"
+  key_endpoints:
+    - "/api/auth/*: Authentication endpoints"
+    - "/api/broadcasts/*: Broadcast management"
+    - "/api/chat/*: Chat message handling"
+    - "/api/song-requests/*: Song request management"
+    - "/api/analytics/*: Analytics data"
+    - "/api/stream/*: Streaming configuration and status"
+    - "/ws/*: WebSocket endpoints for real-time features"
+
+development_workflow:
+  backend:
+    start: "mvn spring-boot:run"
+    build: "mvn clean package"
+    test: "mvn test"
+    
+  frontend:
+    start: "npm run dev"
+    build: "npm run build"
+    preview: "npm run preview"
+    
+  mobile:
+    start: "npm start"
+    android: "npm run android"
+    ios: "npm run ios"
+    web: "npm run web"
+
+documentation_files:
+  - "ROADMAP.md: Complete project roadmap and specifications"
+  - "react-native-broadcast-integration.md: Mobile app integration specifications"
+  - "new-react-native-broadcast.md: Mobile app implementation status"
+  - "ANALYTICS_HOTFIX_DOCUMENTATION.md: Analytics system implementation details"
+  - "DEPLOY_TO_GCP.md: Deployment instructions for Google Cloud"
+  - "BROADCAST_HISTORY_README.md: Broadcast history feature documentation"
+  - "ANALYTICS_DASHBOARD_README.md: Analytics dashboard documentation"
+
+environment_variables:
+  backend:
+    - "DATABASE_URL: PostgreSQL connection string"
+    - "JWT_SECRET: Secret key for JWT token generation"
+    - "ICECAST_HOST: Icecast server hostname"
+    - "ICECAST_PORT: Icecast server port"
+    
+  frontend:
+    - "VITE_API_BASE_URL: Backend API base URL"
+    - "VITE_WS_BASE_URL: WebSocket server URL"
+    - "VITE_ICECAST_URL: Icecast stream URL"
+    - "VITE_USE_LOCAL_BACKEND: Toggle for local/remote backend"
+
+deployment:
+  backend: "Deployed on Heroku with PostgreSQL database"
+  frontend: "Deployed on Vercel with environment-based configuration"
+  streaming: "Icecast server running on Google Cloud VM"
+  mobile: "Expo-managed workflow for iOS/Android distribution"
+
+notes_for_ai:
+  - "This is a school radio broadcasting platform with three main components: web app, mobile app, and streaming server"
+  - "The backend uses Spring Boot with JPA for database operations and WebSockets for real-time features"
+  - "The frontend is a React SPA with Tailwind CSS, focusing on responsive design and real-time updates"
+  - "The mobile app is built with React Native/Expo and focuses on audio streaming and listener interaction"
+  - "All components communicate via REST APIs and WebSockets for real-time features"
+  - "The project uses role-based access control with JWT authentication"
+  - "Audio streaming is handled by Icecast server with OGG Vorbis format"
+  - "The codebase includes comprehensive documentation and follows standard project structures"

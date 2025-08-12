@@ -1,7 +1,6 @@
 // Global error handler setup for the application
 // This file sets up global error handlers to catch errors that might occur outside of axios requests
 
-import { isSecuritySoftwareBlockedError } from './errorHandler';
 import { createLogger } from './logger';
 
 const logger = createLogger('ErrorHandlerSetup');
@@ -12,7 +11,7 @@ export const setupGlobalErrorHandlers = () => {
   const originalOnError = window.onerror;
 
   // Override window.onerror to catch Kaspersky-related errors
-  window.onerror = function(message, source, lineno, colno, error) {
+  window.onerror = function(message, _source, _lineno, _colno, _error) {
     // Check if the error is related to Kaspersky being blocked
     if (message && typeof message === 'string' && 
         (message.includes('ERR_BLOCKED_BY_CLIENT') && 
@@ -57,7 +56,7 @@ export const setupGlobalErrorHandlers = () => {
   }
 
   // Add a submit event listener to all forms to catch and handle Kaspersky errors
-  document.addEventListener('submit', function(event) {
+  document.addEventListener('submit', function(_event) {
     // We don't prevent the default behavior, just add error handling
     setTimeout(() => {
       // Check for any errors in the console related to Kaspersky after form submission

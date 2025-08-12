@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import NewSidebar from './Sidebar';
 import Header from './Header';
+import MiniPlayer from './MiniPlayer';
 import { SidebarProvider } from './ui/sidebar';
 import { EnhancedScrollArea } from './ui/enhanced-scroll-area';
 
@@ -22,7 +23,7 @@ const MainContent = ({ children, onMobileMenuToggle }) => {
 };
 
 const Layout = ({ children }) => {
-  const { currentUser, isAuthenticated } = useAuth();
+  const { currentUser } = useAuth();
   
   // Controlled sidebar state - always starts minimized
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -38,11 +39,12 @@ const Layout = ({ children }) => {
       onOpenChange={setSidebarOpen}
     >
       <div className="h-screen bg-wildcats-background dark:bg-gray-900 flex overflow-hidden">
-        {isAuthenticated && <NewSidebar userRole={currentUser?.role} />}
+        <NewSidebar userRole={currentUser?.role} />
         <MainContent onMobileMenuToggle={toggleSidebar}>
           <Outlet />
           {children}
         </MainContent>
+        <MiniPlayer />
       </div>
     </SidebarProvider>
   );

@@ -20,9 +20,8 @@ const LOG_LEVELS = {
 class Logger {
   constructor() {
     // Set default log level based on environment
-    this.currentLogLevel = !useLocalBackend 
-      ? LOG_LEVELS.ERROR.priority 
-      : LOG_LEVELS.DEBUG.priority;
+    // Force verbose logging temporarily for diagnostics
+    this.currentLogLevel = LOG_LEVELS.DEBUG.priority;
 
     // Configuration options
     this.config = {

@@ -5,7 +5,7 @@ import {
   UserIcon,
   ShieldCheckIcon
 } from '@heroicons/react/24/outline';
-import { authService, broadcastService } from '../services/api';
+import { authService, broadcastService, logger } from '../services/api/index.js';
 import { Spinner } from '../components/ui/spinner';
 
 const AdminDashboard = () => {
@@ -38,6 +38,34 @@ const AdminDashboard = () => {
   // State for live broadcasts
   const [liveBroadcasts, setLiveBroadcasts] = useState([]);
 
+  // Fetch live broadcasts and update stats
+  const fetchLiveBroadcasts = async () => {
+    try {
+      // Fetch live broadcasts
+      const response = await broadcastService.getLive();
+      const broadcasts = response.data;
+      setLiveBroadcasts(broadcasts);
+
+      // Update stats
+      setStats(prev => ({
+        ...prev,
+        activeBroadcasts: broadcasts.length
+      }));
+
+      // Fetch upcoming broadcasts to update scheduledBroadcasts count
+      const upcomingResponse = await broadcastService.getUpcoming();
+      const upcomingBroadcasts = upcomingResponse.data;
+
+      setStats(prev => ({
+        ...prev,
+        scheduledBroadcasts: upcomingBroadcasts.length,
+        totalBroadcasts: broadcasts.length + upcomingBroadcasts.length
+      }));
+    } catch (error) {
+      console.error('Error fetching broadcasts:', error);
+    }
+  };
+
   // Fetch users when component mounts
   useEffect(() => {
     if (activeTab === 'users') {
@@ -45,42 +73,38 @@ const AdminDashboard = () => {
     }
   }, [activeTab]);
 
-  // Fetch live broadcasts and update stats
+  // Setup WebSocket for live broadcast updates
   useEffect(() => {
-    const fetchLiveBroadcasts = async () => {
+    if (!isAuthenticated) return;
+
+    let liveBroadcastWs = null;
+
+    const setupLiveBroadcastWebSocket = async () => {
       try {
-        // Fetch live broadcasts
-        const response = await broadcastService.getLive();
-        const broadcasts = response.data;
-        setLiveBroadcasts(broadcasts);
+        logger.debug('Setting up live broadcast WebSocket for admin dashboard');
+        
+        liveBroadcastWs = await broadcastService.subscribeToLiveBroadcastStatus((statusMessage) => {
+          logger.debug('Received live broadcast update in admin dashboard:', statusMessage);
+          
+          // Refresh live broadcasts when status changes
+          fetchLiveBroadcasts();
+        });
 
-        // Update stats
-        setStats(prev => ({
-          ...prev,
-          activeBroadcasts: broadcasts.length
-        }));
-
-        // Fetch upcoming broadcasts to update scheduledBroadcasts count
-        const upcomingResponse = await broadcastService.getUpcoming();
-        const upcomingBroadcasts = upcomingResponse.data;
-
-        setStats(prev => ({
-          ...prev,
-          scheduledBroadcasts: upcomingBroadcasts.length,
-          totalBroadcasts: broadcasts.length + upcomingBroadcasts.length
-        }));
+        logger.debug('Live broadcast WebSocket connected successfully for admin dashboard');
       } catch (error) {
-        console.error('Error fetching broadcasts:', error);
+        logger.error('Failed to setup live broadcast WebSocket for admin dashboard:', error);
       }
     };
 
-    // Fetch broadcasts when dashboard tab is active or every minute
-    if (activeTab === 'dashboard' || activeTab === 'broadcasts') {
-      fetchLiveBroadcasts();
-      const interval = setInterval(fetchLiveBroadcasts, 60000); // Check every minute
-      return () => clearInterval(interval);
-    }
-  }, [activeTab]);
+    setupLiveBroadcastWebSocket();
+
+    return () => {
+      if (liveBroadcastWs) {
+        liveBroadcastWs.disconnect();
+        logger.debug('Live broadcast WebSocket disconnected from admin dashboard');
+      }
+    };
+  }, [isAuthenticated]);
 
   // Fetch users from the backend
   const fetchUsers = async () => {

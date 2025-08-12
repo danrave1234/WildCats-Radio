@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import api, { notificationService } from '../services/api';
+import { notificationService, analyticsService } from '../services/api/index.js';
 import { useAuth } from './AuthContext';
 
 const BroadcastHistoryContext = createContext();
@@ -15,6 +15,8 @@ export const useBroadcastHistory = () => {
 export const BroadcastHistoryProvider = ({ children }) => {
   const { isAuthenticated } = useAuth();
   const [broadcastHistory, setBroadcastHistory] = useState([]);
+  const [detailedBroadcasts, setDetailedBroadcasts] = useState([]);
+  const [selectedBroadcastAnalytics, setSelectedBroadcastAnalytics] = useState(null);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -32,18 +34,18 @@ export const BroadcastHistoryProvider = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Use the existing notification service to get all notifications
       const response = await notificationService.getAll();
-      
+
       // Filter to only broadcast-related notifications
       const broadcastNotifications = response.data.filter(notification =>
         BROADCAST_TYPES.includes(notification.type)
       );
-      
+
       // Sort by newest first
       broadcastNotifications.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      
+
       setBroadcastHistory(broadcastNotifications);
     } catch (err) {
       console.error('Error fetching broadcast history:', err);
@@ -57,20 +59,20 @@ export const BroadcastHistoryProvider = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const sinceDate = new Date();
       sinceDate.setDate(sinceDate.getDate() - days);
-      
+
       const response = await notificationService.getRecent(sinceDate.toISOString());
-      
+
       // Filter to only broadcast-related notifications
       const broadcastNotifications = response.data.filter(notification =>
         BROADCAST_TYPES.includes(notification.type)
       );
-      
+
       // Sort by newest first
       broadcastNotifications.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      
+
       setBroadcastHistory(broadcastNotifications);
     } catch (err) {
       console.error('Error fetching recent broadcast history:', err);
@@ -84,16 +86,16 @@ export const BroadcastHistoryProvider = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
-      
+
       if (!BROADCAST_TYPES.includes(type)) {
         throw new Error('Invalid broadcast type');
       }
-      
+
       const response = await notificationService.getByType(type);
-      
+
       // Sort by newest first
       const sortedHistory = response.data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      
+
       setBroadcastHistory(sortedHistory);
     } catch (err) {
       console.error('Error fetching broadcast history by type:', err);
@@ -107,25 +109,25 @@ export const BroadcastHistoryProvider = ({ children }) => {
     try {
       // Get all notifications and calculate stats
       const response = await notificationService.getAll();
-      
+
       // Filter to only broadcast-related notifications
       const broadcastNotifications = response.data.filter(notification =>
         BROADCAST_TYPES.includes(notification.type)
       );
-      
+
       const totalBroadcasts = broadcastNotifications.length;
       const scheduledCount = broadcastNotifications.filter(n => n.type === 'BROADCAST_SCHEDULED').length;
       const startedCount = broadcastNotifications.filter(n => n.type === 'BROADCAST_STARTED').length;
       const endedCount = broadcastNotifications.filter(n => n.type === 'BROADCAST_ENDED').length;
-      
+
       // Get recent activity (last 30 days)
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      
+
       const recentActivity = broadcastNotifications.filter(n =>
         new Date(n.timestamp) >= thirtyDaysAgo
       ).length;
-      
+
       setStats({
         totalBroadcasts,
         scheduledCount,
@@ -138,6 +140,40 @@ export const BroadcastHistoryProvider = ({ children }) => {
     }
   };
 
+  // Fetch detailed analytics for all broadcasts
+  const fetchDetailedBroadcastAnalytics = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await analyticsService.getAllBroadcastAnalytics();
+      setDetailedBroadcasts(response.data);
+    } catch (err) {
+      console.error('Error fetching detailed broadcast analytics:', err);
+      setError('Failed to fetch detailed broadcast analytics');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch analytics for a specific broadcast
+  const fetchBroadcastAnalytics = async (broadcastId) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await analyticsService.getBroadcastAnalytics(broadcastId);
+      setSelectedBroadcastAnalytics(response.data);
+      return response.data;
+    } catch (err) {
+      console.error('Error fetching broadcast analytics:', err);
+      setError('Failed to fetch broadcast analytics');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (isAuthenticated) {
       fetchBroadcastHistory();
@@ -147,6 +183,8 @@ export const BroadcastHistoryProvider = ({ children }) => {
 
   const value = {
     broadcastHistory,
+    detailedBroadcasts,
+    selectedBroadcastAnalytics,
     stats,
     loading,
     error,
@@ -154,6 +192,8 @@ export const BroadcastHistoryProvider = ({ children }) => {
     fetchRecentBroadcastHistory,
     fetchBroadcastHistoryByType,
     fetchBroadcastStats,
+    fetchDetailedBroadcastAnalytics,
+    fetchBroadcastAnalytics,
   };
 
   return (

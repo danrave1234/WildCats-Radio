@@ -10,20 +10,22 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "chat_messages")
+@Table(name = "chat_messages", indexes = {
+    @Index(name = "idx_chat_broadcast_id", columnList = "broadcast_id"),
+    @Index(name = "idx_chat_created_at", columnList = "created_at"),
+    @Index(name = "idx_chat_user_id", columnList = "user_id")
+})
 public class ChatMessageEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @Column(name = "broadcast_id", insertable = false, updatable = false)
-    private Long broadcastId;
 
     @ManyToOne
     @JoinColumn(name = "broadcast_id", nullable = false)
@@ -44,19 +46,9 @@ public class ChatMessageEntity {
         this.createdAt = LocalDateTime.now();
     }
 
-    // Constructor with fields
-    public ChatMessageEntity(Long broadcastId, UserEntity sender, String content) {
-        this.broadcastId = broadcastId;
-        this.sender = sender;
-        this.content = content;
-        this.createdAt = LocalDateTime.now();
-        // Note: broadcast field must be set separately when using this constructor
-    }
-
     // Constructor with BroadcastEntity
     public ChatMessageEntity(BroadcastEntity broadcast, UserEntity sender, String content) {
         this.broadcast = broadcast;
-        this.broadcastId = broadcast != null ? broadcast.getId() : null;
         this.sender = sender;
         this.content = content;
         this.createdAt = LocalDateTime.now();
@@ -71,12 +63,9 @@ public class ChatMessageEntity {
         this.id = id;
     }
 
+    // Helper method to get broadcast ID through relationship
     public Long getBroadcastId() {
-        return broadcastId;
-    }
-
-    public void setBroadcastId(Long broadcastId) {
-        this.broadcastId = broadcastId;
+        return broadcast != null ? broadcast.getId() : null;
     }
 
     public UserEntity getSender() {
@@ -109,6 +98,5 @@ public class ChatMessageEntity {
 
     public void setBroadcast(BroadcastEntity broadcast) {
         this.broadcast = broadcast;
-        this.broadcastId = broadcast != null ? broadcast.getId() : null;
     }
 }

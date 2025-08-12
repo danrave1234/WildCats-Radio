@@ -1,7 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useBroadcastHistory } from '../context/BroadcastHistoryContext';
+import { chatService, analyticsService, broadcastService } from '../services/api/index.js';
 import { useAuth } from '../context/AuthContext';
 import { formatDistanceToNow, format } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
+import { parseISO } from 'date-fns';
 import { 
   RadioIcon, 
   MagnifyingGlassIcon, 
@@ -13,7 +16,17 @@ import {
   SpeakerWaveIcon,
   ChartBarIcon,
   ClockIcon,
-  ShieldExclamationIcon
+  ShieldExclamationIcon,
+  EyeIcon,
+  ChatBubbleLeftRightIcon,
+  MusicalNoteIcon,
+  PlayIcon,
+  StopIcon,
+  UserIcon,
+  Squares2X2Icon,
+  ListBulletIcon,
+  XMarkIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
 
 const broadcastTypeIcons = {
@@ -34,37 +47,72 @@ const broadcastTypeColors = {
   default: 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/30'
 };
 
+// Helper to parse backend timestamp as UTC
+const parseBackendTimestamp = (timestamp) => {
+  if (!timestamp) return null;
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
+    return parseISO(timestamp);
+  }
+  return parseISO(timestamp + 'Z');
+};
+
 export default function BroadcastHistory() {
   const { currentUser } = useAuth();
   const { 
     broadcastHistory, 
+    detailedBroadcasts,
+    selectedBroadcastAnalytics,
     stats,
     loading,
     error,
     fetchBroadcastHistory,
     fetchRecentBroadcastHistory,
-    fetchBroadcastHistoryByType
+    fetchBroadcastHistoryByType,
+    fetchDetailedBroadcastAnalytics,
+    fetchBroadcastAnalytics
   } = useBroadcastHistory();
-  
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const [timeFilter, setTimeFilter] = useState('all');
+  const [viewMode, setViewMode] = useState('notifications'); // 'notifications' | 'analytics' | 'broadcasts'
+  const [selectedBroadcastId, setSelectedBroadcastId] = useState(null);
+  const [downloadingId, setDownloadingId] = useState(null);
+  const [broadcastHistoryList, setBroadcastHistoryList] = useState([]); // ended broadcasts from Broadcast entity
+  const [broadcastsLoading, setBroadcastsLoading] = useState(false);
 
-  // Security check: Only allow DJs and Admins to access this feature
-  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <ShieldExclamationIcon className="h-16 w-16 mx-auto text-red-500 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Access Restricted</h3>
-          <p className="text-gray-600 dark:text-gray-400">
-            This feature is only available to DJs and Administrators.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const DAYS = 24 * 60 * 60 * 1000;
+  const isExpiredByDate = (dateObj) => {
+    if (!dateObj || isNaN(dateObj.getTime())) return false;
+    return (Date.now() - dateObj.getTime()) > (7 * DAYS);
+  };
+
+  // Load analytics data when switching to analytics view
+  useEffect(() => {
+    if (viewMode === 'analytics') {
+      fetchDetailedBroadcastAnalytics();
+    }
+  }, [viewMode, fetchDetailedBroadcastAnalytics]);
+
+  // Load broadcasts history when switching to broadcasts view
+  useEffect(() => {
+    const loadBroadcasts = async () => {
+      try {
+        setBroadcastsLoading(true);
+        const days = timeFilter === 'today' ? 1 : timeFilter === 'week' ? 7 : timeFilter === 'month' ? 30 : 365;
+        const resp = await broadcastService.getHistory(days);
+        setBroadcastHistoryList(resp.data || []);
+      } catch (e) {
+        console.error('Failed to load broadcasts history', e);
+      } finally {
+        setBroadcastsLoading(false);
+      }
+    };
+    if (true) {
+      loadBroadcasts();
+    }
+  }, [timeFilter]);
 
   const filteredAndSortedHistory = useMemo(() => {
     let filtered = broadcastHistory;
@@ -94,6 +142,150 @@ export default function BroadcastHistory() {
 
     return filtered;
   }, [broadcastHistory, searchTerm, selectedFilter, sortBy]);
+
+  // Filter and sort analytics data
+  const filteredAndSortedAnalytics = useMemo(() => {
+    if (!detailedBroadcasts) return [];
+
+    let filtered = [...detailedBroadcasts];
+
+    // Apply search filter for analytics
+    if (searchTerm) {
+      filtered = filtered.filter(broadcast =>
+        broadcast.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        broadcast.createdBy?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    // Apply status filter for analytics
+    if (selectedFilter !== 'all') {
+      filtered = filtered.filter(broadcast => broadcast.status === selectedFilter);
+    }
+
+    // Apply sorting for analytics
+    filtered.sort((a, b) => {
+      if (sortBy === 'newest') {
+        return new Date(b.actualStart || b.scheduledStart) - new Date(a.actualStart || a.scheduledStart);
+      } else if (sortBy === 'oldest') {
+        return new Date(a.actualStart || a.scheduledStart) - new Date(b.actualStart || b.scheduledStart);
+      } else if (sortBy === 'duration') {
+        return (b.durationMinutes || 0) - (a.durationMinutes || 0);
+      } else if (sortBy === 'interactions') {
+        return (b.totalInteractions || 0) - (a.totalInteractions || 0);
+      }
+      return 0;
+    });
+
+    return filtered;
+  }, [detailedBroadcasts, searchTerm, selectedFilter, sortBy]);
+
+  // Filter and sort for broadcasts history (ended broadcasts)
+  const filteredAndSortedBroadcasts = useMemo(() => {
+    const list = [...broadcastHistoryList];
+    let filtered = list;
+    if (searchTerm) {
+      filtered = filtered.filter(b => (b.title || '').toLowerCase().includes(searchTerm.toLowerCase()));
+    }
+    if (selectedFilter !== 'all') {
+      filtered = filtered.filter(b => (b.status || '').toUpperCase() === selectedFilter);
+    }
+    filtered.sort((a, b) => {
+      const aTime = new Date(a.actualEnd || a.actualStart || a.scheduledStart).getTime();
+      const bTime = new Date(b.actualEnd || b.actualStart || b.scheduledStart).getTime();
+      if (sortBy === 'newest') return bTime - aTime;
+      if (sortBy === 'oldest') return aTime - bTime;
+      return 0;
+    });
+    return filtered;
+  }, [broadcastHistoryList, searchTerm, selectedFilter, sortBy]);
+
+  const handleDownloadChat = async (broadcastId) => {
+    try {
+      setDownloadingId(broadcastId);
+      // Use broadcast-centric export endpoint
+      const response = await broadcastService.exportChat(broadcastId);
+      const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `broadcast_${broadcastId}_messages.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      // If 404 or similar, likely cleaned up after 7 days
+      alert('Chat messages may no longer be available for download (kept for 7 days).');
+      console.error('Download chat error:', err);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  // Try to map a notification to a broadcast by title and time proximity, then download
+  const extractTitleFromMessage = (message = '') => {
+    try {
+      const parts = message.split(':');
+      if (parts.length >= 2) {
+        return parts.slice(1).join(':').trim();
+      }
+      return message.trim();
+    } catch {
+      return message?.trim() || '';
+    }
+  };
+
+  const handleDownloadFromNotification = async (notification) => {
+    const possibleTitle = extractTitleFromMessage(notification?.message || '');
+    try {
+      setDownloadingId(notification.id);
+      // Use lightweight broadcasts endpoint to avoid heavy analytics and lazy-loading issues
+      const resp = await broadcastService.getHistory(30);
+      const list = resp?.data || [];
+      const notifTime = parseBackendTimestamp(notification.timestamp)?.getTime?.() || 0;
+      const candidates = list.filter((b) => (b.title || '').toLowerCase() === possibleTitle.toLowerCase());
+      const best = (candidates.length ? candidates : list)
+        .map((b) => {
+          const t = new Date(b.actualStart || b.scheduledStart || b.createdAt || 0).getTime();
+          return { b, dt: Math.abs((t || 0) - notifTime) };
+        })
+        .sort((a, b) => a.dt - b.dt)[0]?.b;
+
+      if (!best?.id) throw new Error('Broadcast not found');
+
+      const response = await chatService.exportMessages(best.id);
+      const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const safeTitle = (best.title || 'messages').replace(/[\\/:*?"<>|]/g, '_').trim() || 'messages';
+      link.download = `${safeTitle}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Unable to download chat for this entry (may be unavailable after 7 days).');
+      console.error('Download from notification error:', err);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  // Security check: Only allow DJs and Admins to access this feature
+  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <ShieldExclamationIcon className="h-16 w-16 mx-auto text-red-500 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Access Restricted</h3>
+          <p className="text-gray-600 dark:text-gray-400">
+            This feature is only available to DJs and Administrators.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const getBroadcastIcon = (type) => {
     const IconComponent = broadcastTypeIcons[type] || broadcastTypeIcons.default;
@@ -170,16 +362,20 @@ export default function BroadcastHistory() {
       <div className="max-w-4xl mx-auto p-6">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center space-x-3 mb-6">
-            <div className="p-2 bg-maroon-100 dark:bg-maroon-900/30 rounded-lg">
-              <RadioIcon className="h-8 w-8 text-maroon-600 dark:text-maroon-400" />
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-maroon-100 dark:bg-maroon-900/30 rounded-lg">
+                <RadioIcon className="h-8 w-8 text-maroon-600 dark:text-maroon-400" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Broadcast History</h1>
+                <p className="text-gray-600 dark:text-gray-400">
+                  {viewMode === 'notifications' ? 'Track all broadcast events and activities' : 'View detailed broadcast analytics and metrics'}
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Broadcast History</h1>
-              <p className="text-gray-600 dark:text-gray-400">
-                Track all broadcast events and activities
-              </p>
-            </div>
+
+            {/* Broadcast History - single view (no tabs) */}
           </div>
 
           {/* Stats Cards */}
@@ -194,7 +390,7 @@ export default function BroadcastHistory() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center">
                   <CalendarIcon className="h-8 w-8 text-blue-600 dark:text-blue-400" />
@@ -204,7 +400,7 @@ export default function BroadcastHistory() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center">
                   <MicrophoneIcon className="h-8 w-8 text-green-600 dark:text-green-400" />
@@ -214,7 +410,7 @@ export default function BroadcastHistory() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center">
                   <SpeakerWaveIcon className="h-8 w-8 text-red-600 dark:text-red-400" />
@@ -224,7 +420,7 @@ export default function BroadcastHistory() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center">
                   <ClockIcon className="h-8 w-8 text-purple-600 dark:text-purple-400" />
@@ -244,39 +440,58 @@ export default function BroadcastHistory() {
               <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search broadcast history..."
+                placeholder={viewMode === 'notifications' ? "Search broadcast history..." : "Search broadcasts by title or DJ..."}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               />
             </div>
 
-            {/* Time Filter */}
-            <select
-              value={timeFilter}
-              onChange={(e) => handleTimeFilterChange(e.target.value)}
-              className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-maroon-500"
-            >
-              <option value="all">All Time</option>
-              <option value="today">Today</option>
-              <option value="week">This Week</option>
-              <option value="month">This Month</option>
-            </select>
+            {/* Time Filter - Notifications and Broadcasts */}
+            {true && (
+              <select
+                value={timeFilter}
+                onChange={(e) => handleTimeFilterChange(e.target.value)}
+                className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-maroon-500"
+              >
+                <option value="all">All Time</option>
+                <option value="today">Today</option>
+                <option value="week">This Week</option>
+                <option value="month">This Month</option>
+              </select>
+            )}
 
-            {/* Type Filter */}
+            {/* Filter */}
             <div className="flex items-center space-x-2">
               <FunnelIcon className="h-5 w-5 text-gray-400" />
               <select
                 value={selectedFilter}
-                onChange={(e) => handleTypeFilter(e.target.value)}
+                onChange={(e) => {
+                  setSelectedFilter(e.target.value);
+                  if (viewMode === 'notifications') {
+                    handleTypeFilter(e.target.value);
+                  }
+                }}
                 className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-maroon-500"
               >
-                <option value="all">All Types</option>
-                <option value="BROADCAST_SCHEDULED">Scheduled</option>
-                <option value="BROADCAST_STARTING_SOON">Starting Soon</option>
-                <option value="BROADCAST_STARTED">Started</option>
-                <option value="BROADCAST_ENDED">Ended</option>
-                <option value="NEW_BROADCAST_POSTED">New Posted</option>
+                {viewMode === 'notifications' ? (
+                  <>
+                    <option value="all">All Types</option>
+                    <option value="BROADCAST_SCHEDULED">Scheduled</option>
+                    <option value="BROADCAST_STARTING_SOON">Starting Soon</option>
+                    <option value="BROADCAST_STARTED">Started</option>
+                    <option value="BROADCAST_ENDED">Ended</option>
+                    <option value="NEW_BROADCAST_POSTED">New Posted</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="all">All Status</option>
+                    <option value="SCHEDULED">Scheduled</option>
+                    <option value="LIVE">Live</option>
+                    <option value="ENDED">Ended</option>
+                    <option value="TESTING">Testing</option>
+                  </>
+                )}
               </select>
             </div>
 
@@ -288,67 +503,82 @@ export default function BroadcastHistory() {
             >
               <option value="newest">Newest First</option>
               <option value="oldest">Oldest First</option>
+              {viewMode === 'analytics' && (
+                <>
+                  <option value="duration">By Duration</option>
+                  <option value="interactions">By Interactions</option>
+                </>
+              )}
             </select>
+
+            {/* Refresh button for analytics */}
+            {viewMode === 'analytics' && (
+              <button
+                onClick={fetchDetailedBroadcastAnalytics}
+                disabled={loading}
+                className="flex items-center px-3 py-2 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 transition-colors disabled:opacity-50"
+              >
+                <ArrowPathIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Broadcast History List */}
-        <div className="space-y-3">
-          {filteredAndSortedHistory.length === 0 ? (
-            <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-              <RadioIcon className="h-16 w-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                {searchTerm || selectedFilter !== 'all' ? 'No matching broadcasts' : 'No broadcast history'}
-              </h3>
-              <p className="text-gray-600 dark:text-gray-400">
-                {searchTerm || selectedFilter !== 'all' 
-                  ? 'Try adjusting your search or filter criteria.' 
-                  : 'Broadcast events will appear here when they occur.'}
-              </p>
-            </div>
-          ) : (
-            filteredAndSortedHistory.map((broadcast) => {
-              const IconComponent = getBroadcastIcon(broadcast.type);
-              
-              return (
-                <div
-                  key={broadcast.id}
-                  className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 transition-all duration-200 hover:shadow-md"
-                >
-                  <div className="p-6">
-                    <div className="flex items-start space-x-4">
-                      {/* Icon */}
-                      <div className={`flex-shrink-0 p-2 rounded-lg ${getBroadcastColor(broadcast.type)}`}>
-                        <IconComponent className="h-6 w-6" />
-                      </div>
-
-                      {/* Content */}
-                      <div className="flex-1">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-2 mb-1">
-                              <span className="text-sm font-medium text-gray-900 dark:text-white">
-                                {formatBroadcastType(broadcast.type)}
+        {
+          // Broadcasts history view (from Broadcast entity)
+          <div className="space-y-3">
+            {broadcastsLoading ? (
+              <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-maroon-600 mx-auto mb-4"></div>
+                <p className="text-gray-600 dark:text-gray-400">Loading broadcasts…</p>
+              </div>
+            ) : filteredAndSortedBroadcasts.length === 0 ? (
+              <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                <RadioIcon className="h-16 w-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No broadcasts</h3>
+                <p className="text-gray-600 dark:text-gray-400">Try adjusting your search or time filter.</p>
+              </div>
+            ) : (
+              filteredAndSortedBroadcasts.map((b) => {
+                const startForExpiry = parseBackendTimestamp(b.actualStart || b.scheduledStart);
+                const expired = isExpiredByDate(startForExpiry);
+                return (
+                  <div key={b.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                    <div className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-base font-semibold text-gray-900 dark:text-white">{b.title || 'Untitled Broadcast'}</h3>
+                          <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                            <span className="mr-2">Status: {b.status}</span>
+                            {b.actualEnd || b.actualStart || b.scheduledStart ? (
+                              <span>
+                                • {formatInTimeZone(parseBackendTimestamp(b.actualEnd || b.actualStart || b.scheduledStart), 'Asia/Manila', 'MMM d, yyyy • h:mm a')}
                               </span>
-                            </div>
-                            <p className="text-gray-900 dark:text-white font-medium mb-1">
-                              {broadcast.message}
-                            </p>
-                            <div className="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
-                              <span>{format(new Date(broadcast.timestamp), 'MMM d, yyyy • h:mm a')}</span>
-                              <span>•</span>
-                              <span>{formatDistanceToNow(new Date(broadcast.timestamp), { addSuffix: true })}</span>
-                            </div>
+                            ) : null}
                           </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {expired ? (
+                            <span className="px-3 py-1.5 text-sm bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-md" title="Chat download expired after 7 days">Expired</span>
+                          ) : (
+                            <button
+                              onClick={() => handleDownloadChat(b.id)}
+                              disabled={downloadingId === b.id}
+                              className="px-3 py-1.5 text-sm bg-maroon-600 text-white rounded-md hover:bg-maroon-700 disabled:opacity-50"
+                              title="Download chat messages as Excel (available for 7 days)"
+                            >
+                              {downloadingId === b.id ? 'Downloading...' : 'Download Chat'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              );
-            })
-          )}
-        </div>
+                );
+              })
+            )}
+          </div>
+        }
       </div>
     </div>
   );

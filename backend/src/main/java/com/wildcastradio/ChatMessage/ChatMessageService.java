@@ -1,11 +1,25 @@
 package com.wildcastradio.ChatMessage;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.Broadcast.BroadcastRepository;
@@ -15,12 +29,14 @@ import com.wildcastradio.User.UserEntity;
 @Service
 public class ChatMessageService {
 
+    private static final Logger logger = LoggerFactory.getLogger(ChatMessageService.class);
+
     @Autowired
     private ChatMessageRepository chatMessageRepository;
 
     @Autowired
     private BroadcastRepository broadcastRepository;
-    
+
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
@@ -31,7 +47,7 @@ public class ChatMessageService {
      * @return List of chat message DTOs
      */
     public List<ChatMessageDTO> getMessagesForBroadcast(Long broadcastId) {
-        List<ChatMessageEntity> messages = chatMessageRepository.findByBroadcastIdOrderByCreatedAtAsc(broadcastId);
+        List<ChatMessageEntity> messages = chatMessageRepository.findByBroadcast_IdOrderByCreatedAtAsc(broadcastId);
         return messages.stream()
                 .map(ChatMessageDTO::fromEntity)
                 .collect(Collectors.toList());
@@ -59,16 +75,20 @@ public class ChatMessageService {
         // Create the message with the broadcast entity
         ChatMessageEntity message = new ChatMessageEntity(broadcast, sender, content);
         ChatMessageEntity savedMessage = chatMessageRepository.save(message);
-        
+
         // Create DTO for the message
         ChatMessageDTO messageDTO = ChatMessageDTO.fromEntity(savedMessage);
-        
+
         // Notify all clients about the new chat message
+        System.out.println("Broadcasting chat message to /topic/broadcast/" + broadcastId + "/chat");
+        System.out.println("Message content: " + messageDTO.getContent());
+        System.out.println("Sender: " + (messageDTO.getSender() != null ? messageDTO.getSender().getEmail() : "null"));
+        
         messagingTemplate.convertAndSend(
                 "/topic/broadcast/" + broadcastId + "/chat",
                 messageDTO
         );
-        
+
         return savedMessage;
     }
 
@@ -80,11 +100,153 @@ public class ChatMessageService {
     public double getAverageMessagesPerBroadcast() {
         long totalMessages = getTotalMessageCount();
         long totalBroadcasts = broadcastRepository.count();
-        
+
         if (totalBroadcasts == 0) {
             return 0.0;
         }
-        
+
         return (double) totalMessages / totalBroadcasts;
+    }
+
+    /**
+     * Clean up messages older than 7 days
+     * This method is called by a scheduled task to maintain database cleanliness
+     * 
+     * @return Number of messages deleted
+     */
+    @Transactional
+    public int cleanupOldMessages() {
+        LocalDateTime cutoffDate = LocalDateTime.now().minusDays(7);
+
+        // Count messages to be deleted for logging
+        long messagesToDelete = chatMessageRepository.countByCreatedAtBefore(cutoffDate);
+
+        if (messagesToDelete > 0) {
+            logger.info("Starting cleanup of {} messages older than {}", messagesToDelete, cutoffDate);
+
+            // Delete old messages
+            int deletedCount = chatMessageRepository.deleteByCreatedAtBefore(cutoffDate);
+
+            logger.info("Successfully deleted {} old chat messages", deletedCount);
+            return deletedCount;
+        } else {
+            logger.debug("No old messages found for cleanup");
+            return 0;
+        }
+    }
+
+    /**
+     * Get messages for a specific broadcast that can be exported
+     * 
+     * @param broadcastId The ID of the broadcast
+     * @return List of chat message entities for export
+     */
+    public List<ChatMessageEntity> getMessagesForExport(Long broadcastId) {
+        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
+            .orElseThrow(() -> new IllegalArgumentException("Broadcast not found with ID: " + broadcastId));
+
+        return chatMessageRepository.findByBroadcast_IdOrderByCreatedAtAsc(broadcastId);
+    }
+
+    /**
+     * Get count of messages that would be deleted in cleanup
+     * 
+     * @return Number of messages older than 7 days
+     */
+    public long getOldMessagesCount() {
+        LocalDateTime cutoffDate = LocalDateTime.now().minusDays(7);
+        return chatMessageRepository.countByCreatedAtBefore(cutoffDate);
+    }
+
+    /**
+     * Export messages for a specific broadcast to Excel format
+     * 
+     * @param broadcastId The ID of the broadcast
+     * @return Byte array containing the Excel file data
+     * @throws IOException if there's an error creating the Excel file
+     */
+    public byte[] exportMessagesToExcel(Long broadcastId) throws IOException {
+        // Validate broadcast exists
+        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
+            .orElseThrow(() -> new IllegalArgumentException("Broadcast not found with ID: " + broadcastId));
+
+        // Get messages for the broadcast
+        List<ChatMessageEntity> messages = chatMessageRepository.findByBroadcast_IdOrderByCreatedAtAsc(broadcastId);
+
+        // Create workbook and sheet
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Chat Messages");
+
+        // Create header style
+        CellStyle headerStyle = workbook.createCellStyle();
+        Font headerFont = workbook.createFont();
+        headerFont.setBold(true);
+        headerStyle.setFont(headerFont);
+
+        // Create header row
+        Row headerRow = sheet.createRow(0);
+        String[] headers = {"Sender Name", "Sender Email", "Message Content", "Timestamp"};
+
+        for (int i = 0; i < headers.length; i++) {
+            Cell cell = headerRow.createCell(i);
+            cell.setCellValue(headers[i]);
+            cell.setCellStyle(headerStyle);
+        }
+
+        // Date formatter for timestamps
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+        // Add data rows
+        int rowNum = 1;
+        for (ChatMessageEntity message : messages) {
+            Row row = sheet.createRow(rowNum++);
+
+            row.createCell(0).setCellValue(message.getSender().getDisplayNameOrFullName());
+            row.createCell(1).setCellValue(message.getSender().getEmail());
+            row.createCell(2).setCellValue(message.getContent());
+            row.createCell(3).setCellValue(message.getCreatedAt().format(formatter));
+        }
+
+        // Auto-size columns
+        for (int i = 0; i < headers.length; i++) {
+            sheet.autoSizeColumn(i);
+        }
+
+        // Add broadcast information sheet
+        Sheet infoSheet = workbook.createSheet("Broadcast Info");
+        Row infoRow1 = infoSheet.createRow(0);
+        infoRow1.createCell(0).setCellValue("Broadcast Title:");
+        infoRow1.createCell(1).setCellValue(broadcast.getTitle());
+
+        Row infoRow2 = infoSheet.createRow(1);
+        infoRow2.createCell(0).setCellValue("Description:");
+        infoRow2.createCell(1).setCellValue(broadcast.getDescription() != null ? broadcast.getDescription() : "N/A");
+
+        Row infoRow3 = infoSheet.createRow(2);
+        infoRow3.createCell(0).setCellValue("Created By:");
+        infoRow3.createCell(1).setCellValue(broadcast.getCreatedBy().getDisplayNameOrFullName());
+
+        Row infoRow4 = infoSheet.createRow(3);
+        infoRow4.createCell(0).setCellValue("Total Messages:");
+        infoRow4.createCell(1).setCellValue(messages.size());
+
+        Row infoRow5 = infoSheet.createRow(4);
+        infoRow5.createCell(0).setCellValue("Export Date:");
+        infoRow5.createCell(1).setCellValue(LocalDateTime.now().format(formatter));
+
+        // Auto-size columns in info sheet
+        infoSheet.autoSizeColumn(0);
+        infoSheet.autoSizeColumn(1);
+
+        // Write to byte array
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        try {
+            workbook.write(outputStream);
+            logger.info("Successfully exported {} messages for broadcast {} to Excel", messages.size(), broadcastId);
+            return outputStream.toByteArray();
+        } finally {
+            workbook.close();
+            outputStream.close();
+        }
     }
 }

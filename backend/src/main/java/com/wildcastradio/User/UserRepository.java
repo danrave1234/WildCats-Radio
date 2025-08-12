@@ -11,7 +11,11 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
     Optional<UserEntity> findByEmail(String email);
     boolean existsByEmail(String email);
     List<UserEntity> findByRole(UserEntity.UserRole role);
-    
+
+    // Case-insensitive email lookup methods
+    Optional<UserEntity> findByEmailIgnoreCase(String email);
+    boolean existsByEmailIgnoreCase(String email);
+
     // Analytics count methods
     long countByRole(UserEntity.UserRole role);
-} 
+}

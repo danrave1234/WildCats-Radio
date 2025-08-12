@@ -4,15 +4,20 @@
     <admin>admin@wildcatsradio.com</admin>
     <hostname>icecast.software</hostname>
 
+    <!-- Performance limits optimized for your setup -->
     <limits>
-        <clients>50</clients>
+        <!-- Increased from 50 to handle more concurrent listeners -->
+        <clients>100</clients>
         <sources>5</sources>
+        <!-- Optimized queue size for smoother streaming -->
         <queue-size>65536</queue-size>
         <client-timeout>30</client-timeout>
         <header-timeout>15</header-timeout>
         <source-timeout>10</source-timeout>
-        <burst-on-connect>0</burst-on-connect>
-        <burst-size>8192</burst-size>
+        <!-- Enable burst on connect for faster client connections -->
+        <burst-on-connect>1</burst-on-connect>
+        <!-- Optimized burst size for low-latency streaming -->
+        <burst-size>4096</burst-size>
     </limits>
 
     <paths>
@@ -37,7 +42,6 @@
         <bind-address>0.0.0.0</bind-address>
     </listen-socket>
 
-
     <http-headers>
         <header name="Access-Control-Allow-Origin" value="*"/>
         <header name="Access-Control-Allow-Methods" value="GET, POST, OPTIONS"/>
@@ -47,15 +51,42 @@
         <header name="Pragma" value="no-cache"/>
     </http-headers>
 
+    <!-- OGG stream mount point -->
     <mount>
         <mount-name>/live.ogg</mount-name>
         <username>source</username>
         <password>hackme</password>
-        <max-listeners>50</max-listeners>
+        <!-- Increased listener limit for this specific mount -->
+        <max-listeners>80</max-listeners>
+        <!-- Low-latency burst size -->
+        <burst-size>4096</burst-size>
+        <!-- Optimized timeouts for live streaming -->
         <respawn-timeout>5</respawn-timeout>
         <fallback-mount>/silence.ogg</fallback-mount>
         <fallback-override>1</fallback-override>
-        <stream-name>WildCats Radio Live - Philippines</stream-name>
+        <stream-name>WildCats Radio Live - Philippines (OGG)</stream-name>
+        <stream-description>Live audio broadcast from WildCats Radio</stream-description>
+        <stream-url>https://wildcat-radio.vercel.app</stream-url>
+        <genre>Various</genre>
+        <public>1</public>
+        <no-yp>1</no-yp>
+        <charset>UTF-8</charset>
+    </mount>
+
+    <!-- MP3 stream mount point -->
+    <mount>
+        <mount-name>/live.mp3</mount-name>
+        <username>source</username>
+        <password>hackme</password>
+        <!-- Increased listener limit for this specific mount -->
+        <max-listeners>80</max-listeners>
+        <!-- Low-latency burst size -->
+        <burst-size>4096</burst-size>
+        <!-- Optimized timeouts for live streaming -->
+        <respawn-timeout>5</respawn-timeout>
+        <fallback-mount>/silence.ogg</fallback-mount>
+        <fallback-override>1</fallback-override>
+        <stream-name>WildCats Radio Live - Philippines (MP3)</stream-name>
         <stream-description>Live audio broadcast from WildCats Radio</stream-description>
         <stream-url>https://wildcat-radio.vercel.app</stream-url>
         <genre>Various</genre>

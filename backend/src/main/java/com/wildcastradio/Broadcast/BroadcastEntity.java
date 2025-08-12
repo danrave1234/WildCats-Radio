@@ -17,6 +17,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
@@ -24,7 +25,11 @@ import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "broadcasts")
+@Table(name = "broadcasts", indexes = {
+    @Index(name = "idx_broadcast_status", columnList = "status"),
+    @Index(name = "idx_broadcast_created_by", columnList = "created_by_id"),
+    @Index(name = "idx_broadcast_schedule", columnList = "schedule_id")
+})
 public class BroadcastEntity {
 
     @Id
@@ -50,10 +55,22 @@ public class BroadcastEntity {
     @Column
     private String streamUrl;
 
+
+    // Analytics fields that could be cached
+    @Column
+    private Integer peakListeners = 0; // Historical peak
+
+    @Column
+    private Integer totalInteractions = 0; // Cached count
+
     // Relationships
     @ManyToOne
     @JoinColumn(name = "created_by_id", nullable = false)
     private UserEntity createdBy;
+
+    @ManyToOne
+    @JoinColumn(name = "started_by_id")
+    private UserEntity startedBy;
 
     @OneToOne
     @JoinColumn(name = "schedule_id", nullable = false)
@@ -69,15 +86,16 @@ public class BroadcastEntity {
     public enum BroadcastStatus {
         SCHEDULED, LIVE, ENDED, TESTING
     }
-    
+
     // Default constructor
     public BroadcastEntity() {
     }
-    
+
     // All args constructor
     public BroadcastEntity(Long id, String title, String description, LocalDateTime actualStart,
-                          LocalDateTime actualEnd, BroadcastStatus status, String streamUrl, 
-                          UserEntity createdBy, ScheduleEntity schedule,
+                          LocalDateTime actualEnd, BroadcastStatus status, String streamUrl,
+                          Integer peakListeners, Integer totalInteractions,
+                          UserEntity createdBy, UserEntity startedBy, ScheduleEntity schedule,
                           List<ChatMessageEntity> chatMessages, List<SongRequestEntity> songRequests) {
         this.id = id;
         this.title = title;
@@ -86,12 +104,15 @@ public class BroadcastEntity {
         this.actualEnd = actualEnd;
         this.status = status;
         this.streamUrl = streamUrl;
+        this.peakListeners = peakListeners != null ? peakListeners : 0;
+        this.totalInteractions = totalInteractions != null ? totalInteractions : 0;
         this.createdBy = createdBy;
+        this.startedBy = startedBy;
         this.schedule = schedule;
         this.chatMessages = chatMessages;
         this.songRequests = songRequests;
     }
-    
+
     // Getters and Setters
     public Long getId() {
         return id;
@@ -138,7 +159,6 @@ public class BroadcastEntity {
     }
 
     public void setStatus(BroadcastStatus status) {
-        BroadcastStatus oldStatus = this.status;
         this.status = status;
     }
 
@@ -156,6 +176,14 @@ public class BroadcastEntity {
 
     public void setCreatedBy(UserEntity createdBy) {
         this.createdBy = createdBy;
+    }
+
+    public UserEntity getStartedBy() {
+        return startedBy;
+    }
+
+    public void setStartedBy(UserEntity startedBy) {
+        this.startedBy = startedBy;
     }
 
     public ScheduleEntity getSchedule() {
@@ -190,4 +218,21 @@ public class BroadcastEntity {
     public LocalDateTime getScheduledEnd() {
         return schedule != null ? schedule.getScheduledEnd() : null;
     }
-} 
+
+
+    public Integer getPeakListeners() {
+        return peakListeners;
+    }
+
+    public void setPeakListeners(Integer peakListeners) {
+        this.peakListeners = peakListeners;
+    }
+
+    public Integer getTotalInteractions() {
+        return totalInteractions;
+    }
+
+    public void setTotalInteractions(Integer totalInteractions) {
+        this.totalInteractions = totalInteractions;
+    }
+}

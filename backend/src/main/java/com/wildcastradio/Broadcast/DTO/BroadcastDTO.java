@@ -17,6 +17,11 @@ public class BroadcastDTO {
     private String status;
     private String streamUrl;
     private UserDTO createdBy;
+    private UserDTO startedBy;
+    
+    // Analytics fields
+    private Integer peakListeners;
+    private Integer totalInteractions;
     
     // For displaying formatted dates in frontend
     private String formattedStart;
@@ -28,7 +33,8 @@ public class BroadcastDTO {
     
     public BroadcastDTO(Long id, String title, String description, LocalDateTime scheduledStart,
                        LocalDateTime scheduledEnd, LocalDateTime actualStart, LocalDateTime actualEnd,
-                       String status, String streamUrl, UserDTO createdBy) {
+                       String status, String streamUrl, UserDTO createdBy, UserDTO startedBy,
+                       Integer peakListeners, Integer totalInteractions) {
         this.id = id;
         this.title = title;
         this.description = description;
@@ -39,6 +45,9 @@ public class BroadcastDTO {
         this.status = status;
         this.streamUrl = streamUrl;
         this.createdBy = createdBy;
+        this.startedBy = startedBy;
+        this.peakListeners = peakListeners;
+        this.totalInteractions = totalInteractions;
         
         // Format the dates for frontend display
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -60,6 +69,11 @@ public class BroadcastDTO {
         if (broadcast.getCreatedBy() != null) {
             userDTO = UserDTO.fromEntity(broadcast.getCreatedBy());
         }
+
+        UserDTO startedByDTO = null;
+        if (broadcast.getStartedBy() != null) {
+            startedByDTO = UserDTO.fromEntity(broadcast.getStartedBy());
+        }
         
         return new BroadcastDTO(
             broadcast.getId(),
@@ -71,7 +85,10 @@ public class BroadcastDTO {
             broadcast.getActualEnd(),
             broadcast.getStatus().toString(),
             broadcast.getStreamUrl(),
-            userDTO
+            userDTO,
+            startedByDTO,
+            broadcast.getPeakListeners(),
+            broadcast.getTotalInteractions()
         );
     }
     
@@ -155,6 +172,14 @@ public class BroadcastDTO {
     public void setCreatedBy(UserDTO createdBy) {
         this.createdBy = createdBy;
     }
+
+    public UserDTO getStartedBy() {
+        return startedBy;
+    }
+
+    public void setStartedBy(UserDTO startedBy) {
+        this.startedBy = startedBy;
+    }
     
     public String getFormattedStart() {
         return formattedStart;
@@ -170,5 +195,21 @@ public class BroadcastDTO {
     
     public void setFormattedEnd(String formattedEnd) {
         this.formattedEnd = formattedEnd;
+    }
+    
+    public Integer getPeakListeners() {
+        return peakListeners;
+    }
+    
+    public void setPeakListeners(Integer peakListeners) {
+        this.peakListeners = peakListeners;
+    }
+    
+    public Integer getTotalInteractions() {
+        return totalInteractions;
+    }
+    
+    public void setTotalInteractions(Integer totalInteractions) {
+        this.totalInteractions = totalInteractions;
     }
 } 

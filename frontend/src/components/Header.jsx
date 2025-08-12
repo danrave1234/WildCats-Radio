@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import { 
   Bell, 
   Menu, 
@@ -10,7 +11,9 @@ import {
   Settings,
   UserRound,
   AlertTriangle,
-  Sparkles
+  Sparkles,
+  UserPlus,
+  LogIn
 } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import { Button } from "./ui/button";
@@ -39,6 +42,7 @@ import { useStreaming } from "../context/StreamingContext";
 const Header = ({ onMobileMenuToggle }) => {
   const { currentUser, isAuthenticated, logout } = useAuth();
   const { isLive } = useStreaming();
+  const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState("");
   const [currentDate, setCurrentDate] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -82,18 +86,18 @@ const Header = ({ onMobileMenuToggle }) => {
   // Get user initials
   const getInitials = (user) => {
     if (!user) return "AA";
-    
+
     const firstName = user.firstName || user.firstname || "";
     const lastName = user.lastName || user.lastname || "";
     const username = user.username || "";
     const fullName = user.name || user.fullName || "";
     const email = user.email || "";
-    
+
     // Priority 1: firstName + lastName initials
     if (firstName && lastName) {
       return (firstName.charAt(0) + lastName.charAt(0)).toUpperCase();
     }
-    
+
     // Priority 2: Split fullName if it contains spaces
     if (fullName && fullName.includes(" ")) {
       const nameParts = fullName.trim().split(/\s+/);
@@ -101,29 +105,29 @@ const Header = ({ onMobileMenuToggle }) => {
         return (nameParts[0].charAt(0) + nameParts[nameParts.length - 1].charAt(0)).toUpperCase();
       }
     }
-    
+
     // Priority 3: firstName + first letter of lastName (if lastName is missing but firstName exists)
     if (firstName && (username || email)) {
       const secondChar = username ? username.charAt(0) : email.charAt(0);
       return (firstName.charAt(0) + secondChar).toUpperCase();
     }
-    
+
     // Priority 4: lastName + first letter of username/email (if firstName is missing)
     if (lastName && (username || email)) {
       const secondChar = username ? username.charAt(0) : email.charAt(0);
       return (lastName.charAt(0) + secondChar).toUpperCase();
     }
-    
+
     // Priority 5: Use username if it has multiple characters
     if (username && username.length >= 2) {
       return username.substring(0, 2).toUpperCase();
     }
-    
+
     // Priority 6: Use fullName if it has multiple characters
     if (fullName && fullName.length >= 2) {
       return fullName.substring(0, 2).toUpperCase();
     }
-    
+
     // Priority 7: Use email prefix
     if (email && email.includes("@")) {
       const emailPrefix = email.split("@")[0];
@@ -131,7 +135,7 @@ const Header = ({ onMobileMenuToggle }) => {
         return emailPrefix.substring(0, 2).toUpperCase();
       }
     }
-    
+
     // Fallback to single character repeated or AA
     if (firstName) {
       return (firstName.charAt(0) + firstName.charAt(0)).toUpperCase();
@@ -142,49 +146,49 @@ const Header = ({ onMobileMenuToggle }) => {
     if (username) {
       return (username.charAt(0) + username.charAt(0)).toUpperCase();
     }
-    
+
     return "AA";
   };
 
   // Format display name
   const getDisplayName = (user) => {
     if (!user) return "User";
-    
+
     const firstName = user.firstName || user.firstname || "";
     const lastName = user.lastName || user.lastname || "";
     const username = user.username || "";
     const fullName = user.name || user.fullName || "";
-    
+
     // Priority 1: firstName + lastName combination
     if (firstName && lastName) {
       return `${firstName} ${lastName}`;
     }
-    
+
     // Priority 2: Use fullName if it exists and contains spaces
     if (fullName && fullName.includes(" ")) {
       return fullName;
     }
-    
+
     // Priority 3: Use firstName only
     if (firstName) {
       return firstName;
     }
-    
+
     // Priority 4: Use lastName only
     if (lastName) {
       return lastName;
     }
-    
+
     // Priority 5: Use fullName (single word)
     if (fullName) {
       return fullName;
     }
-    
+
     // Priority 6: Use username
     if (username) {
       return username;
     }
-    
+
     // Fallback
     return "User";
   };
@@ -205,7 +209,7 @@ const Header = ({ onMobileMenuToggle }) => {
       {/* Premium gradient overlays - only for desktop */}
       <div className="absolute inset-0 sm:bg-gradient-to-r sm:from-blue-50/30 sm:via-transparent sm:to-purple-50/20 pointer-events-none"></div>
       <div className="absolute inset-0 sm:bg-gradient-to-b sm:from-white/40 sm:via-transparent sm:to-slate-100/30 pointer-events-none"></div>
-      
+
       {/* Floating orbs for premium effect - desktop only */}
       <motion.div 
         className="absolute -top-20 -left-20 w-40 h-40 bg-gradient-to-br from-wildcats-yellow/20 to-amber-300/10 rounded-full blur-3xl hidden sm:block"
@@ -221,7 +225,7 @@ const Header = ({ onMobileMenuToggle }) => {
           ease: "easeInOut"
         }}
       ></motion.div>
-      
+
       <motion.div 
         className="absolute -top-16 -right-16 w-32 h-32 bg-gradient-to-br from-wildcats-maroon/15 to-red-400/10 rounded-full blur-2xl hidden sm:block"
         animate={{ 
@@ -237,7 +241,7 @@ const Header = ({ onMobileMenuToggle }) => {
           delay: 2
         }}
       ></motion.div>
-      
+
               <div className="relative w-full z-10">
           <div className="flex items-center justify-between h-16">
           {/* Left Section - Mobile Menu Button + Desktop Time Display */}
@@ -329,11 +333,11 @@ const Header = ({ onMobileMenuToggle }) => {
                   }}
                 ></motion.div>
               </motion.div>
-              
+
               {/* Premium inner effects - desktop only */}
               <div className="absolute inset-0 sm:bg-gradient-to-r sm:from-white/10 sm:via-transparent sm:to-white/5 pointer-events-none"></div>
               <div className="absolute inset-0 sm:bg-gradient-to-b sm:from-red-700/20 sm:via-transparent sm:to-red-900/30 pointer-events-none"></div>
-              
+
               {/* Floating particles effect - desktop only */}
               {[...Array(3)].map((_, i) => (
                 <motion.div
@@ -357,7 +361,7 @@ const Header = ({ onMobileMenuToggle }) => {
                   }}
                 />
               ))}
-              
+
               {/* Notifications with enhanced styling */}
               <motion.div 
                 className="relative z-20"
@@ -469,7 +473,7 @@ const Header = ({ onMobileMenuToggle }) => {
                             <p className="text-xs text-slate-500">Manage your account</p>
                           </div>
                         </DropdownMenuItem>
-                        
+
                         <DropdownMenuItem 
                           className="flex items-center space-x-3 px-3 py-3 cursor-pointer transition-all duration-200 !rounded-none group
                                      hover:bg-slate-50 focus:bg-slate-50
@@ -508,6 +512,69 @@ const Header = ({ onMobileMenuToggle }) => {
                       </div>
                     </DropdownMenuContent>
                   </DropdownMenu>
+                </motion.div>
+              )}
+
+              {/* Login/Sign Up Buttons - only show if not authenticated */}
+              {!isAuthenticated && (
+                <motion.div 
+                  className="relative z-20 flex items-center space-x-3"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.2, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  {/* Login Button */}
+                  <motion.div
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                  >
+                    <Button
+                      onClick={() => navigate('/login')}
+                      variant="ghost"
+                      className={cn(
+                        "transition-all duration-300",
+                        // Desktop styling
+                        "sm:flex sm:items-center sm:space-x-2 sm:px-4 sm:py-2",
+                        "sm:bg-gradient-to-br sm:from-white/95 sm:via-white sm:to-slate-50/90 sm:backdrop-blur-xl sm:text-wildcats-maroon",
+                        "sm:hover:from-white sm:hover:via-white sm:hover:to-white sm:hover:shadow-xl sm:hover:shadow-black/10",
+                        "sm:border sm:border-white/40 sm:shadow-lg sm:shadow-black/5 sm:rounded-xl",
+                        // Mobile styling
+                        "flex items-center justify-center p-2 bg-white/10 border border-white/20 rounded-lg",
+                        "hover:bg-white/20 text-white sm:text-wildcats-maroon",
+                        "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+                      )}
+                    >
+                      <LogIn className="h-4 w-4" />
+                      <span className="hidden sm:inline text-sm font-medium">Login</span>
+                    </Button>
+                  </motion.div>
+
+                  {/* Sign Up Button */}
+                  <motion.div
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                  >
+                    <Button
+                      onClick={() => navigate('/register')}
+                      className={cn(
+                        "transition-all duration-300",
+                        // Desktop styling
+                        "sm:flex sm:items-center sm:space-x-2 sm:px-4 sm:py-2",
+                        "sm:bg-gradient-to-br sm:from-wildcats-yellow sm:via-yellow-400 sm:to-amber-400 sm:text-black",
+                        "sm:hover:from-yellow-300 sm:hover:via-yellow-400 sm:hover:to-amber-500 sm:hover:shadow-xl sm:hover:shadow-yellow-400/20",
+                        "sm:border sm:border-yellow-300/40 sm:shadow-lg sm:shadow-yellow-400/10 sm:rounded-xl",
+                        // Mobile styling
+                        "flex items-center justify-center p-2 bg-wildcats-yellow border border-yellow-300/40 rounded-lg",
+                        "hover:bg-yellow-300 text-black",
+                        "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+                      )}
+                    >
+                      <UserPlus className="h-4 w-4" />
+                      <span className="hidden sm:inline text-sm font-medium">Sign Up</span>
+                    </Button>
+                  </motion.div>
                 </motion.div>
               )}
             </div>

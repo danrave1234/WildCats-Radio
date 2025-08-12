@@ -12,10 +12,13 @@ import {
   PlusCircleIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline"
-import { broadcastService } from "../services/api" // Import the broadcast service
+import { broadcastService } from "../services/api/index.js" // Import the broadcast service
 import Toast from "../components/Toast" // Import Toast component
 import { DateSelector, TimeSelector } from "../components/DateTimeSelector" // Import our custom date/time selectors
 import { createLogger } from '../services/logger';
+import { format } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
+import { parseISO } from 'date-fns';
 
 const logger = createLogger('Schedule');
 
@@ -25,6 +28,15 @@ const getCookie = (name) => {
   const parts = value.split(`; ${name}=`);
   if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
   return null;
+};
+
+// Helper to parse backend timestamp as UTC
+const parseBackendTimestamp = (timestamp) => {
+  if (!timestamp) return null;
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
+    return parseISO(timestamp);
+  }
+  return parseISO(timestamp + 'Z');
 };
 
 export default function Schedule() {
@@ -189,24 +201,16 @@ export default function Schedule() {
         // Transform the data to match our expected format
         const broadcasts = response.data.map(broadcast => {
           // Parse the ISO datetime strings from backend - these are in UTC
-          const startDateTime = new Date(broadcast.scheduledStart)
-          const endDateTime = new Date(broadcast.scheduledEnd)
+          const startDateTime = parseBackendTimestamp(broadcast.scheduledStart)
+          const endDateTime = parseBackendTimestamp(broadcast.scheduledEnd)
 
           // For display purposes, extract the local time components
           // This preserves the intended time in the user's timezone
           const dateStr = broadcast.scheduledStart.split('T')[0]
           
           // Format times in local timezone for display
-          const startTime = startDateTime.toLocaleTimeString([], { 
-            hour: '2-digit', 
-            minute: '2-digit',
-            hour12: false 
-          })
-          const endTime = endDateTime.toLocaleTimeString([], { 
-            hour: '2-digit', 
-            minute: '2-digit',
-            hour12: false 
-          })
+          const startTime = startDateTime ? formatInTimeZone(startDateTime, 'Asia/Manila', 'HH:mm') : ''
+          const endTime = endDateTime ? formatInTimeZone(endDateTime, 'Asia/Manila', 'HH:mm') : ''
 
           return {
             id: broadcast.id,

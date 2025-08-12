@@ -88,7 +88,7 @@ export const config = {
   sockJsBaseUrl: currentEnvConfig.sockJsBaseUrl,
 
   // Icecast URL (external service, configured via environment variables)
-  icecastUrl: `https://${getEnvVar('VITE_ICECAST_URL', 'api.wildcat-radio.live:8000/live.ogg')}`,
+  icecastUrl: `https://${getEnvVar('VITE_ICECAST_URL', 'icecast.software/live.ogg')}`,
 
   // API Configuration
   apiTimeout: isLocalEnvironment ? 10000 : 30000, // 10s local, 30s deployed

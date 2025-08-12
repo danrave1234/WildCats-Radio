@@ -27,6 +27,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.wildcastradio.Broadcast.BroadcastService;
 import com.wildcastradio.User.UserService;
 import com.wildcastradio.config.JwtUtil;
 
@@ -51,6 +52,9 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private BroadcastService broadcastService;
 
     @Autowired
     public ListenerStatusHandler(IcecastService icecastService) {
@@ -269,14 +273,29 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
      */
     public void broadcastStatus() {
         try {
-            Map<String, Object> streamStatus = icecastService.getStreamStatus();
-            Integer listenerCount = icecastService.getCurrentListenerCount();
+            // Skip polling if no listeners are connected and no broadcasts are active
+            if (listenerSessions.isEmpty() && !icecastService.isAnyBroadcastActive()) {
+                logger.debug("Skipping status broadcast - no listeners connected and no active broadcasts");
+                return;
+            }
+
+            // Suppress warnings if no broadcasts are active to reduce log noise
+            boolean logWarnings = icecastService.isAnyBroadcastActive();
+            Map<String, Object> streamStatus = icecastService.getStreamStatus(logWarnings);
+            Integer listenerCount = icecastService.getCurrentListenerCount(logWarnings);
 
             Map<String, Object> message = new HashMap<>();
             message.put("type", "STREAM_STATUS");
             message.put("isLive", streamStatus.get("live"));
             message.put("listenerCount", listenerCount != null ? listenerCount : 0);
             message.put("timestamp", System.currentTimeMillis());
+
+            // Include current live broadcast id (if any) to let clients switch contexts immediately
+            try {
+                broadcastService.getCurrentLiveBroadcast().ifPresent(b -> {
+                    message.put("broadcastId", b.getId());
+                });
+            } catch (Exception ignored) { /* keep status resilient */ }
 
             String jsonMessage = objectMapper.writeValueAsString(message);
 
@@ -327,14 +346,23 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
                 return;
             }
 
-            Map<String, Object> streamStatus = icecastService.getStreamStatus();
-            Integer listenerCount = icecastService.getCurrentListenerCount();
+            // Suppress warnings if no broadcasts are active to reduce log noise
+            boolean logWarnings = icecastService.isAnyBroadcastActive();
+            Map<String, Object> streamStatus = icecastService.getStreamStatus(logWarnings);
+            Integer listenerCount = icecastService.getCurrentListenerCount(logWarnings);
 
             Map<String, Object> message = new HashMap<>();
             message.put("type", "STREAM_STATUS");
             message.put("isLive", streamStatus.get("live"));
             message.put("listenerCount", listenerCount != null ? listenerCount : 0);
             message.put("timestamp", System.currentTimeMillis());
+
+            // Include current live broadcast id (if any)
+            try {
+                broadcastService.getCurrentLiveBroadcast().ifPresent(b -> {
+                    message.put("broadcastId", b.getId());
+                });
+            } catch (Exception ignored) { }
 
             String jsonMessage = objectMapper.writeValueAsString(message);
 
