@@ -32,6 +32,13 @@ import jakarta.persistence.Table;
 })
 public class BroadcastEntity {
 
+    // Chat slow mode settings
+    @Column(name = "slow_mode_enabled")
+    private Boolean slowModeEnabled = false;
+
+    @Column(name = "slow_mode_seconds")
+    private Integer slowModeSeconds = 0;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -234,5 +241,21 @@ public class BroadcastEntity {
 
     public void setTotalInteractions(Integer totalInteractions) {
         this.totalInteractions = totalInteractions;
+    }
+
+    public Boolean getSlowModeEnabled() {
+        return slowModeEnabled != null ? slowModeEnabled : false;
+    }
+
+    public void setSlowModeEnabled(Boolean slowModeEnabled) {
+        this.slowModeEnabled = slowModeEnabled != null ? slowModeEnabled : false;
+    }
+
+    public Integer getSlowModeSeconds() {
+        return slowModeSeconds != null ? slowModeSeconds : 0;
+    }
+
+    public void setSlowModeSeconds(Integer slowModeSeconds) {
+        this.slowModeSeconds = slowModeSeconds != null ? slowModeSeconds : 0;
     }
 }

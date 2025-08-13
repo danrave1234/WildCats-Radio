@@ -245,4 +245,37 @@ public class BroadcastController {
             return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
+
+    @PutMapping("/{id}/slowmode")
+    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    public ResponseEntity<BroadcastDTO> updateSlowMode(
+            @PathVariable Long id,
+            @RequestBody SlowModeRequest request) {
+        if (request == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        BroadcastDTO dto = broadcastService.updateSlowMode(id, request.getEnabled(), request.getSeconds());
+        return ResponseEntity.ok(dto);
+    }
+
+    public static class SlowModeRequest {
+        private Boolean enabled;
+        private Integer seconds;
+
+        public Boolean getEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(Boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public Integer getSeconds() {
+            return seconds;
+        }
+
+        public void setSeconds(Integer seconds) {
+            this.seconds = seconds;
+        }
+    }
 }

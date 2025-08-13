@@ -14,7 +14,7 @@ import {
   ArrowRightOnRectangleIcon,
   ExclamationTriangleIcon,
 } from "@heroicons/react/24/solid";
-import { broadcastService, chatService, songRequestService, pollService, streamService } from "../services/api/index.js";
+import { broadcastService, chatService, songRequestService, pollService, streamService, authService } from "../services/api/index.js";
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from "../context/AuthContext";
 import { useStreaming } from "../context/StreamingContext";
@@ -22,6 +22,7 @@ import { useLocalBackend, config } from "../config";
 import { createLogger } from "../services/logger";
 import { globalWebSocketService } from '../services/globalWebSocketService';
 import SpotifyPlayer from '../components/SpotifyPlayer';
+import AdSense from '../components/ads/AdSense';
 
 const logger = createLogger('ListenerDashboard');
 
@@ -70,6 +71,12 @@ export default function ListenerDashboard() {
   // Chat state
   const [chatMessages, setChatMessages] = useState([]);
   const [chatMessage, setChatMessage] = useState('');
+
+  // Slow mode display state (synced from current broadcast)
+  const [slowModeEnabled, setSlowModeEnabled] = useState(false);
+  const [slowModeSeconds, setSlowModeSeconds] = useState(0);
+  // If a send was blocked by slow mode, we store the suggested wait time for a gentle notice
+  const [slowModeWaitSeconds, setSlowModeWaitSeconds] = useState(null);
 
   // Song request state
   const [isSongRequestMode, setIsSongRequestMode] = useState(false);
@@ -144,6 +151,21 @@ export default function ListenerDashboard() {
 
   // Add this with other state declarations
   const [broadcastSession, setBroadcastSession] = useState(0);
+
+  // Sync slow mode config from the current broadcast for display
+  useEffect(() => {
+    if (currentBroadcast) {
+      setSlowModeEnabled(!!currentBroadcast.slowModeEnabled);
+      setSlowModeSeconds(
+        typeof currentBroadcast.slowModeSeconds === 'number'
+          ? currentBroadcast.slowModeSeconds
+          : 0
+      );
+    } else {
+      setSlowModeEnabled(false);
+      setSlowModeSeconds(0);
+    }
+  }, [currentBroadcast?.id, currentBroadcast?.slowModeEnabled, currentBroadcast?.slowModeSeconds]);
 
   // Utility to perform a clean fresh-start when a new broadcast goes live
   const resetForNewBroadcast = (newBroadcastId) => {
@@ -479,7 +501,7 @@ export default function ListenerDashboard() {
               stateBroadcastId: currentBroadcastId,
               subscribedBroadcastId,
             });
-          } catch(_) {}
+          } catch(_) { /* no-op: debug logging only */ }
           // Set connection status to true on first message - this confirms WebSocket is working
           if (!wsConnected) {
             setWsConnected(true);
@@ -879,6 +901,9 @@ export default function ListenerDashboard() {
       });
       await chatService.sendMessage(broadcastIdToUse, messageData);
 
+      // Clear any previous slow-mode wait notice on successful send
+      setSlowModeWaitSeconds(null);
+
       // Refresh messages to reflect the sent message immediately
       const updatedMessages = await chatService.getMessages(broadcastIdToUse);
       setChatMessages(updatedMessages.data);
@@ -892,6 +917,14 @@ export default function ListenerDashboard() {
         if (apiStatus === 401) {
           alert('Your session expired. Please log in again.');
           handleLoginRedirect();
+        } else if (apiStatus === 429) {
+          const headers = error.response?.headers || {};
+          const retryAfter = headers['retry-after'] || headers['Retry-After'] || headers['Retry-after'];
+          const sec = parseInt(retryAfter, 10);
+          // Store suggested wait seconds for gentle inline notice (fallback to configured slow mode seconds)
+          const waitSec = Number.isFinite(sec) ? sec : (slowModeSeconds || null);
+          setSlowModeWaitSeconds(waitSec);
+          // No alert popup – inline text will inform the user
         } else {
           alert("Failed to send message. Please try again.");
         }
@@ -938,7 +971,7 @@ export default function ListenerDashboard() {
           resetForNewBroadcast(wsBroadcastId);
           fetchCurrentBroadcastInfo().catch(() => {});
         }
-      } catch (_) {}
+      } catch (_) { /* no-op: periodic check */ }
     }, 1000);
     return () => clearInterval(interval);
   }, [currentBroadcastId]);
@@ -1458,6 +1491,51 @@ export default function ListenerDashboard() {
     }
   };
 
+  // Moderation: prompt-based user ban for ADMIN/MODERATOR
+  const handleBanUserPrompt = async (targetUser) => {
+    try {
+      if (!currentUser || !targetUser || !targetUser.id) return;
+      const role = currentUser.role;
+      const canModerate = role === 'ADMIN' || role === 'MODERATOR';
+      if (!canModerate) return;
+      if (targetUser.id === currentUser.id) {
+        alert('You cannot ban yourself.');
+        return;
+      }
+      if (targetUser.role === 'ADMIN') {
+        alert('You cannot ban an ADMIN.');
+        return;
+      }
+
+      const unitInput = (window.prompt('Enter ban duration unit (DAYS, WEEKS, YEARS, PERMANENT):', 'DAYS') || '').toUpperCase().trim();
+      if (!unitInput) return;
+      if (!['DAYS', 'WEEKS', 'YEARS', 'PERMANENT'].includes(unitInput)) {
+        alert('Invalid unit. Use DAYS, WEEKS, YEARS, or PERMANENT.');
+        return;
+      }
+      let amount = null;
+      if (unitInput !== 'PERMANENT') {
+        const amtStr = window.prompt(`Enter amount for ${unitInput.toLowerCase()} (positive integer):`, '1');
+        if (amtStr == null) return; // cancelled
+        const parsed = parseInt(amtStr, 10);
+        if (!(parsed > 0)) {
+          alert('Amount must be a positive integer.');
+          return;
+        }
+        amount = parsed;
+      }
+      const reason = window.prompt('Enter reason for the ban (optional):', '') || null;
+
+      const payload = { unit: unitInput, amount, reason };
+      await authService.banUser(targetUser.id, payload);
+      alert(`User ${targetUser.firstname || ''} ${targetUser.lastname || ''} has been banned${unitInput === 'PERMANENT' ? ' permanently' : ` for ${amount} ${unitInput.toLowerCase()}`}.`);
+    } catch (err) {
+      console.error('Failed to ban user:', err);
+      const msg = err?.response?.status === 403 ? 'Forbidden: You do not have permission.' : 'Failed to ban user.';
+      alert(msg);
+    }
+  };
+
   // Safe chat message renderer with comprehensive error handling
   const renderSafeChatMessage = (msg) => {
     try {
@@ -1512,8 +1590,17 @@ export default function ListenerDashboard() {
             <div className={`h-8 w-8 min-w-[2rem] rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
               {isDJ ? 'DJ' : initials}
             </div>
-            <div className="ml-2 overflow-hidden">
+            <div className="ml-2 overflow-hidden flex items-center gap-2">
               <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{senderName}</span>
+              {currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR') && msg.sender?.id !== currentUser.id && msg.sender?.role !== 'ADMIN' && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleBanUserPrompt(msg.sender); }}
+                  title="Ban user"
+                  className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300"
+                >
+                  Ban
+                </button>
+              )}
             </div>
           </div>
           <div className="ml-10 space-y-1">
@@ -1578,7 +1665,14 @@ export default function ListenerDashboard() {
     }
 
     return (
-      <form onSubmit={handleChatSubmit} className="flex items-center space-x-2">
+      <div>
+        {(slowModeEnabled && slowModeSeconds > 0) && (
+          <p className="text-[11px] text-gray-600 dark:text-gray-300 mb-1">Slow mode: {slowModeSeconds} second{slowModeSeconds === 1 ? '' : 's'}</p>
+        )}
+        {(typeof slowModeWaitSeconds === 'number' && slowModeWaitSeconds > 0) && (
+          <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">Please wait {slowModeWaitSeconds} second{slowModeWaitSeconds === 1 ? '' : 's'} before sending another message.</p>
+        )}
+        <form onSubmit={handleChatSubmit} className="flex items-center space-x-2">
         <input
           type="text"
           value={isSongRequestMode ? songRequestText : chatMessage}
@@ -1650,6 +1744,7 @@ export default function ListenerDashboard() {
           </>
         )}
       </form>
+      </div>
     );
   };
 
@@ -2033,6 +2128,13 @@ export default function ListenerDashboard() {
                       </div>
                     </div>
                   ) : (
+                    <>
+                      {(slowModeEnabled && slowModeSeconds > 0) && (
+                        <p className="text-[11px] text-gray-600 dark:text-gray-300 mb-1">Slow mode: {slowModeSeconds} second{slowModeSeconds === 1 ? '' : 's'}</p>
+                      )}
+                      {(typeof slowModeWaitSeconds === 'number' && slowModeWaitSeconds > 0) && (
+                        <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">Please wait {slowModeWaitSeconds} second{slowModeWaitSeconds === 1 ? '' : 's'} before sending another message.</p>
+                      )}
                     <form onSubmit={handleChatSubmit} className="flex items-center space-x-2">
                       <input
                         type="text"
@@ -2105,6 +2207,7 @@ export default function ListenerDashboard() {
                         </>
                       )}
                     </form>
+                    </>
                   )}
                 </div>
               </>
@@ -2113,6 +2216,19 @@ export default function ListenerDashboard() {
                 <p className="text-gray-500 dark:text-gray-400">Live chat is only available during broadcasts</p>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Sponsored Ad - Desktop only */}
+        <div className="mt-4 hidden lg:block">
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Sponsored</div>
+            <AdSense
+              slot={import.meta.env.VITE_ADSENSE_SLOT_LISTENER || '0000000000'}
+              format="auto"
+              responsive="true"
+              style={{ display: 'block', minHeight: '90px' }}
+            />
           </div>
         </div>
       </div>

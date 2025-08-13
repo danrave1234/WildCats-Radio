@@ -150,6 +150,18 @@ public class BroadcastService {
         return BroadcastDTO.fromEntity(updatedBroadcast);
     }
 
+    public BroadcastDTO updateSlowMode(Long id, Boolean enabled, Integer seconds) {
+        logger.info("Updating slow mode for broadcast {}: enabled={}, seconds={}", id, enabled, seconds);
+        BroadcastEntity broadcast = broadcastRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+        boolean isEnabled = enabled != null && enabled;
+        int secs = seconds != null ? Math.max(0, Math.min(seconds, 3600)) : 0; // clamp to [0, 3600]
+        broadcast.setSlowModeEnabled(isEnabled);
+        broadcast.setSlowModeSeconds(secs);
+        BroadcastEntity saved = broadcastRepository.save(broadcast);
+        return BroadcastDTO.fromEntity(saved);
+    }
+
     // Keep the existing scheduleBroadcast method for backward compatibility
     public BroadcastEntity scheduleBroadcast(BroadcastEntity broadcast, UserEntity dj) {
         broadcast.setCreatedBy(dj);

@@ -23,6 +23,10 @@ public class BroadcastDTO {
     private Integer peakListeners;
     private Integer totalInteractions;
     
+    // Chat slow mode fields
+    private Boolean slowModeEnabled;
+    private Integer slowModeSeconds;
+    
     // For displaying formatted dates in frontend
     private String formattedStart;
     private String formattedEnd;
@@ -75,7 +79,7 @@ public class BroadcastDTO {
             startedByDTO = UserDTO.fromEntity(broadcast.getStartedBy());
         }
         
-        return new BroadcastDTO(
+        BroadcastDTO dto = new BroadcastDTO(
             broadcast.getId(),
             broadcast.getTitle(),
             broadcast.getDescription(),
@@ -90,6 +94,9 @@ public class BroadcastDTO {
             broadcast.getPeakListeners(),
             broadcast.getTotalInteractions()
         );
+        dto.setSlowModeEnabled(broadcast.getSlowModeEnabled());
+        dto.setSlowModeSeconds(broadcast.getSlowModeSeconds());
+        return dto;
     }
     
     // Getters and Setters
@@ -211,5 +218,21 @@ public class BroadcastDTO {
     
     public void setTotalInteractions(Integer totalInteractions) {
         this.totalInteractions = totalInteractions;
+    }
+
+    public Boolean getSlowModeEnabled() {
+        return slowModeEnabled != null ? slowModeEnabled : false;
+    }
+
+    public void setSlowModeEnabled(Boolean slowModeEnabled) {
+        this.slowModeEnabled = slowModeEnabled;
+    }
+
+    public Integer getSlowModeSeconds() {
+        return slowModeSeconds != null ? slowModeSeconds : 0;
+    }
+
+    public void setSlowModeSeconds(Integer slowModeSeconds) {
+        this.slowModeSeconds = slowModeSeconds;
     }
 } 

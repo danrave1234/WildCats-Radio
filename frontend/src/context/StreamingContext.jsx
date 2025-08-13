@@ -32,6 +32,7 @@ export function StreamingProvider({ children }) {
   const [isLive, setIsLive] = useState(false);
   const [currentBroadcast, setCurrentBroadcast] = useState(null);
   const [listenerCount, setListenerCount] = useState(0);
+  const [peakListenerCount, setPeakListenerCount] = useState(0);
   const [websocketConnected, setWebsocketConnected] = useState(false);
 
   // Listener State
@@ -1206,7 +1207,13 @@ export function StreamingProvider({ children }) {
         const data = JSON.parse(event.data);
         if (data.type === 'STREAM_STATUS') {
           console.log('Stream status update received via Listener/Status WebSocket:', data);
-          setListenerCount(data.listenerCount || 0);
+          setListenerCount(typeof data.listenerCount === 'number' ? data.listenerCount : 0);
+          // Update peak from server if present; keep max to avoid regressions on out-of-order messages
+          const incomingPeak = typeof data.peakListenerCount === 'number' ? data.peakListenerCount
+                            : (typeof data.peakListeners === 'number' ? data.peakListeners : null);
+          if (incomingPeak !== null) {
+            setPeakListenerCount((prev) => Math.max(prev || 0, incomingPeak));
+          }
           if (data.isLive !== undefined) {
             setIsLive(data.isLive);
           }
@@ -1215,6 +1222,8 @@ export function StreamingProvider({ children }) {
             window.__wildcats_stream_state__ = {
               isLive: !!data.isLive,
               broadcastId: data.broadcastId || null,
+              peakListeners: incomingPeak,
+              listenerCount: data.listenerCount || 0,
               timestamp: data.timestamp || Date.now()
             };
           } catch (_e) { /* noop for SSR safety */ }
@@ -1288,6 +1297,16 @@ export function StreamingProvider({ children }) {
 
       // Start the broadcast
       await broadcastService.start(createdBroadcast.id);
+
+      // After starting, fetch updated broadcast to get actualStart and other live fields
+      try {
+        const refreshed = await broadcastService.getById(createdBroadcast.id);
+        if (refreshed && refreshed.data) {
+          setCurrentBroadcast(refreshed.data);
+        }
+      } catch (e) {
+        console.warn('Failed to refresh broadcast after start:', e);
+      }
 
       // Get audio stream based on selected source (only if not already available)
       let stream = audioStreamRef.current;
@@ -1692,6 +1711,7 @@ export function StreamingProvider({ children }) {
     isLive,
     currentBroadcast,
     listenerCount,
+    peakListenerCount,
     websocketConnected,
     isListening,
     audioPlaying,

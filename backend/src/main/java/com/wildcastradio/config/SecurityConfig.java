@@ -38,6 +38,18 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // Allow OPTIONS requests for CORS preflight
                 .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
+                // Allow frontend root and static assets so SPA can load without auth
+                .requestMatchers(
+                    "/", 
+                    "/index.html",
+                    "/assets/**",
+                    "/static/**",
+                    "/favicon.ico",
+                    "/manifest.json",
+                    "/robots.txt",
+                    "/*.css",
+                    "/*.js"
+                ).permitAll()
                 // Public endpoints that don't require authentication
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/user/register").permitAll()

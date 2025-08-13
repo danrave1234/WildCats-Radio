@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
+import java.time.LocalDateTime;
 
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -20,6 +21,7 @@ import com.wildcastradio.User.DTO.LoginRequest;
 import com.wildcastradio.User.DTO.LoginResponse;
 import com.wildcastradio.User.DTO.RegisterRequest;
 import com.wildcastradio.User.DTO.UserDTO;
+import com.wildcastradio.User.DTO.BanRequest;
 import com.wildcastradio.config.JwtUtil;
 
 @Service
@@ -226,12 +228,12 @@ public class UserService implements UserDetailsService {
     }
 
     public UserEntity updateUserRole(Long userId, UserEntity.UserRole newRole) {
+        // Backward-compatible method: only ADMIN should call this (as per @PreAuthorize in controller)
         UserEntity user = findById(userId);
         UserEntity.UserRole oldRole = user.getRole();
         user.setRole(newRole);
         UserEntity updatedUser = userRepository.save(user);
 
-        // Log the activity
         activityLogService.logActivity(
             updatedUser,
             ActivityLogEntity.ActivityType.USER_ROLE_CHANGE,
@@ -239,6 +241,199 @@ public class UserService implements UserDetailsService {
         );
 
         return updatedUser;
+    }
+
+    public UserEntity updateUserRoleByActor(Long userId, UserEntity.UserRole newRole, UserEntity actor) {
+        if (actor == null) {
+            throw new IllegalArgumentException("Actor is required");
+        }
+        UserEntity target = findById(userId);
+        UserEntity.UserRole oldRole = target.getRole();
+
+        boolean actorIsAdmin = actor.getRole() == UserEntity.UserRole.ADMIN;
+        boolean actorIsModerator = actor.getRole() == UserEntity.UserRole.MODERATOR;
+
+        // Moderators cannot promote to ADMIN and cannot modify ADMIN users
+        if (actorIsModerator) {
+            if (newRole == UserEntity.UserRole.ADMIN) {
+                throw new SecurityException("Moderator cannot assign ADMIN role");
+            }
+            if (target.getRole() == UserEntity.UserRole.ADMIN) {
+                throw new SecurityException("Moderator cannot modify ADMIN users");
+            }
+        }
+
+        // Non-admin and non-moderator cannot change roles
+        if (!actorIsAdmin && !actorIsModerator) {
+            throw new SecurityException("Insufficient permissions to change roles");
+        }
+
+        target.setRole(newRole);
+        UserEntity updatedUser = userRepository.save(target);
+
+        activityLogService.logActivity(
+            updatedUser,
+            ActivityLogEntity.ActivityType.USER_ROLE_CHANGE,
+            "User role changed from " + oldRole + " to " + newRole + " for user: " + updatedUser.getEmail() +
+            " by actor: " + actor.getEmail()
+        );
+
+        return updatedUser;
+    }
+
+    public UserEntity banUser(Long userId, UserEntity actor) {
+        // Backward compatible: default to permanent ban with no reason
+        BanRequest req = new BanRequest();
+        req.setUnit(BanRequest.DurationUnit.PERMANENT);
+        req.setAmount(null);
+        req.setReason(null);
+        return banUser(userId, req, actor);
+    }
+
+    public UserEntity banUser(Long userId, BanRequest request, UserEntity actor) {
+        if (actor == null) {
+            throw new IllegalArgumentException("Actor is required");
+        }
+        if (request == null || request.getUnit() == null) {
+            throw new IllegalArgumentException("Ban request and unit are required");
+        }
+        UserEntity target = findById(userId);
+        boolean actorIsAdmin = actor.getRole() == UserEntity.UserRole.ADMIN;
+        boolean actorIsModerator = actor.getRole() == UserEntity.UserRole.MODERATOR || actor.getRole() == UserEntity.UserRole.DJ;
+
+        if (!actorIsAdmin && !actorIsModerator) {
+            throw new SecurityException("Insufficient permissions to ban users");
+        }
+        if (actorIsModerator && target.getRole() == UserEntity.UserRole.ADMIN) {
+            throw new SecurityException("Moderator cannot ban ADMIN users");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime until = null;
+        switch (request.getUnit()) {
+            case DAYS:
+                if (request.getAmount() == null || request.getAmount() <= 0) throw new IllegalArgumentException("Amount must be positive for DAYS");
+                until = now.plusDays(request.getAmount());
+                break;
+            case WEEKS:
+                if (request.getAmount() == null || request.getAmount() <= 0) throw new IllegalArgumentException("Amount must be positive for WEEKS");
+                until = now.plusWeeks(request.getAmount());
+                break;
+            case YEARS:
+                if (request.getAmount() == null || request.getAmount() <= 0) throw new IllegalArgumentException("Amount must be positive for YEARS");
+                until = now.plusYears(request.getAmount());
+                break;
+            case PERMANENT:
+                until = null;
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported duration unit");
+        }
+
+        target.setBanned(true);
+        target.setBannedAt(now);
+        target.setBannedUntil(until);
+        target.setBanReason(request.getReason());
+        UserEntity updated = userRepository.save(target);
+        activityLogService.logActivity(
+            actor,
+            ActivityLogEntity.ActivityType.PROFILE_UPDATE,
+            "Banned user: " + updated.getEmail() + (until != null ? (" until " + until) : " permanently") + (request.getReason() != null ? (". Reason: " + request.getReason()) : "")
+        );
+        return updated;
+    }
+
+    public UserEntity unbanUser(Long userId, UserEntity actor) {
+        if (actor == null) {
+            throw new IllegalArgumentException("Actor is required");
+        }
+        UserEntity target = findById(userId);
+        boolean actorIsAdmin = actor.getRole() == UserEntity.UserRole.ADMIN;
+        boolean actorIsModerator = actor.getRole() == UserEntity.UserRole.MODERATOR || actor.getRole() == UserEntity.UserRole.DJ;
+
+        if (!actorIsAdmin && !actorIsModerator) {
+            throw new SecurityException("Insufficient permissions to unban users");
+        }
+        if (actorIsModerator && target.getRole() == UserEntity.UserRole.ADMIN) {
+            throw new SecurityException("Moderator cannot unban ADMIN users");
+        }
+
+        target.setBanned(false);
+        target.setBannedAt(null);
+        target.setBannedUntil(null);
+        target.setBanReason(null);
+        UserEntity updated = userRepository.save(target);
+        activityLogService.logActivity(
+            actor,
+            ActivityLogEntity.ActivityType.PROFILE_UPDATE,
+            "Unbanned user: " + updated.getEmail()
+        );
+        return updated;
+    }
+
+    public boolean isUserCurrentlyBanned(UserEntity user) {
+        if (user == null || !user.isBanned()) return false;
+        LocalDateTime now = LocalDateTime.now();
+        if (user.getBannedUntil() != null && now.isAfter(user.getBannedUntil())) {
+            // Auto-unban expired bans
+            user.setBanned(false);
+            user.setBannedAt(null);
+            user.setBannedUntil(null);
+            user.setBanReason(null);
+            userRepository.save(user);
+            return false;
+        }
+        return true;
+    }
+
+    public UserEntity warnUser(Long userId, UserEntity actor) {
+        if (actor == null) {
+            throw new IllegalArgumentException("Actor is required");
+        }
+        UserEntity target = findById(userId);
+        boolean actorIsAdmin = actor.getRole() == UserEntity.UserRole.ADMIN;
+        boolean actorIsModerator = actor.getRole() == UserEntity.UserRole.MODERATOR;
+
+        if (!actorIsAdmin && !actorIsModerator) {
+            throw new SecurityException("Insufficient permissions to warn users");
+        }
+        if (actorIsModerator && target.getRole() == UserEntity.UserRole.ADMIN) {
+            throw new SecurityException("Moderator cannot warn ADMIN users");
+        }
+
+        target.setWarningCount(Math.max(0, target.getWarningCount()) + 1);
+        UserEntity updated = userRepository.save(target);
+        activityLogService.logActivity(
+            actor,
+            ActivityLogEntity.ActivityType.PROFILE_UPDATE,
+            "Warned user: " + updated.getEmail() + ", warnings: " + updated.getWarningCount()
+        );
+        return updated;
+    }
+
+    public UserEntity resetWarnings(Long userId, UserEntity actor) {
+        if (actor == null) {
+            throw new IllegalArgumentException("Actor is required");
+        }
+        UserEntity target = findById(userId);
+        boolean actorIsAdmin = actor.getRole() == UserEntity.UserRole.ADMIN;
+        boolean actorIsModerator = actor.getRole() == UserEntity.UserRole.MODERATOR;
+
+        if (!actorIsAdmin && !actorIsModerator) {
+            throw new SecurityException("Insufficient permissions to reset warnings");
+        }
+        if (actorIsModerator && target.getRole() == UserEntity.UserRole.ADMIN) {
+            throw new SecurityException("Moderator cannot reset warnings for ADMIN users");
+        }
+
+        target.setWarningCount(0);
+        UserEntity updated = userRepository.save(target);
+        activityLogService.logActivity(
+            actor,
+            ActivityLogEntity.ActivityType.PROFILE_UPDATE,
+            "Reset warnings for user: " + updated.getEmail()
+        );
+        return updated;
     }
 
     public UserEntity findById(Long userId) {

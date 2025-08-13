@@ -19,7 +19,7 @@ import {
   HeartIcon,
   ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline"
-import { broadcastService, chatService, songRequestService, pollService } from "../services/api/index.js"
+import { broadcastService, chatService, songRequestService, pollService, authService } from "../services/api/index.js"
 import { useAuth } from "../context/AuthContext"
 import { useStreaming } from "../context/StreamingContext"
 import { formatDistanceToNow } from "date-fns"
@@ -28,6 +28,7 @@ import DJAudioControls from "../components/DJAudioControls"
 import AudioPlayer from "../components/AudioPlayer"
 import { EnhancedScrollArea } from "../components/ui/enhanced-scroll-area"
 import { createLogger } from "../services/logger"
+import AdSense from "../components/ads/AdSense"
 
 const logger = createLogger("DJDashboard")
 
@@ -78,6 +79,7 @@ export default function DJDashboard() {
     currentBroadcast: streamingBroadcast,
     websocketConnected,
     listenerCount,
+    peakListenerCount,
     startBroadcast: startStreamingBroadcast,
     stopBroadcast: stopStreamingBroadcast,
     restoreDJStreaming,
@@ -129,6 +131,11 @@ export default function DJDashboard() {
   })
   const [isCreatingPoll, setIsCreatingPoll] = useState(false)
 
+  // Slow mode state
+  const [slowModeEnabled, setSlowModeEnabled] = useState(false)
+  const [slowModeSeconds, setSlowModeSeconds] = useState(0)
+  const [isSavingSlowMode, setIsSavingSlowMode] = useState(false)
+
   // Polls Display State
   const [polls, setPolls] = useState([])
   const [activePoll, setActivePoll] = useState(null)
@@ -177,6 +184,17 @@ export default function DJDashboard() {
     }
   }, [streamingBroadcast])
 
+  // Sync slow mode state from current broadcast
+  useEffect(() => {
+    if (currentBroadcast) {
+      setSlowModeEnabled(!!currentBroadcast.slowModeEnabled)
+      setSlowModeSeconds(typeof currentBroadcast.slowModeSeconds === 'number' ? currentBroadcast.slowModeSeconds : 0)
+    } else {
+      setSlowModeEnabled(false)
+      setSlowModeSeconds(0)
+    }
+  }, [currentBroadcast?.id, currentBroadcast?.slowModeEnabled, currentBroadcast?.slowModeSeconds])
+
   // Check for existing active broadcast on component mount
   useEffect(() => {
     const checkActiveBroadcast = async () => {
@@ -185,7 +203,15 @@ export default function DJDashboard() {
         if (activeBroadcast) {
           setCurrentBroadcast(activeBroadcast)
           setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
-          setBroadcastStartTime(new Date())
+          if (activeBroadcast.actualStart) {
+            try {
+              setBroadcastStartTime(new Date(activeBroadcast.actualStart))
+            } catch (_e) {
+              setBroadcastStartTime(new Date())
+            }
+          } else {
+            setBroadcastStartTime(new Date())
+          }
         }
       } catch (error) {
         logger.error("Error checking for active broadcast:", error)
@@ -200,9 +226,18 @@ export default function DJDashboard() {
   // Track analytics when streaming starts
   useEffect(() => {
     if (workflowState === WORKFLOW_STATES.STREAMING_LIVE && !broadcastStartTime) {
-      setBroadcastStartTime(new Date())
+      if (currentBroadcast?.actualStart) {
+        try {
+          setBroadcastStartTime(new Date(currentBroadcast.actualStart))
+        } catch (_e) {
+          setBroadcastStartTime(new Date())
+        }
+      } else {
+        // Fallback if backend start not yet propagated
+        setBroadcastStartTime(new Date())
+      }
     }
-  }, [workflowState, broadcastStartTime])
+  }, [workflowState, broadcastStartTime, currentBroadcast?.actualStart])
 
   // Track peak listeners
   useEffect(() => {
@@ -210,6 +245,13 @@ export default function DJDashboard() {
       setPeakListeners(listenerCount)
     }
   }, [listenerCount, peakListeners])
+
+  // Sync with server-provided peak listener count (from StreamingContext)
+  useEffect(() => {
+    if (typeof peakListenerCount === 'number' && peakListenerCount > peakListeners) {
+      setPeakListeners(peakListenerCount)
+    }
+  }, [peakListenerCount, peakListeners])
 
   // Track total interactions
   useEffect(() => {
@@ -746,7 +788,7 @@ export default function DJDashboard() {
       })
 
       setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
-      setBroadcastStartTime(new Date())
+      // broadcastStartTime will be derived from backend actualStart when available
     } catch (error) {
       logger.error("Error starting broadcast:", error)
 
@@ -864,25 +906,85 @@ export default function DJDashboard() {
     }
   }
 
+  // Slow mode save handler
+  const handleSaveSlowMode = async () => {
+    if (!currentBroadcast?.id) return
+    try {
+      setIsSavingSlowMode(true)
+      const seconds = Math.max(0, Math.min(3600, parseInt(slowModeSeconds, 10) || 0))
+      const response = await broadcastService.updateSlowMode(currentBroadcast.id, {
+        enabled: !!slowModeEnabled,
+        seconds
+      })
+      const updated = response?.data || null
+      if (updated) {
+        setCurrentBroadcast(updated)
+      }
+    } catch (error) {
+      logger.error('Error updating slow mode:', error)
+      alert('Failed to update slow mode. Please try again.')
+    } finally {
+      setIsSavingSlowMode(false)
+    }
+  }
+
   // Interaction Panel Handlers
+  const handleBanUser = async (userId, displayName) => {
+    try {
+      if (!userId) return;
+      // Only allow DJs and Admins to ban from the DJ dashboard
+      if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
+        alert('You do not have permission to ban users.');
+        return;
+      }
+      const confirmed = window.confirm(`Ban ${displayName || 'this user'} from chat permanently?`);
+      if (!confirmed) return;
+      await authService.banUser(userId, { unit: 'PERMANENT', reason: `Banned by ${currentUser.firstname || ''} ${currentUser.lastname || ''}`.trim() });
+      alert(`${displayName || 'User'} has been banned.`);
+    } catch (error) {
+      logger.error('Failed to ban user from chat:', error);
+      const msg = (error && (error.response?.data?.message || error.message)) || 'Unknown error';
+      alert(`Failed to ban user: ${msg}`);
+    }
+  };
+
   const handleChatSubmit = async (e) => {
     e.preventDefault()
 
     if (!chatMessage.trim() || !currentBroadcast) return
 
+    const messageText = chatMessage.trim()
+
     try {
-      // Use WebSocket to send message if available, otherwise fallback to HTTP
-      if (chatWsRef.current && chatWsRef.current.sendMessage) {
-        chatWsRef.current.sendMessage(chatMessage.trim())
-        setChatMessage("")
-      } else {
-        // Fallback to HTTP API
-        const messageData = { content: chatMessage.trim() }
-        await chatService.sendMessage(currentBroadcast.id, messageData)
-        setChatMessage("")
+      if (messageText.length > 1500) {
+        alert("Message cannot exceed 1500 characters")
+        return
       }
+      // Always send via REST (WS is receive-only). Use the WS wrapper if present (it now calls REST).
+      const send = (chatWsRef.current && chatWsRef.current.sendMessage)
+        ? () => chatWsRef.current.sendMessage(messageText)
+        : () => chatService.sendMessage(currentBroadcast.id, { content: messageText })
+
+      await send()
+      setChatMessage("")
     } catch (error) {
       logger.error("Error sending chat message:", error)
+      const status = error?.response?.status
+      if (status === 401) {
+        alert("Your session expired. Please log in again.")
+      } else if (status === 429) {
+        const headers = error.response?.headers || {}
+        const retryAfter = headers['retry-after'] || headers['Retry-After'] || headers['Retry-after']
+        const sec = parseInt(retryAfter, 10)
+        const waitMsg = Number.isFinite(sec) ? `${sec} second${sec === 1 ? '' : 's'}` : 'a few seconds'
+        alert(`Slow mode is enabled. Please wait ${waitMsg} before sending another message.`)
+      } else if (error.response?.data?.message?.includes("1500 characters")) {
+        alert("Message cannot exceed 1500 characters")
+      } else {
+        alert("Failed to send message. Please try again.")
+      }
+      // Restore message if sending failed
+      setChatMessage(messageText)
     }
   }
 
@@ -1109,6 +1211,38 @@ export default function DJDashboard() {
                             <MicrophoneIcon className="h-3.5 w-3.5 mr-1.5" />
                             {isRestoringAudio ? "Restoring..." : "Restore Audio"}
                           </button>
+                      )}
+                      {/* Slow Mode Controls */}
+                      {currentBroadcast && (
+                        <div className="flex items-center bg-white bg-opacity-10 rounded-md px-2 py-1 mr-2 text-xs">
+                          <label className="flex items-center mr-2">
+                            <input
+                              type="checkbox"
+                              className="mr-1"
+                              checked={slowModeEnabled}
+                              onChange={(e) => setSlowModeEnabled(e.target.checked)}
+                            />
+                            <span>Slow mode</span>
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={3600}
+                            value={slowModeSeconds}
+                            onChange={(e) => setSlowModeSeconds(e.target.value)}
+                            className="w-20 px-2 py-1 rounded bg-white bg-opacity-20 border border-white/30 text-white placeholder-white/70 focus:outline-none"
+                            placeholder="secs"
+                            title="Seconds between messages"
+                          />
+                          <button
+                            onClick={handleSaveSlowMode}
+                            disabled={isSavingSlowMode}
+                            className="ml-2 px-2 py-1 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded transition-all duration-200 disabled:opacity-50"
+                            title="Save slow mode settings"
+                          >
+                            {isSavingSlowMode ? 'Saving…' : 'Save'}
+                          </button>
+                        </div>
                       )}
                       <button
                           onClick={stopBroadcast}
@@ -1340,6 +1474,16 @@ export default function DJDashboard() {
                                     {senderName}
                                   </span>
                                             <span className="text-xs text-gray-500 dark:text-gray-400">{timeAgo}</span>
+                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
+                                                                                          <button
+                                                                                            type="button"
+                                                                                            onClick={() => handleBanUser(msg.sender.id, senderName)}
+                                                                                            className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200"
+                                                                                            title="Ban this user from chat"
+                                                                                          >
+                                                                                            Ban
+                                                                                          </button>
+                                                                                        )}
                                           </div>
                                           <p className="text-xs text-gray-700 dark:text-gray-300 break-words">
                                             {msg.content || "No content"}
@@ -1772,6 +1916,17 @@ export default function DJDashboard() {
                         {listenerCount > 0 ? Math.round((totalInteractions / listenerCount) * 100) : 0}%
                       </div>
                     </div>
+
+                    {/* Sponsored Ad within Analytics panel */}
+                    <div className="col-span-2 border-t border-gray-200 dark:border-gray-700 pt-3 mt-1">
+                      <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Sponsored</div>
+                      <AdSense
+                        slot={import.meta.env.VITE_ADSENSE_SLOT_DJ || '0000000001'}
+                        format="auto"
+                        responsive="true"
+                        style={{ display: 'block', minHeight: '90px' }}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1900,6 +2055,48 @@ export default function DJDashboard() {
                     <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Stream Preview</h3>
                     <AudioPlayer isPreview={true} />
                   </div>
+
+                  {/* Slow Mode Settings (available before going live) */}
+                  {currentBroadcast && (
+                    <div className="mb-4">
+                      <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Chat Slow Mode</h3>
+                      <div className="flex flex-wrap items-center gap-2 bg-gray-50 dark:bg-gray-700/50 rounded-md p-3 border border-gray-200 dark:border-gray-600">
+                        <label className="flex items-center mr-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="mr-2"
+                            checked={slowModeEnabled}
+                            onChange={(e) => setSlowModeEnabled(e.target.checked)}
+                          />
+                          Enable slow mode
+                        </label>
+                        <div className="flex items-center">
+                          <input
+                            type="number"
+                            min={0}
+                            max={3600}
+                            value={slowModeSeconds}
+                            onChange={(e) => setSlowModeSeconds(e.target.value)}
+                            className="w-24 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                            placeholder="seconds"
+                            title="Seconds between messages"
+                          />
+                          <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">seconds</span>
+                        </div>
+                        <button
+                          onClick={handleSaveSlowMode}
+                          disabled={isSavingSlowMode}
+                          className="ml-auto px-3 py-1.5 bg-maroon-700 text-white rounded-md hover:bg-maroon-800 disabled:opacity-50"
+                          title="Save slow mode settings"
+                        >
+                          {isSavingSlowMode ? 'Saving…' : 'Save'}
+                        </button>
+                        <div className="w-full text-xs text-gray-500 dark:text-gray-400">
+                          Control how often listeners can send messages. Set 0 to disable.
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Action Buttons */}
                   <div className="flex justify-center space-x-4">

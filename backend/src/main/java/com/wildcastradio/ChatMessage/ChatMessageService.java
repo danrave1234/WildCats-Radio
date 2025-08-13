@@ -40,6 +40,9 @@ public class ChatMessageService {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
+    @Autowired
+    private ProfanityService profanityService;
+
     /**
      * Get all messages for a specific broadcast
      * 
@@ -72,8 +75,11 @@ public class ChatMessageService {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
             .orElseThrow(() -> new IllegalArgumentException("Broadcast not found with ID: " + broadcastId));
 
+        // Sanitize content for profanity before saving/broadcasting (local + optional external API)
+        String sanitized = profanityService.sanitizeContent(content);
+
         // Create the message with the broadcast entity
-        ChatMessageEntity message = new ChatMessageEntity(broadcast, sender, content);
+        ChatMessageEntity message = new ChatMessageEntity(broadcast, sender, sanitized);
         ChatMessageEntity savedMessage = chatMessageRepository.save(message);
 
         // Create DTO for the message
@@ -248,5 +254,17 @@ public class ChatMessageService {
             workbook.close();
             outputStream.close();
         }
+    }
+
+    @Transactional
+    public void deleteMessageById(Long messageId) {
+        if (messageId == null) {
+            throw new IllegalArgumentException("messageId cannot be null");
+        }
+        boolean exists = chatMessageRepository.existsById(messageId);
+        if (!exists) {
+            throw new IllegalArgumentException("Chat message not found with ID: " + messageId);
+        }
+        chatMessageRepository.deleteById(messageId);
     }
 }

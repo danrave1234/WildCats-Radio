@@ -29,6 +29,10 @@ public class ListenerTrackingService {
     private long lastUpdateTime = 0;
     private static final long CACHE_DURATION_MS = 10000; // 10 seconds cache
 
+    // Track peak listeners while stream is live (in-memory, reset when stream goes live again)
+    private int peakListenerCount = 0;
+    private Boolean lastLive = null;
+
     /**
      * Get current listener count with caching
      * @return Current listener count
@@ -36,6 +40,16 @@ public class ListenerTrackingService {
     public Integer getCurrentListenerCount() {
         updateCacheIfNeeded();
         return (Integer) realtimeMetricsCache.getOrDefault("listenerCount", 0);
+    }
+
+    /**
+     * Get current peak listener count with caching
+     * @return Peak listener count since the stream went live
+     */
+    public Integer getPeakListenerCount() {
+        updateCacheIfNeeded();
+        Object peak = realtimeMetricsCache.get("peakListenerCount");
+        return peak instanceof Integer ? (Integer) peak : peakListenerCount;
     }
 
     /**
@@ -74,15 +88,28 @@ public class ListenerTrackingService {
 
             // Get listener count from Icecast (suppress warnings for frequent calls)
             Integer listenerCount = icecastService.getCurrentListenerCount(false);
+            int currentCount = listenerCount != null ? listenerCount : 0;
 
             // Check if stream is live
             boolean isLive = icecastService.isStreamLive(false);
+
+            // Reset peak when transitioning from not live to live
+            if (lastLive != null && !lastLive && isLive) {
+                peakListenerCount = 0;
+            }
+            lastLive = isLive;
+
+            // Update peak if needed (only when live)
+            if (isLive && currentCount > peakListenerCount) {
+                peakListenerCount = currentCount;
+            }
 
             // Get comprehensive stream status
             Map<String, Object> streamStatus = icecastService.getStreamStatus(false);
 
             // Update cache
-            realtimeMetricsCache.put("listenerCount", listenerCount != null ? listenerCount : 0);
+            realtimeMetricsCache.put("listenerCount", currentCount);
+            realtimeMetricsCache.put("peakListenerCount", peakListenerCount);
             realtimeMetricsCache.put("isLive", isLive);
             realtimeMetricsCache.put("streamStatus", streamStatus);
             realtimeMetricsCache.put("serverUp", icecastService.isServerUp(false));
@@ -90,13 +117,14 @@ public class ListenerTrackingService {
 
             lastUpdateTime = System.currentTimeMillis();
 
-            logger.debug("Real-time metrics updated: listeners={}, live={}", listenerCount, isLive);
+            logger.debug("Real-time metrics updated: listeners={}, peak={}, live={}", currentCount, peakListenerCount, isLive);
 
         } catch (Exception e) {
             logger.warn("Failed to refresh real-time metrics: {}", e.getMessage());
 
             // Set default values on error
             realtimeMetricsCache.put("listenerCount", 0);
+            realtimeMetricsCache.put("peakListenerCount", peakListenerCount);
             realtimeMetricsCache.put("isLive", false);
             realtimeMetricsCache.put("streamStatus", new HashMap<>());
             realtimeMetricsCache.put("serverUp", false);
@@ -133,6 +161,7 @@ public class ListenerTrackingService {
         Map<String, Object> analyticsMetrics = new HashMap<>();
 
         analyticsMetrics.put("currentListeners", metrics.getOrDefault("listenerCount", 0));
+        analyticsMetrics.put("peakListeners", metrics.getOrDefault("peakListenerCount", 0));
         analyticsMetrics.put("streamLive", metrics.getOrDefault("isLive", false));
         analyticsMetrics.put("serverStatus", ((Boolean) metrics.getOrDefault("serverUp", false)) ? "UP" : "DOWN");
         analyticsMetrics.put("lastUpdated", metrics.getOrDefault("lastUpdated", System.currentTimeMillis()));

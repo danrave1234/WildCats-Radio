@@ -15,11 +15,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.springframework.http.HttpStatus;
+
 import com.wildcastradio.User.DTO.ChangePasswordRequest;
 import com.wildcastradio.User.DTO.LoginRequest;
 import com.wildcastradio.User.DTO.LoginResponse;
 import com.wildcastradio.User.DTO.RegisterRequest;
 import com.wildcastradio.User.DTO.UserDTO;
+import com.wildcastradio.User.DTO.BanRequest;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -145,4 +148,40 @@ public class UserController {
                 .map(user -> ResponseEntity.ok(UserDTO.fromEntity(user)))
                 .orElse(ResponseEntity.notFound().build());
     }
+
+    @PostMapping("/{id}/ban")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR','DJ')")
+    public ResponseEntity<UserDTO> banUser(
+            @PathVariable Long id,
+            @RequestBody BanRequest request,
+            Authentication authentication) {
+        String actorEmail = authentication.getName();
+        UserEntity actor = userService.getUserByEmail(actorEmail).orElse(null);
+        try {
+            UserEntity updated = userService.banUser(id, request, actor);
+            return ResponseEntity.ok(UserDTO.fromEntity(updated));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PostMapping("/{id}/unban")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR','DJ')")
+    public ResponseEntity<UserDTO> unbanUser(
+            @PathVariable Long id,
+            Authentication authentication) {
+        String actorEmail = authentication.getName();
+        UserEntity actor = userService.getUserByEmail(actorEmail).orElse(null);
+        try {
+            UserEntity updated = userService.unbanUser(id, actor);
+            return ResponseEntity.ok(UserDTO.fromEntity(updated));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
 }
