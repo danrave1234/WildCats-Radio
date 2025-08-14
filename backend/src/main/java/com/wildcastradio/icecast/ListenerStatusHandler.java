@@ -30,6 +30,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wildcastradio.Broadcast.BroadcastService;
 import com.wildcastradio.User.UserService;
 import com.wildcastradio.config.JwtUtil;
+import com.wildcastradio.Analytics.ListenerTrackingService;
 
 /**
  * WebSocket handler for broadcasting stream status updates to listeners.
@@ -55,6 +56,9 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
 
     @Autowired
     private BroadcastService broadcastService;
+
+    @Autowired
+    private ListenerTrackingService listenerTrackingService;
 
     @Autowired
     public ListenerStatusHandler(IcecastService icecastService) {
@@ -288,6 +292,12 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
             message.put("type", "STREAM_STATUS");
             message.put("isLive", streamStatus.get("live"));
             message.put("listenerCount", listenerCount != null ? listenerCount : 0);
+            try {
+                Integer peak = listenerTrackingService.getPeakListenerCount();
+                if (peak != null) {
+                    message.put("peakListenerCount", peak);
+                }
+            } catch (Exception ignored) { }
             message.put("timestamp", System.currentTimeMillis());
 
             // Include current live broadcast id (if any) to let clients switch contexts immediately
@@ -355,6 +365,12 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
             message.put("type", "STREAM_STATUS");
             message.put("isLive", streamStatus.get("live"));
             message.put("listenerCount", listenerCount != null ? listenerCount : 0);
+            try {
+                Integer peak = listenerTrackingService.getPeakListenerCount();
+                if (peak != null) {
+                    message.put("peakListenerCount", peak);
+                }
+            } catch (Exception ignored) { }
             message.put("timestamp", System.currentTimeMillis());
 
             // Include current live broadcast id (if any)

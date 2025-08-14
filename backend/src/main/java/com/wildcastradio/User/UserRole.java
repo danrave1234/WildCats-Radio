@@ -1,5 +1,5 @@
 package com.wildcastradio.User;
 
 public enum UserRole {
-    ADMIN, DJ, LISTENER
+    ADMIN, MODERATOR, DJ, LISTENER
 } 

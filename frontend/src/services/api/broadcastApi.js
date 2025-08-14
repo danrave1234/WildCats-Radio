@@ -19,6 +19,9 @@ export const broadcastApi = {
   end: (id) => api.post(`/api/broadcasts/${id}/end`),
   test: (id) => api.post(`/api/broadcasts/${id}/test`),
   
+  // Slow mode settings
+  updateSlowMode: (id, { enabled, seconds }) => api.put(`/api/broadcasts/${id}/slowmode`, { enabled, seconds }),
+  
   // Query operations
   getAnalytics: (id) => api.get(`/api/broadcasts/${id}/analytics`),
   getUpcoming: () => api.get('/api/broadcasts/upcoming'),

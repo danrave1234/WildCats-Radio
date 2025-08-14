@@ -1,0 +1,21 @@
+# robots.txt for Wildcat Radio
+# Update the Sitemap URL to your production domain before deploying.
+
+User-agent: *
+Allow: /
+
+# Disallow sensitive or non-indexable routes
+Disallow: /admin
+Disallow: /dj-dashboard
+Disallow: /profile
+Disallow: /settings
+Disallow: /notifications
+Disallow: /logout
+
+# Allow these SPA public routes
+Allow: /dashboard
+Allow: /broadcast-history
+Allow: /analytics
+Allow: /schedule
+
+Sitemap: https://YOUR_DOMAIN_HERE/sitemap.xml

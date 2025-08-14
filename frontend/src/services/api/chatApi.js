@@ -43,14 +43,10 @@ export const chatApi = {
             }
           },
           isConnected: () => stompClient.connected,
-          // Method to send messages to the chat
-          sendMessage: (messageText) => {
-            if (stompClient && stompClient.connected) {
-              stompClient.publish({
-                destination: `/app/broadcast/${broadcastId}/chat`,
-                body: JSON.stringify({ message: messageText })
-              });
-            }
+          // Method to send messages to the chat: use REST to align with backend
+          sendMessage: async (messageText) => {
+            const payload = { content: messageText };
+            return api.post(`/api/chats/${broadcastId}`, payload);
           }
         });
       }, (error) => {

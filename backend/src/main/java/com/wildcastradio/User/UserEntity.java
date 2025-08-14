@@ -21,6 +21,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.ColumnDefault;
 
 @Entity
 @Table(name = "users")
@@ -63,6 +64,24 @@ public class UserEntity {
     @Column
     private LocalDate birthdate; // User birthdate for analytics
 
+    // Moderation fields
+    @ColumnDefault("false")
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean banned = false; // If true, user is banned from interactive features like chat
+
+    @Column(name = "banned_until")
+    private LocalDateTime bannedUntil; // If set and in the future, ban expires at this time; null means permanent while banned=true
+
+    @Column(name = "banned_at")
+    private LocalDateTime bannedAt; // When the ban was applied
+
+    @Column(name = "ban_reason", length = 500)
+    private String banReason; // Human-readable reason for ban
+
+    @ColumnDefault("0")
+    @Column(nullable = false, columnDefinition = "integer default 0")
+    private int warningCount = 0; // Number of warnings issued to the user
+
     // Relationships - Fixed cascade types for better performance and data integrity
     @OneToMany(mappedBy = "createdBy", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     private List<BroadcastEntity> broadcasts = new ArrayList<>();
@@ -81,7 +100,7 @@ public class UserEntity {
 
     // User roles enum
     public enum UserRole {
-        ADMIN, DJ, LISTENER
+        ADMIN, MODERATOR, DJ, LISTENER
     }
 
     // Default constructor
@@ -250,6 +269,46 @@ public class UserEntity {
 
     public void setBirthdate(LocalDate birthdate) {
         this.birthdate = birthdate;
+    }
+
+    public boolean isBanned() {
+        return banned;
+    }
+
+    public void setBanned(boolean banned) {
+        this.banned = banned;
+    }
+
+    public int getWarningCount() {
+        return warningCount;
+    }
+
+    public void setWarningCount(int warningCount) {
+        this.warningCount = warningCount;
+    }
+
+    public java.time.LocalDateTime getBannedUntil() {
+        return bannedUntil;
+    }
+
+    public void setBannedUntil(java.time.LocalDateTime bannedUntil) {
+        this.bannedUntil = bannedUntil;
+    }
+
+    public java.time.LocalDateTime getBannedAt() {
+        return bannedAt;
+    }
+
+    public void setBannedAt(java.time.LocalDateTime bannedAt) {
+        this.bannedAt = bannedAt;
+    }
+
+    public String getBanReason() {
+        return banReason;
+    }
+
+    public void setBanReason(String banReason) {
+        this.banReason = banReason;
     }
 
     // Helper methods
