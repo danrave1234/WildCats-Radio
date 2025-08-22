@@ -9,11 +9,65 @@ const NotificationContext = createContext();
 export function NotificationProvider({ children }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [page, setPage] = useState(0);
+  const [size] = useState(20);
+  const [hasMore, setHasMore] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const { isAuthenticated } = useAuth();
   const wsConnection = useRef(null);
   const refreshInterval = useRef(null);
+
+  // Preferences with local persistence
+  const defaultPreferences = {
+    broadcastStart: true,
+    broadcastReminders: true,
+    newSchedule: false,
+    systemUpdates: true,
+  };
+
+  const [preferences, setPreferences] = useState(() => {
+    try {
+      const saved = localStorage.getItem('notificationPreferences');
+      return saved ? { ...defaultPreferences, ...JSON.parse(saved) } : defaultPreferences;
+    } catch (e) {
+      return defaultPreferences;
+    }
+  });
+
+  const shouldDisplayNotification = (notification, prefs = preferences) => {
+    const type = notification?.type;
+    switch (type) {
+      case 'BROADCAST_STARTED':
+        return !!prefs.broadcastStart;
+      case 'BROADCAST_STARTING_SOON':
+        return !!prefs.broadcastReminders;
+      case 'BROADCAST_SCHEDULED':
+      case 'NEW_BROADCAST_POSTED':
+        return !!prefs.newSchedule;
+      case 'USER_REGISTERED':
+      case 'GENERAL':
+      case 'ALERT':
+      case 'INFO':
+      case 'REMINDER':
+        return !!prefs.systemUpdates;
+      default:
+        return true;
+    }
+  };
+
+  const updatePreferences = (next) => {
+    const merged = { ...preferences, ...next };
+    setPreferences(merged);
+    try {
+      localStorage.setItem('notificationPreferences', JSON.stringify(merged));
+    } catch (err) {
+      logger.warn('Failed to persist notification preferences', err);
+    }
+    const filtered = notifications.filter((n) => shouldDisplayNotification(n, merged));
+    setNotifications(filtered);
+    setUnreadCount(filtered.filter((n) => !n.read).length);
+  };
 
   // Fetch notifications on mount and when user logs in
   useEffect(() => {
@@ -95,17 +149,40 @@ export function NotificationProvider({ children }) {
     try {
       logger.debug('Fetching notifications and unread count...');
       const [notificationsResponse, unreadCountResponse] = await Promise.all([
-        notificationService.getAll(),
+        notificationService.getPage(0, size),
         notificationService.getUnreadCount()
       ]);
-      
-      logger.debug('Fetched notifications:', notificationsResponse.data.length);
-      logger.debug('Fetched unread count:', unreadCountResponse.data);
-      
-      setNotifications(notificationsResponse.data);
-      setUnreadCount(unreadCountResponse.data);
+
+      const content = notificationsResponse.data?.content || notificationsResponse.data || [];
+      logger.debug('Fetched notifications:', content.length);
+      logger.debug('Fetched unread count (raw):', unreadCountResponse.data);
+
+      const filtered = (content || []).filter(shouldDisplayNotification);
+      setNotifications(filtered);
+      setPage(0);
+      const last = notificationsResponse.data?.last;
+      setHasMore(Boolean(last === false && filtered.length > 0));
+      setUnreadCount(filtered.filter((n) => !n.read).length);
     } catch (error) {
       logger.error('Error fetching notifications:', error);
+    }
+  };
+
+  const loadMoreNotifications = async () => {
+    if (!isAuthenticated || !hasMore) return;
+    try {
+      const nextPage = page + 1;
+      logger.debug('Loading more notifications, page:', nextPage);
+      const resp = await notificationService.getPage(nextPage, size);
+      const content = resp.data?.content || [];
+      const filtered = content.filter(shouldDisplayNotification);
+      setNotifications(prev => [...prev, ...filtered]);
+      setPage(nextPage);
+      const last = resp.data?.last;
+      setHasMore(Boolean(last === false && filtered.length > 0));
+    } catch (e) {
+      logger.error('Failed to load more notifications', e);
+      setHasMore(false);
     }
   };
 
@@ -135,6 +212,9 @@ export function NotificationProvider({ children }) {
 
   const addNotification = (notification) => {
     logger.debug('Adding new notification:', notification);
+    if (!shouldDisplayNotification(notification)) {
+      return;
+    }
     setNotifications(prev => {
       // Frontend dedupe: avoid inserting when same id already present
       if (prev.some(n => n.id === notification.id)) {
@@ -172,6 +252,8 @@ export function NotificationProvider({ children }) {
     <NotificationContext.Provider value={{
       notifications,
       unreadCount,
+      hasMore,
+      loadMoreNotifications,
       isOpen,
       setIsOpen,
       markAsRead,
@@ -181,7 +263,9 @@ export function NotificationProvider({ children }) {
       fetchNotifications,
       isConnected,
       connectToWebSocket,
-      disconnectWebSocket
+      disconnectWebSocket,
+      preferences,
+      updatePreferences
     }}>
       {children}
     </NotificationContext.Provider>

@@ -68,7 +68,12 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       setError(null);
 
-      const response = await authService.login(credentials);
+      const normalized = {
+        ...credentials,
+        email: credentials?.email ? credentials.email.trim().toLowerCase() : ''
+      };
+
+      const response = await authService.login(normalized);
       const { token, user } = response.data;
 
       setCookie('token', token);

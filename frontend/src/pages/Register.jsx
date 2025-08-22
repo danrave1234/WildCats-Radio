@@ -93,7 +93,7 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-b from-white via-yellow-50 to-yellow-200 overflow-y-auto">
+    <div className="min-h-screen w-full bg-gradient-to-b from-background via-muted/40 to-muted text-foreground dark:from-slate-800 dark:via-slate-700/60 dark:to-slate-600 overflow-y-auto">
       <div className="w-full flex flex-col items-center justify-start min-h-screen p-4 py-6 sm:py-8 relative">
         <div className="w-full max-w-md my-auto">
           {/* Logo Section */}
@@ -112,25 +112,25 @@ export default function Register() {
             </p>
           </div>
 
-          <Card className="border-0 shadow-2xl bg-white backdrop-blur-xl overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out">
-            <div className="h-3 bg-gradient-to-r from-wildcats-maroon to-wildcats-maroon/70" />
+          <Card className="border border-border shadow bg-white dark:bg-slate-700 text-card-foreground overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out">
+            <div className="h-3 bg-wildcats-maroon" />
             <CardHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-2 sm:pb-3">
               <div>
-                <CardTitle className="text-lg sm:text-xl font-bold text-gray-800">Create your account</CardTitle>
-                <CardDescription className="text-sm text-gray-500 mt-1">
+                <CardTitle className="text-lg sm:text-xl font-bold">Create your account</CardTitle>
+                <CardDescription className="text-sm mt-1">
                   Enter your details below to create your account
                 </CardDescription>
               </div>
             </CardHeader>
             <div className="px-4 sm:px-6">
-              <Separator className="bg-gray-200" />
+              <Separator className="bg-border" />
             </div>
             <CardContent className="px-4 sm:px-6 py-4 sm:py-6 pt-3">
               <form onSubmit={handleSubmit} className="space-y-3">
                 {/* Name Fields Row */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="firstname" className="text-xs font-semibold text-gray-700">
+                    <Label htmlFor="firstname" className="text-xs font-semibold text-muted-foreground">
                       First Name
                     </Label>
                     <Input
@@ -142,12 +142,12 @@ export default function Register() {
                       value={formData.firstname}
                       onChange={handleChange}
                       placeholder="First name"
-                      className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
+                      className="h-10 !rounded-none"
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="lastname" className="text-xs font-semibold text-gray-700">
+                    <Label htmlFor="lastname" className="text-xs font-semibold text-muted-foreground">
                       Last Name
                     </Label>
                     <Input
@@ -159,14 +159,14 @@ export default function Register() {
                       value={formData.lastname}
                       onChange={handleChange}
                       placeholder="Last name"
-                      className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
+                      className="h-10 !rounded-none"
                     />
                   </div>
                 </div>
 
                 {/* Email Field */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="email" className="text-xs font-semibold text-gray-700">
+                  <Label htmlFor="email" className="text-xs font-semibold text-muted-foreground">
                     Email Address
                   </Label>
                   <Input
@@ -178,13 +178,13 @@ export default function Register() {
                     value={formData.email}
                     onChange={handleChange}
                     placeholder="your.email@example.com"
-                    className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
+                    className="h-10 !rounded-none"
                   />
                 </div>
 
                 {/* Birthdate Field */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="birthdate" className="text-xs font-semibold text-gray-700">
+                  <Label htmlFor="birthdate" className="text-xs font-semibold text-muted-foreground">
                     Date of Birth
                   </Label>
                   <Input
@@ -194,16 +194,16 @@ export default function Register() {
                     required
                     value={formData.birthdate}
                     onChange={handleChange}
-                    className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
+                    className="h-10 !rounded-none"
                   />
-                  <p className="text-xs text-gray-500 pt-1">
+                  <p className="text-xs text-muted-foreground pt-1">
                     Used for analytics and age-appropriate content
                   </p>
                 </div>
 
                 {/* Password Field */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="password" className="text-xs font-semibold text-gray-700">
+                  <Label htmlFor="password" className="text-xs font-semibold text-muted-foreground">
                     Password
                   </Label>
                   <div className="relative">
@@ -216,7 +216,7 @@ export default function Register() {
                       value={formData.password}
                       onChange={handleChange}
                       placeholder="Create a secure password"
-                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
+                      className="h-10 pr-10 !rounded-none"
                     />
                     <Button
                       type="button"
@@ -227,9 +227,9 @@ export default function Register() {
                       tabIndex={-1}
                     >
                       {showPasswords ? (
-                        <EyeOff className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                        <EyeOff className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
                       ) : (
-                        <Eye className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                        <Eye className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
                       )}
                     </Button>
                   </div>
@@ -237,7 +237,7 @@ export default function Register() {
 
                 {/* Confirm Password Field */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="confirmPassword" className="text-xs font-semibold text-gray-700">
+                  <Label htmlFor="confirmPassword" className="text-xs font-semibold text-muted-foreground">
                     Confirm Password
                   </Label>
                   <div className="relative">
@@ -250,7 +250,7 @@ export default function Register() {
                       value={formData.confirmPassword}
                       onChange={handleChange}
                       placeholder="Confirm your password"
-                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
+                      className="h-10 pr-10 !rounded-none"
                     />
                     <Button
                       type="button"
@@ -261,9 +261,9 @@ export default function Register() {
                       tabIndex={-1}
                     >
                       {showPasswords ? (
-                        <EyeOff className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                        <EyeOff className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
                       ) : (
-                        <Eye className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                        <Eye className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
                       )}
                     </Button>
                   </div>
@@ -271,10 +271,10 @@ export default function Register() {
 
                 {/* Error Message */}
                 {(error || authError) && (
-                  <div className="!rounded-none bg-red-50 border border-red-200 p-3">
+                  <div className="!rounded-none bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 p-3">
                     <div className="flex items-center space-x-2">
                       <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
-                      <p className="text-xs font-medium text-red-800">{error || authError}</p>
+                      <p className="text-xs font-medium text-red-800 dark:text-red-300">{error || authError}</p>
                     </div>
                   </div>
                 )}
@@ -290,7 +290,7 @@ export default function Register() {
                   <div className="grid gap-1.5 leading-none">
                     <label
                       htmlFor="terms"
-                      className="text-xs text-gray-500 peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      className="text-xs text-muted-foreground peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                     >
                       By creating an account, you agree to our{' '}
                       <Link to="#" className="text-wildcats-maroon hover:text-wildcats-maroon/80 font-medium underline underline-offset-2 focus:outline-none">
@@ -326,7 +326,7 @@ export default function Register() {
 
               {/* Sign In Link */}
               <div className="text-center pt-3">
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   Already have an account?{' '}
                   <Link 
                     to="/login" 

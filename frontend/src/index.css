@@ -78,52 +78,6 @@
     border-color: hsl(var(--border));
   }
   
-  /* Hide default browser scrollbars */
-  html, body {
-    overflow: hidden;
-    height: 100%;
-  }
-  
-  #root {
-    height: 100vh;
-    overflow: hidden;
-  }
-  
-  /* Hide scrollbars for webkit browsers */
-  ::-webkit-scrollbar {
-    display: none;
-  }
-  
-  /* Hide scrollbars for Firefox */
-  * {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-  
-  /* Enhanced scrollbar cursor tracking */
-  [data-radix-scroll-area-scrollbar] {
-    position: relative;
-    z-index: 10;
-  }
-  
-  [data-radix-scroll-area-thumb] {
-    will-change: transform;
-    transform-origin: center;
-  }
-  
-  [data-radix-scroll-area-thumb]:active {
-    transform: scale(1.1);
-    transition: transform 0.1s ease-out;
-  }
-  
-  /* Smooth cursor following */
-  [data-radix-scroll-area-scrollbar]:active {
-    user-select: none;
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-  }
-  
   body {
     @apply bg-background text-foreground font-kumbh;
   }
@@ -179,18 +133,7 @@
   }
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #E9ECEC;
-  }
-  a:hover {
-    color: #91403E;
-  }
-  button {
-    background-color: #FFFFFF;
-  }
-}
+/* Remove redundant prefers-color-scheme overrides; Tailwind variables handle them */
 
 /* Custom word wrapping for chat bubbles */
 .overflow-wrap-anywhere {

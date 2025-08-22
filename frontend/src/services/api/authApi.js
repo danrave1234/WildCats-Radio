@@ -21,6 +21,7 @@ export const authApi = {
   getAllUsers: () => api.get('/api/auth/getAll'),
   getUsersByRole: (role) => api.get(`/api/auth/by-role/${role}`),
   updateUserRole: (id, newRole) => api.put(`/api/auth/${id}/role?newRole=${newRole}`),
+  updateUserRoleByActor: (id, newRole) => api.put(`/api/auth/${id}/role/by-actor?newRole=${newRole}`),
 
   // Moderation operations
   banUser: (id, banData) => api.post(`/api/auth/${id}/ban`, banData),

@@ -26,8 +26,15 @@ export const broadcastApi = {
   getAnalytics: (id) => api.get(`/api/broadcasts/${id}/analytics`),
   getUpcoming: () => api.get('/api/broadcasts/upcoming'),
   getLive: () => api.get('/api/broadcasts/live'),
+  // Health snapshot endpoint (for recovery-first UI)
+  getLiveHealth: () => api.get('/api/broadcasts/live/health'),
   // New history and chat export endpoints
-  getHistory: (days = 30) => api.get(`/api/broadcasts/history?days=${days}`),
+  getHistory: (days = 30, page, size) => {
+    const params = new URLSearchParams({ days: String(days) });
+    if (page !== undefined) params.set('page', String(page));
+    if (size !== undefined) params.set('size', String(size));
+    return api.get(`/api/broadcasts/history?${params.toString()}`);
+  },
   exportChat: (broadcastId) => api.get(`/api/broadcasts/${broadcastId}/chat/export`, { responseType: 'blob' }),
   getActiveBroadcast: () =>
     api

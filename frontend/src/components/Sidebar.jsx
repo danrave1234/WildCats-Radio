@@ -124,6 +124,48 @@ const navigationSections = {
       ]
     }
   ],
+  MODERATOR: [
+    {
+      title: "MAIN",
+      items: [
+        {
+          label: "Mod Dashboard",
+          href: "/moderator",
+          icon: <Users className="h-5 w-5" />,
+        },
+        {
+          label: "Broadcast History",
+          href: "/broadcast-history",
+          icon: <HistoryIcon className="h-5 w-5" />,
+        },
+        {
+          label: "Analytics",
+          href: "/analytics",
+          icon: <BarChart3 className="h-5 w-5" />,
+        },
+        {
+          label: "Schedule",
+          href: "/schedule",
+          icon: <Calendar className="h-5 w-5" />,
+        },
+        {
+          label: "Listen",
+          href: "/dashboard",
+          icon: <Music className="h-5 w-5" />,
+        },
+      ]
+    },
+    {
+      title: "PERSONAL",
+      items: [
+        {
+          label: "Inbox",
+          href: "/notifications",
+          icon: <InboxIcon className="h-5 w-5" />,
+        },
+      ]
+    }
+  ],
   PUBLIC: [
     {
       title: "MAIN",
@@ -236,12 +278,12 @@ const NewSidebar = ({ userRole }) => {
   return (
     <SidebarBody>
       <div className="flex flex-col h-full">
-        {/* Logo section with white background - much larger on mobile */}
-        <div className="bg-white border-b border-gray-200 relative">
+        {/* Logo section follows theme */}
+        <div className="bg-card text-card-foreground border-b border-border relative">
           <MobileCloseButton />
           
           {/* Premium background effect for mobile */}
-          <div className="absolute inset-0 bg-gradient-to-b from-white via-gray-50/30 to-white md:hidden pointer-events-none"></div>
+          <div className="absolute inset-0 md:hidden pointer-events-none"></div>
           
           <div className="relative flex items-center justify-center h-48 md:h-28 overflow-hidden py-4 md:py-0">
             {/* Show panel-right icon when closed with fade animation */}
@@ -436,7 +478,7 @@ const NewSidebar = ({ userRole }) => {
                     WildCats Radio
                   </h4>
                   <p className="text-white/60 text-xs">
-                    © 2024 All Rights Reserved
+                    © 2025 All Rights Reserved
                   </p>
                 </div>
 

@@ -3,6 +3,7 @@ import { authApi } from './authApi';
 import { broadcastApi } from './broadcastApi';
 import { chatApi } from './chatApi';
 import { analyticsApi } from './analyticsApi';
+import { profanityApi } from './profanityApi';
 import { 
   notificationApi, 
   activityLogApi, 
@@ -16,6 +17,7 @@ export { authApi } from './authApi';
 export { broadcastApi } from './broadcastApi';
 export { chatApi } from './chatApi';
 export { analyticsApi } from './analyticsApi';
+export { profanityApi } from './profanityApi';
 export { 
   notificationApi, 
   activityLogApi, 
@@ -44,6 +46,7 @@ export const songRequestService = songRequestApi;
 export const pollService = pollApi;
 export const streamService = streamApi;
 export const analyticsService = analyticsApi;
+export const profanityService = profanityApi;
 
 // Default export for backward compatibility
 export { api as default } from './apiBase';

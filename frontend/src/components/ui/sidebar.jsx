@@ -89,8 +89,8 @@ export const DesktopSidebar = ({
   return (
     <motion.div
       className={cn(
-        "h-screen hidden md:flex md:flex-col flex-shrink-0 sticky top-0 border-r border-gray-200 relative overflow-hidden",
-        "bg-gradient-to-br from-wildcats-maroon via-red-800 to-red-900 backdrop-blur-xl",
+        "h-screen hidden md:flex md:flex-col flex-shrink-0 sticky top-0 border-r border-border relative overflow-hidden",
+        "bg-card text-card-foreground",
         className
       )}
       animate={{
@@ -113,9 +113,8 @@ export const DesktopSidebar = ({
         setOpen(false);
       }}
       {...props}>
-      {/* Premium gradient overlays to match header */}
-      <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/10 pointer-events-none"></div>
-      <div className="absolute inset-0 bg-gradient-to-r from-red-700/20 via-transparent to-red-900/30 pointer-events-none"></div>
+      {/* Theme-friendly subtle overlay */}
+      <div className="absolute inset-0 pointer-events-none"></div>
       
       {/* Content with relative positioning */}
       <div className="relative z-10 h-full">
@@ -157,14 +156,13 @@ export const MobileOverlaySidebar = ({
             }}
             className={cn(
               "fixed left-0 top-0 h-full w-80 max-w-[85vw] z-50 md:hidden flex flex-col relative overflow-hidden",
-              "bg-gradient-to-br from-wildcats-maroon via-red-800 to-red-900",
+              "bg-card text-card-foreground",
               className
             )}
             {...props}
           >
-            {/* Premium gradient overlays */}
-            <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/10 pointer-events-none"></div>
-            <div className="absolute inset-0 bg-gradient-to-r from-red-700/20 via-transparent to-red-900/30 pointer-events-none"></div>
+            {/* Theme-friendly overlays */}
+            <div className="absolute inset-0 pointer-events-none"></div>
             
 
             
@@ -202,13 +200,9 @@ export const SidebarLink = ({
     <NavLink
       to={link.href}
       className={({ isActive }) => cn(
-        "relative flex items-center h-12 group",
+        "relative flex items-center h-12 group rounded-md",
         className,
-        {
-            "text-maroon-600 font-bold": isActive && open,
-            "bg-white": isActive, // Show white background when active (both collapsed and expanded)
-          "text-white hover:bg-white/10": !isActive,
-        }
+        isActive ? "bg-accent text-accent-foreground font-semibold" : "hover:bg-muted hover:text-foreground"
       )}
       {...props}>
       {({ isActive }) => (
@@ -220,13 +214,7 @@ export const SidebarLink = ({
             "relative flex items-center w-full h-full"
           )}>
             <div className={cn(
-              "absolute left-2.5 w-6 h-6 flex items-center justify-center",
-              {
-                // When active: maroon text
-                "text-maroon-600": isActive,
-                // When not active: white text
-                "text-white": !isActive,
-              }
+              "absolute left-2.5 w-6 h-6 flex items-center justify-center"
             )}>
               {link.icon}
             </div>
@@ -247,7 +235,7 @@ export const SidebarLink = ({
               <AnimatePresence>
                 {isActive && open && (
                   <motion.div
-                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-maroon-600 shadow-sm"
+                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary/60"
                     initial={{ scaleX: 0, opacity: 0 }}
                     animate={{ 
                       scaleX: 1, 
@@ -271,7 +259,7 @@ export const SidebarLink = ({
               {/* Hover underline for non-active items - only when expanded */}
               {!isActive && open && (
                 <motion.div
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/60"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-muted-foreground/40"
                   initial={{ scaleX: 0 }}
                   whileHover={{ 
                     scaleX: 1,
@@ -298,7 +286,7 @@ export const SidebarLink = ({
                 duration: 0.15, 
                 ease: "easeOut"
               }}
-              className="absolute right-3 w-2 h-2 bg-maroon-600 rounded-full"
+              className="absolute right-3 w-2 h-2 bg-primary/60 rounded-full"
             />
           </div>
           

@@ -81,6 +81,9 @@ export default function BroadcastHistory() {
   const [downloadingId, setDownloadingId] = useState(null);
   const [broadcastHistoryList, setBroadcastHistoryList] = useState([]); // ended broadcasts from Broadcast entity
   const [broadcastsLoading, setBroadcastsLoading] = useState(false);
+  const [page, setPage] = useState(0);
+  const [size] = useState(20);
+  const [hasMore, setHasMore] = useState(true);
 
   const DAYS = 24 * 60 * 60 * 1000;
   const isExpiredByDate = (dateObj) => {
@@ -101,8 +104,12 @@ export default function BroadcastHistory() {
       try {
         setBroadcastsLoading(true);
         const days = timeFilter === 'today' ? 1 : timeFilter === 'week' ? 7 : timeFilter === 'month' ? 30 : 365;
-        const resp = await broadcastService.getHistory(days);
-        setBroadcastHistoryList(resp.data || []);
+        const resp = await broadcastService.getHistory(days, 0, size);
+        const content = resp.data?.content || resp.data || [];
+        setBroadcastHistoryList(content);
+        setPage(0);
+        const last = resp.data?.last;
+        setHasMore(Boolean(last === false && content.length > 0));
       } catch (e) {
         console.error('Failed to load broadcasts history', e);
       } finally {
@@ -112,7 +119,24 @@ export default function BroadcastHistory() {
     if (true) {
       loadBroadcasts();
     }
-  }, [timeFilter]);
+  }, [timeFilter, size]);
+
+  const loadMoreBroadcasts = async () => {
+    if (!hasMore) return;
+    try {
+      const days = timeFilter === 'today' ? 1 : timeFilter === 'week' ? 7 : timeFilter === 'month' ? 30 : 365;
+      const nextPage = page + 1;
+      const resp = await broadcastService.getHistory(days, nextPage, size);
+      const content = resp.data?.content || [];
+      setBroadcastHistoryList(prev => [...prev, ...content]);
+      setPage(nextPage);
+      const last = resp.data?.last;
+      setHasMore(Boolean(last === false && content.length > 0));
+    } catch (e) {
+      console.error('Failed to load more broadcasts history', e);
+      setHasMore(false);
+    }
+  };
 
   const filteredAndSortedHistory = useMemo(() => {
     let filtered = broadcastHistory;
@@ -272,15 +296,15 @@ export default function BroadcastHistory() {
     }
   };
 
-  // Security check: Only allow DJs and Admins to access this feature
-  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
+  // Security check: Allow DJs, Moderators, and Admins
+  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR')) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <ShieldExclamationIcon className="h-16 w-16 mx-auto text-red-500 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Access Restricted</h3>
           <p className="text-gray-600 dark:text-gray-400">
-            This feature is only available to DJs and Administrators.
+            This feature is available to DJs, Moderators, and Administrators.
           </p>
         </div>
       </div>
@@ -550,10 +574,14 @@ export default function BroadcastHistory() {
                           <h3 className="text-base font-semibold text-gray-900 dark:text-white">{b.title || 'Untitled Broadcast'}</h3>
                           <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
                             <span className="mr-2">Status: {b.status}</span>
-                            {b.actualEnd || b.actualStart || b.scheduledStart ? (
-                              <span>
-                                • {formatInTimeZone(parseBackendTimestamp(b.actualEnd || b.actualStart || b.scheduledStart), 'Asia/Manila', 'MMM d, yyyy • h:mm a')}
-                              </span>
+                            {b.createdBy?.firstname || b.createdBy?.lastname ? (
+                              <span className="mr-2">• DJ: {`${b.createdBy?.firstname || ''} ${b.createdBy?.lastname || ''}`.trim()}</span>
+                            ) : null}
+                            {b.actualStart ? (
+                              <span className="mr-2">• Started: {formatInTimeZone(parseBackendTimestamp(b.actualStart), 'Asia/Manila', 'MMM d, yyyy • h:mm a')}</span>
+                            ) : null}
+                            {b.actualEnd ? (
+                              <span>• Ended: {formatInTimeZone(parseBackendTimestamp(b.actualEnd), 'Asia/Manila', 'MMM d, yyyy • h:mm a')}</span>
                             ) : null}
                           </div>
                         </div>
@@ -579,6 +607,18 @@ export default function BroadcastHistory() {
             )}
           </div>
         }
+
+        {/* Load More */}
+        {broadcastHistoryList.length > 0 && hasMore && (
+          <div className="mt-6 text-center">
+            <button
+              onClick={loadMoreBroadcasts}
+              className="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-sm font-medium dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white"
+            >
+              Load more
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

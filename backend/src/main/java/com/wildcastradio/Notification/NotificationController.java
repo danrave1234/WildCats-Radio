@@ -3,6 +3,7 @@ package com.wildcastradio.Notification;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -31,9 +32,19 @@ public class NotificationController {
     }
 
     @GetMapping
-    public ResponseEntity<List<NotificationDTO>> getNotifications(Authentication authentication) {
+    public ResponseEntity<?> getNotifications(
+            Authentication authentication,
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "size", required = false) Integer size) {
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
+
+        if (page != null || size != null) {
+            int p = page != null ? page : 0;
+            int s = size != null ? size : 20;
+            Page<NotificationDTO> result = notificationService.getNotificationsForUser(user, p, s);
+            return ResponseEntity.ok(result);
+        }
 
         List<NotificationDTO> notifications = notificationService.getNotificationsForUser(user);
         return ResponseEntity.ok(notifications);
@@ -106,7 +117,7 @@ public class NotificationController {
 
     // Test endpoint for admins to send test notifications
     @PostMapping("/test")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<NotificationDTO> sendTestNotification(
             @RequestParam String message,
             @RequestParam(defaultValue = "INFO") String type,
@@ -138,7 +149,7 @@ public class NotificationController {
 
     // Test endpoint for admins to send notifications to all users
     @PostMapping("/test/broadcast")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<String> sendTestNotificationToAll(
             @RequestParam String message,
             @RequestParam(defaultValue = "INFO") String type) {
@@ -153,7 +164,7 @@ public class NotificationController {
                 sentCount++;
             }
             
-            return ResponseEntity.ok("Test notification sent to " + sentCount + " users");
+            return ResponseEntity.ok("Notification sent to " + sentCount + " users");
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body("Invalid notification type");
         }

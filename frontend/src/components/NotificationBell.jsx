@@ -255,10 +255,10 @@ export default function NotificationBell() {
             <Popover open={isOpen} onOpenChange={setIsOpen}>
                 <PopoverTrigger asChild>
                     <button
-                        className={`relative rounded-full h-8 w-8 sm:h-9 sm:w-9 md:h-10 md:w-10 flex-shrink-0 text-wildcats-maroon bg-white hover:bg-gray-100 transition-all duration-300 flex items-center justify-center focus:outline-none focus:ring-0 hover:scale-105 ${isOpen ? 'scale-105 bg-gray-100' : ''} ${unreadCount > 0 ? 'notification-shake' : ''}`}
+                        className={`relative rounded-full h-8 w-8 sm:h-9 sm:w-9 md:h-10 md:w-10 flex-shrink-0 text-foreground bg-transparent hover:bg-muted transition-all duration-300 flex items-center justify-center focus:outline-none focus:ring-0 hover:scale-105 ${isOpen ? 'scale-105' : ''} ${unreadCount > 0 ? 'notification-shake' : ''}`}
                         aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ''}`}
                     >
-                        <Bell className="bell-icon h-4 w-4 sm:h-5 sm:w-5 fill-wildcats-maroon" />
+                        <Bell className="bell-icon h-4 w-4 sm:h-5 sm:w-5" />
                         
                         {/* Notification Badge */}
                         {unreadCount > 0 && (
@@ -272,13 +272,13 @@ export default function NotificationBell() {
                 <PopoverContent 
                     align="end" 
                     sideOffset={12}
-                    className="w-96 p-0 border border-gray-200 dark:border-gray-700 shadow-xl !rounded-none"
+                    className="w-96 p-0 border border-border bg-card text-card-foreground shadow-xl !rounded-none"
                 >
                     {/* Header */}
-                    <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                    <div className="px-4 py-3 border-b border-border bg-muted">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-2">
-                                <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+                                <h3 className="text-base font-semibold">
                                     Notifications
                                 </h3>
                             </div>
@@ -298,11 +298,11 @@ export default function NotificationBell() {
                         {latestUnreadNotifications.length === 0 ? (
                             <div className="flex flex-col items-center justify-center text-center p-8 h-96">
                                 <div className="relative mb-4">
-                                    <Bell className="h-12 w-12 text-gray-300 mx-auto" />
-                                    <div className="absolute -top-1 -right-1 h-4 w-4 bg-gray-200 rounded-full"></div>
+                                    <Bell className="h-12 w-12 text-muted-foreground mx-auto" />
+                                    <div className="absolute -top-1 -right-1 h-4 w-4 bg-muted rounded-full"></div>
                                 </div>
-                                <h3 className="text-lg font-medium text-gray-900 mb-2">No unread notifications</h3>
-                                <p className="text-sm text-gray-500 max-w-xs">
+                                <h3 className="text-lg font-medium mb-2">No unread notifications</h3>
+                                <p className="text-sm text-muted-foreground max-w-xs">
                                     You're all caught up! New notifications will appear here.
                                 </p>
                             </div>
@@ -366,7 +366,7 @@ export default function NotificationBell() {
                                         <div className="flex-1 min-w-0 space-y-2">
                                             {/* Message with better typography */}
                                             <div className="flex items-start justify-between gap-3">
-                                                <h4 className="text-sm font-semibold text-gray-900 leading-5 group-hover:text-wildcats-maroon transition-colors duration-200">
+                                                <h4 className="text-sm font-semibold leading-5 group-hover:text-wildcats-maroon transition-colors duration-200">
                                                     {notification.message}
                                                 </h4>
                                                 
@@ -381,16 +381,16 @@ export default function NotificationBell() {
                                             {/* Enhanced timestamp section */}
                                             <div className="flex items-center justify-between text-xs">
                                                 <div className="flex items-center space-x-2">
-                                                    <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-600 font-medium">
+                                                    <span className="inline-flex items-center px-2 py-1 rounded-md bg-muted text-muted-foreground font-medium">
                                                         {formatInTimeZone(parseBackendTimestamp(notification.timestamp), 'Asia/Manila', 'MMM dd, yyyy')}
                                                     </span>
-                                                    <span className="text-gray-400">•</span>
-                                                    <span className="text-gray-500 font-medium">
+                                                    <span className="text-muted-foreground">•</span>
+                                                    <span className="text-muted-foreground font-medium">
                                                         {formatInTimeZone(parseBackendTimestamp(notification.timestamp), 'Asia/Manila', 'h:mm a')}
                                                     </span>
                                                 </div>
                                                 
-                                                <span className="text-gray-400 font-medium bg-gray-50 px-2 py-1 rounded-md group-hover:bg-white transition-colors duration-200">
+                                                <span className="text-muted-foreground font-medium bg-muted px-2 py-1 rounded-md transition-colors duration-200">
                                                     {formatDistanceToNow(parseBackendTimestamp(notification.timestamp), { addSuffix: true })}
                                                 </span>
                                             </div>

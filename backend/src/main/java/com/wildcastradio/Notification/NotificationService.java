@@ -6,6 +6,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -127,5 +130,14 @@ public class NotificationService {
     @Transactional
     public int markAllAsRead(UserEntity user) {
         return notificationRepository.markAllAsReadForUser(user);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<NotificationDTO> getNotificationsForUser(UserEntity user, int page, int size) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(size, 100));
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+        Page<NotificationEntity> result = notificationRepository.findByRecipientOrderByTimestampDesc(user, pageable);
+        return result.map(NotificationDTO::fromEntity);
     }
 } 

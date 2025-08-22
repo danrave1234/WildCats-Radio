@@ -423,6 +423,7 @@ public class IcecastService {
         status.put("mountPointExists", false);
         status.put("hasActiveSource", false);
         status.put("listenerCount", 0);
+        status.put("bitrate", 0);
         status.put("errorMessage", null);
 
         try {
@@ -437,64 +438,98 @@ public class IcecastService {
             if (responseCode == 200) {
                 status.put("serverReachable", true);
 
-                // Read the JSON response
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
                     StringBuilder response = new StringBuilder();
                     String line;
                     while ((line = reader.readLine()) != null) {
                         response.append(line);
                     }
-
                     String jsonResponse = response.toString();
-                    logger.debug("Icecast status JSON: {}", jsonResponse);
 
-                    // Check if our mount point exists in the response
-                    if (jsonResponse.contains("\"mount\":\"" + icecastMount + "\"")) {
-                        status.put("mountPointExists", true);
+                    try {
+                        ObjectMapper mapper = new ObjectMapper();
+                        JsonNode rootNode = mapper.readTree(jsonResponse);
+                        JsonNode icestats = rootNode.path("icestats");
+                        JsonNode sourceNode = icestats.path("source");
 
-                        // Extract mount point section
-                        int mountIndex = jsonResponse.indexOf("\"mount\":\"" + icecastMount + "\"");
-                        int nextMountIndex = jsonResponse.indexOf("\"mount\":", mountIndex + 1);
-
-                        String mountSection = nextMountIndex > 0 ? 
-                            jsonResponse.substring(mountIndex, nextMountIndex) : 
-                            jsonResponse.substring(mountIndex);
-
-                        // Check for listeners
-                        int listenersIndex = mountSection.indexOf("\"listeners\":");
-                        if (listenersIndex > 0) {
-                            int startIndex = listenersIndex + 12;
-                            int endIndex = mountSection.indexOf(',', startIndex);
-                            if (endIndex == -1) endIndex = mountSection.indexOf('}', startIndex);
-
-                            if (endIndex > startIndex) {
-                                String listenersStr = mountSection.substring(startIndex, endIndex).trim();
+                        java.util.function.Function<JsonNode, Boolean> processSource = (JsonNode src) -> {
+                            String listenurl = src.path("listenurl").asText("");
+                            String mount = src.path("mount").asText("");
+                            boolean matches = false;
+                            if (!listenurl.isEmpty()) {
                                 try {
-                                    int listeners = Integer.parseInt(listenersStr);
-                                    status.put("listenerCount", listeners);
-                                } catch (NumberFormatException e) {
-                                    if (logWarnings) {
-                                        logger.warn("Could not parse listener count: {}", listenersStr);
-                                    } else {
-                                        logger.debug("Could not parse listener count: {}", listenersStr);
+                                    int idx = listenurl.lastIndexOf('/');
+                                    String fromUrl = idx >= 0 ? listenurl.substring(idx) : listenurl;
+                                    matches = icecastMount.equals(fromUrl);
+                                } catch (Exception ignore) { }
+                            }
+                            if (!matches && !mount.isEmpty()) {
+                                matches = icecastMount.equals(mount);
+                            }
+                            if (!matches) {
+                                return false;
+                            }
+
+                            status.put("mountPointExists", true);
+
+                            int listeners = src.path("listeners").asInt(0);
+                            status.put("listenerCount", listeners);
+
+                            boolean hasSourceIp = src.has("source_ip") && !src.path("source_ip").asText("").isEmpty();
+                            status.put("hasActiveSource", hasSourceIp);
+
+                            int bitrate = src.path("bitrate").asInt(0);
+                            if (bitrate == 0) {
+                                // Try to parse from audio_info: "bitrate=128"
+                                String audioInfo = src.path("audio_info").asText("");
+                                if (audioInfo != null && !audioInfo.isEmpty()) {
+                                    for (String part : audioInfo.split(";")) {
+                                        String p = part.trim();
+                                        if (p.startsWith("bitrate=")) {
+                                            try {
+                                                bitrate = Integer.parseInt(p.substring("bitrate=".length()).trim());
+                                            } catch (NumberFormatException ignore) { }
+                                        }
                                     }
                                 }
                             }
-                        }
+                            status.put("bitrate", bitrate);
 
-                        // Check if there's an active source (has source_ip)
-                        if (mountSection.contains("\"source_ip\"")) {
-                            status.put("hasActiveSource", true);
+                            if (!hasSourceIp) {
+                                status.put("errorMessage", "Mount point exists but no active source connected");
+                            } else if (bitrate <= 0) {
+                                status.put("errorMessage", "Active source detected but bitrate is 0 (stalled)");
+                            }
+                            return true;
+                        };
+
+                        if (sourceNode.isArray()) {
+                            for (JsonNode src : sourceNode) {
+                                if (processSource.apply(src)) {
+                                    break;
+                                }
+                            }
+                        } else if (sourceNode.isObject()) {
+                            processSource.apply(sourceNode);
                         } else {
-                            status.put("errorMessage", "Mount point exists but no active source connected");
+                            // No source present
+                            status.put("errorMessage", "No source information present in status");
                         }
 
-                    } else {
-                        status.put("errorMessage", "Mount point " + icecastMount + " not found in server response");
+                        if (!(Boolean) status.get("mountPointExists")) {
+                            status.put("errorMessage", "Mount point " + icecastMount + " not found in server response");
+                            if (logWarnings) {
+                                logger.warn("Mount point {} not found in Icecast server response", icecastMount);
+                            } else {
+                                logger.debug("Mount point {} not found in Icecast server response", icecastMount);
+                            }
+                        }
+                    } catch (Exception parseEx) {
+                        status.put("errorMessage", "Failed to parse Icecast JSON: " + parseEx.getMessage());
                         if (logWarnings) {
-                            logger.warn("Mount point {} not found in Icecast server response", icecastMount);
+                            logger.warn("Failed to parse Icecast JSON: {}", parseEx.getMessage());
                         } else {
-                            logger.debug("Mount point {} not found in Icecast server response", icecastMount);
+                            logger.debug("Failed to parse Icecast JSON: {}", parseEx.getMessage());
                         }
                     }
                 }

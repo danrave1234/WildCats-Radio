@@ -58,7 +58,9 @@ export default function Notifications() {
     markAsRead, 
     markAllAsRead, 
     fetchNotifications,
-    isConnected 
+    isConnected,
+    hasMore,
+    loadMoreNotifications
   } = useNotifications();
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -357,6 +359,18 @@ export default function Notifications() {
             })
           )}
         </div>
+
+        {/* Load More */}
+        {filteredAndSortedNotifications.length > 0 && hasMore && (
+          <div className="mt-6 text-center">
+            <button
+              onClick={loadMoreNotifications}
+              className="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-sm font-medium dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white"
+            >
+              Load more
+            </button>
+          </div>
+        )}
 
         {/* Connection status indicator */}
         <div className="mt-8 text-center">

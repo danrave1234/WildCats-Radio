@@ -2,11 +2,16 @@ package com.wildcastradio.Broadcast;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -47,6 +52,28 @@ public class BroadcastService {
 
     @Autowired
     private UserRepository userRepository;
+
+    // Live stream health check configuration
+    @Value("${broadcast.healthCheck.enabled:true}")
+    private boolean healthCheckEnabled;
+
+    @Value("${broadcast.healthCheck.intervalMs:15000}")
+    private long healthCheckIntervalMs;
+
+    @Value("${broadcast.healthCheck.unhealthyConsecutiveThreshold:3}")
+    private int unhealthyConsecutiveThreshold;
+
+    // In-memory tracking for consecutive unhealthy checks
+    private int consecutiveUnhealthyChecks = 0;
+    private Long lastCheckedBroadcastId = null;
+
+    @Value("${broadcast.healthCheck.autoEnd:false}")
+    private boolean autoEndOnUnhealthy;
+
+    // Recovery state and last health snapshot for UI/clients
+    private volatile boolean recovering = false;
+    private volatile java.util.Map<String, Object> lastHealthSnapshot = new java.util.HashMap<>();
+    private volatile LocalDateTime lastHealthCheckTime = null;
 
     public BroadcastDTO createBroadcast(CreateBroadcastRequest request) {
         logger.info("Creating broadcast: {}", request.getTitle());
@@ -371,6 +398,13 @@ public class BroadcastService {
         return broadcastRepository.findEndedSince(since);
     }
 
+    public Page<BroadcastEntity> getEndedBroadcastsSince(LocalDateTime since, int page, int size) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(size, 100));
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+        return broadcastRepository.findEndedSince(since, pageable);
+    }
+
     // Method to get engagement data for analytics
     public String getAnalytics(Long broadcastId) {
         Optional<BroadcastEntity> broadcast = getBroadcastById(broadcastId);
@@ -543,5 +577,133 @@ public class BroadcastService {
         return broadcastRepository.findAll().stream()
             .limit(limit)
             .collect(java.util.stream.Collectors.toList());
+    }
+
+    /**
+     * Periodically verify live stream health and auto-end broadcast if stalled.
+     * Healthy criteria: Icecast server reachable, mount exists, active source present, bitrate > 0.
+     * Uses consecutive unhealthy checks to avoid false positives during brief network hiccups.
+     */
+    @Scheduled(fixedDelayString = "${broadcast.healthCheck.intervalMs:15000}")
+    public void monitorLiveStreamHealth() {
+        if (!healthCheckEnabled) {
+            return;
+        }
+        try {
+            Optional<BroadcastEntity> liveOpt = getCurrentLiveBroadcast();
+            if (liveOpt.isEmpty()) {
+                // Nothing live; reset state
+                consecutiveUnhealthyChecks = 0;
+                lastCheckedBroadcastId = null;
+                recovering = false;
+                // Update snapshot to reflect no live broadcast
+                lastHealthSnapshot = new java.util.HashMap<>();
+                lastHealthSnapshot.put("healthy", false);
+                lastHealthSnapshot.put("recovering", false);
+                lastHealthSnapshot.put("broadcastLive", false);
+                lastHealthSnapshot.put("consecutiveUnhealthyChecks", consecutiveUnhealthyChecks);
+                lastHealthCheckTime = LocalDateTime.now();
+                return;
+            }
+
+            BroadcastEntity live = liveOpt.get();
+            Long id = live.getId();
+            if (id == null) {
+                return;
+            }
+
+            if (lastCheckedBroadcastId == null || !id.equals(lastCheckedBroadcastId)) {
+                // New live broadcast; reset counters
+                lastCheckedBroadcastId = id;
+                consecutiveUnhealthyChecks = 0;
+            }
+
+            Map<String, Object> status = icecastService.checkMountPointStatus(false);
+            boolean serverReachable = Boolean.TRUE.equals(status.get("serverReachable"));
+            boolean mountExists = Boolean.TRUE.equals(status.get("mountPointExists"));
+            boolean hasSource = Boolean.TRUE.equals(status.get("hasActiveSource"));
+            int bitrate = 0;
+            Object bitrateObj = status.get("bitrate");
+            if (bitrateObj instanceof Number) {
+                bitrate = ((Number) bitrateObj).intValue();
+            } else if (bitrateObj != null) {
+                try { bitrate = Integer.parseInt(String.valueOf(bitrateObj)); } catch (Exception ignore) {}
+            }
+
+            boolean healthy = serverReachable && mountExists && hasSource && bitrate > 0;
+
+            if (healthy) {
+                if (consecutiveUnhealthyChecks > 0 || recovering) {
+                    logger.info("Live stream recovered health for broadcast id={}; resetting recovering state", id);
+                }
+                consecutiveUnhealthyChecks = 0;
+                recovering = false;
+                // Update snapshot
+                lastHealthSnapshot = new java.util.HashMap<>(status);
+                lastHealthSnapshot.put("healthy", true);
+                lastHealthSnapshot.put("recovering", false);
+                lastHealthSnapshot.put("consecutiveUnhealthyChecks", consecutiveUnhealthyChecks);
+                lastHealthSnapshot.put("broadcastId", id);
+                lastHealthSnapshot.put("broadcastLive", true);
+                lastHealthCheckTime = LocalDateTime.now();
+                return;
+            }
+
+            consecutiveUnhealthyChecks++;
+            // Update snapshot for unhealthy state
+            lastHealthSnapshot = new java.util.HashMap<>(status);
+            lastHealthSnapshot.put("healthy", false);
+            lastHealthSnapshot.put("recovering", true);
+            lastHealthSnapshot.put("consecutiveUnhealthyChecks", consecutiveUnhealthyChecks);
+            lastHealthSnapshot.put("broadcastId", id);
+            lastHealthSnapshot.put("broadcastLive", true);
+            lastHealthCheckTime = LocalDateTime.now();
+
+            if (consecutiveUnhealthyChecks >= unhealthyConsecutiveThreshold) {
+                if (autoEndOnUnhealthy) {
+                    logger.warn("Auto-ending broadcast id={} due to sustained unhealthy stream (serverReachable={}, mountExists={}, hasSource={}, bitrate={})", id, serverReachable, mountExists, hasSource, bitrate);
+                    try {
+                        // Use simplified end that doesn't require a user context
+                        endBroadcast(id);
+                    } catch (Exception e) {
+                        logger.error("Failed to auto-end broadcast {}: {}", id, e.getMessage());
+                    } finally {
+                        // Reset after action
+                        consecutiveUnhealthyChecks = 0;
+                        lastCheckedBroadcastId = null;
+                        recovering = false;
+                    }
+                } else {
+                    // Keep broadcast LIVE and mark recovering
+                    recovering = true;
+                    logger.warn("Stream unhealthy for broadcast id={}, keeping LIVE (autoEndOnUnhealthy=false). Waiting for source reconnection. (serverReachable={}, mountExists={}, hasSource={}, bitrate={})", id, serverReachable, mountExists, hasSource, bitrate);
+                    // Cap the counter to avoid overflow/log spam
+                    if (consecutiveUnhealthyChecks > unhealthyConsecutiveThreshold) {
+                        consecutiveUnhealthyChecks = unhealthyConsecutiveThreshold;
+                    }
+                }
+            } else {
+                logger.info("Stream unhealthy check {}/{} for broadcast id={} (serverReachable={}, mountExists={}, hasSource={}, bitrate={})", consecutiveUnhealthyChecks, unhealthyConsecutiveThreshold, id, serverReachable, mountExists, hasSource, bitrate);
+            }
+        } catch (Exception ex) {
+            logger.error("Error during live stream health monitoring: {}", ex.getMessage());
+        }
+    }
+
+    /**
+     * Expose the latest live stream health status for UI/clients.
+     * Returns a snapshot with keys: healthy, recovering, broadcastLive, consecutiveUnhealthyChecks,
+     * broadcastId (when live), serverReachable, mountPointExists, hasActiveSource, bitrate, listenerCount,
+     * errorMessage, lastCheckedAt (ISO string).
+     */
+    public java.util.Map<String, Object> getLiveStreamHealthStatus() {
+        java.util.Map<String, Object> snapshot = lastHealthSnapshot != null ? new java.util.HashMap<>(lastHealthSnapshot) : new java.util.HashMap<>();
+        snapshot.putIfAbsent("healthy", false);
+        snapshot.putIfAbsent("recovering", false);
+        snapshot.putIfAbsent("broadcastLive", getCurrentLiveBroadcast().isPresent());
+        snapshot.put("lastCheckedAt", lastHealthCheckTime != null ? lastHealthCheckTime.toString() : null);
+        snapshot.put("autoEndOnUnhealthy", autoEndOnUnhealthy);
+        snapshot.put("healthCheckEnabled", healthCheckEnabled);
+        return snapshot;
     }
 } 
