@@ -1686,7 +1686,7 @@ export default function ListenerDashboard() {
   const renderChatInput = () => {
     if (!currentUser) {
       return (
-        <div className="p-4 bg-muted border-t">
+        <div className="p-4 bg-muted">
           <div className="text-center">
             <p className="text-sm text-muted-foreground mb-3">
               Join the conversation! Login or create an account to chat with other listeners.
@@ -1739,17 +1739,17 @@ export default function ListenerDashboard() {
       {/* Desktop Layout */}
       <div className="hidden lg:flex h-[calc(100vh-4rem)] overflow-hidden">
         <main className="flex-1 bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 overflow-hidden">
-          <ScrollArea className="h-[calc(100vh-4rem)] hide-scrollbar">
-            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-8 p-8 items-start">
-              
-              {/* Left Column: Song Request & Polls */}
-              <div className="space-y-8">
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,448px)] gap-8 pr-8 h-full items-start">
+            
+            {/* Left Column: Song Request & Polls - Scrollable */}
+            <ScrollArea className="h-[calc(100vh-4rem)] hide-scrollbar">
+              <div className="space-y-8 pl-8 pr-4 pt-8 pb-8">
                 {(isLive || forceShowLive) ? (
                   <>
                     <div>
                       <h2 className="mb-6 text-3xl font-bold text-slate-900 dark:text-white">Live Interactions</h2>
                       {/* Song Request and Poll Cards */}
-                      <div className="space-y-12">
+                      <div className="space-y-6">
                           {/* Song Request Section */}
                           <div>
                             {/* Song Request Header - Outside Card */}
@@ -1822,7 +1822,7 @@ export default function ListenerDashboard() {
                                     </div>
                                   </div>
                                   <div className="pt-2">
-                                    <Button type="submit" className="bg-wildcats-maroon hover:bg-red-800 text-white shadow-lg px-6 h-10 rounded-lg font-semibold w-full">
+                                    <Button type="submit" className="bg-red-800 hover:bg-red-900 text-white shadow-lg px-6 h-10 rounded-lg font-semibold w-full">
                                       <Send className="h-4 w-4 mr-2" />
                                       Submit Request
                                     </Button>
@@ -1834,7 +1834,7 @@ export default function ListenerDashboard() {
                           </div>
 
                           {/* Poll Section */}
-                          <div className="mt-12">
+                          <div>
                             {/* Poll Header - Outside Card */}
                             <div className="flex items-center mb-4">
                               <div className="w-12 h-12 bg-blue-500/10 rounded-lg flex items-center justify-center mr-4 flex-shrink-0">
@@ -1956,16 +1956,17 @@ export default function ListenerDashboard() {
                   </Card>
                 )}
               </div>
+            </ScrollArea>
 
               {/* Right Column: Player */}
-              <div className="w-[448px]" style={{ perspective: '1000px' }}>
+              <div className="w-80 lg:w-96 xl:w-[448px] mt-8" style={{ perspective: '1000px' }}>
                  <Card 
                     className="relative overflow-hidden border-none shadow-2xl rounded-2xl sticky top-8 bg-gradient-to-br from-[#800000] to-[#600000] min-h-[840px]"
                   >
                     <div className="absolute -top-24 -right-24 w-72 h-72 bg-white/10 rounded-full mix-blend-soft-light filter blur-3xl opacity-50 pointer-events-none"></div>
                     <div className="absolute -bottom-24 -left-24 w-72 h-72 bg-red-400/10 rounded-full mix-blend-soft-light filter blur-3xl opacity-50 pointer-events-none"></div>
                     {(isLive || forceShowLive) ? (
-                        <CardContent className="relative z-10 p-10 flex flex-col items-center text-center">
+                        <CardContent className="relative z-10 p-6 lg:p-8 xl:p-10 flex flex-col items-center text-center">
                           <div className="w-full flex items-center justify-between mb-10">
                              <Badge className="bg-white/10 text-white border-white/20 shadow-lg">
                                 <span className="relative flex h-2 w-2 mr-2">
@@ -1980,8 +1981,8 @@ export default function ListenerDashboard() {
                               </div>
                           </div>
 
-                          <div className="h-48 w-48 bg-black/20 rounded-full flex items-center justify-center mb-8 shadow-inner border border-white/10 ring-1 ring-white/10 p-2">
-                            <img src="/wildcat_logo.png" alt="WildCat Radio" className="w-full h-full object-contain" />
+                          <div className="h-32 w-32 lg:h-40 lg:w-40 xl:h-48 xl:w-48 bg-black/20 rounded-full flex items-center justify-center mb-6 lg:mb-8 shadow-inner border border-white/10 ring-1 ring-white/10 p-3 lg:p-4">
+                            <img src="/wildcat_logo.png" alt="WildCat Radio" className="w-24 h-24 lg:w-32 lg:h-32 xl:w-40 xl:h-40 object-contain ml-1 lg:ml-2" />
                           </div>
 
                           <p className="text-base font-semibold uppercase tracking-widest text-red-200 mb-2">NOW BROADCASTING</p>
@@ -1994,14 +1995,14 @@ export default function ListenerDashboard() {
                             onClick={(e) => { e.preventDefault(); togglePlay(); }}
                             disabled={!serverConfig}
                             className={cn(
-                              "w-28 h-28 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center border-2 border-white/10 outline-none focus:outline-none focus:ring-4 focus:ring-red-400/50 focus:ring-offset-2 focus:ring-offset-red-950 transform hover:scale-105 mb-10",
+                              "w-20 h-20 lg:w-24 lg:h-24 xl:w-28 xl:h-28 rounded-full shadow-lg transition-all duration-300 flex items-center justify-center border-2 border-white/10 outline-none focus:outline-none focus:ring-4 focus:ring-red-400/50 focus:ring-offset-2 focus:ring-offset-red-950 transform hover:scale-105 mb-8 lg:mb-10",
                               localAudioPlaying 
                                 ? "bg-black/20 text-white" 
                                 : "bg-white/20 text-white"
                             )}
                             aria-label={localAudioPlaying ? 'Pause' : 'Play'}
                           >
-                            {localAudioPlaying ? <Pause className="h-12 w-12 drop-shadow-lg" /> : <Play className="h-12 w-12 ml-1 drop-shadow-lg" />}
+                            {localAudioPlaying ? <Pause className="h-8 w-8 lg:h-10 lg:w-10 xl:h-12 xl:w-12 drop-shadow-lg" /> : <Play className="h-8 w-8 lg:h-10 lg:w-10 xl:h-12 xl:w-12 ml-1 drop-shadow-lg" />}
                           </button>
                           
                           <div className="w-full max-w-md bg-black/20 backdrop-blur-sm rounded-full p-2 border border-white/10 shadow-inner">
@@ -2054,8 +2055,7 @@ export default function ListenerDashboard() {
                  </Card>
               </div>
             </div>
-          </ScrollArea>
-        </main>
+          </main>
 
         {/* Desktop Right Column - Live Chat */}
         {(isLive || forceShowLive) && (
@@ -2140,7 +2140,7 @@ export default function ListenerDashboard() {
                 </div>
               )}
             </CardContent>
-            <CardFooter className="px-3 py-3 bg-white flex-shrink-0 border-t">
+            <CardFooter className="px-3 py-3 bg-white flex-shrink-0">
               {renderChatInput()}
             </CardFooter>
           </Card>
