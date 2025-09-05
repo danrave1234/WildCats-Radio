@@ -30,6 +30,9 @@ public class SecurityConfig {
     @Autowired
     private CorsConfig corsConfig;
 
+    @Autowired
+    private SecurityHeadersFilter securityHeadersFilter;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -81,6 +84,9 @@ public class SecurityConfig {
             .sessionManagement(session -> session
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS));
 
+        // Add security headers filter first to ensure headers are set on all responses
+        http.addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class);
+        
         // Add JWT filter before processing requests
         http.addFilterBefore(jwtRequestFilter, UsernamePasswordAuthenticationFilter.class);
 
