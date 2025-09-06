@@ -54,7 +54,10 @@ public class SecurityConfig {
                     "/*.js"
                 ).permitAll()
                 // Public endpoints that don't require authentication
-                .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/auth/login").permitAll()
+                .requestMatchers("/api/auth/register").permitAll()
+                .requestMatchers("/api/auth/verify").permitAll()
+                .requestMatchers("/api/auth/send-code").permitAll()
                 .requestMatchers("/api/user/register").permitAll()
                 .requestMatchers("/api/user/verify").permitAll()
                 .requestMatchers("/api/stream/status").permitAll()

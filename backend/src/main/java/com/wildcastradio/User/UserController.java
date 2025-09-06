@@ -5,6 +5,7 @@ import java.util.stream.Collectors;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -31,6 +32,9 @@ public class UserController {
 
     private final UserService userService;
 
+    @Value("${app.security.cookie.secure:false}")
+    private boolean useSecureCookies;
+
     public UserController(UserService userService) {
         this.userService = userService;
     }
@@ -48,7 +52,7 @@ public class UserController {
         // Create secure HttpOnly cookies for token and user information
         Cookie tokenCookie = new Cookie("token", loginResponse.getToken());
         tokenCookie.setHttpOnly(true);
-        tokenCookie.setSecure(true); // Only send over HTTPS
+        tokenCookie.setSecure(useSecureCookies); // Env-aware
         tokenCookie.setPath("/");
         tokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
         tokenCookie.setAttribute("SameSite", "Strict");
@@ -56,7 +60,7 @@ public class UserController {
         
         Cookie userIdCookie = new Cookie("userId", String.valueOf(loginResponse.getUser().getId()));
         userIdCookie.setHttpOnly(true);
-        userIdCookie.setSecure(true);
+        userIdCookie.setSecure(useSecureCookies);
         userIdCookie.setPath("/");
         userIdCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
         userIdCookie.setAttribute("SameSite", "Strict");
@@ -64,7 +68,7 @@ public class UserController {
         
         Cookie userRoleCookie = new Cookie("userRole", loginResponse.getUser().getRole().toString());
         userRoleCookie.setHttpOnly(true);
-        userRoleCookie.setSecure(true);
+        userRoleCookie.setSecure(useSecureCookies);
         userRoleCookie.setPath("/");
         userRoleCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
         userRoleCookie.setAttribute("SameSite", "Strict");
@@ -80,7 +84,7 @@ public class UserController {
         // Clear all authentication cookies
         Cookie tokenCookie = new Cookie("token", "");
         tokenCookie.setHttpOnly(true);
-        tokenCookie.setSecure(true);
+        tokenCookie.setSecure(useSecureCookies);
         tokenCookie.setPath("/");
         tokenCookie.setMaxAge(0); // Expire immediately
         tokenCookie.setAttribute("SameSite", "Strict");
@@ -88,7 +92,7 @@ public class UserController {
         
         Cookie userIdCookie = new Cookie("userId", "");
         userIdCookie.setHttpOnly(true);
-        userIdCookie.setSecure(true);
+        userIdCookie.setSecure(useSecureCookies);
         userIdCookie.setPath("/");
         userIdCookie.setMaxAge(0); // Expire immediately
         userIdCookie.setAttribute("SameSite", "Strict");
@@ -96,7 +100,7 @@ public class UserController {
         
         Cookie userRoleCookie = new Cookie("userRole", "");
         userRoleCookie.setHttpOnly(true);
-        userRoleCookie.setSecure(true);
+        userRoleCookie.setSecure(useSecureCookies);
         userRoleCookie.setPath("/");
         userRoleCookie.setMaxAge(0); // Expire immediately
         userRoleCookie.setAttribute("SameSite", "Strict");
@@ -220,6 +224,9 @@ public class UserController {
 
     @GetMapping("/me")
     public ResponseEntity<UserDTO> getCurrentUser(Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(401).build();
+        }
         String email = authentication.getName();
         return userService.getUserByEmail(email)
                 .map(user -> ResponseEntity.ok(UserDTO.fromEntity(user)))
