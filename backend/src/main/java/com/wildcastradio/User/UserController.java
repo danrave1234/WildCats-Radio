@@ -3,6 +3,8 @@ package com.wildcastradio.User;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -40,9 +42,67 @@ public class UserController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> loginUser(@RequestBody LoginRequest request) {
-        LoginResponse response = userService.loginUser(request);
-        return ResponseEntity.ok(response);
+    public ResponseEntity<LoginResponse> loginUser(@RequestBody LoginRequest request, HttpServletResponse response) {
+        LoginResponse loginResponse = userService.loginUser(request);
+        
+        // Create secure HttpOnly cookies for token and user information
+        Cookie tokenCookie = new Cookie("token", loginResponse.getToken());
+        tokenCookie.setHttpOnly(true);
+        tokenCookie.setSecure(true); // Only send over HTTPS
+        tokenCookie.setPath("/");
+        tokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+        tokenCookie.setAttribute("SameSite", "Strict");
+        response.addCookie(tokenCookie);
+        
+        Cookie userIdCookie = new Cookie("userId", String.valueOf(loginResponse.getUser().getId()));
+        userIdCookie.setHttpOnly(true);
+        userIdCookie.setSecure(true);
+        userIdCookie.setPath("/");
+        userIdCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+        userIdCookie.setAttribute("SameSite", "Strict");
+        response.addCookie(userIdCookie);
+        
+        Cookie userRoleCookie = new Cookie("userRole", loginResponse.getUser().getRole().toString());
+        userRoleCookie.setHttpOnly(true);
+        userRoleCookie.setSecure(true);
+        userRoleCookie.setPath("/");
+        userRoleCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+        userRoleCookie.setAttribute("SameSite", "Strict");
+        response.addCookie(userRoleCookie);
+        
+        // Return response without the token (token is now in secure cookie)
+        LoginResponse secureResponse = new LoginResponse(null, loginResponse.getUser());
+        return ResponseEntity.ok(secureResponse);
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<String> logoutUser(HttpServletResponse response) {
+        // Clear all authentication cookies
+        Cookie tokenCookie = new Cookie("token", "");
+        tokenCookie.setHttpOnly(true);
+        tokenCookie.setSecure(true);
+        tokenCookie.setPath("/");
+        tokenCookie.setMaxAge(0); // Expire immediately
+        tokenCookie.setAttribute("SameSite", "Strict");
+        response.addCookie(tokenCookie);
+        
+        Cookie userIdCookie = new Cookie("userId", "");
+        userIdCookie.setHttpOnly(true);
+        userIdCookie.setSecure(true);
+        userIdCookie.setPath("/");
+        userIdCookie.setMaxAge(0); // Expire immediately
+        userIdCookie.setAttribute("SameSite", "Strict");
+        response.addCookie(userIdCookie);
+        
+        Cookie userRoleCookie = new Cookie("userRole", "");
+        userRoleCookie.setHttpOnly(true);
+        userRoleCookie.setSecure(true);
+        userRoleCookie.setPath("/");
+        userRoleCookie.setMaxAge(0); // Expire immediately
+        userRoleCookie.setAttribute("SameSite", "Strict");
+        response.addCookie(userRoleCookie);
+        
+        return ResponseEntity.ok("Logged out successfully");
     }
 
     @PostMapping("/verify")

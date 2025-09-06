@@ -7,52 +7,28 @@ export const AuthContext = createContext();
 // Custom hook to use the auth context
 export const useAuth = () => useContext(AuthContext);
 
-// Cookie helper functions
-const setCookie = (name, value, days = 7) => {
-  const expires = new Date(Date.now() + days * 864e5).toUTCString();
-  document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + expires + '; path=/; SameSite=Strict';
-};
-
-const getCookie = (name) => {
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
-  return null;
-};
-
-const removeCookie = (name) => {
-  document.cookie = name + '=; Max-Age=-99999999; path=/';
-};
+// Note: Tokens are now stored in secure HttpOnly cookies set by the backend
+// We can no longer access them via JavaScript for security reasons
+// The browser will automatically send these cookies with requests
 
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
-  const [token, setToken] = useState(getCookie('token') || null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Check if user is already logged in
+    // Check if user is already logged in by validating with the server
     const checkAuthStatus = async () => {
-      const storedToken = getCookie('token');
-
-      if (storedToken) {
-        try {
-          // Validate token by getting current user profile
-          const response = await authService.getCurrentUser();
-          setCurrentUser(response.data);
-          setToken(storedToken);
-
-          // Update stored user ID and role from the current user data
-          setCookie('userId', response.data.id);
-          setCookie('userRole', response.data.role);
-        } catch (err) {
-          // Token is invalid or expired
-          removeCookie('token');
-          removeCookie('userId');
-          removeCookie('userRole');
-          setToken(null);
-          setCurrentUser(null);
-          setError('Session expired. Please log in again.');
+      try {
+        // The secure HttpOnly cookies will be automatically sent with this request
+        const response = await authService.getCurrentUser();
+        setCurrentUser(response.data);
+      } catch (err) {
+        // If the request fails, the user is not authenticated or token is invalid
+        setCurrentUser(null);
+        // Don't show error message on initial load - user might just not be logged in
+        if (err.response?.status !== 401 && err.response?.status !== 403) {
+          setError('Failed to verify authentication status.');
         }
       }
 
@@ -74,13 +50,10 @@ export const AuthProvider = ({ children }) => {
       };
 
       const response = await authService.login(normalized);
-      const { token, user } = response.data;
-
-      setCookie('token', token);
-      setCookie('userId', user.id);
-      setCookie('userRole', user.role);
-
-      setToken(token);
+      const { user } = response.data;
+      
+      // The secure HttpOnly cookies are now set by the backend
+      // We only need to update the user state
       setCurrentUser(user);
 
       return user;
@@ -173,19 +146,23 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Logout function
-  const logout = () => {
-    removeCookie('token');
-    removeCookie('userId');
-    removeCookie('userRole');
-    removeCookie('isAuthenticated');
-    setToken(null);
-    setCurrentUser(null);
+  // Logout function - now relies on backend to clear cookies
+  const logout = async () => {
+    try {
+      // Call backend logout endpoint to clear secure cookies
+      await authService.logout();
+    } catch (err) {
+      // Even if logout request fails, clear local state
+      console.error('Logout request failed:', err);
+    } finally {
+      // Clear local state regardless of backend response
+      setCurrentUser(null);
+      setError(null);
+    }
   };
 
   const value = {
     currentUser,
-    token,
     loading,
     error,
     login,
@@ -195,7 +172,7 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     changePassword,
     logout,
-    isAuthenticated: !!token
+    isAuthenticated: !!currentUser
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
