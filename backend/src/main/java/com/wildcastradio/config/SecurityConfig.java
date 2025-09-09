@@ -74,6 +74,12 @@ public class SecurityConfig {
                 .requestMatchers("/ws-radio/info").permitAll()
                 // Public read-only API for listening experience
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/broadcasts/**").permitAll()
+                
+                // Require authentication for actions that modify broadcasts
+                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/broadcasts/**").authenticated()
+                .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/broadcasts/**").authenticated()
+                .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/broadcasts/**").authenticated()
+                
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/chats/*").permitAll()
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/broadcast/**").permitAll()
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/*/results").permitAll()
