@@ -9,6 +9,7 @@ const Schedule = lazy(() => import('./pages/Schedule'));
 const Profile = lazy(() => import('./pages/Profile'));
 const DJDashboard = lazy(() => import('./pages/DJDashboard'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const ModeratorDashboard = lazy(() => import('./pages/ModeratorDashboard'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const BroadcastHistory = lazy(() => import('./pages/BroadcastHistory'));
@@ -19,6 +20,7 @@ import { AnalyticsProvider } from './context/AnalyticsContext';
 import { StreamingProvider } from './context/StreamingContext';
 import './styles/custom-scrollbar.css';
 import {NotificationProvider} from "./context/NotificationContext.jsx";
+import { ThemeProvider } from './context/ThemeContext.jsx';
 
 import { Spinner } from './components/ui/spinner';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -62,6 +64,8 @@ const ProtectedRoute = ({ element, allowedRoles }) => {
       return <Navigate to="/dj-dashboard" replace />;
     } else if (currentUser?.role === 'ADMIN') {
       return <Navigate to="/admin" replace />;
+    } else if (currentUser?.role === 'MODERATOR') {
+      return <Navigate to="/moderator" replace />;
     } else {
       return <Navigate to="/dashboard" replace />;
     }
@@ -83,7 +87,15 @@ const AppRoutes = () => {
     <Routes>
       <Route path="/login" element={
         isAuthenticated ? (
-          <Navigate to={currentUser?.role === 'DJ' ? '/dj-dashboard' : currentUser?.role === 'ADMIN' ? '/admin' : '/dashboard'} replace />
+          <Navigate to={
+            currentUser?.role === 'DJ'
+              ? '/dj-dashboard'
+              : currentUser?.role === 'ADMIN'
+                ? '/admin'
+                : currentUser?.role === 'MODERATOR'
+                  ? '/moderator'
+                  : '/dashboard'
+          } replace />
         ) : (
           <Login />
         )
@@ -91,7 +103,15 @@ const AppRoutes = () => {
 
       <Route path="/register" element={
         isAuthenticated ? (
-          <Navigate to={currentUser?.role === 'DJ' ? '/dj-dashboard' : currentUser?.role === 'ADMIN' ? '/admin' : '/dashboard'} replace />
+          <Navigate to={
+            currentUser?.role === 'DJ'
+              ? '/dj-dashboard'
+              : currentUser?.role === 'ADMIN'
+                ? '/admin'
+                : currentUser?.role === 'MODERATOR'
+                  ? '/moderator'
+                  : '/dashboard'
+          } replace />
         ) : (
           <Register />
         )
@@ -100,7 +120,15 @@ const AppRoutes = () => {
       <Route path="/" element={
         <Layout>
           {isAuthenticated ? (
-            <Navigate to={currentUser?.role === 'DJ' ? '/dj-dashboard' : currentUser?.role === 'ADMIN' ? '/admin' : '/dashboard'} replace />
+            <Navigate to={
+              currentUser?.role === 'DJ'
+                ? '/dj-dashboard'
+                : currentUser?.role === 'ADMIN'
+                  ? '/admin'
+                  : currentUser?.role === 'MODERATOR'
+                    ? '/moderator'
+                    : '/dashboard'
+            } replace />
           ) : (
             <Suspense fallback={<LoadingFallback />}>
               <ListenerDashboard />
@@ -113,7 +141,7 @@ const AppRoutes = () => {
         <Layout>
           <ProtectedRoute 
             element={<ListenerDashboard />}
-            allowedRoles={['LISTENER']} 
+            allowedRoles={['LISTENER','MODERATOR','ADMIN','DJ']} 
           />
         </Layout>
       } />
@@ -140,11 +168,20 @@ const AppRoutes = () => {
         </Layout>
       } />
 
+      <Route path="/moderator" element={
+        <Layout>
+          <ProtectedRoute 
+            element={<ModeratorDashboard />} 
+            allowedRoles={['MODERATOR','ADMIN']} 
+          />
+        </Layout>
+      } />
+
       <Route path="/schedule" element={
         <Layout>
           <ProtectedRoute 
             element={<Schedule />} 
-            allowedRoles={['LISTENER', 'DJ', 'ADMIN']} 
+            allowedRoles={['LISTENER', 'DJ', 'ADMIN', 'MODERATOR']} 
           />
         </Layout>
       } />
@@ -153,7 +190,7 @@ const AppRoutes = () => {
         <Layout>
           <ProtectedRoute 
             element={<Profile />} 
-            allowedRoles={['LISTENER', 'DJ', 'ADMIN']} 
+            allowedRoles={['LISTENER', 'DJ', 'ADMIN', 'MODERATOR']} 
           />
         </Layout>
       } />
@@ -162,7 +199,7 @@ const AppRoutes = () => {
         <Layout>
           <ProtectedRoute 
             element={<Settings />} 
-            allowedRoles={['LISTENER', 'DJ', 'ADMIN']} 
+            allowedRoles={['LISTENER', 'DJ', 'ADMIN', 'MODERATOR']} 
           />
         </Layout>
       } />
@@ -171,7 +208,7 @@ const AppRoutes = () => {
         <Layout>
           <ProtectedRoute 
             element={<Notifications />} 
-            allowedRoles={['LISTENER', 'DJ', 'ADMIN']} 
+            allowedRoles={['LISTENER', 'DJ', 'ADMIN', 'MODERATOR']} 
           />
         </Layout>
       } />
@@ -180,7 +217,7 @@ const AppRoutes = () => {
         <Layout>
           <ProtectedRoute 
             element={<BroadcastHistory />} 
-            allowedRoles={['DJ', 'ADMIN']} 
+            allowedRoles={['DJ', 'ADMIN', 'MODERATOR']} 
           />
         </Layout>
       } />
@@ -189,7 +226,7 @@ const AppRoutes = () => {
         <Layout>
           <ProtectedRoute 
             element={<AnalyticsDashboard />} 
-            allowedRoles={['DJ', 'ADMIN']} 
+            allowedRoles={['DJ', 'ADMIN', 'MODERATOR']} 
           />
         </Layout>
       } />
@@ -214,13 +251,15 @@ function App() {
     <Router>
       <AuthProvider>
         <NotificationProvider>
-          <StreamingProvider>
-            <BroadcastHistoryProvider>
-              <AnalyticsProvider>
-                <AppRoutes />
-              </AnalyticsProvider>
-            </BroadcastHistoryProvider>
-          </StreamingProvider>
+          <ThemeProvider>
+            <StreamingProvider>
+              <BroadcastHistoryProvider>
+                <AnalyticsProvider>
+                  <AppRoutes />
+                </AnalyticsProvider>
+              </BroadcastHistoryProvider>
+            </StreamingProvider>
+          </ThemeProvider>
         </NotificationProvider>
       </AuthProvider>
     </Router>

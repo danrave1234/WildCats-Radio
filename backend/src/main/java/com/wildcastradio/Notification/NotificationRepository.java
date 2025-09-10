@@ -4,6 +4,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -20,6 +22,9 @@ public interface NotificationRepository extends JpaRepository<NotificationEntity
     List<NotificationEntity> findByRecipientAndTimestampAfter(UserEntity recipient, LocalDateTime timestamp);
     long countByRecipientAndIsRead(UserEntity recipient, boolean isRead);
     List<NotificationEntity> findByRecipientAndType(UserEntity recipient, NotificationType type);
+
+    // Paginated retrieval ordered by most recent first
+    Page<NotificationEntity> findByRecipientOrderByTimestampDesc(UserEntity recipient, Pageable pageable);
 
     // Deduplication helpers
     boolean existsByRecipientAndMessageAndTypeAndTimestampAfter(

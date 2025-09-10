@@ -3,7 +3,11 @@ package com.wildcastradio.Analytics;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Period;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -17,9 +21,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.wildcastradio.Broadcast.BroadcastEntity;
-import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 import com.wildcastradio.Broadcast.BroadcastService;
-import com.wildcastradio.Analytics.ListenerTrackingService;
+import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 
 /**
  * Analytics Controller for retrieving application statistics and metrics
@@ -43,7 +46,7 @@ public class AnalyticsController {
      * Get broadcast statistics including real-time listener data
      */
     @GetMapping("/broadcasts")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Map<String, Object>> getBroadcastStats() {
         return ResponseEntity.ok(analyticsService.getBroadcastStats());
     }
@@ -61,7 +64,7 @@ public class AnalyticsController {
      * Get engagement statistics
      */
     @GetMapping("/engagement")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Map<String, Object>> getEngagementStats() {
         return ResponseEntity.ok(analyticsService.getEngagementStats());
     }
@@ -70,7 +73,7 @@ public class AnalyticsController {
      * Get activity statistics
      */
     @GetMapping("/activity")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Map<String, Object>> getActivityStats() {
         return ResponseEntity.ok(analyticsService.getActivityStats());
     }
@@ -79,7 +82,7 @@ public class AnalyticsController {
      * Get popular broadcasts
      */
     @GetMapping("/popular-broadcasts")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<List<BroadcastDTO>> getPopularBroadcasts() {
         List<BroadcastEntity> popularBroadcasts = broadcastService.getPopularBroadcasts(5);
         List<BroadcastDTO> broadcastDTOs = popularBroadcasts.stream()
@@ -92,7 +95,7 @@ public class AnalyticsController {
      * Get real-time analytics metrics
      */
     @GetMapping("/realtime")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Map<String, Object>> getRealtimeAnalytics() {
         return ResponseEntity.ok(analyticsService.getRealtimeAnalytics());
     }
@@ -101,7 +104,7 @@ public class AnalyticsController {
      * Get demographic analytics including age group breakdowns
      */
     @GetMapping("/demographics")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Map<String, Object>> getDemographicAnalytics() {
         try {
             Map<String, Object> demographics = analyticsService.getDemographicAnalytics();
@@ -116,7 +119,7 @@ public class AnalyticsController {
      * Get topic performance analytics
      */
     @GetMapping("/topics/performance")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Map<String, Object>> getTopicPerformanceAnalytics() {
         Map<String, Object> topicAnalytics = new HashMap<>();
 
@@ -230,7 +233,7 @@ public class AnalyticsController {
      * Get broadcast analytics with age group interaction breakdowns
      */
     @GetMapping("/broadcast/{broadcastId}/demographics")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Map<String, Object>> getBroadcastDemographicAnalytics(@PathVariable Long broadcastId) {
         Map<String, Object> analytics = new HashMap<>();
 
@@ -299,7 +302,7 @@ public class AnalyticsController {
      * Get detailed analytics for a specific broadcast
      */
     @GetMapping("/broadcast/{broadcastId}")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Map<String, Object>> getBroadcastAnalytics(@PathVariable Long broadcastId) {
         Map<String, Object> analytics = new HashMap<>();
 
@@ -377,7 +380,7 @@ public class AnalyticsController {
      * Get analytics for all broadcasts with summary metrics
      */
     @GetMapping("/broadcasts/detailed")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<List<Map<String, Object>>> getAllBroadcastAnalytics() {
         try {
             List<BroadcastEntity> broadcasts = broadcastService.getAllBroadcasts();
@@ -426,7 +429,7 @@ public class AnalyticsController {
      * Get comprehensive analytics summary including real-time data
      */
     @GetMapping("/summary")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Map<String, Object>> getAnalyticsSummary() {
         return ResponseEntity.ok(analyticsService.getAnalyticsSummary());
     }

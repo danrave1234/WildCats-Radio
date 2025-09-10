@@ -40,7 +40,7 @@ const parseBackendTimestamp = (timestamp) => {
 };
 
 export default function Schedule() {
-  const [viewType, setViewType] = useState("calendar") // 'calendar' or 'list'
+  const [viewType, setViewType] = useState("list") // 'calendar' or 'list'
   const [userRole, setUserRole] = useState("LISTENER") // In a real app, this would come from auth state
   const [showScheduleForm, setShowScheduleForm] = useState(false)
   const [selectedBroadcast, setSelectedBroadcast] = useState(null)

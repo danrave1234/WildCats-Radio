@@ -51,6 +51,7 @@ class ApiProxyBase {
         'Content-Type': 'application/json',
       },
       timeout: this.config.apiTimeout,
+      withCredentials: true,
     });
 
     // Add retry logic for failed requests

@@ -31,8 +31,16 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
         StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
         
         if (StompCommand.CONNECT.equals(accessor.getCommand())) {
-            // Extract JWT token from headers
+            // Extract JWT token from headers; if absent, fall back to handshake attribute set by HandshakeInterceptor
             String authHeader = accessor.getFirstNativeHeader("Authorization");
+            if (authHeader == null || authHeader.isBlank()) {
+                Object handshakeAuth = accessor.getSessionAttributes() != null
+                        ? accessor.getSessionAttributes().get("Authorization")
+                        : null;
+                if (handshakeAuth instanceof String) {
+                    authHeader = (String) handshakeAuth;
+                }
+            }
             
             if (authHeader != null && authHeader.startsWith("Bearer ")) {
                 String token = authHeader.substring(7);
@@ -54,13 +62,25 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
                             // Set authentication in context
                             SecurityContextHolder.getContext().setAuthentication(authentication);
                             accessor.setUser(authentication);
+                        } else {
+                            // Token is invalid - reject the connection
+                            System.err.println("WebSocket authentication failed: Invalid token for user " + username);
+                            return null; // Block the connection
                         }
+                    } else {
+                        // Could not extract username - reject the connection
+                        System.err.println("WebSocket authentication failed: Could not extract username from token");
+                        return null; // Block the connection
                     }
                 } catch (Exception e) {
-                    // Token is invalid, but we'll let the connection proceed
-                    // The individual message handlers can check authentication
+                    // Token is invalid - reject the connection for security
                     System.err.println("WebSocket authentication failed: " + e.getMessage());
+                    return null; // Block the connection
                 }
+            } else {
+                // No valid Authorization header - reject the connection
+                System.err.println("WebSocket authentication failed: No valid Authorization header provided");
+                return null; // Block the connection
             }
         }
         

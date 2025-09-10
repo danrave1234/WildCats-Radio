@@ -11,19 +11,19 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.wildcastradio.Broadcast.BroadcastEntity;
+import com.wildcastradio.Broadcast.BroadcastRepository;
 import com.wildcastradio.ChatMessage.DTO.ChatMessageDTO;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
-import com.wildcastradio.Broadcast.BroadcastEntity;
-import com.wildcastradio.Broadcast.BroadcastRepository;
 
 @RestController
 @RequestMapping("/api/chats")
@@ -244,6 +244,27 @@ public class ChatMessageController {
 
         public void setMessage(String message) {
             this.message = message;
+        }
+    }
+
+    /**
+     * Delete a specific chat message by ID (moderation)
+     */
+    @DeleteMapping("/messages/{messageId}")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR','DJ')")
+    public ResponseEntity<Void> deleteMessage(
+            @PathVariable Long messageId,
+            Authentication authentication) {
+        if (authentication == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        try {
+            chatMessageService.deleteMessageById(messageId);
+            return ResponseEntity.noContent().build();
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 

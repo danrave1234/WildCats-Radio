@@ -1,11 +1,11 @@
 package com.wildcastradio.User;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
-import java.time.LocalDateTime;
 
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -17,11 +17,11 @@ import org.springframework.stereotype.Service;
 
 import com.wildcastradio.ActivityLog.ActivityLogEntity;
 import com.wildcastradio.ActivityLog.ActivityLogService;
+import com.wildcastradio.User.DTO.BanRequest;
 import com.wildcastradio.User.DTO.LoginRequest;
 import com.wildcastradio.User.DTO.LoginResponse;
 import com.wildcastradio.User.DTO.RegisterRequest;
 import com.wildcastradio.User.DTO.UserDTO;
-import com.wildcastradio.User.DTO.BanRequest;
 import com.wildcastradio.config.JwtUtil;
 
 @Service
@@ -59,12 +59,17 @@ public class UserService implements UserDetailsService {
     }
 
     public UserEntity registerUser(RegisterRequest request) {
-        if (userRepository.existsByEmailIgnoreCase(request.getEmail())) {
+        // Normalize email to ensure case-insensitive uniqueness and consistent storage
+        String normalizedEmail = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : null;
+        if (normalizedEmail == null || normalizedEmail.isEmpty()) {
+            throw new IllegalArgumentException("Email is required");
+        }
+        if (userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
             throw new IllegalArgumentException("Email already in use");
         }
 
         UserEntity user = new UserEntity();
-        user.setEmail(request.getEmail());
+        user.setEmail(normalizedEmail);
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setFirstname(request.getFirstname());
         user.setLastname(request.getLastname());
@@ -74,7 +79,7 @@ public class UserService implements UserDetailsService {
         user.setVerificationCode(generateVerificationCode());
 
         UserEntity savedUser = userRepository.save(user);
-        sendVerificationCode(request.getEmail());
+        sendVerificationCode(normalizedEmail);
 
         // Log the activity
         activityLogService.logActivity(
@@ -88,7 +93,8 @@ public class UserService implements UserDetailsService {
 
 
     public LoginResponse loginUser(LoginRequest request) {
-        Optional<UserEntity> userOpt = userRepository.findByEmailIgnoreCase(request.getEmail());
+        String email = request.getEmail() != null ? request.getEmail().trim() : "";
+        Optional<UserEntity> userOpt = userRepository.findByEmailIgnoreCase(email);
 
         if (userOpt.isPresent()) {
             UserEntity user = userOpt.get();
@@ -112,7 +118,8 @@ public class UserService implements UserDetailsService {
     }
 
     public String sendVerificationCode(String email) {
-        Optional<UserEntity> userOpt = userRepository.findByEmailIgnoreCase(email);
+        String normalizedEmail = email != null ? email.trim() : "";
+        Optional<UserEntity> userOpt = userRepository.findByEmailIgnoreCase(normalizedEmail);
 
         if (!userOpt.isPresent()) {
             throw new IllegalArgumentException("User not found");
@@ -125,12 +132,12 @@ public class UserService implements UserDetailsService {
 
         // Send verification email
         try {
-            sendVerificationEmail(email, verificationCode, user.getFirstname());
+            sendVerificationEmail(normalizedEmail, verificationCode, user.getFirstname());
             // Log the activity
             activityLogService.logActivity(
                 user,
                 ActivityLogEntity.ActivityType.EMAIL_VERIFY,
-                "Verification code sent to: " + email
+                "Verification code sent to: " + normalizedEmail
             );
         } catch (Exception e) {
             // Log the error but don't fail the operation
@@ -139,7 +146,7 @@ public class UserService implements UserDetailsService {
             e.printStackTrace();
 
             // For development, still print the code to console
-            System.out.println("Verification code for " + email + ": " + verificationCode);
+            System.out.println("Verification code for " + normalizedEmail + ": " + verificationCode);
         }
 
         return verificationCode;
@@ -188,11 +195,12 @@ public class UserService implements UserDetailsService {
     }
 
     public boolean verifyCode(String email, String code) {
-        Optional<UserEntity> userOpt = userRepository.findByEmailIgnoreCase(email);
+        String normalizedEmail = email != null ? email.trim() : "";
+        Optional<UserEntity> userOpt = userRepository.findByEmailIgnoreCase(normalizedEmail);
 
         if (userOpt.isPresent()) {
             UserEntity user = userOpt.get();
-            if (user.getVerificationCode().equals(code)) {
+            if (user.getVerificationCode() != null && user.getVerificationCode().equals(code)) {
                 user.setVerified(true);
                 user.setVerificationCode(null);
                 userRepository.save(user);

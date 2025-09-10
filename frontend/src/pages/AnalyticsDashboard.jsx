@@ -276,16 +276,14 @@ export default function AnalyticsDashboard() {
     };
   }, [activityStats.recentActivities, engagementStats.totalChatMessages, engagementStats.totalSongRequests, broadcastStats.totalBroadcasts, userStats.totalUsers, comparisonPeriod]);
 
-  // Security check: Only allow DJs and Admins to access this feature
-  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
+  // Security check: Allow DJs, Moderators, and Admins
+  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR')) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <ShieldExclamationIcon className="h-16 w-16 mx-auto text-red-500 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Access Restricted</h3>
-          <p className="text-gray-600 dark:text-gray-400">
-            The Analytics Dashboard is only available to DJs and Administrators.
-          </p>
+          <p className="text-gray-600 dark:text-gray-400">The Analytics Dashboard is available to DJs, Moderators, and Administrators.</p>
         </div>
       </div>
     );

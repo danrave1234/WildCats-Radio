@@ -5,7 +5,7 @@ import { createLogger } from '../services/logger';
 
 const logger = createLogger('AudioSourceSelector');
 
-const AudioSourceSelector = ({ disabled = false }) => {
+const AudioSourceSelector = ({ disabled = false, showHeading = true, compact = false }) => {
   const { 
     audioSource, 
     setAudioSource, 
@@ -300,32 +300,42 @@ const AudioSourceSelector = ({ disabled = false }) => {
     logger.info('Audio test stopped successfully');
   };
 
+  const containerSpacing = compact ? 'space-y-2' : 'space-y-3';
+  const panelPadding = compact ? 'p-3' : 'p-4';
+  const panelBorder = compact ? 'border' : 'border-2';
+  const iconSizeOuter = compact ? 'w-5 h-5' : 'w-6 h-6';
+  const iconSizeInner = compact ? 'w-4 h-4' : 'w-6 h-6';
+  const titleTextSize = compact ? 'text-sm' : '';
+  const subtitleTextSize = compact ? 'text-xs' : 'text-sm';
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-          Audio Source
-        </h3>
-        {isLive && (
-          <span className="text-sm text-amber-600 dark:text-amber-400 font-medium">
-            Cannot change while live
-          </span>
-        )}
-      </div>
+    <div className={containerSpacing}>
+      {showHeading && (
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-1">
+            Audio Source
+          </h3>
+          {isLive && (
+            <span className="text-sm text-amber-600 dark:text-amber-400 font-medium">
+              Cannot change while live
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Current Connected Audio Source Display */}
       {currentAudioDevice && (
-        <div className="p-4 bg-green-50 border-2 border-green-200 rounded-lg dark:bg-green-900/20 dark:border-green-600">
+        <div className={`${panelPadding} bg-green-50 ${panelBorder} border-green-200 rounded-lg dark:bg-green-900/20 dark:border-green-600`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center">
+              <div className={`${iconSizeOuter} bg-green-100 rounded-full flex items-center justify-center`}>
                 <ComputerDesktopIcon className="w-4 h-4 text-green-600" />
               </div>
               <div>
-                <h4 className="font-medium text-green-700 dark:text-green-300">
+                <h4 className={`font-medium text-green-700 dark:text-green-300 ${titleTextSize}`}>
                   {currentAudioDevice.label || 'Desktop Audio'}
                 </h4>
-                <p className="text-sm text-green-600 dark:text-green-400">
+                <p className={`${subtitleTextSize} text-green-600 dark:text-green-400`}>
                   {currentAudioDevice.enabled ? 'Connected and Ready' : 'Selected but not connected'}
                 </p>
               </div>
@@ -334,7 +344,7 @@ const AudioSourceSelector = ({ disabled = false }) => {
               <div className="flex space-x-2">
                 <button
                   onClick={() => handleSourceChange('desktop')}
-                  className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-green-700 dark:text-green-300 hover:text-green-800 dark:hover:text-green-200 transition-colors"
+                  className={`flex items-center space-x-2 ${compact ? 'px-2 py-1.5 text-xs' : 'px-3 py-2 text-sm'} font-medium text-green-700 dark:text-green-300 hover:text-green-800 dark:hover:text-green-200 transition-colors`}
                 >
                   <Cog6ToothIcon className="w-4 h-4" />
                   <span>Change</span>
@@ -342,7 +352,7 @@ const AudioSourceSelector = ({ disabled = false }) => {
                 <button
                   onClick={isTestingAudio ? handleStopTest : handleTestAudio}
                   disabled={disabled}
-                  className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  className={`${compact ? 'px-2 py-1.5 text-xs' : 'px-3 py-2 text-sm'} font-medium rounded-lg transition-colors ${
                     isTestingAudio 
                       ? 'text-red-700 bg-red-100 hover:bg-red-200 border border-red-300' 
                       : 'text-blue-700 bg-blue-100 hover:bg-blue-200 border border-blue-300'
@@ -358,15 +368,15 @@ const AudioSourceSelector = ({ disabled = false }) => {
 
       {/* No Audio Source Connected */}
       {!currentAudioDevice && !showSourceSelector && (
-        <div className="p-4 bg-gray-50 border-2 border-gray-200 rounded-lg dark:bg-gray-800 dark:border-gray-600">
+        <div className={`${panelPadding} bg-gray-50 ${panelBorder} border-gray-200 rounded-lg dark:bg-gray-800 dark:border-gray-600`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <ComputerDesktopIcon className="w-6 h-6 text-gray-400" />
+              <ComputerDesktopIcon className={`${iconSizeInner} text-gray-400`} />
               <div>
-                <h4 className="font-medium text-gray-700 dark:text-gray-300">
+                <h4 className={`font-medium text-gray-700 dark:text-gray-300 ${titleTextSize}`}>
                   No Audio Source Connected
                 </h4>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
+                <p className={`${subtitleTextSize} text-gray-500 dark:text-gray-400`}>
                   Click "Select Source" to choose an audio input
                 </p>
               </div>
@@ -375,7 +385,7 @@ const AudioSourceSelector = ({ disabled = false }) => {
               <button
                 onClick={() => handleSourceChange('desktop')}
                 disabled={disabled || isCapturingAudio}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 rounded-lg transition-colors"
+                className={`${compact ? 'px-3 py-1.5 text-xs' : 'px-4 py-2 text-sm'} font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 rounded-lg transition-colors`}
               >
                 {isCapturingAudio ? 'Capturing...' : 'Select Source'}
               </button>
@@ -383,7 +393,7 @@ const AudioSourceSelector = ({ disabled = false }) => {
                 <button
                   onClick={isTestingAudio ? handleStopTest : handleTestAudio}
                   disabled={disabled}
-                  className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  className={`${compact ? 'px-2 py-1.5 text-xs' : 'px-3 py-2 text-sm'} font-medium rounded-lg transition-colors ${
                     isTestingAudio 
                       ? 'text-red-700 bg-red-100 hover:bg-red-200 border border-red-300' 
                       : 'text-green-700 bg-green-100 hover:bg-green-200 border border-green-300'

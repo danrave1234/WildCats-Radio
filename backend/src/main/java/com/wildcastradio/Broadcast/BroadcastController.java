@@ -1,9 +1,11 @@
 package com.wildcastradio.Broadcast;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -45,7 +47,7 @@ public class BroadcastController {
 
 
     @PostMapping
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<BroadcastDTO> createBroadcast(
             @Valid @RequestBody CreateBroadcastRequest request,
             Authentication authentication) {
@@ -78,7 +80,7 @@ public class BroadcastController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<BroadcastDTO> updateBroadcast(@PathVariable Long id, 
                                                       @Valid @RequestBody CreateBroadcastRequest request) {
         BroadcastDTO updated = broadcastService.updateBroadcast(id, request);
@@ -86,14 +88,14 @@ public class BroadcastController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Void> deleteBroadcast(@PathVariable Long id) {
         broadcastService.deleteBroadcast(id);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/schedule")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<BroadcastDTO> scheduleBroadcast(
             @Valid @RequestBody CreateBroadcastRequest request,
             Authentication authentication) {
@@ -140,7 +142,7 @@ public class BroadcastController {
     }
 
     @PostMapping("/{id}/end")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<BroadcastDTO> endBroadcast(
             @PathVariable Long id,
             Authentication authentication) {
@@ -176,11 +178,20 @@ public class BroadcastController {
 
     // Broadcast-centric history (no Notification dependency)
     @GetMapping("/history")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
-    public ResponseEntity<List<BroadcastDTO>> getBroadcastHistory(
-            @RequestParam(name = "days", defaultValue = "30") int days) {
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
+    public ResponseEntity<?> getBroadcastHistory(
+            @RequestParam(name = "days", defaultValue = "30") int days,
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size) {
         int safeDays = Math.max(1, Math.min(days, 365));
         java.time.LocalDateTime since = java.time.LocalDateTime.now().minusDays(safeDays);
+        if (page != null || size != null) {
+            int p = page != null ? page : 0;
+            int s = size != null ? size : 20;
+            Page<BroadcastEntity> ended = broadcastService.getEndedBroadcastsSince(since, p, s);
+            Page<BroadcastDTO> dtos = ended.map(BroadcastDTO::fromEntity);
+            return ResponseEntity.ok(dtos);
+        }
         List<BroadcastEntity> ended = broadcastService.getEndedBroadcastsSince(since);
         List<BroadcastDTO> dtos = ended.stream()
                 .map(BroadcastDTO::fromEntity)
@@ -196,11 +207,18 @@ public class BroadcastController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    // Live stream health snapshot for clients (used to display reconnecting state)
+    @GetMapping("/live/health")
+    public ResponseEntity<Map<String, Object>> getLiveHealth() {
+        Map<String, Object> snapshot = broadcastService.getLiveStreamHealthStatus();
+        return ResponseEntity.ok(snapshot);
+    }
+
     /**
      * Temporary endpoint to start broadcasts in test mode without Icecast integration.
      */
     @PostMapping("/{id}/start-test")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<BroadcastDTO> startBroadcastTestMode(
             @PathVariable Long id,
             Authentication authentication) {

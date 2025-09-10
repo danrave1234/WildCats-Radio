@@ -1,7 +1,6 @@
 package com.wildcastradio.icecast;
 
 import java.io.IOException;
-import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,7 +21,6 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -214,49 +212,78 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
     }
 
     /**
-     * Extract JWT token from WebSocket URL parameters and validate it
+     * Extract JWT token from WebSocket headers and validate it
+     * NOTE: URL parameter token extraction has been removed for security reasons
+     * to prevent token leakage in logs and referrer headers
      */
     private String extractAndValidateToken(WebSocketSession session) {
         try {
-            URI uri = session.getUri();
-            if (uri != null) {
-                String query = uri.getQuery();
-                if (query != null && query.contains("token=")) {
-                    Map<String, String> params = UriComponentsBuilder.fromUriString("?" + query)
-                            .build()
-                            .getQueryParams()
-                            .toSingleValueMap();
+            // Try Authorization header or handshake attribute populated by handshake interceptor
+            String authHeader = (String) session.getAttributes().get("Authorization");
+            if (authHeader == null && session.getHandshakeHeaders() != null) {
+                authHeader = session.getHandshakeHeaders().getFirst("Authorization");
+            }
+            
+            if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                String token = authHeader.substring(7);
+                if (!token.trim().isEmpty()) {
+                    logger.debug("Found JWT token in WebSocket Authorization header for session: {}", session.getId());
 
-                    String token = params.get("token");
-                    if (token != null && !token.trim().isEmpty()) {
-                        logger.debug("Found JWT token in WebSocket URL for session: {}", session.getId());
+                    try {
+                        String username = jwtUtil.extractUsername(token);
+                        if (username != null) {
+                            UserDetails userDetails = userService.loadUserByUsername(username);
+                            if (jwtUtil.validateToken(token, userDetails)) {
+                                // Set authentication context for this session
+                                Authentication auth = new UsernamePasswordAuthenticationToken(
+                                        userDetails, null, userDetails.getAuthorities());
+                                SecurityContextHolder.getContext().setAuthentication(auth);
 
-                        try {
-                            String username = jwtUtil.extractUsername(token);
-                            if (username != null) {
-                                UserDetails userDetails = userService.loadUserByUsername(username);
-                                if (jwtUtil.validateToken(token, userDetails)) {
-                                    // Set authentication context for this session
-                                    Authentication auth = new UsernamePasswordAuthenticationToken(
-                                            userDetails, null, userDetails.getAuthorities());
-                                    SecurityContextHolder.getContext().setAuthentication(auth);
-
-                                    logger.info("Successfully authenticated WebSocket user: {}", username);
-                                    return username;
-                                } else {
-                                    logger.warn("Invalid JWT token for WebSocket session: {}", session.getId());
-                                }
+                                logger.info("Successfully authenticated WebSocket user: {}", username);
+                                return username;
                             } else {
-                                logger.warn("Could not extract username from JWT token for session: {}", session.getId());
+                                logger.warn("Invalid JWT token for WebSocket session: {}", session.getId());
                             }
-                        } catch (Exception e) {
-                            logger.warn("Error validating JWT token for WebSocket session {}: {}", session.getId(), e.getMessage());
+                        } else {
+                            logger.warn("Could not extract username from JWT token for session: {}", session.getId());
+                        }
+                    } catch (Exception e) {
+                        logger.warn("Error validating JWT token for WebSocket session {}: {}", session.getId(), e.getMessage());
+                    }
+                }
+            }
+
+            // If no Authorization header, try to parse JWT from Cookie header
+            if (session.getHandshakeHeaders() != null) {
+                String cookieHeader = session.getHandshakeHeaders().getFirst("cookie");
+                if (cookieHeader != null && !cookieHeader.isBlank()) {
+                    String[] cookies = cookieHeader.split("; ");
+                    for (String cookieStr : cookies) {
+                        if (cookieStr.startsWith("token=")) {
+                            String token = cookieStr.substring("token=".length());
+                            if (!token.trim().isEmpty()) {
+                                try {
+                                    String username = jwtUtil.extractUsername(token);
+                                    if (username != null) {
+                                        UserDetails userDetails = userService.loadUserByUsername(username);
+                                        if (jwtUtil.validateToken(token, userDetails)) {
+                                            Authentication auth = new UsernamePasswordAuthenticationToken(
+                                                    userDetails, null, userDetails.getAuthorities());
+                                            SecurityContextHolder.getContext().setAuthentication(auth);
+                                            logger.info("Successfully authenticated WebSocket user via cookie: {}", username);
+                                            return username;
+                                        }
+                                    }
+                                } catch (Exception e) {
+                                    logger.warn("Error validating JWT token from cookie for WebSocket session {}: {}", session.getId(), e.getMessage());
+                                }
+                            }
                         }
                     }
                 }
             }
         } catch (Exception e) {
-            logger.warn("Error extracting token from WebSocket URL for session {}: {}", session.getId(), e.getMessage());
+            logger.warn("Error extracting token from WebSocket headers for session {}: {}", session.getId(), e.getMessage());
         }
 
         return null; // No valid authentication

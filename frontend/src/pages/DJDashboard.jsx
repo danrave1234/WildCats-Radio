@@ -20,6 +20,7 @@ import {
   ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline"
 import { broadcastService, chatService, songRequestService, pollService, authService } from "../services/api/index.js"
+import { brandingApi } from "../services/api/brandingApi";
 import { useAuth } from "../context/AuthContext"
 import { useStreaming } from "../context/StreamingContext"
 import { formatDistanceToNow } from "date-fns"
@@ -29,8 +30,78 @@ import AudioPlayer from "../components/AudioPlayer"
 import { EnhancedScrollArea } from "../components/ui/enhanced-scroll-area"
 import { createLogger } from "../services/logger"
 import AdSense from "../components/ads/AdSense"
+import { profanityService } from "../services/api";
 
 const logger = createLogger("DJDashboard")
+
+function ProfanityManager() {
+  const [words, setWords] = useState([]);
+  const [newWord, setNewWord] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    profanityService.listWords()
+      .then((data) => { if (mounted) setWords(data || []); })
+      .catch((e) => { if (mounted) setError(e?.response?.data?.message || e.message); })
+      .finally(() => { if (mounted) setLoading(false); });
+    return () => { mounted = false; };
+  }, []);
+
+  const addWord = async (e) => {
+    e.preventDefault();
+    setError(null); setSuccess(null);
+    const w = (newWord || '').trim();
+    if (!w) return;
+    try {
+      setLoading(true);
+      const res = await profanityService.addWord(w);
+      setWords((prev) => prev.includes(w.toLowerCase()) ? prev : [...prev, w.toLowerCase()]);
+      setNewWord('');
+      setSuccess(res?.message || 'Added');
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 p-4 border rounded-lg bg-white dark:bg-gray-900">
+      <h3 className="text-lg font-semibold mb-2">Profanity Dictionary</h3>
+      <form onSubmit={addWord} className="flex gap-2 mb-3">
+        <input
+          value={newWord}
+          onChange={(e) => setNewWord(e.target.value)}
+          placeholder="Add new word or phrase"
+          className="flex-1 border rounded px-3 py-2 bg-white dark:bg-gray-800"
+        />
+        <button disabled={loading} className="px-4 py-2 bg-maroon-600 text-white rounded hover:bg-maroon-700 disabled:opacity-50">
+          Add
+        </button>
+      </form>
+      {error && <div className="text-sm text-red-600 mb-2">{error}</div>}
+      {success && <div className="text-sm text-green-600 mb-2">{success}</div>}
+      <div className="max-h-40 overflow-auto border rounded p-2 bg-gray-50 dark:bg-gray-800">
+        {loading ? (
+          <div>Loading...</div>
+        ) : words.length === 0 ? (
+          <div className="text-sm text-gray-500">No custom words yet.</div>
+        ) : (
+          <ul className="list-disc list-inside text-sm space-y-1">
+            {words.sort().map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <p className="text-xs text-gray-500 mt-2">Words are saved locally on the server and applied immediately to new chats.</p>
+    </div>
+  );
+}
 
 // Broadcast workflow states
 const WORKFLOW_STATES = {
@@ -155,6 +226,61 @@ export default function DJDashboard() {
   const [peakListeners, setPeakListeners] = useState(0)
   const [totalSongRequests, setTotalSongRequests] = useState(0)
   const [totalPolls, setTotalPolls] = useState(0)
+
+  // Branding (Station Banner) State
+  const [bannerUrl, setBannerUrl] = useState(null)
+  const [bannerLoading, setBannerLoading] = useState(false)
+  const [bannerError, setBannerError] = useState(null)
+
+  const cacheBust = (url) => (url ? `${url}${url.includes('?') ? '&' : '?'}_=${Date.now()}` : url)
+
+  const loadBanner = async () => {
+    try {
+      setBannerError(null)
+      setBannerLoading(true)
+      const res = await brandingApi.getBanner()
+      const url = res?.data?.url || null
+      setBannerUrl(url)
+    } catch (e) {
+      setBannerUrl(null)
+      setBannerError('Failed to load banner')
+    } finally {
+      setBannerLoading(false)
+    }
+  }
+
+  useEffect(() => { loadBanner() }, [])
+
+  const handleBannerUpload = async (e) => {
+    const file = e?.target?.files?.[0]
+    if (!file) return
+    try {
+      setBannerError(null)
+      setBannerLoading(true)
+      await brandingApi.uploadBanner(file)
+      await loadBanner()
+    } catch (err) {
+      setBannerError(err?.response?.data?.error || 'Upload failed')
+    } finally {
+      setBannerLoading(false)
+      // clear file input value so same file can be re-selected if needed
+      try { e.target.value = '' } catch {}
+    }
+  }
+
+  const handleBannerDelete = async () => {
+    try {
+      setBannerError(null)
+      setBannerLoading(true)
+      await brandingApi.deleteBanner()
+      await loadBanner()
+    } catch (err) {
+      setBannerError(err?.response?.data?.error || 'Delete failed')
+    } finally {
+      setBannerLoading(false)
+    }
+  }
+
   const [durationTick, setDurationTick] = useState(0)
 
   // Chat timestamp update state
@@ -1273,6 +1399,9 @@ export default function DJDashboard() {
               </div>
           )}
 
+          {/* Profanity Manager (separate from broadcast containers) */}
+          <ProfanityManager />
+
           {/* Audio Restoration Notice - Show when live but audio not streaming */}
           {workflowState === WORKFLOW_STATES.STREAMING_LIVE &&
               (!mediaRecorderRef.current || !audioStreamRef.current || mediaRecorderRef.current.state !== "recording") && (
@@ -1939,8 +2068,9 @@ export default function DJDashboard() {
                   <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
                     Create New Broadcast
                   </h2>
-                  <div className="space-y-4">
-                    <div>
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    {/* Left: Title */}
+                    <div className="lg:col-span-7">
                       <label htmlFor="title" className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
                         Broadcast Title *
                       </label>
@@ -1958,7 +2088,16 @@ export default function DJDashboard() {
                           <p className="mt-1 text-sm text-red-600 dark:text-red-400">{formErrors.title}</p>
                       )}
                     </div>
-                    <div>
+
+                    {/* Right: Audio Source (same row as Title) */}
+                    <div className="lg:col-span-5">
+                      {workflowState === WORKFLOW_STATES.CREATE_BROADCAST && (
+                        <AudioSourceSelector key="create-broadcast-audio" disabled={isCreatingBroadcast} showHeading={false} compact={true} />
+                      )}
+                    </div>
+
+                    {/* Left: Description */}
+                    <div className="lg:col-span-7">
                       <label
                           htmlFor="description"
                           className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1"
@@ -1980,27 +2119,49 @@ export default function DJDashboard() {
                       )}
                     </div>
 
-                    {/* Audio Source Selection - Only show when creating broadcast */}
-                    {workflowState === WORKFLOW_STATES.CREATE_BROADCAST && (
-                      <AudioSourceSelector key="create-broadcast-audio" disabled={isCreatingBroadcast} />
-                    )}
+                    {/* Right: Station Banner (same row as Description) */}
+                    <div className="lg:col-span-5 mb-4">
+                      <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Station Banner</h3>
+                      <div className="flex flex-col md:flex-row gap-3 items-start md:items-center bg-gray-50 dark:bg-gray-700/40 p-3 rounded-md border border-gray-200 dark:border-gray-600">
+                        <div className="w-full md:w-64">
+                          <div className="rounded-md overflow-hidden border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
+                            {bannerUrl ? (
+                              <img src={cacheBust(bannerUrl)} alt="Current banner" className="w-full h-28 object-cover" />
+                            ) : (
+                              <div className="w-full h-28 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">No banner set</div>
+                            )}
+                          </div>
+                        </div>
 
-                    {/* About Scheduling Info */}
-                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-                      <div className="flex items-start space-x-2">
-                        <ClockIcon className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
-                        <div className="text-xs text-blue-800 dark:text-blue-300">
-                          <p className="font-medium mb-1">About Scheduling</p>
-                          <p>
-                            This creates your broadcast content. To schedule broadcasts for specific times, use the Schedule
-                            page.
-                          </p>
+                        <div className="flex-1 w-full">
+                          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                            <label className="inline-block">
+                              <span className="sr-only">Choose banner image</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleBannerUpload}
+                                disabled={bannerLoading}
+                                className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 focus:outline-none"
+                              />
+                            </label>
+                            <button
+                              onClick={handleBannerDelete}
+                              disabled={bannerLoading || !bannerUrl}
+                              className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm"
+                            >
+                              Remove
+                            </button>
+                            {bannerLoading && <span className="text-xs text-gray-600 dark:text-gray-300">Processing…</span>}
+                            {bannerError && <span className="text-xs text-red-600">{bannerError}</span>}
+                          </div>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Recommended size: 1200x300 or similar wide aspect. Supported: jpg, jpeg, png, gif, webp.</p>
                         </div>
                       </div>
                     </div>
 
-                    {/* Form Actions */}
-                    <div className="flex items-center justify-end space-x-3">
+                    {/* Bottom-right: Create Button */}
+                    <div className="lg:col-span-5 flex items-center justify-end space-x-3">
                       <button
                           type="button"
                           onClick={createBroadcast}
@@ -2030,8 +2191,9 @@ export default function DJDashboard() {
                     Ready to Stream
                   </h2>
 
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   {/* Broadcast Details */}
-                  <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4 mb-4">
+                  <div className="lg:col-span-7 bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4">
                     <h3 className="text-base font-medium text-blue-900 dark:text-blue-100 mb-2">
                       {currentBroadcast.title}
                     </h3>
@@ -2043,10 +2205,10 @@ export default function DJDashboard() {
                   </div>
 
                   {/* Audio Source Selection - Only show when ready to stream */}
-                  <div className="mb-4">
-                    <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Audio Source</h3>
+                  <div className="mb-3">
+                    <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-1">Audio Source</h3>
                     {workflowState === WORKFLOW_STATES.READY_TO_STREAM && (
-                      <AudioSourceSelector key="ready-to-stream-audio" />
+                      <AudioSourceSelector key="ready-to-stream-audio" showHeading={false} compact={true} />
                     )}
                   </div>
 
@@ -2056,7 +2218,49 @@ export default function DJDashboard() {
                     <AudioPlayer isPreview={true} />
                   </div>
 
+                  {/* Station Banner Management */}
+                  <div className="mb-4">
+                    <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Station Banner</h3>
+                    <div className="flex flex-col md:flex-row gap-3 items-start md:items-center bg-gray-50 dark:bg-gray-700/40 p-3 rounded-md border border-gray-200 dark:border-gray-600">
+                      <div className="w-full md:w-64">
+                        <div className="rounded-md overflow-hidden border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
+                          {bannerUrl ? (
+                            <img src={cacheBust(bannerUrl)} alt="Current banner" className="w-full h-28 object-cover" />
+                          ) : (
+                            <div className="w-full h-28 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">No banner set</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex-1 w-full">
+                        <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                          <label className="inline-block">
+                            <span className="sr-only">Choose banner image</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleBannerUpload}
+                              disabled={bannerLoading}
+                              className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 focus:outline-none"
+                            />
+                          </label>
+                          <button
+                            onClick={handleBannerDelete}
+                            disabled={bannerLoading || !bannerUrl}
+                            className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm"
+                          >
+                            Remove
+                          </button>
+                          {bannerLoading && <span className="text-xs text-gray-600 dark:text-gray-300">Processing…</span>}
+                          {bannerError && <span className="text-xs text-red-600">{bannerError}</span>}
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Recommended size: 1200x300 or similar wide aspect. Supported: jpg, jpeg, png, gif, webp.</p>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Slow Mode Settings (available before going live) */}
+                  <ProfanityManager />
                   {currentBroadcast && (
                     <div className="mb-4">
                       <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Chat Slow Mode</h3>
@@ -2119,55 +2323,11 @@ export default function DJDashboard() {
                   <p className="text-center text-xs text-gray-600 dark:text-gray-400 mt-3">
                     Make sure to allow audio source access when prompted (microphone and/or screen sharing)
                   </p>
+                  </div>
                 </div>
               </div>
           )}
 
-          {/* Network Information - Hidden when live */}
-          {serverConfig && workflowState !== WORKFLOW_STATES.STREAMING_LIVE && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-                <div className="p-4">
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-3 border-b pb-2 border-gray-200 dark:border-gray-700">
-                    Network Information
-                  </h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                    <div>
-                      <span className="font-medium text-gray-700 dark:text-gray-300">Server IP:</span>
-                      <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.serverIp}</code>
-                    </div>
-                    <div>
-                      <span className="font-medium text-gray-700 dark:text-gray-300">Server Port:</span>
-                      <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.serverPort}</code>
-                    </div>
-                    <div>
-                      <span className="font-medium text-gray-700 dark:text-gray-300">WebSocket URL:</span>
-                      <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.webSocketUrl}</code>
-                    </div>
-                    <div>
-                      <span className="font-medium text-gray-700 dark:text-gray-300">Icecast URL:</span>
-                      <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.icecastUrl}</code>
-                    </div>
-                    <div className="md:col-span-2">
-                      <span className="font-medium text-gray-700 dark:text-gray-300">Stream URL:</span>
-                      <code className="ml-2 text-gray-900 dark:text-white">{serverConfig.streamUrl}</code>
-                    </div>
-                  </div>
-                  <div className="mt-3 p-2 bg-blue-50 dark:bg-blue-900/30 rounded-md">
-                    <p className="text-xs text-blue-700 dark:text-blue-200">
-                      <strong>Current Status:</strong>{" "}
-                      {workflowState === WORKFLOW_STATES.CREATE_BROADCAST
-                          ? "Ready to create broadcast"
-                          : workflowState === WORKFLOW_STATES.READY_TO_STREAM
-                              ? "Broadcast created, ready to go live"
-                              : "Broadcasting live"}
-                      {workflowState === WORKFLOW_STATES.STREAMING_LIVE &&
-                          listenerCount > 0 &&
-                          ` • ${listenerCount} listener${listenerCount !== 1 ? "s" : ""} tuned in`}
-                    </p>
-                  </div>
-                </div>
-              </div>
-          )}
         </div>
       </div>
   )

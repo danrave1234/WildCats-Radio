@@ -78,6 +78,47 @@ export function StreamingProvider({ children }) {
   // Audio source switching control
   const isAudioSourceSwitching = useRef(false);
 
+  // Stream health state (backend recovery-first)
+  const [streamHealth, setStreamHealth] = useState({ healthy: false, recovering: false, broadcastLive: false, listenerCount: 0, bitrate: 0, lastCheckedAt: null, errorMessage: null });
+  const prevRecoveringRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let intervalId;
+    const fetchHealth = async () => {
+      try {
+        const res = await broadcastService.getLiveHealth();
+        const data = res?.data || {};
+        const healthy = !!data.healthy;
+        const recovering = !!data.recovering;
+        const broadcastLive = !!data.broadcastLive;
+        const listenerCount = typeof data.listenerCount === 'number' ? data.listenerCount : streamHealth.listenerCount;
+        const bitrate = typeof data.bitrate === 'number' ? data.bitrate : streamHealth.bitrate;
+        const lastCheckedAt = data.lastCheckedAt || null;
+        const errorMessage = data.errorMessage || null;
+
+        if (!cancelled) {
+          setStreamHealth({ healthy, recovering, broadcastLive, listenerCount, bitrate, lastCheckedAt, errorMessage });
+          // Keep listener count aligned when provided
+          if (typeof listenerCount === 'number') {
+            setListenerCount(listenerCount);
+          }
+          // Auto-resume playback when recovering -> healthy
+          if (prevRecoveringRef.current && healthy && audioRef.current) {
+            audioRef.current.play().catch(() => {});
+          }
+          prevRecoveringRef.current = recovering && broadcastLive;
+        }
+      } catch (e) {
+        // Do not spam logs; keep previous snapshot
+      }
+    };
+
+    fetchHealth();
+    intervalId = setInterval(fetchHealth, 15000);
+    return () => { cancelled = true; if (intervalId) clearInterval(intervalId); };
+  }, [serverConfig?.streamUrl]);
+
   // Load persisted state on startup
   useEffect(() => {
     loadPersistedState();
@@ -1034,6 +1075,7 @@ export function StreamingProvider({ children }) {
   const restoreAudioPlayback = () => {
     if (!audioRef.current && serverConfig?.streamUrl) {
       audioRef.current = new Audio();
+      attachAudioEventHandlers();
 
       // Improve URL handling and add fallback formats
       let streamUrl = serverConfig.streamUrl;
@@ -1452,6 +1494,108 @@ export function StreamingProvider({ children }) {
     }
   };
 
+  // Streaming playback recovery helpers
+  const isStreamRecoveringRef = useRef(false);
+  const [isStreamRecovering, setIsStreamRecovering] = useState(false);
+  const retryAttemptRef = useRef(0);
+  const audioHandlersAttachedRef = useRef(false);
+  const MAX_RECOVERY_ATTEMPTS = 6;
+  const recoveryTimerRef = useRef(null);
+  const clearRecoveryTimer = () => {
+    if (recoveryTimerRef.current) {
+      clearTimeout(recoveryTimerRef.current);
+      recoveryTimerRef.current = null;
+    }
+  };
+
+  const getCacheBustedUrl = (base) => {
+    if (!base) return base;
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}_=${Date.now()}&re=${retryAttemptRef.current}`;
+  };
+
+  const attemptStreamRecovery = useCallback(async () => {
+    try {
+      if (isStreamRecoveringRef.current) return;
+      if (!isListening) return;
+      if (!audioPlaying) return; // user paused explicitly
+      const baseUrl = serverConfig?.streamUrl || config.icecastUrl;
+      if (!baseUrl || !audioRef.current) return;
+      // Only attempt if backend reports live or recovering
+      if (!(streamHealth.broadcastLive || streamHealth.recovering)) return;
+
+      isStreamRecoveringRef.current = true;
+      setIsStreamRecovering(true);
+      let attempt = retryAttemptRef.current;
+
+      const tryOnce = async () => {
+        const currentAttempt = attempt;
+        const url = getCacheBustedUrl(baseUrl);
+        try {
+          audioRef.current.pause();
+          audioRef.current.src = url;
+          audioRef.current.load();
+          await audioRef.current.play();
+          // Success
+          retryAttemptRef.current = 0;
+          isStreamRecoveringRef.current = false;
+          setIsStreamRecovering(false);
+          clearRecoveryTimer();
+          setAudioPlaying(true);
+          return;
+        } catch (e) {
+          attempt = currentAttempt + 1;
+          retryAttemptRef.current = attempt;
+          if (!isListening || !audioPlaying) {
+            // User stopped/paused meanwhile
+            isStreamRecoveringRef.current = false;
+            setIsStreamRecovering(false);
+            clearRecoveryTimer();
+            return;
+          }
+          if (attempt >= MAX_RECOVERY_ATTEMPTS) {
+            // Give up for now; next online/health flip will re-trigger
+            isStreamRecoveringRef.current = false;
+            setIsStreamRecovering(false);
+            clearRecoveryTimer();
+            return;
+          }
+          const delay = Math.min(30000, 500 * Math.pow(2, currentAttempt));
+          clearRecoveryTimer();
+          recoveryTimerRef.current = setTimeout(tryOnce, delay);
+        }
+      };
+
+      tryOnce();
+    } catch (err) {
+      isStreamRecoveringRef.current = false;
+      setIsStreamRecovering(false);
+      clearRecoveryTimer();
+    }
+  }, [isListening, audioPlaying, serverConfig?.streamUrl, streamHealth.broadcastLive, streamHealth.recovering]);
+
+  const attachAudioEventHandlers = () => {
+    if (!audioRef.current || audioHandlersAttachedRef.current) return;
+    const a = audioRef.current;
+    const onProblem = () => {
+      if (!isListening || !audioPlaying) return;
+      attemptStreamRecovery();
+    };
+    a.addEventListener('error', onProblem);
+    a.addEventListener('stalled', onProblem);
+    a.addEventListener('waiting', onProblem);
+    a.addEventListener('suspend', onProblem);
+    a.addEventListener('ended', onProblem);
+    a.addEventListener('emptied', onProblem);
+    a.addEventListener('canplay', () => {
+      isStreamRecoveringRef.current = false;
+      setIsStreamRecovering(false);
+      retryAttemptRef.current = 0;
+      setAudioPlaying(true);
+    });
+    audioHandlersAttachedRef.current = true;
+  };
+
   // Start listening (for listeners)
   const startListening = async () => {
     if (isListening) return;
@@ -1467,6 +1611,7 @@ export function StreamingProvider({ children }) {
       audioRef.current = new Audio();
       audioRef.current.crossOrigin = 'anonymous';
       audioRef.current.preload = 'auto';
+      attachAudioEventHandlers();
     }
 
     try {
@@ -1491,6 +1636,12 @@ export function StreamingProvider({ children }) {
     setIsListening(false);
     setAudioPlaying(false);
 
+    // Clear recovery attempts/timers
+    clearRecoveryTimer();
+    isStreamRecoveringRef.current = false;
+    setIsStreamRecovering(false);
+    retryAttemptRef.current = 0;
+
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = '';
@@ -1513,6 +1664,11 @@ export function StreamingProvider({ children }) {
         if (audioRef.current) {
           audioRef.current.pause();
         }
+        // Clear any pending recovery since user paused intentionally
+        clearRecoveryTimer();
+        isStreamRecoveringRef.current = false;
+        setIsStreamRecovering(false);
+        retryAttemptRef.current = 0;
         setAudioPlaying(false);
         if (globalWebSocketService.isListenerStatusWebSocketConnected()) {
           globalWebSocketService.sendListenerStatusMessage(
@@ -1556,6 +1712,12 @@ export function StreamingProvider({ children }) {
   const disconnectAll = () => {
     console.log('Disconnecting all WebSocket connections');
     globalWebSocketService.disconnectAll();
+
+    // Clear recovery
+    clearRecoveryTimer();
+    isStreamRecoveringRef.current = false;
+    setIsStreamRecovering(false);
+    retryAttemptRef.current = 0;
 
     // Timer clearing is now handled by globalWebSocketService
 
@@ -1636,6 +1798,15 @@ export function StreamingProvider({ children }) {
             console.log('Reconnecting listener status WebSocket after page visibility change');
             connectListenerStatusWebSocket();
           }
+
+          // Try to resume audio if stream is live or recovering
+          try {
+            if (isListening && audioRef.current && (streamHealth.recovering || streamHealth.broadcastLive)) {
+              if (audioRef.current.paused) {
+                attemptStreamRecovery();
+              }
+            }
+          } catch (e) { logger.debug('Visibility recovery check failed', e); }
         }
       }
     };
@@ -1659,6 +1830,21 @@ export function StreamingProvider({ children }) {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [isAuthenticated, currentUser, isLive, websocketConnected]);
+
+  // Trigger recovery when network comes back online
+  useEffect(() => {
+    const handleOnline = () => {
+      try {
+        if (isListening && audioRef.current && (streamHealth.recovering || streamHealth.broadcastLive)) {
+          attemptStreamRecovery();
+        }
+      } catch (e) { logger.debug('Online recovery check failed', e); }
+    };
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [isListening, streamHealth.recovering, streamHealth.broadcastLive]);
 
   // Simple audio level monitoring for status display
   const startAudioLevelMonitoring = () => {
@@ -1703,9 +1889,6 @@ export function StreamingProvider({ children }) {
   };
 
 
-
-
-
   const value = {
     // State
     isLive,
@@ -1720,6 +1903,13 @@ export function StreamingProvider({ children }) {
     serverConfig,
     audioSource,
     audioLevel,
+
+    // Health monitoring
+    streamHealth,
+    healthy: streamHealth.healthy,
+    recovering: streamHealth.recovering,
+    healthBroadcastLive: streamHealth.broadcastLive,
+    isStreamRecovering,
 
     // DJ Functions
     startBroadcast,

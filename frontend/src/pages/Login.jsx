@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useAuth } from "../context/AuthContext"
 import { Link } from "react-router-dom"
 import { Button } from "@/components/ui/button"
@@ -12,13 +12,7 @@ import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react"
 import wildcatRadioLogo from "../assets/wildcatradio_logo.png"
 import { Separator } from "@/components/ui/separator"
 
-// Cookie helper functions
-const getCookie = (name) => {
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
-  return null;
-};
+// (Removed page-specific theme logic; global ThemeProvider controls theme)
 
 export default function Login() {
   const { login, loading, error: authError } = useAuth()
@@ -30,62 +24,7 @@ export default function Login() {
   const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
-  // Check if system prefers dark mode
-  const systemPrefersDark = () => {
-    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  }
-
-  // Apply dark mode to document
-  const applyDarkMode = (isDark) => {
-    if (isDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }
-
-  // Check for saved theme preference on component mount and set up system preference listener
-  useEffect(() => {
-    const hasUserPreference = getCookie("userPreference") === "true"
-    const savedDarkMode = getCookie("darkMode") === "true"
-
-    if (hasUserPreference) {
-      // User has set a preference, use it
-      applyDarkMode(savedDarkMode)
-    } else {
-      // No user preference, follow system preference
-      const systemDark = systemPrefersDark()
-      applyDarkMode(systemDark)
-    }
-
-    // Set up listener for system preference changes
-    const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    const handleSystemPreferenceChange = (e) => {
-      // Only update if user hasn't set a preference
-      if (!getCookie("userPreference")) {
-        const systemDark = e.matches
-        applyDarkMode(systemDark)
-      }
-    }
-
-    // Add listener for system preference changes
-    if (darkModeMediaQuery.addEventListener) {
-      darkModeMediaQuery.addEventListener('change', handleSystemPreferenceChange)
-    } else if (darkModeMediaQuery.addListener) {
-      // For older browsers
-      darkModeMediaQuery.addListener(handleSystemPreferenceChange)
-    }
-
-    // Clean up
-    return () => {
-      if (darkModeMediaQuery.removeEventListener) {
-        darkModeMediaQuery.removeEventListener('change', handleSystemPreferenceChange)
-      } else if (darkModeMediaQuery.removeListener) {
-        // For older browsers
-        darkModeMediaQuery.removeListener(handleSystemPreferenceChange)
-      }
-    }
-  }, [])
+  // Theme is managed globally; no page-specific listeners
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -116,7 +55,7 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-b from-white via-yellow-50 to-yellow-200 overflow-y-auto">
+    <div className="min-h-screen w-full bg-gradient-to-b from-background via-muted/40 to-muted text-foreground dark:from-slate-800 dark:via-slate-700/60 dark:to-slate-600 overflow-y-auto">
       <div className="w-full flex flex-col items-center justify-start min-h-screen p-4 py-8 relative">
         <div className="w-full max-w-md my-auto">
           {/* Logo Section */}
@@ -135,24 +74,24 @@ export default function Login() {
             </p>
           </div>
 
-          <Card className="border-0 shadow-2xl bg-white backdrop-blur-xl overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out">
-            <div className="h-3 bg-gradient-to-r from-wildcats-maroon to-wildcats-maroon/70" />
+          <Card className="border border-border shadow bg-white dark:bg-slate-700 text-card-foreground overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out">
+            <div className="h-3 bg-wildcats-maroon" />
             <CardHeader className="px-6 pt-6 pb-3">
               <div>
-                <CardTitle className="text-xl font-bold text-gray-800">Sign in to your account</CardTitle>
-                <CardDescription className="text-sm text-gray-500 mt-1">
+                <CardTitle className="text-xl font-bold">Sign in to your account</CardTitle>
+                <CardDescription className="text-sm mt-1">
                   Enter your email below to sign in to your account
                 </CardDescription>
               </div>
             </CardHeader>
             <div className="px-6">
-              <Separator className="bg-gray-200" />
+              <Separator className="bg-border" />
             </div>
             <CardContent className="px-6 py-6 pt-3">
               <form onSubmit={handleSubmit} className="space-y-4">
                 {/* Email Field */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="email" className="text-xs font-semibold text-gray-700">
+                  <Label htmlFor="email" className="text-xs font-semibold text-muted-foreground">
                     Email Address
                   </Label>
                   <Input
@@ -164,13 +103,13 @@ export default function Login() {
                     value={formData.email}
                     onChange={handleChange}
                     placeholder="Enter your email address"
-                    className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
+                    className="h-10 !rounded-none"
                   />
                 </div>
                 
                 {/* Password Field */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="password" className="text-xs font-semibold text-gray-700">
+                  <Label htmlFor="password" className="text-xs font-semibold text-muted-foreground">
                     Password
                   </Label>
                   <div className="relative">
@@ -183,7 +122,7 @@ export default function Login() {
                       value={formData.password}
                       onChange={handleChange}
                       placeholder="Enter your password"
-                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
+                      className="h-10 pr-10 !rounded-none"
                     />
                     <Button
                       type="button"
@@ -194,9 +133,9 @@ export default function Login() {
                       tabIndex={-1}
                     >
                       {showPassword ? (
-                        <EyeOff className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                        <EyeOff className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
                       ) : (
-                        <Eye className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                        <Eye className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
                       )}
                     </Button>
                   </div>
@@ -213,7 +152,7 @@ export default function Login() {
                     />
                     <Label 
                       htmlFor="remember-me" 
-                      className="text-xs text-gray-600 cursor-pointer font-medium"
+                      className="text-xs text-muted-foreground cursor-pointer font-medium"
                     >
                       Remember me
                     </Label>
@@ -229,10 +168,10 @@ export default function Login() {
 
                 {/* Error Message */}
                 {(error || authError) && (
-                  <div className="!rounded-none bg-red-50 border border-red-200 p-3">
+                  <div className="!rounded-none bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 p-3">
                     <div className="flex items-center space-x-2">
                       <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
-                      <p className="text-xs font-medium text-red-800">{error || authError}</p>
+                      <p className="text-xs font-medium text-red-800 dark:text-red-300">{error || authError}</p>
                     </div>
                   </div>
                 )}
@@ -256,7 +195,7 @@ export default function Login() {
 
               {/* Sign Up Link */}
               <div className="text-center pt-3">
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   Don't have an account?{' '}
                   <Link 
                     to="/register" 

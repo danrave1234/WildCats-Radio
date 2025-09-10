@@ -3,6 +3,8 @@ package com.wildcastradio.Broadcast;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -41,6 +43,9 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
     // History helpers
     @Query("SELECT b FROM BroadcastEntity b WHERE b.status = com.wildcastradio.Broadcast.BroadcastEntity$BroadcastStatus.ENDED AND (b.actualEnd IS NOT NULL OR b.actualStart IS NOT NULL) AND (COALESCE(b.actualEnd, b.actualStart) >= :since) ORDER BY COALESCE(b.actualEnd, b.actualStart) DESC")
     List<BroadcastEntity> findEndedSince(@Param("since") LocalDateTime since);
+
+    @Query("SELECT b FROM BroadcastEntity b WHERE b.status = com.wildcastradio.Broadcast.BroadcastEntity$BroadcastStatus.ENDED AND (b.actualEnd IS NOT NULL OR b.actualStart IS NOT NULL) AND (COALESCE(b.actualEnd, b.actualStart) >= :since) ORDER BY COALESCE(b.actualEnd, b.actualStart) DESC")
+    Page<BroadcastEntity> findEndedSince(@Param("since") LocalDateTime since, Pageable pageable);
     
     // Analytics count methods
     long countByStatus(BroadcastStatus status);

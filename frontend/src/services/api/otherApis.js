@@ -6,6 +6,7 @@ import { api, createWebSocketConnection, getCookie, logger, constructUrl } from 
  */
 export const notificationApi = {
   getAll: () => api.get('/api/notifications'),
+  getPage: (page = 0, size = 20) => api.get('/api/notifications', { params: { page, size } }),
   getUnread: () => api.get('/api/notifications/unread'),
   getUnreadCount: () => api.get('/api/notifications/count-unread'),
   markAsRead: (id) => api.put(`/api/notifications/${id}/read`),
@@ -62,6 +63,9 @@ export const notificationApi = {
       });
     });
   },
+
+  // Send a system-wide notification (ADMIN/MODERATOR)
+  sendBroadcast: (message, type = 'INFO') => api.post('/api/notifications/test/broadcast', undefined, { params: { message, type } }),
 
   // Helper methods for broadcast-specific notifications
   getBroadcastNotifications: () => {

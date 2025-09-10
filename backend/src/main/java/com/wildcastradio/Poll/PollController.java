@@ -34,7 +34,7 @@ public class PollController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<PollDTO> createPoll(@RequestBody CreatePollRequest request, Authentication authentication) {
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -86,21 +86,21 @@ public class PollController {
     }
 
     @PostMapping("/{pollId}/end")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<PollDTO> endPoll(@PathVariable Long pollId, Authentication authentication) {
         PollDTO poll = pollService.endPoll(pollId);
         return ResponseEntity.ok(poll);
     }
 
     @PostMapping("/{pollId}/show")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<PollDTO> showPoll(@PathVariable Long pollId, Authentication authentication) {
         PollDTO poll = pollService.showPoll(pollId);
         return ResponseEntity.ok(poll);
     }
 
     @DeleteMapping("/{pollId}")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Void> deletePoll(@PathVariable Long pollId, Authentication authentication) {
         pollService.deletePoll(pollId);
         return ResponseEntity.noContent().build();

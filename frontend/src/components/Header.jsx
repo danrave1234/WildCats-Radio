@@ -13,7 +13,9 @@ import {
   AlertTriangle,
   Sparkles,
   UserPlus,
-  LogIn
+  LogIn,
+  Moon,
+  Sun
 } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import { Button } from "./ui/button";
@@ -38,10 +40,12 @@ import {
 import { cn } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
 import { useStreaming } from "../context/StreamingContext";
+import { useTheme } from "../context/ThemeContext.jsx";
 
 const Header = ({ onMobileMenuToggle }) => {
   const { currentUser, isAuthenticated, logout } = useAuth();
-  const { isLive } = useStreaming();
+  const { isLive, recovering, healthBroadcastLive } = useStreaming();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState("");
   const [currentDate, setCurrentDate] = useState("");
@@ -204,11 +208,10 @@ const Header = ({ onMobileMenuToggle }) => {
       initial={{ y: -20, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-      className="relative sm:bg-gradient-to-r sm:from-white/90 sm:via-slate-50/95 sm:to-white/90 bg-wildcats-maroon backdrop-blur-2xl border-b border-slate-200/40 sm:shadow-2xl sm:shadow-black/[0.08] shadow-2xl shadow-wildcats-maroon/30 sm:supports-[backdrop-filter]:bg-white/80 overflow-hidden"
+      className="relative bg-card text-card-foreground border-b border-border overflow-hidden"
     >
-      {/* Premium gradient overlays - only for desktop */}
-      <div className="absolute inset-0 sm:bg-gradient-to-r sm:from-blue-50/30 sm:via-transparent sm:to-purple-50/20 pointer-events-none"></div>
-      <div className="absolute inset-0 sm:bg-gradient-to-b sm:from-white/40 sm:via-transparent sm:to-slate-100/30 pointer-events-none"></div>
+      {/* Theme-friendly overlays */}
+      <div className="absolute inset-0 pointer-events-none"></div>
 
       {/* Floating orbs for premium effect - desktop only */}
       <motion.div 
@@ -242,6 +245,14 @@ const Header = ({ onMobileMenuToggle }) => {
         }}
       ></motion.div>
 
+              {recovering && healthBroadcastLive && (
+                <div className="w-full bg-yellow-50 border-b border-yellow-200 text-yellow-800 text-sm py-2 px-4 flex items-center justify-center">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span>
+                    <span>Reconnecting to stream…</span>
+                  </div>
+                </div>
+              )}
               <div className="relative w-full z-10">
           <div className="flex items-center justify-between h-16">
           {/* Left Section - Mobile Menu Button + Desktop Time Display */}
@@ -250,7 +261,7 @@ const Header = ({ onMobileMenuToggle }) => {
             <Button
               variant="ghost"
               size="sm"
-              className="sm:hidden p-2 rounded-xl hover:bg-white/10 text-white transition-all duration-300 hover:scale-105 active:scale-95"
+              className="sm:hidden p-2 rounded-xl hover:bg-muted text-foreground transition-all duration-300 hover:scale-105 active:scale-95"
               onClick={onMobileMenuToggle}
             >
               <Menu className="h-5 w-5" />
@@ -279,21 +290,21 @@ const Header = ({ onMobileMenuToggle }) => {
                     ></motion.div>
                   )}
                 </motion.div>
-                <span className={`text-sm font-semibold uppercase tracking-wider ${isLive ? 'text-slate-700' : 'text-slate-500'}`}>
+                <span className={`text-sm font-semibold uppercase tracking-wider ${isLive ? 'text-foreground' : 'text-muted-foreground'}`}>
                   {isLive ? 'Live' : 'Not Live'}
                 </span>
               </div>
 
               {/* Separator */}
-              <div className="w-px h-8 bg-slate-300"></div>
+              <div className="w-px h-8 bg-border"></div>
 
               {/* Time & Date */}
               <div className="flex flex-col">
-                <span className="text-base font-medium text-slate-600 leading-tight">
+                <span className="text-base font-medium text-muted-foreground leading-tight">
                   {currentDate}
                 </span>
                 <motion.span 
-                  className="text-2xl font-bold text-slate-900 tabular-nums leading-tight"
+                  className="text-2xl font-bold text-foreground tabular-nums leading-tight"
                   key={currentTime}
                   initial={{ opacity: 0.8 }}
                   animate={{ opacity: 1 }}
@@ -313,7 +324,7 @@ const Header = ({ onMobileMenuToggle }) => {
             className="relative ml-auto"
           >
             {/* Ultra Premium Maroon Background Container */}
-            <div className="bg-wildcats-maroon sm:bg-gradient-to-br sm:from-wildcats-maroon sm:via-red-800 sm:to-red-900 px-4 py-3 flex items-center justify-end space-x-4 h-16 relative shadow-2xl shadow-wildcats-maroon/30 overflow-hidden">
+            <div className="bg-transparent px-4 py-3 flex items-center justify-end space-x-4 h-16 relative overflow-hidden">
               {/* Luxury animated accent line - desktop only */}
               <motion.div 
                 className="absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-b from-wildcats-yellow via-yellow-400 to-amber-400 shadow-xl shadow-yellow-400/40 sm:block hidden"
@@ -334,9 +345,8 @@ const Header = ({ onMobileMenuToggle }) => {
                 ></motion.div>
               </motion.div>
 
-              {/* Premium inner effects - desktop only */}
-              <div className="absolute inset-0 sm:bg-gradient-to-r sm:from-white/10 sm:via-transparent sm:to-white/5 pointer-events-none"></div>
-              <div className="absolute inset-0 sm:bg-gradient-to-b sm:from-red-700/20 sm:via-transparent sm:to-red-900/30 pointer-events-none"></div>
+              {/* Theme-friendly inner effects */}
+              <div className="absolute inset-0 pointer-events-none"></div>
 
               {/* Floating particles effect - desktop only */}
               {[...Array(3)].map((_, i) => (
@@ -362,6 +372,28 @@ const Header = ({ onMobileMenuToggle }) => {
                 />
               ))}
 
+              {/* Theme toggle */}
+              <motion.div
+                className="relative z-20"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 400, damping: 17 }}
+              >
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "transition-colors duration-200",
+                    "flex items-center p-2 rounded-md",
+                    "bg-transparent text-foreground",
+                    "hover:bg-muted"
+                  )}
+                  onClick={toggleTheme}
+                  aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                >
+                  {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                </Button>
+              </motion.div>
+
               {/* Notifications with enhanced styling */}
               <motion.div 
                 className="relative z-20"
@@ -384,21 +416,19 @@ const Header = ({ onMobileMenuToggle }) => {
                         variant="ghost"
                         className={cn(
                           "transition-all duration-500",
-                          // Desktop styling - full button with text and arrow
                           "sm:flex sm:items-center sm:space-x-3 sm:px-5 sm:py-3",
-                          "sm:bg-gradient-to-br sm:from-white/95 sm:via-white sm:to-slate-50/90 sm:backdrop-blur-xl sm:text-wildcats-maroon",
-                          "sm:hover:from-white sm:hover:via-white sm:hover:to-white sm:hover:shadow-2xl sm:hover:shadow-black/20",
-                          "sm:border sm:border-white/40 sm:shadow-xl sm:shadow-black/10 sm:rounded-2xl",
-                          // Mobile styling - just avatar circle
+                          "sm:bg-muted sm:text-foreground",
+                          "sm:hover:bg-muted/70",
+                          "sm:border sm:border-border sm:rounded-2xl",
                           "flex items-center justify-center p-0 bg-transparent border-none shadow-none rounded-full",
-                          "hover:bg-white/10",
+                          "hover:bg-muted",
                           "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0",
                           "hover:scale-[1.05] active:scale-[0.95]",
                           "relative overflow-hidden group",
-                          isDropdownOpen && "scale-[1.05] sm:scale-[1.03] sm:from-white sm:via-white sm:to-white sm:border-white/60 sm:shadow-2xl sm:shadow-black/15"
+                          isDropdownOpen && "sm:ring-1 sm:ring-border"
                         )}
                       >
-                        <div className="h-9 w-9 rounded-full sm:bg-gradient-to-br sm:from-wildcats-maroon sm:via-wildcats-maroon sm:to-red-900 bg-white flex items-center justify-center sm:text-white text-wildcats-maroon shadow-sm sm:ring-2 sm:ring-white/20">
+                        <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center text-foreground shadow-sm">
                           {currentUser.role?.toLowerCase() === 'admin' || currentUser.role?.toLowerCase() === 'dj' ? (
                             <User className="h-4 w-4" />
                           ) : (
@@ -408,28 +438,28 @@ const Header = ({ onMobileMenuToggle }) => {
                           )}
                         </div>
                         <div className="hidden sm:flex flex-col items-start text-left min-w-0 ml-3">
-                          <span className="font-semibold text-sm text-slate-900 leading-tight truncate max-w-[120px]">
+                          <span className="font-semibold text-sm text-foreground leading-tight truncate max-w-[120px]">
                             {getDisplayName(currentUser)}
                           </span>
-                          <span className="text-xs text-slate-500 leading-tight mt-0.5 font-medium">
+                          <span className="text-xs text-muted-foreground leading-tight mt-0.5 font-medium">
                             {formatRole(currentUser.role)}
                           </span>
                         </div>
                         <ChevronDown className={cn(
-                          "hidden sm:block h-4 w-4 text-slate-400 transition-all duration-300 ease-out flex-shrink-0 ml-3",
-                          isDropdownOpen && "rotate-180 text-slate-600"
+                          "hidden sm:block h-4 w-4 text-muted-foreground transition-all duration-300 ease-out flex-shrink-0 ml-3",
+                          isDropdownOpen && "rotate-180 text-foreground"
                         )} />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
                       align="end"
                       sideOffset={13}
-                      className="w-72 p-0 border border-slate-200/60 bg-white shadow-xl backdrop-blur-xl !rounded-none overflow-hidden"
+                      className="w-72 p-0 border border-border bg-card text-card-foreground shadow-xl backdrop-blur-xl !rounded-none overflow-hidden"
                     >
                       {/* User Profile Header */}
-                      <div className="px-4 py-4 bg-gradient-to-br from-slate-50 to-slate-100/50 border-b border-slate-100">
+                      <div className="px-4 py-4 bg-muted border-b border-border">
                         <div className="flex items-center space-x-3">
-                          <div className="h-12 w-12 rounded-full bg-gradient-to-br from-wildcats-maroon via-wildcats-maroon to-red-900 flex items-center justify-center text-white shadow-lg ring-2 ring-white/30">
+                          <div className="h-12 w-12 rounded-full bg-wildcats-maroon text-white flex items-center justify-center shadow-lg">
                             {currentUser.role?.toLowerCase() === 'admin' || currentUser.role?.toLowerCase() === 'dj' ? (
                               <User className="h-5 w-5" />
                             ) : (
@@ -439,10 +469,10 @@ const Header = ({ onMobileMenuToggle }) => {
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h3 className="text-sm font-semibold text-slate-900 truncate leading-tight">
+                            <h3 className="text-sm font-semibold text-foreground truncate leading-tight">
                               {getDisplayName(currentUser)}
                             </h3>
-                            <p className="text-xs text-slate-500 truncate mt-0.5">
+                            <p className="text-xs text-muted-foreground truncate mt-0.5">
                               {currentUser.email || "user@example.com"}
                             </p>
                             <div className="mt-1.5">
@@ -458,37 +488,35 @@ const Header = ({ onMobileMenuToggle }) => {
                       <div className="p-2">
                         <DropdownMenuItem
                           className="flex items-center space-x-3 px-3 py-3 cursor-pointer transition-all duration-200 !rounded-none group
-                                     hover:bg-slate-50 focus:bg-slate-50
-                                     [&:hover]:!bg-slate-50 [&:focus]:!bg-slate-50"
+                                     hover:bg-muted focus:bg-muted"
                           onClick={() => {
                             setIsDropdownOpen(false);
                             window.location.href = '/profile';
                           }}
                         >
-                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center group-hover:bg-slate-200 transition-colors">
-                            <User className="h-4 w-4 text-slate-600" />
+                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center transition-colors">
+                            <User className="h-4 w-4 text-foreground" />
                           </div>
                           <div className="flex-1">
-                            <p className="text-sm font-medium text-slate-900">Profile</p>
-                            <p className="text-xs text-slate-500">Manage your account</p>
+                            <p className="text-sm font-medium text-foreground">Profile</p>
+                            <p className="text-xs text-muted-foreground">Manage your account</p>
                           </div>
                         </DropdownMenuItem>
 
                         <DropdownMenuItem 
                           className="flex items-center space-x-3 px-3 py-3 cursor-pointer transition-all duration-200 !rounded-none group
-                                     hover:bg-slate-50 focus:bg-slate-50
-                                     [&:hover]:!bg-slate-50 [&:focus]:!bg-slate-50"
+                                     hover:bg-muted focus:bg-muted"
                           onClick={() => {
                             setIsDropdownOpen(false);
                             window.location.href = '/settings';
                           }}
                         >
-                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center group-hover:bg-slate-200 transition-colors">
-                            <Settings className="h-4 w-4 text-slate-600" />
+                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center transition-colors">
+                            <Settings className="h-4 w-4 text-foreground" />
                           </div>
                           <div className="flex-1">
-                            <p className="text-sm font-medium text-slate-900">Settings</p>
-                            <p className="text-xs text-slate-500">Preferences & privacy</p>
+                            <p className="text-sm font-medium text-foreground">Settings</p>
+                            <p className="text-xs text-muted-foreground">Preferences & privacy</p>
                           </div>
                         </DropdownMenuItem>
                       </div>

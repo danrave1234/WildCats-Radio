@@ -6,12 +6,14 @@ import {
   XMarkIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationContext.jsx';
 import { createLogger } from '../services/logger';
 
 const logger = createLogger('Settings');
 
 export default function Settings() {
   const { currentUser, changePassword, loading } = useAuth();
+  const { preferences, updatePreferences } = useNotifications();
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
     newPassword: '',
@@ -26,6 +28,13 @@ export default function Settings() {
     newSchedule: false,
     systemUpdates: true,
   });
+
+  // Sync local state with context preferences
+  useEffect(() => {
+    if (preferences) {
+      setNotifications(prev => ({ ...prev, ...preferences }));
+    }
+  }, [preferences]);
 
   // Auto-dismiss modal after 2 seconds
   useEffect(() => {
@@ -104,8 +113,9 @@ export default function Settings() {
   const handleNotificationsSubmit = (e) => {
     e.preventDefault();
     logger.info('Notification settings submitted:', notifications);
-    // Here you would send the notification settings to your backend
-    alert('Notification settings updated successfully!');
+    updatePreferences(notifications);
+    setPasswordMessage({ type: 'success', text: 'Notification preferences updated successfully!' });
+    setShowModal(true);
   };
 
   return (

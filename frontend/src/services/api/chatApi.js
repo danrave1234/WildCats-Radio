@@ -55,6 +55,9 @@ export const chatApi = {
       });
     });
   }
+  ,
+  // Moderation: delete a specific chat message
+  deleteMessage: (messageId) => api.delete(`/api/chats/messages/${messageId}`)
 };
 
 export default chatApi;

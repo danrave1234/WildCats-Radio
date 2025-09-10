@@ -30,6 +30,9 @@ public class SecurityConfig {
     @Autowired
     private CorsConfig corsConfig;
 
+    @Autowired
+    private SecurityHeadersFilter securityHeadersFilter;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -51,7 +54,10 @@ public class SecurityConfig {
                     "/*.js"
                 ).permitAll()
                 // Public endpoints that don't require authentication
-                .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/auth/login").permitAll()
+                .requestMatchers("/api/auth/register").permitAll()
+                .requestMatchers("/api/auth/verify").permitAll()
+                .requestMatchers("/api/auth/send-code").permitAll()
                 .requestMatchers("/api/user/register").permitAll()
                 .requestMatchers("/api/user/verify").permitAll()
                 .requestMatchers("/api/stream/status").permitAll()
@@ -68,6 +74,12 @@ public class SecurityConfig {
                 .requestMatchers("/ws-radio/info").permitAll()
                 // Public read-only API for listening experience
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/broadcasts/**").permitAll()
+                
+                // Require authentication for actions that modify broadcasts
+                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/broadcasts/**").authenticated()
+                .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/broadcasts/**").authenticated()
+                .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/broadcasts/**").authenticated()
+                
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/chats/*").permitAll()
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/broadcast/**").permitAll()
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/*/results").permitAll()
@@ -81,6 +93,9 @@ public class SecurityConfig {
             .sessionManagement(session -> session
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS));
 
+        // Add security headers filter first to ensure headers are set on all responses
+        http.addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class);
+        
         // Add JWT filter before processing requests
         http.addFilterBefore(jwtRequestFilter, UsernamePasswordAuthenticationFilter.class);
 

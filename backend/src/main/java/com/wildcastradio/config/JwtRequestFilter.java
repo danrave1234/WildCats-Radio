@@ -3,6 +3,7 @@ package com.wildcastradio.config;
 import com.wildcastradio.User.UserService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.LoggerFactory;
@@ -32,14 +33,31 @@ public class JwtRequestFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        // Rest of the method remains unchanged
-        final String authorizationHeader = request.getHeader("Authorization");
-
+        
         String username = null;
         String jwt = null;
 
-        if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
-            jwt = authorizationHeader.substring(7);
+        // Extract JWT token from HttpOnly cookie instead of Authorization header
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if ("token".equals(cookie.getName())) {
+                    jwt = cookie.getValue();
+                    break; // Found the token cookie, no need to look further
+                }
+            }
+        }
+
+        // If no token found in cookies, fall back to Authorization header for backward compatibility
+        if (jwt == null) {
+            final String authorizationHeader = request.getHeader("Authorization");
+            if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
+                jwt = authorizationHeader.substring(7);
+            }
+        }
+
+        // Extract username from JWT token if found
+        if (jwt != null) {
             try {
                 username = jwtUtil.extractUsername(jwt);
             } catch (Exception e) {
