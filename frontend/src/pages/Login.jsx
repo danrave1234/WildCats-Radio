@@ -117,39 +117,39 @@ export default function Login() {
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-b from-white via-yellow-50 to-yellow-200 overflow-y-auto">
-      <div className="w-full flex flex-col items-center justify-start min-h-screen p-4 py-8 relative">
-        <div className="w-full max-w-md my-auto">
+      <div className="w-full flex flex-col items-center justify-start min-h-screen p-4 py-4 sm:py-6 md:py-8 relative">
+        <div className="w-full max-w-sm sm:max-w-md my-auto">
           {/* Logo Section */}
-          <div className="flex justify-center mb-2">
+          <div className="flex justify-center mb-1 sm:mb-2">
             <img 
               src={wildcatRadioLogo} 
               alt="WildCat Radio Logo" 
-              className="h-40 w-auto"
+              className="h-28 w-auto sm:h-32 md:h-40"
             />
           </div>
 
           {/* Title Section */}
-          <div className="text-center mb-4 px-4">
-            <p className="text-sm text-gray-600 uppercase tracking-wider max-w-sm mx-auto font-semibold">
+          <div className="text-center mb-3 sm:mb-4 px-2 sm:px-4">
+            <p className="text-xs sm:text-sm text-gray-600 uppercase tracking-wider max-w-sm mx-auto font-semibold">
               Your radio broadcast platform
             </p>
           </div>
 
-          <Card className="border-0 shadow-2xl bg-white backdrop-blur-xl overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out">
+          <Card className="border-0 shadow-2xl bg-white backdrop-blur-xl overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out max-h-[calc(100vh-200px)] overflow-y-auto custom-scrollbar">
             <div className="h-3 bg-gradient-to-r from-wildcats-maroon to-wildcats-maroon/70" />
-            <CardHeader className="px-6 pt-6 pb-3">
+            <CardHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-2 sm:pb-3">
               <div>
-                <CardTitle className="text-xl font-bold text-gray-800">Sign in to your account</CardTitle>
-                <CardDescription className="text-sm text-gray-500 mt-1">
+                <CardTitle className="text-lg sm:text-xl font-bold text-gray-800">Sign in to your account</CardTitle>
+                <CardDescription className="text-xs sm:text-sm text-gray-500 mt-1">
                   Enter your email below to sign in to your account
                 </CardDescription>
               </div>
             </CardHeader>
-            <div className="px-6">
+            <div className="px-4 sm:px-6">
               <Separator className="bg-gray-200" />
             </div>
-            <CardContent className="px-6 py-6 pt-3">
-              <form onSubmit={handleSubmit} className="space-y-4">
+            <CardContent className="px-4 sm:px-6 py-4 sm:py-6 pt-3">
+              <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
                 {/* Email Field */}
                 <div className="space-y-1.5">
                   <Label htmlFor="email" className="text-xs font-semibold text-gray-700">
@@ -164,7 +164,7 @@ export default function Login() {
                     value={formData.email}
                     onChange={handleChange}
                     placeholder="Enter your email address"
-                    className="h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
+                    className="h-9 sm:h-10 bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300 text-sm"
                   />
                 </div>
                 
@@ -183,20 +183,20 @@ export default function Login() {
                       value={formData.password}
                       onChange={handleChange}
                       placeholder="Enter your password"
-                      className="h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300"
+                      className="h-9 sm:h-10 bg-white border-gray-200 pr-10 text-gray-900 placeholder:text-gray-400 !rounded-none shadow-sm transition-all duration-300 focus:shadow-md focus:border-wildcats-maroon/50 hover:border-gray-300 text-sm"
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="group absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 !rounded-none focus:outline-none hover:bg-transparent"
+                      className="group absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 sm:h-8 sm:w-8 !rounded-none focus:outline-none hover:bg-transparent"
                       onClick={togglePasswordVisibility}
                       tabIndex={-1}
                     >
                       {showPassword ? (
-                        <EyeOff className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                        <EyeOff className="h-3 w-3 sm:h-4 sm:w-4 text-gray-500 transition-colors group-hover:text-black" />
                       ) : (
-                        <Eye className="h-4 w-4 text-gray-500 transition-colors group-hover:text-black" />
+                        <Eye className="h-3 w-3 sm:h-4 sm:w-4 text-gray-500 transition-colors group-hover:text-black" />
                       )}
                     </Button>
                   </div>
@@ -241,7 +241,7 @@ export default function Login() {
                 <Button
                   type="submit"
                   disabled={loading}
-                  className="w-full h-11 bg-gradient-to-r from-wildcats-yellow to-wildcats-yellow/90 hover:from-wildcats-yellow/90 hover:to-wildcats-yellow/80 text-black font-semibold shadow-lg hover:shadow-xl transition-all duration-300 disabled:transform-none disabled:opacity-70 !rounded-none mt-4 focus:outline-none focus-visible:ring-0"
+                  className="w-full h-10 sm:h-11 bg-gradient-to-r from-wildcats-yellow to-wildcats-yellow/90 hover:from-wildcats-yellow/90 hover:to-wildcats-yellow/80 text-black font-semibold shadow-lg hover:shadow-xl transition-all duration-300 disabled:transform-none disabled:opacity-70 !rounded-none mt-3 sm:mt-4 focus:outline-none focus-visible:ring-0 text-sm sm:text-base"
                 >
                   {loading ? (
                     <>
@@ -255,8 +255,8 @@ export default function Login() {
               </form>
 
               {/* Sign Up Link */}
-              <div className="text-center pt-3">
-                <p className="text-sm text-gray-600">
+              <div className="text-center pt-2 sm:pt-3">
+                <p className="text-xs sm:text-sm text-gray-600">
                   Don't have an account?{' '}
                   <Link 
                     to="/register" 
