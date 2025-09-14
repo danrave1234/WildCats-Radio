@@ -23,16 +23,19 @@ public class WebSocketConfig implements WebSocketConfigurer {
     private final ListenerStatusHandler listenerStatusHandler;
     private final CorsConfig corsConfig;
     private final WebSocketHandshakeAuthInterceptor handshakeAuthInterceptor;
+    private final com.wildcastradio.ratelimit.WebSocketRateLimitHandshakeInterceptor rateLimitHandshakeInterceptor;
     
     @Autowired
     public WebSocketConfig(IcecastStreamHandler icecastStreamHandler, 
                           ListenerStatusHandler listenerStatusHandler,
                           CorsConfig corsConfig,
-                          WebSocketHandshakeAuthInterceptor handshakeAuthInterceptor) {
+                          WebSocketHandshakeAuthInterceptor handshakeAuthInterceptor,
+                          com.wildcastradio.ratelimit.WebSocketRateLimitHandshakeInterceptor rateLimitHandshakeInterceptor) {
         this.icecastStreamHandler = icecastStreamHandler;
         this.listenerStatusHandler = listenerStatusHandler;
         this.corsConfig = corsConfig;
         this.handshakeAuthInterceptor = handshakeAuthInterceptor;
+        this.rateLimitHandshakeInterceptor = rateLimitHandshakeInterceptor;
     }
     
     /**
@@ -56,12 +59,12 @@ public class WebSocketConfig implements WebSocketConfigurer {
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         // Audio streaming endpoint for DJs
         registry.addHandler(icecastStreamHandler, "/ws/live")
-                .addInterceptors(handshakeAuthInterceptor)
+                .addInterceptors(handshakeAuthInterceptor, rateLimitHandshakeInterceptor)
                 .setAllowedOrigins(corsConfig.getAllowedOrigins().toArray(new String[0]));
         
         // Status updates endpoint for listeners  
         registry.addHandler(listenerStatusHandler, "/ws/listener")
-                .addInterceptors(handshakeAuthInterceptor)
+                .addInterceptors(handshakeAuthInterceptor, rateLimitHandshakeInterceptor)
                 .setAllowedOrigins(corsConfig.getAllowedOrigins().toArray(new String[0]));
     }
 }

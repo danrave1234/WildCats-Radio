@@ -49,8 +49,22 @@ export default function Login() {
       await login(formData)
       // No need to call onLogin as the AuthContext will handle the authentication state
     } catch (err) {
-      // Error handling is done by AuthContext, but we can add additional handling here if needed
-      setError(err.response?.data?.message || 'Login failed. Please try again.');
+      // Show API-provided error message if available (text or JSON)
+      let message = 'Login failed. Please try again.'
+      if (err?.response) {
+        const status = err.response.status
+        // Try JSON first
+        if (typeof err.response.data === 'string') {
+          message = err.response.data
+        } else if (err.response.data?.message) {
+          message = err.response.data.message
+        } else if (status === 429) {
+          message = 'Too many failed attempts. Please wait and try again.'
+        } else if (status === 401) {
+          message = 'Invalid email or password.'
+        }
+      }
+      setError(message)
     }
   }
 

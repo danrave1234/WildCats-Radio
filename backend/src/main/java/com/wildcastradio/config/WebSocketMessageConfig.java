@@ -25,6 +25,9 @@ public class WebSocketMessageConfig implements WebSocketMessageBrokerConfigurer 
     @Autowired
     private WebSocketHandshakeAuthInterceptor handshakeAuthInterceptor;
 
+    @Autowired
+    private com.wildcastradio.ratelimit.WebSocketRateLimitHandshakeInterceptor rateLimitHandshakeInterceptor;
+
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
         config.enableSimpleBroker("/topic", "/queue");
@@ -34,7 +37,7 @@ public class WebSocketMessageConfig implements WebSocketMessageBrokerConfigurer 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws-radio")
-               .addInterceptors(handshakeAuthInterceptor)
+               .addInterceptors(handshakeAuthInterceptor, rateLimitHandshakeInterceptor)
                .setAllowedOrigins(corsConfig.getAllowedOrigins().toArray(new String[0]))
                .withSockJS();
     }

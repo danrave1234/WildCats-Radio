@@ -1,10 +1,14 @@
 package com.wildcastradio.User;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,18 +29,24 @@ import com.wildcastradio.User.DTO.LoginRequest;
 import com.wildcastradio.User.DTO.LoginResponse;
 import com.wildcastradio.User.DTO.RegisterRequest;
 import com.wildcastradio.User.DTO.UserDTO;
+import com.wildcastradio.ratelimit.LoginAttemptLimiter;
+import com.wildcastradio.ratelimit.IpUtils;
 
 @RestController
 @RequestMapping("/api/auth")
 public class UserController {
 
+    private static final Logger logger = LoggerFactory.getLogger(UserController.class);
+
     private final UserService userService;
+    private final LoginAttemptLimiter loginAttemptLimiter;
 
     @Value("${app.security.cookie.secure:false}")
     private boolean useSecureCookies;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService, LoginAttemptLimiter loginAttemptLimiter) {
         this.userService = userService;
+        this.loginAttemptLimiter = loginAttemptLimiter;
     }
 
     @PostMapping("/register")
@@ -46,37 +56,69 @@ public class UserController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> loginUser(@RequestBody LoginRequest request, HttpServletResponse response) {
-        LoginResponse loginResponse = userService.loginUser(request);
-        
-        // Create secure HttpOnly cookies for token and user information
-        Cookie tokenCookie = new Cookie("token", loginResponse.getToken());
-        tokenCookie.setHttpOnly(true);
-        tokenCookie.setSecure(useSecureCookies); // Env-aware
-        tokenCookie.setPath("/");
-        tokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-        tokenCookie.setAttribute("SameSite", "Strict");
-        response.addCookie(tokenCookie);
-        
-        Cookie userIdCookie = new Cookie("userId", String.valueOf(loginResponse.getUser().getId()));
-        userIdCookie.setHttpOnly(true);
-        userIdCookie.setSecure(useSecureCookies);
-        userIdCookie.setPath("/");
-        userIdCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-        userIdCookie.setAttribute("SameSite", "Strict");
-        response.addCookie(userIdCookie);
-        
-        Cookie userRoleCookie = new Cookie("userRole", loginResponse.getUser().getRole().toString());
-        userRoleCookie.setHttpOnly(true);
-        userRoleCookie.setSecure(useSecureCookies);
-        userRoleCookie.setPath("/");
-        userRoleCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-        userRoleCookie.setAttribute("SameSite", "Strict");
-        response.addCookie(userRoleCookie);
-        
-        // Return response without the token (token is now in secure cookie)
-        LoginResponse secureResponse = new LoginResponse(null, loginResponse.getUser());
-        return ResponseEntity.ok(secureResponse);
+    public ResponseEntity<?> loginUser(@RequestBody LoginRequest request, HttpServletRequest httpRequest, HttpServletResponse response) {
+        String username = request.getEmail() != null ? request.getEmail().trim().toLowerCase() : "";
+        String clientIp = IpUtils.extractClientIp(httpRequest, true);
+
+        // Block if this username+IP has too many recent failures
+        if (loginAttemptLimiter.isBlocked(username, clientIp)) {
+            String msg = "Too many failed login attempts. Please wait before trying again.";
+            logger.warn("Auth rate limit: {} username='{}' ip='{}'", msg, username, clientIp);
+            return ResponseEntity.status(429)
+                    .header("Retry-After", String.valueOf(loginAttemptLimiter.retryAfterSeconds()))
+                    .body(msg);
+        }
+
+        try {
+            LoginResponse loginResponse = userService.loginUser(request);
+
+            // Double-check again right before issuing cookies; enforce cooldown even if password correct
+            if (loginAttemptLimiter.isBlocked(username, clientIp)) {
+                String msg = "Login temporarily locked due to previous failed attempts. Please retry later.";
+                logger.warn("Auth rate limit (post-auth): {} username='{}' ip='{}'", msg, username, clientIp);
+                return ResponseEntity.status(429)
+                        .header("Retry-After", String.valueOf(loginAttemptLimiter.retryAfterSeconds()))
+                        .body(msg);
+            }
+
+            // Success: keep counters (cooldown enforced by natural refill)
+            loginAttemptLimiter.onSuccess(username, clientIp);
+            
+            // Create secure HttpOnly cookies for token and user information
+            Cookie tokenCookie = new Cookie("token", loginResponse.getToken());
+            tokenCookie.setHttpOnly(true);
+            tokenCookie.setSecure(useSecureCookies); // Env-aware
+            tokenCookie.setPath("/");
+            tokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+            tokenCookie.setAttribute("SameSite", "Strict");
+            response.addCookie(tokenCookie);
+            
+            Cookie userIdCookie = new Cookie("userId", String.valueOf(loginResponse.getUser().getId()));
+            userIdCookie.setHttpOnly(true);
+            userIdCookie.setSecure(useSecureCookies);
+            userIdCookie.setPath("/");
+            userIdCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+            userIdCookie.setAttribute("SameSite", "Strict");
+            response.addCookie(userIdCookie);
+            
+            Cookie userRoleCookie = new Cookie("userRole", loginResponse.getUser().getRole().toString());
+            userRoleCookie.setHttpOnly(true);
+            userRoleCookie.setSecure(useSecureCookies);
+            userRoleCookie.setPath("/");
+            userRoleCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+            userRoleCookie.setAttribute("SameSite", "Strict");
+            response.addCookie(userRoleCookie);
+            
+            // Return response without the token (token is now in secure cookie)
+            LoginResponse secureResponse = new LoginResponse(null, loginResponse.getUser());
+            return ResponseEntity.ok(secureResponse);
+        } catch (IllegalArgumentException e) {
+            // Failure: count towards limiter
+            loginAttemptLimiter.onFailure(username, clientIp);
+            String msg = "Invalid email or password.";
+            logger.warn("Auth failure: {} username='{}' ip='{}'", msg, username, clientIp);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(msg);
+        }
     }
 
     @PostMapping("/logout")
