@@ -572,9 +572,24 @@ public class BroadcastService {
     }
 
     public List<BroadcastEntity> getPopularBroadcasts(int limit) {
-        // For now, return all broadcasts ordered by creation date
-        // In the future, this could be ordered by listener count or other metrics
-        return broadcastRepository.findAll().stream()
+        // Prefer ended broadcasts with most interactions, then live, then scheduled
+        List<BroadcastEntity> all = broadcastRepository.findAll();
+        return all.stream()
+            .sorted((a, b) -> {
+                int aInteractions = (a.getChatMessages() != null ? a.getChatMessages().size() : 0)
+                    + (a.getSongRequests() != null ? a.getSongRequests().size() : 0);
+                int bInteractions = (b.getChatMessages() != null ? b.getChatMessages().size() : 0)
+                    + (b.getSongRequests() != null ? b.getSongRequests().size() : 0);
+                // Desc by interactions, tie-breaker by latest actualStart/end
+                int cmp = Integer.compare(bInteractions, aInteractions);
+                if (cmp != 0) return cmp;
+                java.time.LocalDateTime aTime = a.getActualEnd() != null ? a.getActualEnd() : a.getActualStart();
+                java.time.LocalDateTime bTime = b.getActualEnd() != null ? b.getActualEnd() : b.getActualStart();
+                if (aTime == null && bTime == null) return 0;
+                if (aTime == null) return 1;
+                if (bTime == null) return -1;
+                return bTime.compareTo(aTime);
+            })
             .limit(limit)
             .collect(java.util.stream.Collectors.toList());
     }

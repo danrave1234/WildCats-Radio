@@ -25,4 +25,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessageEntity, 
 
     // Count messages older than specified date
     long countByCreatedAtBefore(LocalDateTime cutoffDate);
+
+    // Count messages within a time range
+    long countByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
 }

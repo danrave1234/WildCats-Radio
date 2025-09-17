@@ -234,10 +234,8 @@ export default function Schedule() {
     }
 
     fetchUpcomingBroadcasts()
-    // Refresh data every 5 minutes
-    const interval = setInterval(fetchUpcomingBroadcasts, 300000)
-
-    return () => clearInterval(interval)
+    // No auto-polling; user can refresh page or navigate
+    return () => {}
   }, [])
 
   // Check if user can schedule broadcasts (admin or DJ)

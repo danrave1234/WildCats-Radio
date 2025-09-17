@@ -174,12 +174,7 @@ export const BroadcastHistoryProvider = ({ children }) => {
     }
   };
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      fetchBroadcastHistory();
-      fetchBroadcastStats();
-    }
-  }, [isAuthenticated]);
+  // No automatic HTTP fetching to avoid 403 spam; pages will fetch on demand
 
   const value = {
     broadcastHistory,

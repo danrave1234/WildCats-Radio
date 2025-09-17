@@ -98,13 +98,19 @@ export default function BroadcastHistory() {
     }
   }, [viewMode, fetchDetailedBroadcastAnalytics]);
 
-  // Load broadcasts history when switching to broadcasts view
+  // Load broadcasts history once; no auto-polling
   useEffect(() => {
     const loadBroadcasts = async () => {
       try {
         setBroadcastsLoading(true);
         const days = timeFilter === 'today' ? 1 : timeFilter === 'week' ? 7 : timeFilter === 'month' ? 30 : 365;
-        const resp = await broadcastService.getHistory(days, 0, size);
+        // If unauthorized (403), show graceful empty state instead of spamming errors
+        const resp = await broadcastService.getHistory(days, 0, size).catch((e) => {
+          if (e?.response?.status === 403) {
+            return { data: { content: [], last: true } };
+          }
+          throw e;
+        });
         const content = resp.data?.content || resp.data || [];
         setBroadcastHistoryList(content);
         setPage(0);
@@ -116,9 +122,7 @@ export default function BroadcastHistory() {
         setBroadcastsLoading(false);
       }
     };
-    if (true) {
-      loadBroadcasts();
-    }
+    loadBroadcasts();
   }, [timeFilter, size]);
 
   const loadMoreBroadcasts = async () => {
@@ -126,7 +130,12 @@ export default function BroadcastHistory() {
     try {
       const days = timeFilter === 'today' ? 1 : timeFilter === 'week' ? 7 : timeFilter === 'month' ? 30 : 365;
       const nextPage = page + 1;
-      const resp = await broadcastService.getHistory(days, nextPage, size);
+      const resp = await broadcastService.getHistory(days, nextPage, size).catch((e) => {
+        if (e?.response?.status === 403) {
+          return { data: { content: [], last: true } };
+        }
+        throw e;
+      });
       const content = resp.data?.content || [];
       setBroadcastHistoryList(prev => [...prev, ...content]);
       setPage(nextPage);

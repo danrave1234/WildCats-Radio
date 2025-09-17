@@ -114,6 +114,11 @@ public class ChatMessageService {
         return (double) totalMessages / totalBroadcasts;
     }
 
+    // Expose repository for analytics breakdown queries (kept simple for now)
+    public ChatMessageRepository getRepository() {
+        return chatMessageRepository;
+    }
+
     /**
      * Clean up messages older than 7 days
      * This method is called by a scheduled task to maintain database cleanliness

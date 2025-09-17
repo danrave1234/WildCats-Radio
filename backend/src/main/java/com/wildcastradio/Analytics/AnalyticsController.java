@@ -48,7 +48,11 @@ public class AnalyticsController {
     @GetMapping("/broadcasts")
     @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Map<String, Object>> getBroadcastStats() {
-        return ResponseEntity.ok(analyticsService.getBroadcastStats());
+        return ResponseEntity.ok()
+            .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            .header("Pragma", "no-cache")
+            .header("Expires", "0")
+            .body(analyticsService.getBroadcastStats());
     }
 
     /**
@@ -57,7 +61,11 @@ public class AnalyticsController {
     @GetMapping("/users")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> getUserStats() {
-        return ResponseEntity.ok(analyticsService.getUserStats());
+        return ResponseEntity.ok()
+            .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            .header("Pragma", "no-cache")
+            .header("Expires", "0")
+            .body(analyticsService.getUserStats());
     }
 
     /**
@@ -66,7 +74,11 @@ public class AnalyticsController {
     @GetMapping("/engagement")
     @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Map<String, Object>> getEngagementStats() {
-        return ResponseEntity.ok(analyticsService.getEngagementStats());
+        return ResponseEntity.ok()
+            .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            .header("Pragma", "no-cache")
+            .header("Expires", "0")
+            .body(analyticsService.getEngagementStats());
     }
 
     /**
@@ -75,7 +87,11 @@ public class AnalyticsController {
     @GetMapping("/activity")
     @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Map<String, Object>> getActivityStats() {
-        return ResponseEntity.ok(analyticsService.getActivityStats());
+        return ResponseEntity.ok()
+            .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            .header("Pragma", "no-cache")
+            .header("Expires", "0")
+            .body(analyticsService.getActivityStats());
     }
 
     /**
@@ -88,7 +104,11 @@ public class AnalyticsController {
         List<BroadcastDTO> broadcastDTOs = popularBroadcasts.stream()
                 .map(BroadcastDTO::fromEntity)
                 .collect(Collectors.toList());
-        return ResponseEntity.ok(broadcastDTOs);
+        return ResponseEntity.ok()
+            .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            .header("Pragma", "no-cache")
+            .header("Expires", "0")
+            .body(broadcastDTOs);
     }
 
     /**

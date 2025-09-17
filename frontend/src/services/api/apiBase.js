@@ -102,6 +102,20 @@ class ApiProxyBase {
           config.headers['Authorization'] = `Bearer ${token}`;
         }
 
+        // Prevent stale caches and always fetch fresh analytics data
+        if (config.method && config.method.toLowerCase() === 'get') {
+          config.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+          config.headers['Pragma'] = 'no-cache';
+          config.headers['Expires'] = '0';
+          // Add a cache-busting param while preserving any existing params
+          const ts = Date.now();
+          if (config.params) {
+            config.params = { ...config.params, _ts: ts };
+          } else {
+            config.params = { _ts: ts };
+          }
+        }
+
         // Log request in debug mode
         if (this.config.enableDebugLogs) {
           this.logger.debug(`🔄 API Request: ${config.method?.toUpperCase()} ${config.url}`);

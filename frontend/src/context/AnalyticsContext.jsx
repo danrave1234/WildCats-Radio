@@ -38,6 +38,7 @@ export function AnalyticsProvider({ children }) {
     listeners: 0,
     djs: 0,
     admins: 0,
+    moderators: 0,
     newUsersThisMonth: 0
   });
 
@@ -95,6 +96,7 @@ export function AnalyticsProvider({ children }) {
   // WebSocket reference
   const stompClientRef = useRef(null);
   const wsReconnectTimerRef = useRef(null);
+  const fetchAbortControllerRef = useRef(null);
 
   // Function to refresh activity data from analytics endpoint
   const refreshActivityData = async () => {
@@ -247,6 +249,13 @@ export function AnalyticsProvider({ children }) {
           }
         });
 
+        // Immediately ask server to push a fresh snapshot (avoids waiting for scheduler)
+        try {
+          stompClient.send('/app/analytics/refresh', {}, '{}');
+        } catch (e) {
+          console.warn('Analytics: initial refresh send failed', e);
+        }
+
       }, error => {
         console.error('WebSocket connection error:', error);
         setWsConnected(false);
@@ -306,26 +315,33 @@ export function AnalyticsProvider({ children }) {
         return;
         }
 
+      // Cancel any in-flight requests before starting a new batch
+      if (fetchAbortControllerRef.current) {
+        try { fetchAbortControllerRef.current.abort(); } catch (e) {}
+      }
+      fetchAbortControllerRef.current = new AbortController();
+      const { signal } = fetchAbortControllerRef.current;
+
       // Fetch analytics data from the API endpoints
       const promises = [];
 
       // DJ and Admin users can access these endpoints
       if (isDjOrAdmin) {
         promises.push(
-          analyticsService.getBroadcastStats()
+          analyticsService.getBroadcastStats({ signal })
             .then(response => ({ type: 'broadcasts', data: response.data }))
             .catch(err => ({ type: 'broadcasts', error: err })),
 
-          analyticsService.getEngagementStats()
+          analyticsService.getEngagementStats({ signal })
             .then(response => ({ type: 'engagement', data: response.data }))
             .catch(err => ({ type: 'engagement', error: err })),
 
-          analyticsService.getDemographicAnalytics()
+          analyticsService.getDemographicAnalytics({ signal })
             .then(response => ({ type: 'demographics', data: response.data }))
             .catch(err => ({ type: 'demographics', error: err })),
 
           // Use analytics endpoint for activity stats (accessible to DJ and ADMIN)
-          analyticsService.getActivityStats()
+          analyticsService.getActivityStats({ limit: 200, signal })
             .then(response => {
               console.log('Analytics: Activity stats response:', response);
               const data = response.data || {};
@@ -356,7 +372,7 @@ export function AnalyticsProvider({ children }) {
             })
             .catch(err => ({ type: 'activity', error: err })),
 
-          analyticsService.getPopularBroadcasts()
+          analyticsService.getPopularBroadcasts({ signal })
             .then(response => ({ type: 'popular', data: response.data }))
             .catch(err => ({ type: 'popular', error: err }))
         );
@@ -365,7 +381,7 @@ export function AnalyticsProvider({ children }) {
       // Only admins can access user stats
       if (isAdmin) {
         promises.push(
-          analyticsService.getUserStats()
+          analyticsService.getUserStats({ signal })
             .then(response => ({ type: 'users', data: response.data }))
             .catch(err => ({ type: 'users', error: err }))
         );
@@ -416,14 +432,17 @@ export function AnalyticsProvider({ children }) {
       setError('Failed to load analytics data. Please check your connection and try again.');
     } finally {
       setLoading(false);
+      // Clear controller if it belongs to this fetch
+      if (fetchAbortControllerRef.current && fetchAbortControllerRef.current.signal.aborted) {
+        fetchAbortControllerRef.current = null;
+      }
     }
   };
 
-  // Connect to WebSocket and fetch initial data on mount
+  // Connect to WebSocket on mount (no automatic HTTP fetches)
   useEffect(() => {
     if (isAuthenticated && currentUser && (currentUser.role === 'DJ' || currentUser.role === 'ADMIN')) {
       console.log('Analytics: Initial setup for authenticated user');
-      fetchInitialData();
       connectWebSocket();
     } else if (isAuthenticated && currentUser) {
       // User is authenticated but doesn't have proper role
@@ -435,6 +454,9 @@ export function AnalyticsProvider({ children }) {
 
     return () => {
       disconnectWebSocket();
+      if (fetchAbortControllerRef.current) {
+        try { fetchAbortControllerRef.current.abort(); } catch (e) {}
+      }
     };
   }, [isAuthenticated, currentUser?.id, currentUser?.role]); // Only depend on user ID and role, not the entire user object
 
@@ -450,13 +472,29 @@ export function AnalyticsProvider({ children }) {
       return;
     }
 
-    console.log('Analytics: Manual data refresh triggered');
-    await fetchInitialData();
-
-    // Reconnect WebSocket if not connected
-    if (!wsConnected) {
-      disconnectWebSocket();
-      connectWebSocket();
+    console.log('Analytics: Manual data refresh triggered (WebSocket-first)');
+    try {
+      setLoading(true);
+      // Prefer WebSocket-driven refresh to avoid extra HTTP calls
+      if (stompClientRef.current && stompClientRef.current.connected) {
+        try {
+          stompClientRef.current.send('/app/analytics/refresh', {}, '{}');
+        } catch (e) {
+          console.warn('Analytics: STOMP send failed, falling back to HTTP', e);
+          await fetchInitialData();
+        }
+      } else {
+        // If WS not connected, fall back to one-time HTTP fetch
+        await fetchInitialData();
+        // Attempt to (re)connect WS for future live updates
+        if (!wsConnected) {
+          disconnectWebSocket();
+          connectWebSocket();
+        }
+      }
+    } finally {
+      // Loading will also stop as messages arrive and setLastUpdated; ensure it doesn't spin forever
+      setTimeout(() => setLoading(false), 1200);
     }
   };
 
