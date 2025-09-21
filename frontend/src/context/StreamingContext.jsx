@@ -34,6 +34,7 @@ export function StreamingProvider({ children }) {
   const [listenerCount, setListenerCount] = useState(0);
   const [peakListenerCount, setPeakListenerCount] = useState(0);
   const [websocketConnected, setWebsocketConnected] = useState(false);
+  const [qualityError, setQualityError] = useState(null);
 
   // Listener State
   const [isListening, setIsListening] = useState(false);
@@ -280,20 +281,35 @@ export function StreamingProvider({ children }) {
 
       // Some browsers require video to be true even for audio-only capture
       // We'll request both but then extract only the audio track
-      const desktopStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          mediaSource: 'screen',
-          width: { max: 1 },
-          height: { max: 1 }
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 48000,
-          channelCount: 2
-        }
-      });
+      let desktopStream;
+      try {
+        desktopStream = await navigator.mediaDevices.getDisplayMedia({
+          // Allow full picker with Entire Screen/Window/Tab options
+          preferCurrentTab: false,
+          video: {
+            displaySurface: 'monitor',
+            selfBrowserSurface: 'include',
+            surfaceSwitching: 'include',
+            frameRate: { max: 1 },
+            width: { max: 1 },
+            height: { max: 1 }
+          },
+          audio: {
+            // Ask for system audio explicitly where supported (Chrome/Edge)
+            systemAudio: 'include',
+            suppressLocalAudioPlayback: false,
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            sampleRate: 48000,
+            channelCount: 2
+          }
+        });
+      } catch (e1) {
+        // Do not degrade quality by switching to generic fallbacks; surface clear guidance instead
+        logger.error('Desktop capture failed with high-quality constraints:', e1?.message || e1);
+        throw new Error('Desktop audio capture failed. Please ensure: 1) You are on HTTPS or localhost, 2) You select a source with audio (e.g., a tab with sound or "System Audio"), 3) Use Chrome/Edge for best results.');
+      }
 
       // Check if we got audio tracks
       const audioTracks = desktopStream.getAudioTracks();
@@ -305,7 +321,33 @@ export function StreamingProvider({ children }) {
 
       // Create a new stream with only the audio track
       const audioOnlyStream = new MediaStream();
-      audioTracks.forEach(track => audioOnlyStream.addTrack(track));
+      audioTracks.forEach(track => {
+        audioOnlyStream.addTrack(track);
+        // Lifecycle listeners help detect when the user stops sharing or the system mutes
+        track.addEventListener('ended', () => logger.warn('Desktop audio track ended'));
+        track.addEventListener('mute', () => logger.warn('Desktop audio track muted'));
+        track.addEventListener('unmute', () => logger.debug('Desktop audio track unmuted'));
+      });
+
+      // Quality gate: validate track settings if the browser exposes them
+      try {
+        const settings = typeof audioTracks[0].getSettings === 'function' ? audioTracks[0].getSettings() : {};
+        const sr = settings.sampleRate;
+        const ch = settings.channelCount;
+        if ((typeof sr === 'number' && sr < 44100) || (typeof ch === 'number' && ch < 2)) {
+          audioTracks.forEach(t => t.stop());
+          desktopStream.getVideoTracks().forEach(t => t.stop());
+          throw new Error(`Selected source audio quality too low (${sr || 'unknown'} Hz, ${ch || 'unknown'}ch). Please select a stereo source at 44.1kHz or 48kHz with system/tab audio.`);
+        }
+      } catch (e) {
+        if (e && e.message && e.message.startsWith('Selected source audio quality too low')) {
+          throw e;
+        }
+        // If settings are not available, continue — backend will enforce quality as a safeguard
+      }
+
+      // Keep a reference to the original desktop stream for cleanup elsewhere
+      desktopStreamRef.current = desktopStream;
 
       // Stop any video tracks since we only need audio
       desktopStream.getVideoTracks().forEach(track => track.stop());
@@ -702,20 +744,33 @@ export function StreamingProvider({ children }) {
       }
 
       // Request desktop stream with enhanced constraints
-      const desktopStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          mediaSource: 'screen',
-          width: { max: 1 },
-          height: { max: 1 }
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 48000,
-          channelCount: 2
-        }
-      });
+      let desktopStream;
+      try {
+        desktopStream = await navigator.mediaDevices.getDisplayMedia({
+          preferCurrentTab: false,
+          video: {
+            displaySurface: 'monitor',
+            selfBrowserSurface: 'include',
+            surfaceSwitching: 'include',
+            frameRate: { max: 1 },
+            width: { max: 1 },
+            height: { max: 1 }
+          },
+          audio: {
+            systemAudio: 'include',
+            suppressLocalAudioPlayback: false,
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            sampleRate: 48000,
+            channelCount: 2
+          }
+        });
+      } catch (e1) {
+        // Do not fall back to generic constraints; keep quality strict and inform the user
+        logger.error('Desktop capture (lifecycle) failed with high-quality constraints:', e1?.message || e1);
+        throw new Error('Desktop audio capture failed with strict settings. Use HTTPS/localhost and select a source with audio (tab with sound or System Audio). Chrome/Edge recommended.');
+      }
 
       // Check if we got audio tracks
       const audioTracks = desktopStream.getAudioTracks();
@@ -743,6 +798,23 @@ export function StreamingProvider({ children }) {
           logger.debug('Desktop audio track unmuted');
         });
       });
+
+      // Quality gate: validate track settings if exposed
+      try {
+        const settings = typeof audioTracks[0].getSettings === 'function' ? audioTracks[0].getSettings() : {};
+        const sr = settings.sampleRate;
+        const ch = settings.channelCount;
+        if ((typeof sr === 'number' && sr < 44100) || (typeof ch === 'number' && ch < 2)) {
+          audioTracks.forEach(t => t.stop());
+          desktopStream.getVideoTracks().forEach(t => t.stop());
+          throw new Error(`Selected source audio quality too low (${sr || 'unknown'} Hz, ${ch || 'unknown'}ch). Please select a stereo source at 44.1kHz or 48kHz with system/tab audio.`);
+        }
+      } catch (e) {
+        if (e && e.message && e.message.startsWith('Selected source audio quality too low')) {
+          throw e;
+        }
+        // Continue if the browser does not expose settings; backend enforces as a safeguard
+      }
 
       // Stop any video tracks since we only need audio
       desktopStream.getVideoTracks().forEach(track => track.stop());
@@ -907,7 +979,7 @@ export function StreamingProvider({ children }) {
       // Create MediaRecorder
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: "audio/webm;codecs=opus",
-        audioBitsPerSecond: 96000 // Lower bitrate for better compatibility
+        audioBitsPerSecond: 160000 // Higher quality; still safe for WS chunking
       });
 
       mediaRecorderRef.current = mediaRecorder;
@@ -1080,9 +1152,9 @@ export function StreamingProvider({ children }) {
       // Improve URL handling and add fallback formats
       let streamUrl = serverConfig.streamUrl;
 
-      // Ensure proper protocol
-      if (!streamUrl.startsWith('http')) {
-        streamUrl = `http://${streamUrl}`;
+      // Ensure proper protocol (force HTTPS for listener stream)
+      if (!/^https?:\/\//i.test(streamUrl)) {
+        streamUrl = `https://${streamUrl}`;
       }
 
       // Set CORS mode for external streams
@@ -1225,6 +1297,14 @@ export function StreamingProvider({ children }) {
     globalWebSocketService.onDJClose((event) => {
       console.log('DJ WebSocket disconnected (via global service):', event.code, event.reason);
       setWebsocketConnected(false);
+
+      // If backend rejected due to low-quality input, surface a clear, actionable message
+      if (event && event.code === 4000) {
+        const msg = event.reason || 'Low-quality input audio detected (requires stereo and >= 44.1 kHz). Please select a source with system/tab audio at 44.1/48 kHz and try again.';
+        console.warn('Server rejected stream due to quality:', msg);
+        setQualityError(msg);
+        setIsLive(false);
+      }
 
       // Clear MediaRecorder handler to prevent errors after WebSocket is closed
       if (mediaRecorderRef.current && mediaRecorderRef.current.ondataavailable) {
@@ -1903,6 +1983,7 @@ export function StreamingProvider({ children }) {
     serverConfig,
     audioSource,
     audioLevel,
+    qualityError,
 
     // Health monitoring
     streamHealth,
@@ -1938,6 +2019,7 @@ export function StreamingProvider({ children }) {
     getWebSocketUrl,
     refreshStreamStatus,
     refreshStream: refreshStreamStatus, // Alias for compatibility
+    clearQualityError: () => setQualityError(null),
 
     // Refs (for direct access when needed)
     djWebSocketRef,

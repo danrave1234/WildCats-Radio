@@ -62,7 +62,7 @@ export default defineConfig(({ mode }) => {
         env.VITE_WS_BASE_URL || 'api.wildcat-radio.live'
       ),
       'import.meta.env.VITE_ICECAST_URL': JSON.stringify(
-        env.VITE_ICECAST_URL || 'api.wildcat-radio.live:8000/live.ogg'
+        env.VITE_ICECAST_URL || 'icecast.software/live.ogg'
       )
     }
   };

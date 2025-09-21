@@ -18,8 +18,11 @@ public class GoogleCloudConfig {
     @Value("${icecast.host:icecast.software}")
     private String icecastHost;
 
-    @Value("${icecast.port:8000}")
+    @Value("${icecast.port:443}")
     private int icecastPort;
+
+    @Value("${icecast.alt.port:-1}")
+    private int icecastAltPort;
 
     @Value("${icecast.source.username:source}")
     private String icecastUsername;
@@ -48,7 +51,12 @@ public class GoogleCloudConfig {
     public void logConfiguration() {
         logger.info("=== Icecast Configuration ===");
         logger.info("Icecast Host: {}", icecastHost);
-        logger.info("Icecast Port: {}", icecastPort);
+        int preferredPort = getPreferredIcecastPort();
+        if (icecastAltPort > 0) {
+            logger.info("Icecast Preferred Port: {} (primary: {}, alt: {})", preferredPort, icecastPort, icecastAltPort);
+        } else {
+            logger.info("Icecast Port: {}", preferredPort);
+        }
         logger.info("Icecast Mount Point: {}", icecastMountPoint);
         logger.info("Server Port: {}", serverPort);
         logger.info("Active Profile: {}", activeProfile);
@@ -155,5 +163,13 @@ public class GoogleCloudConfig {
 
     public String getActiveProfile() {
         return activeProfile;
+    }
+
+    public int getIcecastAltPort() {
+        return icecastAltPort;
+    }
+
+    public int getPreferredIcecastPort() {
+        return icecastAltPort > 0 ? icecastAltPort : icecastPort;
     }
 } 

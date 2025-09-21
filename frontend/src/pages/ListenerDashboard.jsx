@@ -1254,9 +1254,9 @@ export default function ListenerDashboard() {
         // Improved URL handling with format fallbacks
         let streamUrl = serverConfig.streamUrl;
 
-        // Ensure proper protocol
-        if (!streamUrl.startsWith('http')) {
-          streamUrl = `http://${streamUrl}`;
+        // Ensure proper protocol (force HTTPS for listener stream)
+        if (!/^https?:\/\//i.test(streamUrl)) {
+          streamUrl = `https://${streamUrl}`;
         }
 
         logger.debug('Primary stream URL:', streamUrl);
@@ -2283,3 +2283,5 @@ export default function ListenerDashboard() {
     </div>
   );
 }
+
+// Bare-bones note: ListenerDashboard component kept as-is for stability.

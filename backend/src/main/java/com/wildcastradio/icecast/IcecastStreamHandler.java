@@ -5,6 +5,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -18,9 +20,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.CloseStatus;
-import org.springframework.web.socket.WebSocketSession;
-import org.springframework.web.socket.handler.BinaryWebSocketHandler;
 import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.AbstractWebSocketHandler;
 
 import com.wildcastradio.config.NetworkConfig;
@@ -38,6 +39,8 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
     private volatile boolean isConnected = false;
     private Thread loggingThread;
     private volatile boolean shouldStopLogging = false;
+    // Prevent repeated warning spam when FFmpeg isn't running
+    private volatile boolean dataWritesDisabled = false;
     
     private final NetworkConfig networkConfig;
     private final IcecastService icecastService;
@@ -90,10 +93,45 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
             ));
         }
 
-        // CRITICAL FIX: Build Icecast URLs with the actual Icecast server hostname and port
-        // FFmpeg must connect directly to Icecast server on port 8000, not through reverse proxy
-        String oggIcecastUrl = "icecast://source:hackme@" + icecastHostname + ":8000/live.ogg";
-        String mp3IcecastUrl = "icecast://source:hackme@" + icecastHostname + ":8000/live.mp3";
+        // Build Icecast URLs using configured credentials, host, port, and mount
+        String username = icecastService.getIcecastUsername();
+        String password = icecastService.getIcecastPassword();
+        int port = icecastService.getIcecastSourcePort();
+        String mount = icecastService.getIcecastMount();
+        // Ensure mount starts with '/'
+        if (mount == null || mount.isEmpty()) {
+            mount = "/live.ogg";
+        }
+        if (!mount.startsWith("/")) {
+            mount = "/" + mount;
+        }
+        String oggMount = mount;
+        String mp3Mount;
+        if (oggMount.endsWith(".ogg")) {
+            mp3Mount = oggMount.substring(0, oggMount.length() - 4) + ".mp3";
+        } else if (oggMount.endsWith(".mp3")) {
+            mp3Mount = oggMount;
+            oggMount = oggMount.substring(0, oggMount.length() - 4) + ".ogg";
+        } else {
+            // default to dual mounts
+            mp3Mount = oggMount + ".mp3";
+            oggMount = oggMount + ".ogg";
+        }
+        String credentials = (username != null ? username : "source") + ":" + (password != null ? password : "hackme");
+        // Build base Icecast URLs; always enable TLS when publishing on port 443
+        boolean useHttpsPublish = (port == 443);
+        if (useHttpsPublish) {
+            logger.info("Enforcing TLS for Icecast publishing on port 443 (adding tls=1)");
+        }
+        String tlsParam = useHttpsPublish ? (oggMount.contains("?") ? "&tls=1" : "?tls=1") : "";
+        String tlsParamMp3 = useHttpsPublish ? (mp3Mount.contains("?") ? "&tls=1" : "?tls=1") : "";
+        String oggIcecastUrl = "icecast://" + credentials + "@" + icecastHostname + ":" + port + oggMount + tlsParam;
+        String mp3IcecastUrl = "icecast://" + credentials + "@" + icecastHostname + ":" + port + mp3Mount + tlsParamMp3;
+
+        // Warn if default password is in use (do not log the password itself)
+        if ("hackme".equals(icecastService.getIcecastPassword())) {
+            logger.warn("Icecast source password is using the default value. Set ICECAST_PASSWORD in your environment for security.");
+        }
 
         // Use FFmpeg's tee muxer to output to both OGG and MP3 simultaneously
         cmd.addAll(Arrays.asList(
@@ -102,6 +140,7 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
                 
                 // First output: OGG Vorbis (for web compatibility)
                 "-c:a:0", "libvorbis", "-b:a:0", "128k",
+                "-ar:a:0", "48000", "-ac:a:0", "2",
                 "-tune", "zerolatency",
                 "-content_type", "application/ogg",
                 "-ice_name", "WildCats Radio Live (OGG)",
@@ -110,6 +149,7 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
                 
                 // Second output: MP3 (for mobile compatibility)
                 "-c:a:1", "libmp3lame", "-b:a:1", "128k",
+                "-ar:a:1", "48000", "-ac:a:1", "2",
                 "-tune", "zerolatency",
                 "-content_type", "audio/mpeg", 
                 "-ice_name", "WildCats Radio Live (MP3)",
@@ -117,23 +157,58 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
                 "-f", "mp3", mp3IcecastUrl
         ));
 
-        logger.info("Starting FFmpeg with dual streaming command: {}", String.join(" ", cmd));
-        logger.info("OGG Icecast URL: {}", oggIcecastUrl);
-        logger.info("MP3 Icecast URL: {}", mp3IcecastUrl);
-        logger.info("Icecast hostname resolved to: {}", icecastHostname);
-        
-        // Test Icecast server connectivity before starting FFmpeg
+        // Optional connectivity pre-check with fallback
+        int selectedPort = icecastService.getIcecastSourcePort();
+        boolean precheckEnabled = false;
         try {
-            logger.info("Testing connectivity to Icecast server at {}:8000", icecastHostname);
-            java.net.Socket testSocket = new java.net.Socket();
-            testSocket.connect(new java.net.InetSocketAddress(icecastHostname, 8000), 5000);
-            testSocket.close();
-            logger.info("Successfully connected to Icecast server on port 8000");
-        } catch (IOException e) {
-            logger.error("Cannot connect to Icecast server at {}:8000 - {}", icecastHostname, e.getMessage());
-            session.close(new CloseStatus(1011, "Cannot connect to Icecast server: " + e.getMessage()));
-            return;
+            precheckEnabled = networkConfig.getClass().getMethod("isIcecastPrecheckEnabled").invoke(networkConfig) instanceof Boolean
+                    ? (Boolean) networkConfig.getClass().getMethod("isIcecastPrecheckEnabled").invoke(networkConfig)
+                    : false;
+        } catch (Exception ignore) {
+            // Backward compatibility if property/getter doesn't exist
         }
+
+        boolean connectivityOk = true;
+        if (precheckEnabled) {
+            connectivityOk = TcpProbe.check(icecastHostname, selectedPort, 3000);
+            if (!connectivityOk) {
+                logger.warn("Connectivity pre-check failed to {}:{}; will attempt fallback if configured", icecastHostname, selectedPort);
+                int alt = 0;
+                try {
+                    alt = networkConfig.getIcecastAltPort();
+                } catch (Exception e) {
+                    // ignore
+                }
+                if (alt > 0 && TcpProbe.check(icecastHostname, alt, 3000)) {
+                    selectedPort = alt;
+                    logger.info("Using fallback Icecast port: {}", selectedPort);
+                } else {
+                    logger.warn("No working fallback port found during pre-check. Proceeding anyway; FFmpeg may fail to connect.");
+                }
+            } else {
+                logger.info("Connectivity pre-check OK for {}:{}", icecastHostname, selectedPort);
+            }
+        } else {
+            logger.info("Using Icecast server {}:{} without connectivity pre-checks", icecastHostname, selectedPort);
+        }
+        port = selectedPort;
+
+        // Update URLs with possibly adjusted port and TLS parameter
+        useHttpsPublish = (port == 443);
+        if (useHttpsPublish) {
+            logger.info("Enforcing TLS for Icecast publishing on port 443 (adding tls=1)");
+        }
+        tlsParam = useHttpsPublish ? (oggMount.contains("?") ? "&tls=1" : "?tls=1") : "";
+        tlsParamMp3 = useHttpsPublish ? (mp3Mount.contains("?") ? "&tls=1" : "?tls=1") : "";
+        oggIcecastUrl = "icecast://" + credentials + "@" + icecastHostname + ":" + port + oggMount + tlsParam;
+        mp3IcecastUrl = "icecast://" + credentials + "@" + icecastHostname + ":" + port + mp3Mount + tlsParamMp3;
+
+        // Log sanitized command and URLs after port selection
+        String sanitizedCmd = maskIcecastCredentials(String.join(" ", cmd));
+        logger.info("Starting FFmpeg with dual streaming command: {}", sanitizedCmd);
+        logger.info("OGG Icecast URL: {}", maskIcecastCredentials(oggIcecastUrl));
+        logger.info("MP3 Icecast URL: {}", maskIcecastCredentials(mp3IcecastUrl));
+        logger.info("Icecast hostname resolved to: {}", icecastHostname);
 
         // Try to start FFmpeg with enhanced retry logic for race conditions
         boolean started = false;
@@ -184,9 +259,17 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
                 // Reset the logging flag
                 shouldStopLogging = false;
 
+                // Capture final URLs for inner-thread logging
+                final String ffOggUrl = oggIcecastUrl;
+                final String ffMp3Url = mp3IcecastUrl;
+
                 // Enhanced FFmpeg monitoring with race condition detection
                 final boolean[] connectionSuccessful = {false};
                 final boolean[] raceConditionDetected = {false};
+                // Input quality detection (sample rate and channels)
+                final int[] detectedSampleRate = {0};
+                final String[] detectedChannels = {null};
+                final boolean[] lowQualityDetected = {false};
 
                 // Start a thread to monitor FFmpeg output and detect errors
                 loggingThread = new Thread(() -> {
@@ -200,6 +283,51 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
                             }
 
                             logger.info("FFmpeg: {}", line);
+
+                            // Detect input audio quality from FFmpeg stream info
+                            if (!lowQualityDetected[0] && line.contains("Audio:")) {
+                                try {
+                                    // Extract sample rate (number before " Hz")
+                                    int hzPos = line.indexOf(" Hz");
+                                    if (hzPos > 0) {
+                                        int start = hzPos - 1;
+                                        while (start >= 0 && Character.isDigit(line.charAt(start))) {
+                                            start--;
+                                        }
+                                        String rateStr = line.substring(start + 1, hzPos).trim();
+                                        try {
+                                            detectedSampleRate[0] = Integer.parseInt(rateStr);
+                                        } catch (NumberFormatException ignore) {
+                                            detectedSampleRate[0] = 0;
+                                        }
+                                    }
+                                    String lower = line.toLowerCase();
+                                    if (lower.contains("stereo")) {
+                                        detectedChannels[0] = "stereo";
+                                    } else if (lower.contains("mono")) {
+                                        detectedChannels[0] = "mono";
+                                    }
+
+                                    boolean badRate = detectedSampleRate[0] > 0 && detectedSampleRate[0] < 44100;
+                                    boolean badChannels = "mono".equals(detectedChannels[0]);
+                                    if (badRate || badChannels) {
+                                        lowQualityDetected[0] = true;
+                                        logger.error("Rejecting low-quality input audio ({} Hz, {}) — requires >= 44100 Hz and stereo", detectedSampleRate[0], detectedChannels[0] == null ? "unknown" : detectedChannels[0]);
+                                        try {
+                                            session.close(new CloseStatus(4000, "Low-quality input audio detected (requires stereo and >= 44.1 kHz). Please select a source with system/tab audio."));
+                                        } catch (IOException closeEx) {
+                                            logger.warn("Error closing session after low-quality detection: {}", closeEx.getMessage());
+                                        }
+                                        if (ffmpeg != null && ffmpeg.isAlive()) {
+                                            ffmpeg.destroy();
+                                        }
+                                        // Break loop to stop further processing
+                                        break;
+                                    }
+                                } catch (Exception parseEx) {
+                                    logger.debug("Could not parse FFmpeg audio stream info: {}", parseEx.getMessage());
+                                }
+                            }
 
                             // Check for successful connection indicators (for both streams)
                             if (line.contains("Opening") && line.contains("for writing")) {
@@ -250,7 +378,7 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
                                     line.contains("Network is unreachable") ||
                                     line.contains("Connection timed out")) {
                                 logger.warn("FFmpeg network error (attempt {}): {}", attempts[0], line);
-                                logger.warn("Check if Icecast server is running and accessible on port 8000");
+                                logger.warn("Check if Icecast server is running and accessible on the configured port");
                                 break;
                             }
 
@@ -259,7 +387,7 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
                                     line.contains("Port missing in uri") ||
                                     line.contains("Protocol not found")) {
                                 logger.error("FFmpeg URL/protocol error (attempt {}): {}", attempts[0], line);
-                                logger.error("Check Icecast URL format: {}", oggIcecastUrl);
+                                logger.error("Check Icecast URL format: {}", ffOggUrl);
                                 break;
                             }
                             
@@ -351,6 +479,7 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
 
         if (!started) {
             logger.error("Failed to start FFmpeg after {} attempts", maxAttempts);
+            dataWritesDisabled = true;
             session.close(new CloseStatus(1011, "Failed to start streaming process after multiple attempts. This may be due to mount point race conditions."));
         }
     }
@@ -377,12 +506,16 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
                 throw e;
             }
         } else {
-            logger.warn("FFmpeg process is not running, cannot write data");
-            try {
-                session.close(new CloseStatus(1011, "FFmpeg process not available"));
-            } catch (IOException e) {
-                logger.error("Error closing WebSocket session", e);
+            if (!dataWritesDisabled) {
+                dataWritesDisabled = true;
+                logger.warn("FFmpeg process is not running, cannot write data");
+                try {
+                    session.close(new CloseStatus(1011, "FFmpeg process not available"));
+                } catch (IOException e) {
+                    logger.error("Error closing WebSocket session", e);
+                }
             }
+            // Drop subsequent binary frames silently to avoid log spam
         }
     }
 
@@ -471,48 +604,130 @@ public class IcecastStreamHandler extends AbstractWebSocketHandler {
         super.handleTransportError(session, exception);
     }
 
+    /** Utility: mask Icecast credentials in any string to avoid leaking secrets in logs */
+    private String maskIcecastCredentials(String text) {
+        if (text == null || text.isEmpty()) return text;
+        String[] markers = new String[] {"icecast://", "icecast+https://", "icecast+http://"};
+        String result = text;
+        for (String marker : markers) {
+            StringBuilder out = new StringBuilder();
+            int idx = 0;
+            while (true) {
+                int start = result.indexOf(marker, idx);
+                if (start < 0) {
+                    out.append(result.substring(idx));
+                    break;
+                }
+                // Append preceding part
+                out.append(result, idx, start);
+                int at = result.indexOf('@', start + marker.length());
+                if (at > 0) {
+                    // Extract user (before ':') if present
+                    String credPart = result.substring(start + marker.length(), at); // user:pass or just host if malformed
+                    String user = credPart;
+                    int colon = credPart.indexOf(':');
+                    if (colon >= 0) {
+                        user = credPart.substring(0, colon);
+                    } else {
+                        // No colon found; just mask entire credPart
+                        user = "***";
+                    }
+                    out.append(marker).append(user).append(":****@");
+                    idx = at + 1;
+                } else {
+                    // No '@' → append as-is and break
+                    out.append(result.substring(start));
+                    idx = result.length();
+                    break;
+                }
+            }
+            result = out.toString();
+        }
+        return result;
+    }
+
     /**
      * Check if Icecast mount points are available (not occupied by another source)
      * This helps prevent race conditions during audio source switching
      */
     private boolean checkMountPointAvailability(String icecastHostname) {
-        try {
-            URL statusUrl = new URL("http://" + icecastHostname + ":8000/status-json.xsl");
-            HttpURLConnection connection = (HttpURLConnection) statusUrl.openConnection();
-            connection.setRequestMethod("GET");
-            connection.setConnectTimeout(3000);
-            connection.setReadTimeout(3000);
+        int port = icecastService.getIcecastSourcePort();
+        // Determine primary and alternate mounts based on configured mount
+        String primaryMount = icecastService.getIcecastMount();
+        if (primaryMount == null || primaryMount.isEmpty()) {
+            primaryMount = "/live.ogg";
+        }
+        if (!primaryMount.startsWith("/")) {
+            primaryMount = "/" + primaryMount;
+        }
+        String altMount;
+        if (primaryMount.endsWith(".ogg")) {
+            altMount = primaryMount.substring(0, primaryMount.length() - 4) + ".mp3";
+        } else if (primaryMount.endsWith(".mp3")) {
+            altMount = primaryMount.substring(0, primaryMount.length() - 4) + ".ogg";
+        } else {
+            altMount = primaryMount + ".mp3";
+            primaryMount = primaryMount + ".ogg";
+        }
 
-            if (connection.getResponseCode() == 200) {
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-                    StringBuilder response = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        response.append(line);
-                    }
+        // Try direct HTTP to Icecast source port first, then HTTPS via reverse proxy
+        String[] statusUrls = new String[] {
+            "http://" + icecastHostname + ":" + port + "/status-json.xsl",
+            "https://" + icecastHostname + "/status-json.xsl"
+        };
 
-                    String jsonResponse = response.toString();
-                    
-                    // Check if mount points are currently occupied
-                    boolean oggOccupied = jsonResponse.contains("\"mount\":\"/live.ogg\"") && jsonResponse.contains("\"source_ip\"");
-                    boolean mp3Occupied = jsonResponse.contains("\"mount\":\"/live.mp3\"") && jsonResponse.contains("\"source_ip\"");
-                    
-                    if (oggOccupied || mp3Occupied) {
-                        logger.warn("Mount points still occupied - OGG: {}, MP3: {}", oggOccupied, mp3Occupied);
-                        return false;
+        for (String urlStr : statusUrls) {
+            try {
+                URL statusUrl = new URL(urlStr);
+                HttpURLConnection connection = (HttpURLConnection) statusUrl.openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(3000);
+                connection.setReadTimeout(3000);
+
+                if (connection.getResponseCode() == 200) {
+                    try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                        StringBuilder response = new StringBuilder();
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            response.append(line);
+                        }
+
+                        String jsonResponse = response.toString();
+
+                        // Check if the configured mounts are currently occupied
+                        boolean mountAOpp = (jsonResponse.contains("\"mount\":\"" + primaryMount + "\"") || jsonResponse.contains("\"listenurl\":")) && jsonResponse.contains("\"source_ip\"");
+                        boolean mountBOpp = (jsonResponse.contains("\"mount\":\"" + altMount + "\"") || jsonResponse.contains("\"listenurl\":")) && jsonResponse.contains("\"source_ip\"");
+
+                        if (mountAOpp || mountBOpp) {
+                            logger.warn("Mount points still occupied ({}): primary={}, alt={}", urlStr, mountAOpp, mountBOpp);
+                            return false;
+                        }
+
+                        logger.debug("Mount points appear available for new connection (checked via {})", urlStr);
+                        return true;
                     }
-                    
-                    logger.debug("Mount points appear available for new connection");
-                    return true;
+                } else {
+                    logger.debug("Mount status check via {} returned HTTP {}", urlStr, connection.getResponseCode());
                 }
-            } else {
-                logger.warn("Could not check mount point status, HTTP response: {}", connection.getResponseCode());
-                return true; // Assume available if we can't check
+            } catch (Exception e) {
+                logger.debug("Mount status check via {} failed: {}", urlStr, e.getMessage());
             }
-        } catch (Exception e) {
-            logger.warn("Error checking mount point availability: {}", e.getMessage());
-            return true; // Assume available if check fails
+        }
+
+        // If we couldn't confirm occupancy, assume available to avoid blocking start
+        logger.warn("Could not confirm mount availability via direct or HTTPS; proceeding optimistically");
+        return true;
+    }
+
+    // Lightweight TCP connectivity probe
+    private static class TcpProbe {
+        static boolean check(String host, int port, int timeoutMs) {
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(host, port), timeoutMs);
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
         }
     }
 }
-//hehe
