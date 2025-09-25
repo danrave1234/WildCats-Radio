@@ -248,12 +248,16 @@ public class BroadcastController {
         try {
             java.util.Optional<com.wildcastradio.Broadcast.BroadcastEntity> b = broadcastService.getBroadcastById(id);
             String title = b.map(com.wildcastradio.Broadcast.BroadcastEntity::getTitle).orElse("messages");
-            String filename = title.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
-            if (filename.isBlank()) filename = "messages";
-            filename = filename + ".xlsx";
+            String safeTitle = title.replaceAll("[\\/:*?\"<>|]", "_").trim();
+            if (safeTitle.isBlank()) safeTitle = "messages";
+            java.time.LocalDateTime ts = b.flatMap(x -> java.util.Optional.ofNullable(x.getActualStart()))
+                .orElse(java.time.LocalDateTime.now());
+            String tsStr = ts.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmm"));
+            String filename = safeTitle + "_" + tsStr + ".xlsx";
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM);
             headers.setContentDispositionFormData("attachment", filename);
+            headers.add("Access-Control-Expose-Headers", "Content-Disposition");
             org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody body = outputStream -> {
                 chatMessageService.streamMessagesToExcel(id, outputStream);
             };

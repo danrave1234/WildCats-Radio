@@ -1123,8 +1123,15 @@ export default function DJDashboard() {
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement("a")
       link.href = url
-      const safeTitle = (currentBroadcast.title || 'messages').replace(/[\\/:*?"<>|]/g, '_').trim() || 'messages'
-      link.download = `${safeTitle}.xlsx`
+      // Use server-provided filename from Content-Disposition
+      try {
+        const cd = response.headers && (response.headers['content-disposition'] || response.headers['Content-Disposition'])
+        if (cd) {
+          const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(cd)
+          const encoded = match && (match[1] || match[2])
+          if (encoded) link.download = decodeURIComponent(encoded)
+        }
+      } catch {}
       document.body.appendChild(link)
       link.click()
       link.remove()

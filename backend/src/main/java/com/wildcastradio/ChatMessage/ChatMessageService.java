@@ -272,8 +272,33 @@ public class ChatMessageService {
         infoRow4.createCell(1).setCellValue(messages.size());
 
         Row infoRow5 = infoSheet.createRow(4);
-        infoRow5.createCell(0).setCellValue("Export Date:");
-        infoRow5.createCell(1).setCellValue(LocalDateTime.now().format(formatter));
+        infoRow5.createCell(0).setCellValue("Start Time:");
+        infoRow5.createCell(1).setCellValue(broadcast.getActualStart() != null ? broadcast.getActualStart().format(formatter) : "N/A");
+
+        Row infoRow6 = infoSheet.createRow(5);
+        infoRow6.createCell(0).setCellValue("End Time:");
+        infoRow6.createCell(1).setCellValue(broadcast.getActualEnd() != null ? broadcast.getActualEnd().format(formatter) : "N/A");
+
+        Row infoRow7 = infoSheet.createRow(6);
+        infoRow7.createCell(0).setCellValue("Duration:");
+        String durationStr;
+        if (broadcast.getActualStart() != null && broadcast.getActualEnd() != null) {
+            java.time.Duration d = java.time.Duration.between(broadcast.getActualStart(), broadcast.getActualEnd());
+            long hours = d.toHours();
+            long minutes = d.minusHours(hours).toMinutes();
+            durationStr = String.format("%02dh %02dm", hours, minutes);
+        } else {
+            durationStr = "N/A";
+        }
+        infoRow7.createCell(1).setCellValue(durationStr);
+
+        Row infoRow8 = infoSheet.createRow(7);
+        infoRow8.createCell(0).setCellValue("Exported At:");
+        infoRow8.createCell(1).setCellValue(LocalDateTime.now().format(formatter));
+
+        Row legendRow = infoSheet.createRow(9);
+        legendRow.createCell(0).setCellValue("Legend:");
+        legendRow.createCell(1).setCellValue("Yellow cell in Message Content = message was censored");
 
         // Auto-size columns in info sheet (track for SXSSF)
         if (infoSheet instanceof SXSSFSheet) {
@@ -369,9 +394,37 @@ public class ChatMessageService {
 		Row infoRow3 = infoSheet.createRow(2);
 		infoRow3.createCell(0).setCellValue("Created By:");
 		infoRow3.createCell(1).setCellValue(broadcast.getCreatedBy().getDisplayNameOrFullName());
-		Row infoRow5 = infoSheet.createRow(3);
-		infoRow5.createCell(0).setCellValue("Export Date:");
-		infoRow5.createCell(1).setCellValue(LocalDateTime.now().format(formatter));
+		Row infoRow4b = infoSheet.createRow(3);
+		infoRow4b.createCell(0).setCellValue("Total Messages:");
+		long totalMessages = chatMessageRepository.countByCreatedAtBetween(
+				broadcast.getActualStart() != null ? broadcast.getActualStart() : LocalDateTime.now().minusYears(50),
+				broadcast.getActualEnd() != null ? broadcast.getActualEnd() : LocalDateTime.now().plusYears(50)
+		);
+		infoRow4b.createCell(1).setCellValue(totalMessages);
+		Row infoRow5b = infoSheet.createRow(4);
+		infoRow5b.createCell(0).setCellValue("Start Time:");
+		infoRow5b.createCell(1).setCellValue(broadcast.getActualStart() != null ? broadcast.getActualStart().format(formatter) : "N/A");
+		Row infoRow6b = infoSheet.createRow(5);
+		infoRow6b.createCell(0).setCellValue("End Time:");
+		infoRow6b.createCell(1).setCellValue(broadcast.getActualEnd() != null ? broadcast.getActualEnd().format(formatter) : "N/A");
+		Row infoRow7b = infoSheet.createRow(6);
+		infoRow7b.createCell(0).setCellValue("Duration:");
+		String durationStr2;
+		if (broadcast.getActualStart() != null && broadcast.getActualEnd() != null) {
+			java.time.Duration d = java.time.Duration.between(broadcast.getActualStart(), broadcast.getActualEnd());
+			long hours = d.toHours();
+			long minutes = d.minusHours(hours).toMinutes();
+			durationStr2 = String.format("%02dh %02dm", hours, minutes);
+		} else {
+			durationStr2 = "N/A";
+		}
+		infoRow7b.createCell(1).setCellValue(durationStr2);
+		Row infoRow8b = infoSheet.createRow(7);
+		infoRow8b.createCell(0).setCellValue("Exported At:");
+		infoRow8b.createCell(1).setCellValue(LocalDateTime.now().format(formatter));
+		Row legendRow2 = infoSheet.createRow(9);
+		legendRow2.createCell(0).setCellValue("Legend:");
+		legendRow2.createCell(1).setCellValue("Yellow cell in Message Content = message was censored");
 
 		// Track columns for autosizing on SXSSF info sheet
 		if (infoSheet instanceof SXSSFSheet) {
@@ -382,7 +435,7 @@ public class ChatMessageService {
 
 		try {
 			workbook.write(outputStream);
-			logger.info("Successfully streamed chat export for broadcast {}", broadcastId);
+			logger.info("Successfully exported chat for broadcast {}", broadcastId);
 		} finally {
 			workbook.dispose();
 			workbook.close();
