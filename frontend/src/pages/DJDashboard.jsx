@@ -19,7 +19,7 @@ import {
   HeartIcon,
   ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline"
-import { broadcastService, chatService, songRequestService, pollService, authService } from "../services/api/index.js"
+import { broadcastService, songRequestService, pollService, authService, chatService } from "../services/api/index.js"
 import { brandingApi } from "../services/api/brandingApi";
 import { useAuth } from "../context/AuthContext"
 import { useStreaming } from "../context/StreamingContext"
@@ -1118,7 +1118,7 @@ export default function DJDashboard() {
     if (!currentBroadcast?.id) return
     try {
       setIsDownloadingChat(true)
-      const response = await chatService.exportMessages(currentBroadcast.id)
+      const response = await broadcastService.exportChat(currentBroadcast.id)
       const blob = new Blob([response.data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement("a")

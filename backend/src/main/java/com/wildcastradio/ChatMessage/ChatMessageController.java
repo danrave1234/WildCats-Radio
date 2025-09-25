@@ -1,6 +1,5 @@
 package com.wildcastradio.ChatMessage;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -132,14 +131,12 @@ public class ChatMessageController {
      * Export messages for a specific broadcast as Excel file
      */
     @GetMapping("/{broadcastId}/export")
-    public ResponseEntity<byte[]> exportMessages(@PathVariable Long broadcastId, Authentication authentication) {
+    public ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> exportMessages(@PathVariable Long broadcastId, Authentication authentication) {
         if (authentication == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
         try {
-            byte[] excelData = chatMessageService.exportMessagesToExcel(broadcastId);
-
             // Determine filename from broadcast title
             BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new IllegalArgumentException("Broadcast not found with ID: " + broadcastId));
@@ -149,13 +146,15 @@ public class ChatMessageController {
             headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
             headers.setContentDispositionFormData("attachment", filename);
 
-            return ResponseEntity.ok()
-                    .headers(headers)
-                    .body(excelData);
+            org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody body = outputStream -> {
+                chatMessageService.streamMessagesToExcel(broadcastId, outputStream);
+            };
+
+            return ResponseEntity.ok().headers(headers).body(body);
 
         } catch (IllegalArgumentException e) {
             return ResponseEntity.notFound().build();
-        } catch (IOException e) {
+        } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

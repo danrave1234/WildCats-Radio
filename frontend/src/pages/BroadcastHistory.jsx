@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useBroadcastHistory } from '../context/BroadcastHistoryContext';
-import { chatService, analyticsService, broadcastService } from '../services/api/index.js';
+import { analyticsService, broadcastService } from '../services/api/index.js';
 import { useAuth } from '../context/AuthContext';
 import { formatDistanceToNow, format } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
@@ -286,7 +286,7 @@ export default function BroadcastHistory() {
 
       if (!best?.id) throw new Error('Broadcast not found');
 
-      const response = await chatService.exportMessages(best.id);
+      const response = await broadcastService.exportChat(best.id);
       const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
