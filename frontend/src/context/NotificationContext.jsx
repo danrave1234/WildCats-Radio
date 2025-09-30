@@ -72,20 +72,16 @@ export function NotificationProvider({ children }) {
   // Fetch notifications on mount and when user logs in
   useEffect(() => {
     if (isAuthenticated) {
-      fetchNotifications();
       connectToWebSocket();
-      startPeriodicRefresh();
     } else {
       // Clean up when user logs out
       disconnectWebSocket();
-      stopPeriodicRefresh();
       setNotifications([]);
       setUnreadCount(0);
     }
 
     return () => {
       disconnectWebSocket();
-      stopPeriodicRefresh();
     };
   }, [isAuthenticated]);
 
@@ -233,20 +229,7 @@ export function NotificationProvider({ children }) {
     logger.debug('Cleared all notifications');
   };
 
-  // Refresh notifications when the component becomes visible (user switches tabs)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden && isAuthenticated) {
-        logger.debug('Page became visible, refreshing notifications...');
-        fetchNotifications();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [isAuthenticated]);
+  // No automatic refreshes to reduce console noise; use WebSocket pushes only
 
   return (
     <NotificationContext.Provider value={{

@@ -38,6 +38,9 @@ public class ChatMessageEntity {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
+	@Column(name = "original_content", columnDefinition = "TEXT")
+	private String originalContent;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -83,6 +86,14 @@ public class ChatMessageEntity {
     public void setContent(String content) {
         this.content = content;
     }
+
+	public String getOriginalContent() {
+		return originalContent;
+	}
+
+	public void setOriginalContent(String originalContent) {
+		this.originalContent = originalContent;
+	}
 
     public LocalDateTime getCreatedAt() {
         return createdAt;

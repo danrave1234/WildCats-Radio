@@ -19,6 +19,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import com.wildcastradio.ratelimit.RateLimitingFilter;
+
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
@@ -32,6 +34,9 @@ public class SecurityConfig {
 
     @Autowired
     private SecurityHeadersFilter securityHeadersFilter;
+
+    @Autowired
+    private RateLimitingFilter rateLimitingFilter;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -95,6 +100,9 @@ public class SecurityConfig {
 
         // Add security headers filter first to ensure headers are set on all responses
         http.addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class);
+
+        // Add Rate limiting filter before JWT processing
+        http.addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class);
         
         // Add JWT filter before processing requests
         http.addFilterBefore(jwtRequestFilter, UsernamePasswordAuthenticationFilter.class);

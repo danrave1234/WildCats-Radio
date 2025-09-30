@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useBroadcastHistory } from '../context/BroadcastHistoryContext';
-import { chatService, analyticsService, broadcastService } from '../services/api/index.js';
+import { analyticsService, broadcastService } from '../services/api/index.js';
 import { useAuth } from '../context/AuthContext';
 import { formatDistanceToNow, format } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
@@ -98,13 +98,19 @@ export default function BroadcastHistory() {
     }
   }, [viewMode, fetchDetailedBroadcastAnalytics]);
 
-  // Load broadcasts history when switching to broadcasts view
+  // Load broadcasts history once; no auto-polling
   useEffect(() => {
     const loadBroadcasts = async () => {
       try {
         setBroadcastsLoading(true);
         const days = timeFilter === 'today' ? 1 : timeFilter === 'week' ? 7 : timeFilter === 'month' ? 30 : 365;
-        const resp = await broadcastService.getHistory(days, 0, size);
+        // If unauthorized (403), show graceful empty state instead of spamming errors
+        const resp = await broadcastService.getHistory(days, 0, size).catch((e) => {
+          if (e?.response?.status === 403) {
+            return { data: { content: [], last: true } };
+          }
+          throw e;
+        });
         const content = resp.data?.content || resp.data || [];
         setBroadcastHistoryList(content);
         setPage(0);
@@ -116,9 +122,7 @@ export default function BroadcastHistory() {
         setBroadcastsLoading(false);
       }
     };
-    if (true) {
-      loadBroadcasts();
-    }
+    loadBroadcasts();
   }, [timeFilter, size]);
 
   const loadMoreBroadcasts = async () => {
@@ -126,7 +130,12 @@ export default function BroadcastHistory() {
     try {
       const days = timeFilter === 'today' ? 1 : timeFilter === 'week' ? 7 : timeFilter === 'month' ? 30 : 365;
       const nextPage = page + 1;
-      const resp = await broadcastService.getHistory(days, nextPage, size);
+      const resp = await broadcastService.getHistory(days, nextPage, size).catch((e) => {
+        if (e?.response?.status === 403) {
+          return { data: { content: [], last: true } };
+        }
+        throw e;
+      });
       const content = resp.data?.content || [];
       setBroadcastHistoryList(prev => [...prev, ...content]);
       setPage(nextPage);
@@ -232,7 +241,14 @@ export default function BroadcastHistory() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `broadcast_${broadcastId}_messages.xlsx`;
+      try {
+        const cd = response.headers && (response.headers['content-disposition'] || response.headers['Content-Disposition']);
+        if (cd) {
+          const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(cd);
+          const encoded = match && (match[1] || match[2]);
+          if (encoded) link.download = decodeURIComponent(encoded);
+        }
+      } catch {}
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -277,13 +293,19 @@ export default function BroadcastHistory() {
 
       if (!best?.id) throw new Error('Broadcast not found');
 
-      const response = await chatService.exportMessages(best.id);
+      const response = await broadcastService.exportChat(best.id);
       const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      const safeTitle = (best.title || 'messages').replace(/[\\/:*?"<>|]/g, '_').trim() || 'messages';
-      link.download = `${safeTitle}.xlsx`;
+      try {
+        const cd = response.headers && (response.headers['content-disposition'] || response.headers['Content-Disposition']);
+        if (cd) {
+          const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(cd);
+          const encoded = match && (match[1] || match[2]);
+          if (encoded) link.download = decodeURIComponent(encoded);
+        }
+      } catch {}
       document.body.appendChild(link);
       link.click();
       link.remove();

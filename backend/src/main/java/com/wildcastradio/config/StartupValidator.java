@@ -70,13 +70,13 @@ public class StartupValidator implements CommandLineRunner {
         try {
             String serverIp = networkConfig.getServerIp();
             int serverPort = networkConfig.getServerPort();
-            int icecastPort = networkConfig.getIcecastPort();
+            int icecastPort = networkConfig.getPreferredIcecastPort();
             
             logger.info("✓ Server IP detected: {}", serverIp);
             logger.info("✓ Server port: {}", serverPort);
             logger.info("✓ Icecast port: {}", icecastPort);
             
-            // Validate URLs
+            // Validate URLs (bare-bones)
             String webSocketUrl = networkConfig.getWebSocketUrl();
             String listenerWebSocketUrl = networkConfig.getListenerWebSocketUrl();
             

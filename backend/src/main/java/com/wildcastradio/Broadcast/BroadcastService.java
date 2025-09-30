@@ -63,6 +63,9 @@ public class BroadcastService {
     @Value("${broadcast.healthCheck.unhealthyConsecutiveThreshold:3}")
     private int unhealthyConsecutiveThreshold;
 
+    @Value("${broadcast.healthCheck.startupGraceMs:60000}")
+    private long healthCheckStartupGraceMs;
+
     // In-memory tracking for consecutive unhealthy checks
     private int consecutiveUnhealthyChecks = 0;
     private Long lastCheckedBroadcastId = null;
@@ -255,9 +258,34 @@ public class BroadcastService {
                 // Set the stream URL from Google Cloud Icecast service
                 broadcast.setStreamUrl(icecastService.getStreamUrl());
             } else {
-                // If the Google Cloud Icecast server is not accessible, throw an exception
-                logger.error("Failed to start broadcast: Google Cloud Icecast server is not accessible");
-                throw new IllegalStateException("Google Cloud Icecast server is not running or not accessible. Please check the server configuration.");
+                // If the Google Cloud Icecast server is not accessible, decide based on configuration
+                if (icecastService.isDegradedStartAllowed()) {
+                    logger.warn("Icecast server not accessible. Proceeding with broadcast in DEGRADED MODE using fallback stream URL");
+                    String fallbackUrl = icecastService.getFallbackStreamUrl();
+                    // Tag URL so clients can be aware (optional)
+                    if (fallbackUrl != null && !fallbackUrl.isEmpty()) {
+                        if (!fallbackUrl.contains("?")) {
+                            fallbackUrl = fallbackUrl + "?degraded=true";
+                        } else {
+                            fallbackUrl = fallbackUrl + "&degraded=true";
+                        }
+                    }
+                    broadcast.setStreamUrl(fallbackUrl != null ? fallbackUrl : icecastService.getStreamUrl());
+                } else {
+                    // Force degraded start to avoid hard failure in dev/local environments
+                    logger.error("Failed to reach Icecast. Proceeding with broadcast in FORCED DEGRADED MODE");
+                    String fallbackUrl = icecastService.getFallbackStreamUrl();
+                    if (fallbackUrl == null || fallbackUrl.isEmpty()) {
+                        fallbackUrl = icecastService.getStreamUrl();
+                    }
+                    // Tag URL so clients can handle UI accordingly
+                    if (!fallbackUrl.contains("?")) {
+                        fallbackUrl = fallbackUrl + "?degraded=true";
+                    } else {
+                        fallbackUrl = fallbackUrl + "&degraded=true";
+                    }
+                    broadcast.setStreamUrl(fallbackUrl);
+                }
             }
         }
 
@@ -572,9 +600,24 @@ public class BroadcastService {
     }
 
     public List<BroadcastEntity> getPopularBroadcasts(int limit) {
-        // For now, return all broadcasts ordered by creation date
-        // In the future, this could be ordered by listener count or other metrics
-        return broadcastRepository.findAll().stream()
+        // Prefer ended broadcasts with most interactions, then live, then scheduled
+        List<BroadcastEntity> all = broadcastRepository.findAll();
+        return all.stream()
+            .sorted((a, b) -> {
+                int aInteractions = (a.getChatMessages() != null ? a.getChatMessages().size() : 0)
+                    + (a.getSongRequests() != null ? a.getSongRequests().size() : 0);
+                int bInteractions = (b.getChatMessages() != null ? b.getChatMessages().size() : 0)
+                    + (b.getSongRequests() != null ? b.getSongRequests().size() : 0);
+                // Desc by interactions, tie-breaker by latest actualStart/end
+                int cmp = Integer.compare(bInteractions, aInteractions);
+                if (cmp != 0) return cmp;
+                java.time.LocalDateTime aTime = a.getActualEnd() != null ? a.getActualEnd() : a.getActualStart();
+                java.time.LocalDateTime bTime = b.getActualEnd() != null ? b.getActualEnd() : b.getActualStart();
+                if (aTime == null && bTime == null) return 0;
+                if (aTime == null) return 1;
+                if (bTime == null) return -1;
+                return bTime.compareTo(aTime);
+            })
             .limit(limit)
             .collect(java.util.stream.Collectors.toList());
     }
@@ -616,6 +659,31 @@ public class BroadcastService {
                 // New live broadcast; reset counters
                 lastCheckedBroadcastId = id;
                 consecutiveUnhealthyChecks = 0;
+            }
+
+            // Apply startup grace period after a broadcast starts to avoid early false negatives
+            Long startMs = icecastService.getEarliestActiveBroadcastStartTimeMillis();
+            if (startMs != null) {
+                long elapsed = System.currentTimeMillis() - startMs;
+                if (elapsed < healthCheckStartupGraceMs) {
+                    // Within grace window: report recovering but do not count as unhealthy or spam logs
+                    Map<String, Object> graceStatus = new java.util.HashMap<>();
+                    graceStatus.put("serverReachable", true); // optimistic until first real check completes
+                    graceStatus.put("mountPointExists", false);
+                    graceStatus.put("hasActiveSource", false);
+                    graceStatus.put("listenerCount", 0);
+                    graceStatus.put("bitrate", 0);
+                    graceStatus.put("errorMessage", "Within startup grace period: " + (healthCheckStartupGraceMs - elapsed) + "ms remaining");
+
+                    lastHealthSnapshot = graceStatus;
+                    lastHealthSnapshot.put("healthy", false);
+                    lastHealthSnapshot.put("recovering", true);
+                    lastHealthSnapshot.put("consecutiveUnhealthyChecks", consecutiveUnhealthyChecks);
+                    lastHealthSnapshot.put("broadcastId", id);
+                    lastHealthSnapshot.put("broadcastLive", true);
+                    lastHealthCheckTime = LocalDateTime.now();
+                    return;
+                }
             }
 
             Map<String, Object> status = icecastService.checkMountPointStatus(false);
@@ -700,7 +768,26 @@ public class BroadcastService {
         java.util.Map<String, Object> snapshot = lastHealthSnapshot != null ? new java.util.HashMap<>(lastHealthSnapshot) : new java.util.HashMap<>();
         snapshot.putIfAbsent("healthy", false);
         snapshot.putIfAbsent("recovering", false);
-        snapshot.putIfAbsent("broadcastLive", getCurrentLiveBroadcast().isPresent());
+        boolean live = getCurrentLiveBroadcast().isPresent();
+        snapshot.putIfAbsent("broadcastLive", live);
+
+        // Enrich snapshot with degraded mode signal and stream URL if a broadcast is live
+        if (live) {
+            try {
+                java.util.Optional<BroadcastEntity> current = getCurrentLiveBroadcast();
+                if (current.isPresent()) {
+                    String url = current.get().getStreamUrl();
+                    boolean degraded = url != null && url.contains("degraded=true");
+                    snapshot.put("degradedMode", degraded);
+                    if (url != null) {
+                        snapshot.put("streamUrl", url);
+                    }
+                }
+            } catch (Exception ignored) { /* keep health endpoint resilient */ }
+        } else {
+            snapshot.put("degradedMode", false);
+        }
+
         snapshot.put("lastCheckedAt", lastHealthCheckTime != null ? lastHealthCheckTime.toString() : null);
         snapshot.put("autoEndOnUnhealthy", autoEndOnUnhealthy);
         snapshot.put("healthCheckEnabled", healthCheckEnabled);

@@ -29,8 +29,11 @@ public class NetworkConfig {
     @Value("${server.port:8080}")
     private int serverPort;
 
-    @Value("${icecast.port:8000}")
+	@Value("${icecast.port:443}")
     private int icecastPort;
+
+	@Value("${icecast.alt.port:-1}")
+	private int icecastAltPort;
 
     @Value("${icecast.host:icecast.software}")
     private String configuredIcecastHost;
@@ -49,6 +52,12 @@ public class NetworkConfig {
 
     @Value("${ffmpeg.retry.attempts:3}")
     private int ffmpegRetryAttempts;
+
+    @Value("${icecast.precheck.enabled:true}")
+    private boolean icecastPrecheckEnabled;
+
+	@Value("${icecast.publish.https.enabled:false}")
+	private boolean icecastPublishHttpsEnabled;
 
     private String serverIp;
     private String icecastHost;
@@ -72,7 +81,13 @@ public class NetworkConfig {
         logger.info("Detected network interfaces:");
         logAllNetworkInterfaces();
         logger.info("Spring Boot app - IP: {} on port: {}", serverIp, serverPort);
-        logger.info("Icecast server - Host: {} on port: {}", icecastHost, icecastPort);
+        int preferredPort = getPreferredIcecastPort();
+        if (icecastAltPort > 0) {
+            logger.info("Icecast server - Host: {} on preferred port: {} (primary: {}, alt: {})", 
+                       icecastHost, preferredPort, icecastPort, icecastAltPort);
+        } else {
+            logger.info("Icecast server - Host: {} on port: {}", icecastHost, preferredPort);
+        }
     }
 
     /**
@@ -411,4 +426,20 @@ public class NetworkConfig {
     public int getFfmpegRetryAttempts() {
         return ffmpegRetryAttempts;
     }
-} 
+
+    public boolean isIcecastPrecheckEnabled() {
+        return icecastPrecheckEnabled;
+    }
+
+    public int getIcecastAltPort() {
+        return icecastAltPort;
+    }
+
+    public int getPreferredIcecastPort() {
+        return icecastAltPort > 0 ? icecastAltPort : icecastPort;
+    }
+
+	public boolean isIcecastPublishHttpsEnabled() {
+		return icecastPublishHttpsEnabled;
+	}
+}

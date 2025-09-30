@@ -1,6 +1,7 @@
 package com.wildcastradio.Analytics;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.Period;
 import java.util.HashMap;
 import java.util.List;
@@ -73,6 +74,7 @@ public class AnalyticsService {
         stats.put("listeners", userService.getListenerCount());
         stats.put("djs", userService.getDjCount());
         stats.put("admins", userService.getAdminCount());
+        stats.put("moderators", userService.getModeratorCount());
         stats.put("newUsersThisMonth", userService.getNewUsersThisMonthCount());
         return stats;
     }
@@ -82,10 +84,32 @@ public class AnalyticsService {
      */
     public Map<String, Object> getEngagementStats() {
         Map<String, Object> stats = new HashMap<>();
+        // Accurate counts derived from persisted timestamps
+        LocalDate nowDate = LocalDate.now();
+        LocalDateTime todayStart = nowDate.atStartOfDay();
+        LocalDateTime todayEnd = todayStart.plusDays(1);
+        LocalDateTime weekStart = todayStart.minusDays(7);
+        LocalDateTime monthStart = todayStart.minusDays(30);
+
+        // Totals
         stats.put("totalChatMessages", chatMessageService.getTotalMessageCount());
         stats.put("totalSongRequests", songRequestService.getTotalSongRequestCount());
         stats.put("averageMessagesPerBroadcast", chatMessageService.getAverageMessagesPerBroadcast());
         stats.put("averageRequestsPerBroadcast", songRequestService.getAverageRequestsPerBroadcast());
+
+        try {
+            long todayMessages = chatMessageService.getRepository().countByCreatedAtBetween(todayStart, todayEnd);
+            long weekMessages = chatMessageService.getRepository().countByCreatedAtBetween(weekStart, todayEnd);
+            long monthMessages = chatMessageService.getRepository().countByCreatedAtBetween(monthStart, todayEnd);
+            Map<String, Object> chatBreakdown = new HashMap<>();
+            chatBreakdown.put("today", todayMessages);
+            chatBreakdown.put("week", weekMessages);
+            chatBreakdown.put("month", monthMessages);
+            stats.put("chatBreakdown", chatBreakdown);
+        } catch (Exception ignored) {
+            // Repository accessor not available; keep totals only
+        }
+
         return stats;
     }
 

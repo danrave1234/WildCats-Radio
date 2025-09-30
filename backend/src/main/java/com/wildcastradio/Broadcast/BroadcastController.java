@@ -242,24 +242,29 @@ public class BroadcastController {
 
     // Direct export endpoint under broadcasts (convenience wrapper around chat export)
     @GetMapping("/{id}/chat/export")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
-    public org.springframework.http.ResponseEntity<byte[]> exportBroadcastChat(
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
+    public org.springframework.http.ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> exportBroadcastChat(
             @PathVariable Long id) {
         try {
-            byte[] excelData = chatMessageService.exportMessagesToExcel(id);
-            // Determine filename from broadcast title
             java.util.Optional<com.wildcastradio.Broadcast.BroadcastEntity> b = broadcastService.getBroadcastById(id);
             String title = b.map(com.wildcastradio.Broadcast.BroadcastEntity::getTitle).orElse("messages");
-            String filename = title.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
-            if (filename.isBlank()) filename = "messages";
-            filename = filename + ".xlsx";
+            String safeTitle = title.replaceAll("[\\/:*?\"<>|]", "_").trim();
+            if (safeTitle.isBlank()) safeTitle = "messages";
+            java.time.LocalDateTime ts = b.flatMap(x -> java.util.Optional.ofNullable(x.getActualStart()))
+                .orElse(java.time.LocalDateTime.now());
+            String tsStr = ts.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmm"));
+            String filename = safeTitle + "_" + tsStr + ".xlsx";
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM);
             headers.setContentDispositionFormData("attachment", filename);
-            return org.springframework.http.ResponseEntity.ok().headers(headers).body(excelData);
+            headers.add("Access-Control-Expose-Headers", "Content-Disposition");
+            org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody body = outputStream -> {
+                chatMessageService.streamMessagesToExcel(id, outputStream);
+            };
+            return org.springframework.http.ResponseEntity.ok().headers(headers).body(body);
         } catch (IllegalArgumentException e) {
             return org.springframework.http.ResponseEntity.notFound().build();
-        } catch (java.io.IOException e) {
+        } catch (Exception e) {
             return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

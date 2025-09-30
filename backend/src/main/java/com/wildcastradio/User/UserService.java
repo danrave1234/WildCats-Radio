@@ -506,6 +506,10 @@ public class UserService implements UserDetailsService {
         return userRepository.countByRole(UserEntity.UserRole.ADMIN);
     }
 
+    public long getModeratorCount() {
+        return userRepository.countByRole(UserEntity.UserRole.MODERATOR);
+    }
+
     public long getUserCountByRole(String roleName) {
         try {
             UserEntity.UserRole role = UserEntity.UserRole.valueOf(roleName.toUpperCase());

@@ -19,7 +19,7 @@ import {
   HeartIcon,
   ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline"
-import { broadcastService, chatService, songRequestService, pollService, authService } from "../services/api/index.js"
+import { broadcastService, songRequestService, pollService, authService, chatService } from "../services/api/index.js"
 import { brandingApi } from "../services/api/brandingApi";
 import { useAuth } from "../context/AuthContext"
 import { useStreaming } from "../context/StreamingContext"
@@ -1118,13 +1118,20 @@ export default function DJDashboard() {
     if (!currentBroadcast?.id) return
     try {
       setIsDownloadingChat(true)
-      const response = await chatService.exportMessages(currentBroadcast.id)
+      const response = await broadcastService.exportChat(currentBroadcast.id)
       const blob = new Blob([response.data], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement("a")
       link.href = url
-      const safeTitle = (currentBroadcast.title || 'messages').replace(/[\\/:*?"<>|]/g, '_').trim() || 'messages'
-      link.download = `${safeTitle}.xlsx`
+      // Use server-provided filename from Content-Disposition
+      try {
+        const cd = response.headers && (response.headers['content-disposition'] || response.headers['Content-Disposition'])
+        if (cd) {
+          const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(cd)
+          const encoded = match && (match[1] || match[2])
+          if (encoded) link.download = decodeURIComponent(encoded)
+        }
+      } catch {}
       document.body.appendChild(link)
       link.click()
       link.remove()
@@ -1488,9 +1495,9 @@ export default function DJDashboard() {
 
           {/* Live Interactive Dashboard - When streaming live */}
           {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6">
+              <div className="grid grid-cols-1 lg:grid-cols-12 xl:grid-cols-12 gap-6 mb-8">
                 {/* Main Content Area - Left Side */}
-                <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="lg:col-span-8 min-w-0 grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Audio Controls Section */}
                   <div className="md:col-span-2 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
                     <div className="p-4">
@@ -1529,7 +1536,7 @@ export default function DJDashboard() {
                         </div>
                       </div>
                     </div>
-                    <div className="h-[400px] flex flex-col">
+                    <div className="h-[60vh] min-h-[420px] max-h-[75vh] flex flex-col">
                       <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
                         {chatMessages.length === 0 ? (
                             <div className="text-center text-gray-500 dark:text-gray-400 py-8">No messages yet</div>
@@ -1944,7 +1951,7 @@ export default function DJDashboard() {
                 </div>
 
                 {/* Analytics Dashboard - Right Side */}
-                <div className="lg:col-span-4 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+                <div className="lg:col-span-4 min-w-0 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
                   <div className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2.5">
                     <div className="flex items-center">
                       <ChartBarIcon className="h-4 w-4 mr-2" />
@@ -2191,10 +2198,9 @@ export default function DJDashboard() {
                     Ready to Stream
                   </h2>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  {/* Broadcast Details */}
-                  <div className="lg:col-span-7 bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4">
-                    <h3 className="text-base font-medium text-blue-900 dark:text-blue-100 mb-2">
+                  {/* Header: Broadcast Title/Description/Status spanning full width */}
+                  <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4 mb-4">
+                    <h3 className="text-base font-semibold text-blue-900 dark:text-blue-100 mb-1">
                       {currentBroadcast.title}
                     </h3>
                     <p className="text-sm text-blue-700 dark:text-blue-200 mb-2">{currentBroadcast.description}</p>
@@ -2204,125 +2210,128 @@ export default function DJDashboard() {
                     </div>
                   </div>
 
-                  {/* Audio Source Selection - Only show when ready to stream */}
-                  <div className="mb-3">
-                    <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-1">Audio Source</h3>
-                    {workflowState === WORKFLOW_STATES.READY_TO_STREAM && (
-                      <AudioSourceSelector key="ready-to-stream-audio" showHeading={false} compact={true} />
-                    )}
-                  </div>
-
-                  {/* Audio Player Preview */}
-                  <div className="mb-4">
-                    <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Stream Preview</h3>
-                    <AudioPlayer isPreview={true} />
-                  </div>
-
-                  {/* Station Banner Management */}
-                  <div className="mb-4">
-                    <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Station Banner</h3>
-                    <div className="flex flex-col md:flex-row gap-3 items-start md:items-center bg-gray-50 dark:bg-gray-700/40 p-3 rounded-md border border-gray-200 dark:border-gray-600">
-                      <div className="w-full md:w-64">
-                        <div className="rounded-md overflow-hidden border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
-                          {bannerUrl ? (
-                            <img src={cacheBust(bannerUrl)} alt="Current banner" className="w-full h-28 object-cover" />
-                          ) : (
-                            <div className="w-full h-28 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">No banner set</div>
-                          )}
-                        </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    {/* Column 1: Stream Preview then Station Banner */}
+                    <div className="lg:col-span-4 space-y-4 min-w-0">
+                      <div>
+                        <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Stream Preview</h3>
+                        <AudioPlayer isPreview={true} />
                       </div>
 
-                      <div className="flex-1 w-full">
-                        <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
-                          <label className="inline-block">
-                            <span className="sr-only">Choose banner image</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={handleBannerUpload}
-                              disabled={bannerLoading}
-                              className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 focus:outline-none"
-                            />
-                          </label>
-                          <button
-                            onClick={handleBannerDelete}
-                            disabled={bannerLoading || !bannerUrl}
-                            className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm"
-                          >
-                            Remove
-                          </button>
-                          {bannerLoading && <span className="text-xs text-gray-600 dark:text-gray-300">Processing…</span>}
-                          {bannerError && <span className="text-xs text-red-600">{bannerError}</span>}
+                      <div>
+                        <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Station Banner</h3>
+                        <div className="flex flex-col md:flex-row gap-3 items-start md:items-center bg-gray-50 dark:bg-gray-700/40 p-3 rounded-md border border-gray-200 dark:border-gray-600">
+                          <div className="w-full md:w-64">
+                            <div className="rounded-md overflow-hidden border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
+                              {bannerUrl ? (
+                                <img src={cacheBust(bannerUrl)} alt="Current banner" className="w-full h-28 object-cover" />
+                              ) : (
+                                <div className="w-full h-28 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">No banner set</div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex-1 w-full">
+                            <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                              <label className="inline-block">
+                                <span className="sr-only">Choose banner image</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={handleBannerUpload}
+                                  disabled={bannerLoading}
+                                  className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 focus:outline-none"
+                                />
+                              </label>
+                              <button
+                                onClick={handleBannerDelete}
+                                disabled={bannerLoading || !bannerUrl}
+                                className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm"
+                              >
+                                Remove
+                              </button>
+                              {bannerLoading && <span className="text-xs text-gray-600 dark:text-gray-300">Processing…</span>}
+                              {bannerError && <span className="text-xs text-red-600">{bannerError}</span>}
+                            </div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Recommended size: 1200x300 or similar wide aspect. Supported: jpg, jpeg, png, gif, webp.</p>
+                          </div>
                         </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Recommended size: 1200x300 or similar wide aspect. Supported: jpg, jpeg, png, gif, webp.</p>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Slow Mode Settings (available before going live) */}
-                  <ProfanityManager />
-                  {currentBroadcast && (
-                    <div className="mb-4">
-                      <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Chat Slow Mode</h3>
-                      <div className="flex flex-wrap items-center gap-2 bg-gray-50 dark:bg-gray-700/50 rounded-md p-3 border border-gray-200 dark:border-gray-600">
-                        <label className="flex items-center mr-2 text-sm">
-                          <input
-                            type="checkbox"
-                            className="mr-2"
-                            checked={slowModeEnabled}
-                            onChange={(e) => setSlowModeEnabled(e.target.checked)}
-                          />
-                          Enable slow mode
-                        </label>
-                        <div className="flex items-center">
-                          <input
-                            type="number"
-                            min={0}
-                            max={3600}
-                            value={slowModeSeconds}
-                            onChange={(e) => setSlowModeSeconds(e.target.value)}
-                            className="w-24 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                            placeholder="seconds"
-                            title="Seconds between messages"
-                          />
-                          <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">seconds</span>
+                    {/* Column 2: Audio Source Selection */}
+                    <div className="lg:col-span-4 space-y-4 min-w-0">
+                      <div>
+                        <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-1">Audio Source</h3>
+                        {workflowState === WORKFLOW_STATES.READY_TO_STREAM && (
+                          <AudioSourceSelector key="ready-to-stream-audio" showHeading={false} compact={true} />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Column 3: Chat Slow Mode + Actions */}
+                    <div className="lg:col-span-4 space-y-4 min-w-0">
+                      {currentBroadcast && (
+                        <div>
+                          <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Chat Slow Mode</h3>
+                          <div className="flex flex-wrap items-center gap-2 bg-gray-50 dark:bg-gray-700/50 rounded-md p-3 border border-gray-200 dark:border-gray-600">
+                            <label className="flex items-center mr-2 text-sm">
+                              <input
+                                type="checkbox"
+                                className="mr-2"
+                                checked={slowModeEnabled}
+                                onChange={(e) => setSlowModeEnabled(e.target.checked)}
+                              />
+                              Enable slow mode
+                            </label>
+                            <div className="flex items-center">
+                              <input
+                                type="number"
+                                min={0}
+                                max={3600}
+                                value={slowModeSeconds}
+                                onChange={(e) => setSlowModeSeconds(e.target.value)}
+                                className="w-24 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                placeholder="seconds"
+                                title="Seconds between messages"
+                              />
+                              <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">seconds</span>
+                            </div>
+                            <button
+                              onClick={handleSaveSlowMode}
+                              disabled={isSavingSlowMode}
+                              className="ml-auto px-3 py-1.5 bg-maroon-700 text-white rounded-md hover:bg-maroon-800 disabled:opacity-50"
+                              title="Save slow mode settings"
+                            >
+                              {isSavingSlowMode ? 'Saving…' : 'Save'}
+                            </button>
+                            <div className="w-full text-xs text-gray-500 dark:text-gray-400">
+                              Control how often listeners can send messages. Set 0 to disable.
+                            </div>
+                          </div>
                         </div>
+                      )}
+
+                      <div className="flex justify-center space-x-4">
                         <button
-                          onClick={handleSaveSlowMode}
-                          disabled={isSavingSlowMode}
-                          className="ml-auto px-3 py-1.5 bg-maroon-700 text-white rounded-md hover:bg-maroon-800 disabled:opacity-50"
-                          title="Save slow mode settings"
+                            onClick={cancelBroadcast}
+                            className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors text-sm font-medium"
                         >
-                          {isSavingSlowMode ? 'Saving…' : 'Save'}
+                          <XMarkIcon className="h-4 w-4 mr-2" />
+                          Cancel Broadcast
                         </button>
-                        <div className="w-full text-xs text-gray-500 dark:text-gray-400">
-                          Control how often listeners can send messages. Set 0 to disable.
-                        </div>
+                        <button
+                            onClick={startBroadcast}
+                            disabled={!serverConfig}
+                            className="flex items-center px-6 py-2.5 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-base font-medium"
+                        >
+                          <MicrophoneIcon className="h-5 w-5 mr-2" />
+                          Go Live
+                        </button>
                       </div>
+                      <p className="text-center text-xs text-gray-600 dark:text-gray-400 mt-1">
+                        Make sure to allow audio source access when prompted (microphone and/or screen sharing)
+                      </p>
                     </div>
-                  )}
-
-                  {/* Action Buttons */}
-                  <div className="flex justify-center space-x-4">
-                    <button
-                        onClick={cancelBroadcast}
-                        className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors text-sm font-medium"
-                    >
-                      <XMarkIcon className="h-4 w-4 mr-2" />
-                      Cancel Broadcast
-                    </button>
-                    <button
-                        onClick={startBroadcast}
-                        disabled={!serverConfig}
-                        className="flex items-center px-6 py-2.5 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-base font-medium"
-                    >
-                      <MicrophoneIcon className="h-5 w-5 mr-2" />
-                      Go Live
-                    </button>
-                  </div>
-                  <p className="text-center text-xs text-gray-600 dark:text-gray-400 mt-3">
-                    Make sure to allow audio source access when prompted (microphone and/or screen sharing)
-                  </p>
                   </div>
                 </div>
               </div>
@@ -2332,3 +2341,5 @@ export default function DJDashboard() {
       </div>
   )
 }
+
+// Bare-bones note: DJDashboard component kept as-is for stability.

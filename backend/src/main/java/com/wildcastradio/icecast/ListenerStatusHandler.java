@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,7 +45,9 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
     private final Map<String, WebSocketSession> listenerSessions = new ConcurrentHashMap<>();
     private final Map<String, Boolean> activeListeners = new ConcurrentHashMap<>();
     private final Map<String, String> sessionToUser = new ConcurrentHashMap<>(); // Track authenticated users
+    private final Map<String, Object> sessionLocks = new ConcurrentHashMap<>(); // Per-session send locks to prevent concurrent writes
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final AtomicBoolean isBroadcasting = new AtomicBoolean(false);
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -82,6 +85,8 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
             }
 
             listenerSessions.put(session.getId(), session);
+            // Initialize per-session lock
+            sessionLocks.put(session.getId(), new Object());
 
             // Send initial status immediately
             sendStatusToSession(session);
@@ -106,27 +111,60 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
         listenerSessions.remove(session.getId());
         activeListeners.remove(session.getId());
         sessionToUser.remove(session.getId());
+        sessionLocks.remove(session.getId());
     }
 
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
         String username = sessionToUser.get(session.getId());
-        logger.error("Transport error in listener WebSocket session: {} (user: {})", 
+        // Downgrade common disconnect errors to WARN to reduce log noise
+        boolean isExpectedDisconnect = exception instanceof java.io.IOException
+                || exception instanceof java.nio.channels.ClosedChannelException
+                || (exception.getCause() instanceof java.io.IOException);
+        if (isExpectedDisconnect) {
+            logger.warn("Transport error in listener WebSocket session: {} (user: {}) - {}",
+                    session.getId(), username != null ? username : "anonymous",
+                    exception.getMessage());
+        } else {
+            logger.error("Transport error in listener WebSocket session: {} (user: {})",
                     session.getId(), username != null ? username : "anonymous", exception);
+        }
 
         listenerSessions.remove(session.getId());
         activeListeners.remove(session.getId());
         sessionToUser.remove(session.getId());
+        sessionLocks.remove(session.getId());
     }
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         try {
             String payload = message.getPayload();
+            String trimmed = payload != null ? payload.trim() : "";
+
+            // Gracefully handle non-JSON keepalive messages sent by some clients
+            if (trimmed.isEmpty()) {
+                return; // ignore empty payloads
+            }
+            if ("ping".equalsIgnoreCase(trimmed) || "pong".equalsIgnoreCase(trimmed) || "keepalive".equalsIgnoreCase(trimmed)) {
+                // Optionally respond to pings to keep proxies happy
+                try {
+                    if (session.isOpen() && "ping".equalsIgnoreCase(trimmed)) {
+                        Object lock = sessionLocks.computeIfAbsent(session.getId(), id -> new Object());
+                        synchronized (lock) {
+                            if (session.isOpen()) {
+                                session.sendMessage(new TextMessage("pong"));
+                            }
+                        }
+                    }
+                } catch (Exception ignored) { }
+                return; // do not attempt JSON parsing
+            }
+
             JsonNode jsonNode = objectMapper.readTree(payload);
             String username = sessionToUser.get(session.getId());
 
-            logger.debug("Received message from session {} (user: {}): {}", 
+            logger.debug("Received message from session {} (user: {}): {}",
                         session.getId(), username != null ? username : "anonymous", payload);
 
             if (jsonNode.has("type")) {
@@ -146,7 +184,8 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
                 logger.warn("Message missing 'type' field from session: {}", session.getId());
             }
         } catch (JsonProcessingException e) {
-            logger.error("Error parsing message from listener session {}: {}", session.getId(), e.getMessage());
+            // Downgrade to WARN to avoid noisy logs when clients send unexpected payloads
+            logger.warn("Error parsing non-JSON message from listener session {}: {}", session.getId(), e.getOriginalMessage());
         } catch (Exception e) {
             logger.error("Unexpected error handling message from session {}: {}", session.getId(), e.getMessage(), e);
         }
@@ -303,6 +342,10 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
      * Broadcast current stream status to all connected listeners
      */
     public void broadcastStatus() {
+        if (!isBroadcasting.compareAndSet(false, true)) {
+            // Prevent overlapping broadcasts which can cause concurrent writes
+            return;
+        }
         try {
             // Skip polling if no listeners are connected and no broadcasts are active
             if (listenerSessions.isEmpty() && !icecastService.isAnyBroadcastActive()) {
@@ -341,27 +384,31 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
                 String sessionId = entry.getKey();
                 WebSocketSession session = entry.getValue();
 
-                if (session.isOpen()) {
-                    try {
-                        session.sendMessage(new TextMessage(jsonMessage));
-                        return false; // Keep the session
-                    } catch (IOException e) {
-                        String username = sessionToUser.get(sessionId);
-                        logger.warn("Failed to send message to listener session {} (user: {}): {}", 
-                                  sessionId, username != null ? username : "anonymous", e.getMessage());
+                // Double-check session open status inside lock due to race conditions
+                Object lock = sessionLocks.computeIfAbsent(sessionId, id -> new Object());
+                synchronized (lock) {
+                    if (session.isOpen()) {
+                        try {
+                            session.sendMessage(new TextMessage(jsonMessage));
+                            return false; // Keep the session
+                        } catch (Exception e) {
+                            String username = sessionToUser.get(sessionId);
+                            logger.warn("Failed to send message to listener session {} (user: {}): {}",
+                                    sessionId, username != null ? username : "anonymous", e.getMessage());
 
-                        // Clean up other maps for this session
+                            // Clean up maps for this session
+                            activeListeners.remove(sessionId);
+                            sessionToUser.remove(sessionId);
+                            sessionLocks.remove(sessionId);
+                            return true; // Remove the session
+                        }
+                    } else {
+                        // Clean up maps for this closed session
                         activeListeners.remove(sessionId);
                         sessionToUser.remove(sessionId);
-
-                        return true; // Remove the session
+                        sessionLocks.remove(sessionId);
+                        return true; // Remove closed sessions
                     }
-                } else {
-                    // Clean up other maps for this closed session
-                    activeListeners.remove(sessionId);
-                    sessionToUser.remove(sessionId);
-
-                    return true; // Remove closed sessions
                 }
             });
 
@@ -369,6 +416,8 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
 
         } catch (Exception e) {
             logger.error("Error broadcasting stream status", e);
+        } finally {
+            isBroadcasting.set(false);
         }
     }
 
@@ -377,12 +426,6 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
      */
     private void sendStatusToSession(WebSocketSession session) {
         try {
-            // Check if session is still open before attempting to send
-            if (!session.isOpen()) {
-                logger.debug("Not sending status to closed session: {}", session.getId());
-                return;
-            }
-
             // Suppress warnings if no broadcasts are active to reduce log noise
             boolean logWarnings = icecastService.isAnyBroadcastActive();
             Map<String, Object> streamStatus = icecastService.getStreamStatus(logWarnings);
@@ -409,18 +452,28 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
 
             String jsonMessage = objectMapper.writeValueAsString(message);
 
-            try {
-                session.sendMessage(new TextMessage(jsonMessage));
-            } catch (IOException e) {
-                logger.warn("Failed to send message to listener session {}: {}", 
-                          session.getId(), e.getMessage());
-                // Remove the session from our maps since it's likely broken
-                listenerSessions.remove(session.getId());
-                activeListeners.remove(session.getId());
-                sessionToUser.remove(session.getId());
+            // Send under per-session lock to avoid concurrent writes
+            Object lock = sessionLocks.computeIfAbsent(session.getId(), id -> new Object());
+            synchronized (lock) {
+                // Check if session is still open before attempting to send
+                if (!session.isOpen()) {
+                    logger.debug("Not sending status to closed session: {}", session.getId());
+                    return;
+                }
+                try {
+                    session.sendMessage(new TextMessage(jsonMessage));
+                } catch (Exception e) {
+                    logger.warn("Failed to send message to listener session {}: {}",
+                            session.getId(), e.getMessage());
+                    // Remove the session from our maps since it's likely broken
+                    listenerSessions.remove(session.getId());
+                    activeListeners.remove(session.getId());
+                    sessionToUser.remove(session.getId());
+                    sessionLocks.remove(session.getId());
+                }
             }
         } catch (Exception e) {
-            logger.error("Error sending status to session {}: {}", session.getId(), e.getMessage());
+            logger.error("Error sending status to session {}: {}", session.getId(), e.getMessage(), e);
         }
     }
 

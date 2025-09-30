@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext.jsx';
 import { 
   UserGroupIcon, 
   RadioIcon, 
@@ -9,6 +10,7 @@ import { authService, broadcastService, logger } from '../services/api/index.js'
 import { Spinner } from '../components/ui/spinner';
 
 const AdminDashboard = () => {
+  const { isAuthenticated } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);

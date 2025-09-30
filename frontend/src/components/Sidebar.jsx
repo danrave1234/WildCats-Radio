@@ -572,3 +572,5 @@ const NewSidebar = ({ userRole }) => {
 };
 
 export default NewSidebar; 
+
+// Bare-bones note: Sidebar component kept as-is for stability.

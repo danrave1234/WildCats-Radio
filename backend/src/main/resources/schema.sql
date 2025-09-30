@@ -13,3 +13,7 @@ ALTER TABLE IF EXISTS users
 UPDATE users SET banned = COALESCE(banned, false);
 UPDATE users SET warning_count = COALESCE(warning_count, 0);
 
+-- Add original_content to chat_messages for storing raw message before censoring
+ALTER TABLE IF EXISTS chat_messages
+	ADD COLUMN IF NOT EXISTS original_content TEXT;
+

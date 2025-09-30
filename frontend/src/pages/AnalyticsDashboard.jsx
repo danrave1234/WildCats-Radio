@@ -44,6 +44,16 @@ import {
   ArrowDownIcon
 } from '@heroicons/react/24/outline';
 
+// Format a number to up to 3 decimal places, trimming unnecessary zeros
+const formatDecimal = (value, maxFractionDigits = 3) => {
+  const num = Number(value);
+  if (!isFinite(num)) return '0';
+  return num.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxFractionDigits
+  });
+};
+
 // Helper to parse backend timestamp as local time (Philippines time)
 const parseBackendTimestamp = (timestamp) => {
   if (!timestamp) return null;
@@ -90,11 +100,12 @@ export default function AnalyticsDashboard() {
   const [selectedTimeframe, setSelectedTimeframe] = useState('week');
   const [comparisonPeriod, setComparisonPeriod] = useState('yesterday');
 
-  // Initial data load on mount
+  // Initial data load only when needed (avoid double fetch with context)
   useEffect(() => {
-    // Initial data load only
-    refreshData();
-  }, []); // Empty dependency array - only run once on mount
+    if (!lastUpdated && currentUser && (currentUser.role === 'DJ' || currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR')) {
+      refreshData();
+    }
+  }, [lastUpdated, currentUser?.role]);
 
   // Filter activities by timeframe, similar to Notifications.jsx filtering approach
   const filteredActivities = useMemo(() => {
@@ -475,6 +486,12 @@ export default function AnalyticsDashboard() {
                     <p className="font-medium text-gray-900 dark:text-white">{userStats.admins}</p>
                     <p className="text-gray-500 dark:text-gray-400">Admins</p>
                   </div>
+                  <div className="col-span-3 grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-white">{userStats.moderators}</p>
+                      <p className="text-gray-500 dark:text-gray-400">Moderators</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -536,7 +553,7 @@ export default function AnalyticsDashboard() {
                     <p className="text-gray-500 dark:text-gray-400">Song Requests</p>
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900 dark:text-white">{engagementStats.averageMessagesPerBroadcast}</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{formatDecimal(engagementStats.averageMessagesPerBroadcast, 3)}</p>
                     <p className="text-gray-500 dark:text-gray-400">Messages/Broadcast</p>
                   </div>
                 </div>
@@ -593,7 +610,7 @@ export default function AnalyticsDashboard() {
               <div className="flex flex-col items-end space-y-2">
                 <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1 text-sm">
                   <button
-                    onClick={() => setComparisonPeriod('yesterday')}
+                    onClick={() => { setComparisonPeriod('yesterday'); setSelectedTimeframe('today'); }}
                     className={`px-3 py-1.5 rounded-md font-medium transition-all duration-200 ${
                       comparisonPeriod === 'yesterday'
                         ? 'bg-indigo-600 text-white shadow-sm'
@@ -603,7 +620,7 @@ export default function AnalyticsDashboard() {
                     1D
                   </button>
                   <button
-                    onClick={() => setComparisonPeriod('lastWeek')}
+                    onClick={() => { setComparisonPeriod('lastWeek'); setSelectedTimeframe('week'); }}
                     className={`px-3 py-1.5 rounded-md font-medium transition-all duration-200 ${
                       comparisonPeriod === 'lastWeek'
                         ? 'bg-indigo-600 text-white shadow-sm'
@@ -613,7 +630,7 @@ export default function AnalyticsDashboard() {
                     7D
                   </button>
                   <button
-                    onClick={() => setComparisonPeriod('lastMonth')}
+                    onClick={() => { setComparisonPeriod('lastMonth'); setSelectedTimeframe('month'); }}
                     className={`px-3 py-1.5 rounded-md font-medium transition-all duration-200 ${
                       comparisonPeriod === 'lastMonth'
                         ? 'bg-indigo-600 text-white shadow-sm'
@@ -623,7 +640,7 @@ export default function AnalyticsDashboard() {
                     30D
                   </button>
                   <button
-                    onClick={() => setComparisonPeriod('lastYear')}
+                    onClick={() => { setComparisonPeriod('lastYear'); setSelectedTimeframe('year'); }}
                     className={`px-3 py-1.5 rounded-md font-medium transition-all duration-200 ${
                       comparisonPeriod === 'lastYear'
                         ? 'bg-indigo-600 text-white shadow-sm'
@@ -642,7 +659,7 @@ export default function AnalyticsDashboard() {
             {comparisonMetrics ? (
               <div className="space-y-6">
                 {/* Professional Chart.js Implementation */}
-                <div className="bg-gray-800/40 dark:bg-gray-900/60 backdrop-blur-sm border border-gray-700/50 dark:border-gray-600/50 rounded-2xl overflow-hidden shadow-xl">
+                <div className="bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-600/50 rounded-2xl overflow-hidden shadow-xl">
                   <div className="p-6 lg:p-8">
                     {/* Chart Container */}
                     <div className="relative h-96 lg:h-[450px]">
@@ -873,7 +890,7 @@ export default function AnalyticsDashboard() {
                     const ChangeIcon = change.icon;
 
                     return (
-                      <div key={index} className="bg-gray-800/30 dark:bg-gray-900/40 backdrop-blur-sm border border-gray-700/50 dark:border-gray-600/50 rounded-xl p-4 hover:bg-gray-800/40 dark:hover:bg-gray-900/50 transition-all duration-200">
+                      <div key={index} className="bg-white dark:bg-gray-900/40 border border-gray-200 dark:border-gray-600/50 rounded-xl p-4 hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-all duration-200">
                                                  <div className="flex items-center justify-between mb-3">
                            <div className={
                              metric.color === 'emerald' ? 'p-2 bg-emerald-500/20 rounded-lg' :
@@ -897,9 +914,9 @@ export default function AnalyticsDashboard() {
                         </div>
 
                         <div className="space-y-1">
-                          <p className="text-xs font-medium text-gray-400 dark:text-gray-500">{metric.label}</p>
+                          <p className="text-xs font-medium text-gray-600 dark:text-gray-500">{metric.label}</p>
                           <div className="flex items-baseline space-x-2">
-                            <span className="text-lg font-bold text-white dark:text-gray-100">{metric.current}</span>
+                            <span className="text-lg font-bold text-gray-900 dark:text-gray-100">{metric.current}</span>
                             <span className="text-xs text-gray-500 dark:text-gray-400">vs {metric.previous}</span>
                           </div>
                         </div>
