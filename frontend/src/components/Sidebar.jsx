@@ -172,7 +172,7 @@ const navigationSections = {
       items: [
         {
           label: "Listen",
-          href: "/dashboard",
+          href: "/",
           icon: <Music className="h-5 w-5" />,
         },
         {

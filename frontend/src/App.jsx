@@ -14,6 +14,9 @@ const Settings = lazy(() => import('./pages/Settings'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const BroadcastHistory = lazy(() => import('./pages/BroadcastHistory'));
 const AnalyticsDashboard = lazy(() => import('./pages/AnalyticsDashboard'));
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
+const TermsOfService = lazy(() => import('./pages/TermsOfService'));
+const Contact = lazy(() => import('./pages/Contact'));
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BroadcastHistoryProvider } from './context/BroadcastHistoryContext';
 import { AnalyticsProvider } from './context/AnalyticsContext';
@@ -179,10 +182,9 @@ const AppRoutes = () => {
 
       <Route path="/schedule" element={
         <Layout>
-          <ProtectedRoute 
-            element={<Schedule />} 
-            allowedRoles={['LISTENER', 'DJ', 'ADMIN', 'MODERATOR']} 
-          />
+          <Suspense fallback={<LoadingFallback />}>
+            <Schedule />
+          </Suspense>
         </Layout>
       } />
 
@@ -228,6 +230,31 @@ const AppRoutes = () => {
             element={<AnalyticsDashboard />} 
             allowedRoles={['DJ', 'ADMIN', 'MODERATOR']} 
           />
+        </Layout>
+      } />
+
+      {/* Public policy/contact pages */}
+      <Route path="/privacy-policy" element={
+        <Layout>
+          <Suspense fallback={<LoadingFallback />}>
+            <PrivacyPolicy />
+          </Suspense>
+        </Layout>
+      } />
+
+      <Route path="/terms-of-service" element={
+        <Layout>
+          <Suspense fallback={<LoadingFallback />}>
+            <TermsOfService />
+          </Suspense>
+        </Layout>
+      } />
+
+      <Route path="/contact" element={
+        <Layout>
+          <Suspense fallback={<LoadingFallback />}>
+            <Contact />
+          </Suspense>
         </Layout>
       } />
 

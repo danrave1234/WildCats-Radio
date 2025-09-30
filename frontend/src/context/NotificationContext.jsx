@@ -56,13 +56,25 @@ export function NotificationProvider({ children }) {
     }
   };
 
-  const updatePreferences = (next) => {
+  const updatePreferences = async (next) => {
     const merged = { ...preferences, ...next };
     setPreferences(merged);
     try {
       localStorage.setItem('notificationPreferences', JSON.stringify(merged));
     } catch (err) {
-      logger.warn('Failed to persist notification preferences', err);
+      logger.warn('Failed to persist notification preferences locally', err);
+    }
+    // Also persist to backend via profile update so it follows the user across devices
+    try {
+      // Backend UserDTO supports these optional fields
+      await notificationService.updateUserPreferences({
+        notifyBroadcastStart: merged.broadcastStart,
+        notifyBroadcastReminders: merged.broadcastReminders,
+        notifyNewSchedule: merged.newSchedule,
+        notifySystemUpdates: merged.systemUpdates,
+      });
+    } catch (e) {
+      logger.warn('Failed to persist notification preferences to server', e);
     }
     const filtered = notifications.filter((n) => shouldDisplayNotification(n, merged));
     setNotifications(filtered);

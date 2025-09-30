@@ -14,6 +14,9 @@ export const notificationApi = {
   getByType: (type) => api.get(`/api/notifications/by-type/${type}`),
   getRecent: (since) => api.get(`/api/notifications/recent?since=${since}`),
 
+  // Persist notification preferences to the user profile (partial update)
+  updateUserPreferences: (prefs) => api.put('/api/auth/me/preferences', prefs),
+
   subscribeToNotifications: (callback) => {
     const stompClient = createWebSocketConnection('/ws-radio');
     let isConnected = false;
