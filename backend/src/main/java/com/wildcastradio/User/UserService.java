@@ -229,6 +229,20 @@ public class UserService implements UserDetailsService {
             user.setLastname(updatedInfo.getLastname());
         }
 
+        // Optional: update notification preferences if provided
+        if (updatedInfo.getNotifyBroadcastStart() != null) {
+            user.setNotifyBroadcastStart(updatedInfo.getNotifyBroadcastStart());
+        }
+        if (updatedInfo.getNotifyBroadcastReminders() != null) {
+            user.setNotifyBroadcastReminders(updatedInfo.getNotifyBroadcastReminders());
+        }
+        if (updatedInfo.getNotifyNewSchedule() != null) {
+            user.setNotifyNewSchedule(updatedInfo.getNotifyNewSchedule());
+        }
+        if (updatedInfo.getNotifySystemUpdates() != null) {
+            user.setNotifySystemUpdates(updatedInfo.getNotifySystemUpdates());
+        }
+
         // Don't update email here for security reasons
         // Don't update password here for security reasons
 

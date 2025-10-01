@@ -159,10 +159,10 @@ public class BroadcastController {
     }
 
     @GetMapping("/upcoming")
-    public ResponseEntity<List<BroadcastDTO>> getUpcomingBroadcasts() {
+    public ResponseEntity<List<com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO>> getUpcomingBroadcasts() {
         List<BroadcastEntity> upcomingBroadcasts = broadcastService.getUpcomingBroadcasts();
-        List<BroadcastDTO> broadcasts = upcomingBroadcasts.stream()
-                .map(BroadcastDTO::fromEntity)
+        List<com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO> broadcasts = upcomingBroadcasts.stream()
+                .map(com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO::fromEntity)
                 .collect(java.util.stream.Collectors.toList());
         return ResponseEntity.ok(broadcasts);
     }

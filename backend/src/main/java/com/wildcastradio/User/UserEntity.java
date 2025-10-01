@@ -21,7 +21,6 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
-import org.hibernate.annotations.ColumnDefault;
 
 @Entity
 @Table(name = "users")
@@ -65,7 +64,6 @@ public class UserEntity {
     private LocalDate birthdate; // User birthdate for analytics
 
     // Moderation fields
-    @ColumnDefault("false")
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean banned = false; // If true, user is banned from interactive features like chat
 
@@ -78,9 +76,21 @@ public class UserEntity {
     @Column(name = "ban_reason", length = 500)
     private String banReason; // Human-readable reason for ban
 
-    @ColumnDefault("0")
     @Column(nullable = false, columnDefinition = "integer default 0")
     private int warningCount = 0; // Number of warnings issued to the user
+
+    // Notification preferences (persisted per-user)
+    @Column(name = "notify_broadcast_start", nullable = false, columnDefinition = "boolean default true")
+    private boolean notifyBroadcastStart = true;
+
+    @Column(name = "notify_broadcast_reminders", nullable = false, columnDefinition = "boolean default true")
+    private boolean notifyBroadcastReminders = true;
+
+    @Column(name = "notify_new_schedule", nullable = false, columnDefinition = "boolean default false")
+    private boolean notifyNewSchedule = false;
+
+    @Column(name = "notify_system_updates", nullable = false, columnDefinition = "boolean default true")
+    private boolean notifySystemUpdates = true;
 
     // Relationships - Fixed cascade types for better performance and data integrity
     @OneToMany(mappedBy = "createdBy", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
@@ -237,6 +247,16 @@ public class UserEntity {
     public void setActivityLogs(List<ActivityLogEntity> activityLogs) {
         this.activityLogs = activityLogs;
     }
+
+    // Notification preference getters/setters
+    public boolean isNotifyBroadcastStart() { return notifyBroadcastStart; }
+    public void setNotifyBroadcastStart(boolean notifyBroadcastStart) { this.notifyBroadcastStart = notifyBroadcastStart; }
+    public boolean isNotifyBroadcastReminders() { return notifyBroadcastReminders; }
+    public void setNotifyBroadcastReminders(boolean notifyBroadcastReminders) { this.notifyBroadcastReminders = notifyBroadcastReminders; }
+    public boolean isNotifyNewSchedule() { return notifyNewSchedule; }
+    public void setNotifyNewSchedule(boolean notifyNewSchedule) { this.notifyNewSchedule = notifyNewSchedule; }
+    public boolean isNotifySystemUpdates() { return notifySystemUpdates; }
+    public void setNotifySystemUpdates(boolean notifySystemUpdates) { this.notifySystemUpdates = notifySystemUpdates; }
 
 
     public LocalDateTime getLastLoginAt() {
