@@ -7,6 +7,7 @@ import { api } from './apiBase';
 export const authApi = {
   // Authentication operations
   login: (credentials) => api.post('/api/auth/login', credentials),
+  logout: () => api.post('/api/auth/logout'),
   register: (userData) => api.post('/api/auth/register', userData),
   verify: (email, code) => api.post(`/api/auth/verify?email=${email}&code=${code}`),
   sendCode: (email) => api.post(`/api/auth/send-code?email=${email}`),

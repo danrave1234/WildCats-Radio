@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react"
 import wildcatRadioLogo from "../assets/wildcatradio_logo.png"
 import { Separator } from "@/components/ui/separator"
+import { ArrowLeft } from "lucide-react"
 
 // (Removed page-specific theme logic; global ThemeProvider controls theme)
 
@@ -72,6 +73,13 @@ export default function Login() {
     <div className="min-h-screen w-full bg-gradient-to-b from-background via-muted/40 to-muted text-foreground dark:from-slate-800 dark:via-slate-700/60 dark:to-slate-600 overflow-y-auto">
       <div className="w-full flex flex-col items-center justify-start min-h-screen p-4 py-8 relative">
         <div className="w-full max-w-md my-auto">
+          {/* Back to Home */}
+          <div className="w-full mb-2">
+            <Link to="/" className="inline-flex items-center gap-2 text-sm font-medium text-wildcats-maroon hover:text-wildcats-maroon/80">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Home
+            </Link>
+          </div>
           {/* Logo Section */}
           <div className="flex justify-center mb-2">
             <img 
