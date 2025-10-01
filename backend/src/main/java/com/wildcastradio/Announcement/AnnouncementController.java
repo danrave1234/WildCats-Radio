@@ -19,6 +19,7 @@ import com.wildcastradio.Announcement.DTO.AnnouncementDTO;
 import com.wildcastradio.Announcement.DTO.CreateAnnouncementRequest;
 import com.wildcastradio.Announcement.DTO.ScheduleAnnouncementRequest;
 import com.wildcastradio.Announcement.DTO.RejectAnnouncementRequest;
+import com.wildcastradio.Announcement.DTO.PublicAnnouncementDTO;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
 
@@ -40,12 +41,13 @@ public class AnnouncementController {
      * Get published announcements (public endpoint)
      */
     @GetMapping
-    public ResponseEntity<Page<AnnouncementDTO>> getPublishedAnnouncements(
+    public ResponseEntity<Page<PublicAnnouncementDTO>> getPublishedAnnouncements(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         
         Page<AnnouncementDTO> announcements = announcementService.getPublishedAnnouncements(page, size);
-        return ResponseEntity.ok(announcements);
+        Page<PublicAnnouncementDTO> publicPage = announcements.map(PublicAnnouncementDTO::fromDTO);
+        return ResponseEntity.ok(publicPage);
     }
 
     /**
@@ -88,9 +90,13 @@ public class AnnouncementController {
      * Get a single announcement by ID
      */
     @GetMapping("/{id}")
-    public ResponseEntity<AnnouncementDTO> getAnnouncementById(@PathVariable Long id) {
+    public ResponseEntity<?> getAnnouncementById(@PathVariable Long id) {
         try {
             AnnouncementDTO announcement = announcementService.getAnnouncementById(id);
+            // If announcement is PUBLISHED, return public-safe DTO; otherwise return full DTO
+            if (announcement.getStatus() == com.wildcastradio.Announcement.AnnouncementStatus.PUBLISHED) {
+                return ResponseEntity.ok(PublicAnnouncementDTO.fromDTO(announcement));
+            }
             return ResponseEntity.ok(announcement);
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
