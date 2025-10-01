@@ -145,8 +145,12 @@ const Announcements = () => {
           };
         }
       } else if (activeTab === 'published') {
-        // PUBLIC endpoint: Always returns ONLY published announcements
-        data = await getAllAnnouncements(page, pageSize);
+        // Published: Public for listeners/DJs; full metadata for moderators/admins
+        if (isModerator) {
+          data = await getAnnouncementsByStatus('PUBLISHED', page, pageSize, token);
+        } else {
+          data = await getAllAnnouncements(page, pageSize);
+        }
       } else {
         // draft, scheduled, archived: MODERATORS/ADMINS ONLY
         if (!isModerator) {
