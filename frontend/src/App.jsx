@@ -14,6 +14,8 @@ const Settings = lazy(() => import('./pages/Settings'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const BroadcastHistory = lazy(() => import('./pages/BroadcastHistory'));
 const AnalyticsDashboard = lazy(() => import('./pages/AnalyticsDashboard'));
+const Announcements = lazy(() => import('./pages/Announcements'));
+const AnnouncementForm = lazy(() => import('./pages/AnnouncementForm'));
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BroadcastHistoryProvider } from './context/BroadcastHistoryContext';
 import { AnalyticsProvider } from './context/AnalyticsContext';
@@ -227,6 +229,32 @@ const AppRoutes = () => {
           <ProtectedRoute 
             element={<AnalyticsDashboard />} 
             allowedRoles={['DJ', 'ADMIN', 'MODERATOR']} 
+          />
+        </Layout>
+      } />
+
+      <Route path="/announcements" element={
+        <Layout>
+          <Suspense fallback={<LoadingFallback />}>
+            <Announcements />
+          </Suspense>
+        </Layout>
+      } />
+
+      <Route path="/announcements/create" element={
+        <Layout>
+          <ProtectedRoute 
+            element={<AnnouncementForm />} 
+            allowedRoles={['DJ', 'MODERATOR', 'ADMIN']} 
+          />
+        </Layout>
+      } />
+
+      <Route path="/announcements/edit/:id" element={
+        <Layout>
+          <ProtectedRoute 
+            element={<AnnouncementForm />} 
+            allowedRoles={['DJ', 'MODERATOR', 'ADMIN']} 
           />
         </Layout>
       } />

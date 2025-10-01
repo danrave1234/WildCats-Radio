@@ -14,6 +14,7 @@ import {
   LogIn as LogInIcon,
   UserPlus as UserPlusIcon,
   X,
+  Megaphone,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -36,6 +37,11 @@ const navigationSections = {
           label: "Schedule",
           href: "/schedule",
           icon: <Calendar className="h-5 w-5" />,
+        },
+        {
+          label: "Announcements",
+          href: "/announcements",
+          icon: <Megaphone className="h-5 w-5" />,
         },
       ]
     },
@@ -74,6 +80,11 @@ const navigationSections = {
           href: "/schedule",
           icon: <Calendar className="h-5 w-5" />,
         },
+        {
+          label: "Announcements",
+          href: "/announcements",
+          icon: <Megaphone className="h-5 w-5" />,
+        },
       ]
     },
     {
@@ -110,6 +121,11 @@ const navigationSections = {
           label: "Schedule",
           href: "/schedule",
           icon: <Calendar className="h-5 w-5" />,
+        },
+        {
+          label: "Announcements",
+          href: "/announcements",
+          icon: <Megaphone className="h-5 w-5" />,
         },
       ]
     },
@@ -153,6 +169,11 @@ const navigationSections = {
           href: "/dashboard",
           icon: <Music className="h-5 w-5" />,
         },
+        {
+          label: "Announcements",
+          href: "/announcements",
+          icon: <Megaphone className="h-5 w-5" />,
+        },
       ]
     },
     {
@@ -175,10 +196,11 @@ const navigationSections = {
           href: "/dashboard",
           icon: <Music className="h-5 w-5" />,
         },
+        // Schedule hidden for unauthenticated users (no account context)
         {
-          label: "Schedule",
-          href: "/schedule",
-          icon: <Calendar className="h-5 w-5" />,
+          label: "Announcements",
+          href: "/announcements",
+          icon: <Megaphone className="h-5 w-5" />,
         }
       ]
     },
@@ -270,7 +292,12 @@ const NewSidebar = ({ userRole }) => {
       return navigationSections.PUBLIC;
     }
 
-    return navigationSections[userRole] || [];
+    // Use currentUser.role directly for reliability, fallback to prop
+    const role = currentUser?.role || userRole;
+    const roleKey = (role || 'LISTENER').toUpperCase();
+    
+    // Ensure role key exists in navigationSections
+    return navigationSections[roleKey] || navigationSections.LISTENER;
   };
 
   const sections = getNavigationSections();
