@@ -240,6 +240,10 @@ const AppRoutes = () => {
         <Layout>
           <Suspense fallback={<LoadingFallback />}>
             <PrivacyPolicy />
+          </Suspense>
+        </Layout>
+      } />
+
       <Route path="/announcements" element={
         <Layout>
           <Suspense fallback={<LoadingFallback />}>
@@ -261,6 +265,9 @@ const AppRoutes = () => {
           <Suspense fallback={<LoadingFallback />}>
             <Contact />
           </Suspense>
+        </Layout>
+      } />
+
       <Route path="/announcements/create" element={
         <Layout>
           <ProtectedRoute 
