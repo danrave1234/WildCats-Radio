@@ -90,7 +90,8 @@ public class UserController {
             tokenCookie.setSecure(useSecureCookies); // Env-aware
             tokenCookie.setPath("/");
             tokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-            tokenCookie.setAttribute("SameSite", "Strict");
+            // Cross-site analytics/API calls from the frontend require SameSite=None when using a separate domain
+            tokenCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
             response.addCookie(tokenCookie);
             
             Cookie userIdCookie = new Cookie("userId", String.valueOf(loginResponse.getUser().getId()));
@@ -98,7 +99,7 @@ public class UserController {
             userIdCookie.setSecure(useSecureCookies);
             userIdCookie.setPath("/");
             userIdCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-            userIdCookie.setAttribute("SameSite", "Strict");
+            userIdCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
             response.addCookie(userIdCookie);
             
             Cookie userRoleCookie = new Cookie("userRole", loginResponse.getUser().getRole().toString());
@@ -106,7 +107,7 @@ public class UserController {
             userRoleCookie.setSecure(useSecureCookies);
             userRoleCookie.setPath("/");
             userRoleCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-            userRoleCookie.setAttribute("SameSite", "Strict");
+            userRoleCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
             response.addCookie(userRoleCookie);
             
             // Return response without the token (token is now in secure cookie)
@@ -129,7 +130,7 @@ public class UserController {
         tokenCookie.setSecure(useSecureCookies);
         tokenCookie.setPath("/");
         tokenCookie.setMaxAge(0); // Expire immediately
-        tokenCookie.setAttribute("SameSite", "Strict");
+        tokenCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
         response.addCookie(tokenCookie);
         
         Cookie userIdCookie = new Cookie("userId", "");
@@ -137,7 +138,7 @@ public class UserController {
         userIdCookie.setSecure(useSecureCookies);
         userIdCookie.setPath("/");
         userIdCookie.setMaxAge(0); // Expire immediately
-        userIdCookie.setAttribute("SameSite", "Strict");
+        userIdCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
         response.addCookie(userIdCookie);
         
         Cookie userRoleCookie = new Cookie("userRole", "");
@@ -145,7 +146,7 @@ public class UserController {
         userRoleCookie.setSecure(useSecureCookies);
         userRoleCookie.setPath("/");
         userRoleCookie.setMaxAge(0); // Expire immediately
-        userRoleCookie.setAttribute("SameSite", "Strict");
+        userRoleCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
         response.addCookie(userRoleCookie);
         
         return ResponseEntity.ok("Logged out successfully");

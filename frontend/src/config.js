@@ -42,7 +42,17 @@ const detectEnvironment = () => {
     return 'deployed';
   }
 
-  // Use VITE_USE_LOCAL_BACKEND to determine environment
+  // Auto-detect local when running the app from localhost during development
+  try {
+    if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+      const host = window.location.hostname;
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return 'local';
+      }
+    }
+  } catch (_e) { /* noop for SSR */ }
+
+  // Fallback: Use VITE_USE_LOCAL_BACKEND to determine environment
   const useLocalBackend = getEnvVar('VITE_USE_LOCAL_BACKEND', 'false');
   return useLocalBackend === 'true' ? 'local' : 'deployed';
 };
@@ -61,9 +71,11 @@ export const useLocalBackend = isLocalEnvironment;
  */
 const environments = {
   local: {
-    apiBaseUrl: `http://${getEnvVar('VITE_API_BASE_URL', 'localhost:8080')}`,
-    wsBaseUrl: `ws://${getEnvVar('VITE_WS_BASE_URL', 'localhost:8080')}`,
-    sockJsBaseUrl: `http://${getEnvVar('VITE_WS_BASE_URL', 'localhost:8080')}`,
+    // Use relative API base in dev so Vite proxy handles CORS and cookies
+    apiBaseUrl: '',
+    // Always talk to the local backend for WS/SockJS during development
+    wsBaseUrl: 'ws://localhost:8080',
+    sockJsBaseUrl: 'http://localhost:8080',
   },
   deployed: {
     apiBaseUrl: `https://${getEnvVar('VITE_API_BASE_URL', 'api.wildcat-radio.live')}`,

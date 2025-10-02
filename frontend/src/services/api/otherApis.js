@@ -210,6 +210,7 @@ export const pollApi = {
 export const streamApi = {
   start: () => api.post('/api/stream/start'),
   stop: () => api.post('/api/stream/stop'),
+  // Keep status endpoint but callers should handle failures gracefully; no change to server security
   getStatus: () => api.get('/api/stream/status'),
   getConfig: () => api.get('/api/stream/config'),
   getHealth: () => api.get('/api/stream/health'),

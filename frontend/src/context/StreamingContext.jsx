@@ -1326,6 +1326,10 @@ export function StreamingProvider({ children }) {
     // Register callbacks for messages, errors, and close events
     globalWebSocketService.onListenerStatusMessage((event) => {
       try {
+        // Some servers send heartbeat 'pong' strings; ignore non-JSON frames
+        if (typeof event.data === 'string' && event.data.trim() === 'pong') {
+          return;
+        }
         const data = JSON.parse(event.data);
         if (data.type === 'STREAM_STATUS') {
           console.log('Stream status update received via Listener/Status WebSocket:', data);
