@@ -39,6 +39,14 @@ const parseBackendTimestamp = (timestamp) => {
   return parseISO(timestamp + 'Z');
 };
 
+// Format a HH:mm string to 12-hour display (e.g., 09:30 PM)
+const formatTimeTo12h = (timeString) => {
+  if (!timeString || !/^(\d{2}):(\d{2})$/.test(timeString)) return timeString || '';
+  const [hourStr, minuteStr] = timeString.split(':');
+  const dateObj = new Date(2000, 0, 1, Number(hourStr), Number(minuteStr), 0);
+  return format(dateObj, 'hh:mm a');
+};
+
 export default function Schedule() {
   const [viewType, setViewType] = useState("list") // 'calendar' or 'list'
   const [userRole, setUserRole] = useState("LISTENER") // In a real app, this would come from auth state
@@ -208,9 +216,12 @@ export default function Schedule() {
           // This preserves the intended time in the user's timezone
           const dateStr = broadcast.scheduledStart.split('T')[0]
           
-          // Format times in local timezone for display
-          const startTime = startDateTime ? formatInTimeZone(startDateTime, 'Asia/Manila', 'HH:mm') : ''
-          const endTime = endDateTime ? formatInTimeZone(endDateTime, 'Asia/Manila', 'HH:mm') : ''
+          // Format times in local timezone for display (12-hour format)
+          const startTime = startDateTime ? formatInTimeZone(startDateTime, 'Asia/Manila', 'hh:mm a') : ''
+          const endTime = endDateTime ? formatInTimeZone(endDateTime, 'Asia/Manila', 'hh:mm a') : ''
+
+          const createdBy = broadcast.createdBy || {};
+          const createdByFullName = [createdBy.firstname, createdBy.lastname].filter(Boolean).join(' ').trim();
 
           return {
             id: broadcast.id,
@@ -219,7 +230,7 @@ export default function Schedule() {
             date: dateStr,
             startTime: startTime,
             endTime: endTime,
-            dj: broadcast.createdBy ? broadcast.createdBy.name : 'Unknown DJ',
+            dj: (broadcast.createdByName || createdBy.name || createdByFullName || '').trim() || 'Unknown DJ',
             details: broadcast.details || ''
           }
         })
@@ -353,8 +364,8 @@ export default function Schedule() {
         title: response.data.title,
         description: response.data.description,
         date: date, // Use the original date directly
-        startTime: broadcastDetails.startTime, // Use the original time strings directly
-        endTime: broadcastDetails.endTime,
+        startTime: formatTimeTo12h(broadcastDetails.startTime),
+        endTime: formatTimeTo12h(broadcastDetails.endTime),
         dj: response.data.createdBy?.name || (userRole === "DJ" ? "You (DJ)" : "Admin"),
         details: broadcastDetails.details,
       }

@@ -14,6 +14,9 @@ export const notificationApi = {
   getByType: (type) => api.get(`/api/notifications/by-type/${type}`),
   getRecent: (since) => api.get(`/api/notifications/recent?since=${since}`),
 
+  // Persist notification preferences to the user profile (partial update)
+  updateUserPreferences: (prefs) => api.put('/api/auth/me/preferences', prefs),
+
   subscribeToNotifications: (callback) => {
     const stompClient = createWebSocketConnection('/ws-radio');
     let isConnected = false;
@@ -207,6 +210,7 @@ export const pollApi = {
 export const streamApi = {
   start: () => api.post('/api/stream/start'),
   stop: () => api.post('/api/stream/stop'),
+  // Keep status endpoint but callers should handle failures gracefully; no change to server security
   getStatus: () => api.get('/api/stream/status'),
   getConfig: () => api.get('/api/stream/config'),
   getHealth: () => api.get('/api/stream/health'),

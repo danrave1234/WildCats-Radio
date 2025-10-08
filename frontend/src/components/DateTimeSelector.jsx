@@ -231,7 +231,7 @@ export function TimeSelector({ value, onChange, label, required = false, id }) {
   
   // Format displayed value
   const displayValue = value ? 
-    new Date(`2000-01-01T${value}`).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 
+    new Date(`2000-01-01T${value}`).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : 
     '';
   
   // Close dropdown when clicking outside

@@ -1,12 +1,8 @@
 package com.wildcastradio.User;
 
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
-import jakarta.servlet.http.Cookie;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,8 +25,12 @@ import com.wildcastradio.User.DTO.LoginRequest;
 import com.wildcastradio.User.DTO.LoginResponse;
 import com.wildcastradio.User.DTO.RegisterRequest;
 import com.wildcastradio.User.DTO.UserDTO;
-import com.wildcastradio.ratelimit.LoginAttemptLimiter;
 import com.wildcastradio.ratelimit.IpUtils;
+import com.wildcastradio.ratelimit.LoginAttemptLimiter;
+
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -90,7 +90,8 @@ public class UserController {
             tokenCookie.setSecure(useSecureCookies); // Env-aware
             tokenCookie.setPath("/");
             tokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-            tokenCookie.setAttribute("SameSite", "Strict");
+            // Cross-site analytics/API calls from the frontend require SameSite=None when using a separate domain
+            tokenCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
             response.addCookie(tokenCookie);
             
             Cookie userIdCookie = new Cookie("userId", String.valueOf(loginResponse.getUser().getId()));
@@ -98,7 +99,7 @@ public class UserController {
             userIdCookie.setSecure(useSecureCookies);
             userIdCookie.setPath("/");
             userIdCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-            userIdCookie.setAttribute("SameSite", "Strict");
+            userIdCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
             response.addCookie(userIdCookie);
             
             Cookie userRoleCookie = new Cookie("userRole", loginResponse.getUser().getRole().toString());
@@ -106,7 +107,7 @@ public class UserController {
             userRoleCookie.setSecure(useSecureCookies);
             userRoleCookie.setPath("/");
             userRoleCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-            userRoleCookie.setAttribute("SameSite", "Strict");
+            userRoleCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
             response.addCookie(userRoleCookie);
             
             // Return response without the token (token is now in secure cookie)
@@ -129,7 +130,7 @@ public class UserController {
         tokenCookie.setSecure(useSecureCookies);
         tokenCookie.setPath("/");
         tokenCookie.setMaxAge(0); // Expire immediately
-        tokenCookie.setAttribute("SameSite", "Strict");
+        tokenCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
         response.addCookie(tokenCookie);
         
         Cookie userIdCookie = new Cookie("userId", "");
@@ -137,7 +138,7 @@ public class UserController {
         userIdCookie.setSecure(useSecureCookies);
         userIdCookie.setPath("/");
         userIdCookie.setMaxAge(0); // Expire immediately
-        userIdCookie.setAttribute("SameSite", "Strict");
+        userIdCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
         response.addCookie(userIdCookie);
         
         Cookie userRoleCookie = new Cookie("userRole", "");
@@ -145,7 +146,7 @@ public class UserController {
         userRoleCookie.setSecure(useSecureCookies);
         userRoleCookie.setPath("/");
         userRoleCookie.setMaxAge(0); // Expire immediately
-        userRoleCookie.setAttribute("SameSite", "Strict");
+        userRoleCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
         response.addCookie(userRoleCookie);
         
         return ResponseEntity.ok("Logged out successfully");
@@ -273,6 +274,29 @@ public class UserController {
         return userService.getUserByEmail(email)
                 .map(user -> ResponseEntity.ok(UserDTO.fromEntity(user)))
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    // Partial update for current user's notification preferences
+    @PutMapping("/me/preferences")
+    public ResponseEntity<UserDTO> updateMyPreferences(
+            Authentication authentication,
+            @RequestBody UserDTO prefs) {
+        if (authentication == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        String email = authentication.getName();
+        UserEntity user = userService.getUserByEmail(email).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        // Reuse updateProfile to apply provided preference fields
+        UserDTO patch = new UserDTO();
+        patch.setNotifyBroadcastStart(prefs.getNotifyBroadcastStart());
+        patch.setNotifyBroadcastReminders(prefs.getNotifyBroadcastReminders());
+        patch.setNotifyNewSchedule(prefs.getNotifyNewSchedule());
+        patch.setNotifySystemUpdates(prefs.getNotifySystemUpdates());
+        UserEntity updated = userService.updateProfile(user.getId(), patch);
+        return ResponseEntity.ok(UserDTO.fromEntity(updated));
     }
 
     @PostMapping("/{id}/ban")

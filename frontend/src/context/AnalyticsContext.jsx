@@ -304,12 +304,13 @@ export function AnalyticsProvider({ children }) {
       }
 
       console.log('Analytics: Current user:', currentUser);
-      const isDjOrAdmin = currentUser.role === 'DJ' || currentUser.role === 'ADMIN';
-      const isAdmin = currentUser.role === 'ADMIN';
-      console.log('Analytics: User permissions - isDjOrAdmin:', isDjOrAdmin, 'isAdmin:', isAdmin);
+      const role = currentUser.role;
+      const canViewAnalytics = role === 'DJ' || role === 'ADMIN' || role === 'MODERATOR';
+      const isAdmin = role === 'ADMIN';
+      console.log('Analytics: Permissions - canViewAnalytics:', canViewAnalytics, 'isAdmin:', isAdmin);
 
       // If user doesn't have proper permissions, set default values and return
-      if (!isDjOrAdmin) {
+      if (!canViewAnalytics) {
         console.warn('Analytics: User does not have proper permissions for analytics');
         setLoading(false);
         return;
@@ -325,8 +326,8 @@ export function AnalyticsProvider({ children }) {
       // Fetch analytics data from the API endpoints
       const promises = [];
 
-      // DJ and Admin users can access these endpoints
-      if (isDjOrAdmin) {
+      // DJ/Admin/Moderator can access core analytics endpoints
+      if (canViewAnalytics) {
         promises.push(
           analyticsService.getBroadcastStats({ signal })
             .then(response => ({ type: 'broadcasts', data: response.data }))
@@ -439,63 +440,24 @@ export function AnalyticsProvider({ children }) {
     }
   };
 
-  // Connect to WebSocket on mount (no automatic HTTP fetches)
+  // Fetch once on mount and when user/role becomes available; skip WebSocket usage per new requirement
   useEffect(() => {
-    if (isAuthenticated && currentUser && (currentUser.role === 'DJ' || currentUser.role === 'ADMIN')) {
-      console.log('Analytics: Initial setup for authenticated user');
-      connectWebSocket();
-    } else if (isAuthenticated && currentUser) {
-      // User is authenticated but doesn't have proper role
-      console.warn('Analytics: User authenticated but lacks proper role for analytics:', currentUser.role);
-    } else if (!isAuthenticated) {
-      // User is not authenticated, clean up any existing connections
-      disconnectWebSocket();
+    if (isAuthenticated && currentUser && (currentUser.role === 'DJ' || currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR')) {
+      fetchInitialData();
     }
 
     return () => {
-      disconnectWebSocket();
       if (fetchAbortControllerRef.current) {
         try { fetchAbortControllerRef.current.abort(); } catch (e) {}
       }
     };
-  }, [isAuthenticated, currentUser?.id, currentUser?.role]); // Only depend on user ID and role, not the entire user object
+  }, [isAuthenticated, currentUser?.id, currentUser?.role]);
 
-  // Function to manually refresh data
+  // Function to manually refresh data (HTTP only)
   const refreshData = async () => {
-    if (!isAuthenticated || !currentUser) {
-      console.warn('Analytics: Cannot refresh data - user not authenticated');
-      return;
-    }
-
-    if (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN') {
-      console.warn('Analytics: Cannot refresh data - user lacks proper permissions');
-      return;
-    }
-
-    console.log('Analytics: Manual data refresh triggered (WebSocket-first)');
-    try {
-      setLoading(true);
-      // Prefer WebSocket-driven refresh to avoid extra HTTP calls
-      if (stompClientRef.current && stompClientRef.current.connected) {
-        try {
-          stompClientRef.current.send('/app/analytics/refresh', {}, '{}');
-        } catch (e) {
-          console.warn('Analytics: STOMP send failed, falling back to HTTP', e);
-          await fetchInitialData();
-        }
-      } else {
-        // If WS not connected, fall back to one-time HTTP fetch
-        await fetchInitialData();
-        // Attempt to (re)connect WS for future live updates
-        if (!wsConnected) {
-          disconnectWebSocket();
-          connectWebSocket();
-        }
-      }
-    } finally {
-      // Loading will also stop as messages arrive and setLastUpdated; ensure it doesn't spin forever
-      setTimeout(() => setLoading(false), 1200);
-    }
+    if (!isAuthenticated || !currentUser) return;
+    if (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN') return;
+    await fetchInitialData();
   };
 
   const value = {

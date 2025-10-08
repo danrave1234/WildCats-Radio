@@ -85,6 +85,13 @@ public class SecurityConfig {
                 .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/broadcasts/**").authenticated()
                 .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/broadcasts/**").authenticated()
                 
+                // Announcements - public GET, authenticated POST/PUT/DELETE
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/announcements").permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/announcements/*").permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/announcements/**").authenticated()
+                .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/announcements/**").authenticated()
+                .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/announcements/**").authenticated()
+                
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/chats/*").permitAll()
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/broadcast/**").permitAll()
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/*/results").permitAll()

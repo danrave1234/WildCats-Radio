@@ -4,9 +4,10 @@ import {
   UserGroupIcon, 
   RadioIcon, 
   UserIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
-import { authService, broadcastService, logger } from '../services/api/index.js';
+import { authService, broadcastService, analyticsService, logger } from '../services/api/index.js';
 import { Spinner } from '../components/ui/spinner';
 
 const AdminDashboard = () => {
@@ -39,39 +40,84 @@ const AdminDashboard = () => {
 
   // State for live broadcasts
   const [liveBroadcasts, setLiveBroadcasts] = useState([]);
+  // Overview cache to avoid reloading when switching tabs
+  const [overviewLoaded, setOverviewLoaded] = useState(false);
+  const [overviewRefreshing, setOverviewRefreshing] = useState(false);
+  const [overviewUpdatedAt, setOverviewUpdatedAt] = useState(null);
 
-  // Fetch live broadcasts and update stats
-  const fetchLiveBroadcasts = async () => {
+  // Fetch totals needed for admin overview (simple, efficient)
+  const fetchTotals = async () => {
     try {
-      // Fetch live broadcasts
-      const response = await broadcastService.getLive();
-      const broadcasts = response.data;
-      setLiveBroadcasts(broadcasts);
+      setOverviewRefreshing(true);
+      // Fetch users and broadcast stats in parallel (1 lightweight analytics call for broadcast totals)
+      const [usersResp, broadcastStatsResp] = await Promise.all([
+        authService.getAllUsers(),
+        analyticsService.getBroadcastStats()
+      ]);
 
-      // Update stats
+      // Users
+      const allUsers = usersResp.data || [];
+      const totalUsers = allUsers.length;
+      const totalDJs = allUsers.filter(u => u.role === 'DJ').length;
+      const totalListeners = allUsers.filter(u => u.role === 'LISTENER').length;
+
+      // Broadcasts from analytics (fast server-side counts)
+      const b = broadcastStatsResp.data || {};
+      const activeBroadcasts = typeof b.liveBroadcasts === 'number' ? b.liveBroadcasts : 0;
+      const scheduledBroadcasts = typeof b.upcomingBroadcasts === 'number' ? b.upcomingBroadcasts : 0;
+      const totalBroadcasts = typeof b.totalBroadcasts === 'number' ? b.totalBroadcasts : (activeBroadcasts + scheduledBroadcasts);
+
       setStats(prev => ({
         ...prev,
-        activeBroadcasts: broadcasts.length
+        totalUsers,
+        totalDJs,
+        totalListeners,
+        activeBroadcasts,
+        scheduledBroadcasts,
+        totalBroadcasts
       }));
-
-      // Fetch upcoming broadcasts to update scheduledBroadcasts count
-      const upcomingResponse = await broadcastService.getUpcoming();
-      const upcomingBroadcasts = upcomingResponse.data;
-
-      setStats(prev => ({
-        ...prev,
-        scheduledBroadcasts: upcomingBroadcasts.length,
-        totalBroadcasts: broadcasts.length + upcomingBroadcasts.length
-      }));
+      setOverviewLoaded(true);
+      setOverviewUpdatedAt(new Date());
     } catch (error) {
-      console.error('Error fetching broadcasts:', error);
+      console.error('Error fetching totals for admin dashboard:', error);
+    } finally {
+      setOverviewRefreshing(false);
     }
   };
 
-  // Fetch users when component mounts
+  // Load live broadcasts list only when broadcasts tab is active
+  const fetchLiveBroadcasts = async () => {
+    try {
+      const resp = await broadcastService.getLive();
+      setLiveBroadcasts(resp.data || []);
+    } catch (e) {
+      console.error('Error fetching live broadcasts:', e);
+      setLiveBroadcasts([]);
+    }
+  };
+
+  // Fetch users when component mounts or users tab active
   useEffect(() => {
     if (activeTab === 'users') {
       fetchUsers();
+    }
+  }, [activeTab]);
+
+  // Fetch simple totals for overview once
+  useEffect(() => {
+    if (activeTab === 'dashboard' && !overviewLoaded) {
+      fetchTotals();
+    }
+  }, [activeTab, overviewLoaded]);
+
+  const refreshOverview = async () => {
+    await fetchTotals();
+  };
+
+  // Fetch live list when broadcasts tab opens
+  useEffect(() => {
+    if (activeTab === 'broadcasts') {
+      fetchLiveBroadcasts();
     }
   }, [activeTab]);
 
@@ -88,8 +134,8 @@ const AdminDashboard = () => {
         liveBroadcastWs = await broadcastService.subscribeToLiveBroadcastStatus((statusMessage) => {
           logger.debug('Received live broadcast update in admin dashboard:', statusMessage);
           
-          // Refresh live broadcasts when status changes
-          fetchLiveBroadcasts();
+          // Refresh minimal totals when status changes
+          fetchTotals();
         });
 
         logger.debug('Live broadcast WebSocket connected successfully for admin dashboard');
@@ -312,7 +358,22 @@ const AdminDashboard = () => {
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
               {activeTab === 'dashboard' && (
                 <div className="p-6">
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">System Overview</h2>
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">System Overview</h2>
+                    <div className="flex items-center space-x-3 text-xs text-gray-500 dark:text-gray-400">
+                      {overviewUpdatedAt && (
+                        <span>Last updated: {new Date(overviewUpdatedAt).toLocaleTimeString()}</span>
+                      )}
+                      <button
+                        onClick={refreshOverview}
+                        disabled={overviewRefreshing}
+                        className="inline-flex items-center px-3 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ArrowPathIcon className={`h-4 w-4 mr-1 ${overviewRefreshing ? 'animate-spin' : ''}`} />
+                        {overviewRefreshing ? 'Refreshing…' : 'Refresh'}
+                      </button>
+                    </div>
+                  </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-lg">

@@ -46,7 +46,7 @@ class ApiProxyBase {
    */
   createAxiosInstance() {
     const instance = axios.create({
-      baseURL: this.config.apiBaseUrl,
+      baseURL: this.config.apiBaseUrl || undefined,
       headers: {
         'Content-Type': 'application/json',
       },

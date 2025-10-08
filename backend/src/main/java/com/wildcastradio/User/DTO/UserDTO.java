@@ -8,17 +8,28 @@ public class UserDTO {
     private String lastname;
     private String email;
     private String role;
+    // Notification preferences
+    private Boolean notifyBroadcastStart;
+    private Boolean notifyBroadcastReminders;
+    private Boolean notifyNewSchedule;
+    private Boolean notifySystemUpdates;
     
     // Constructors
     public UserDTO() {
     }
     
-    public UserDTO(Long id, String firstname, String lastname, String email, String role) {
+    public UserDTO(Long id, String firstname, String lastname, String email, String role,
+                   Boolean notifyBroadcastStart, Boolean notifyBroadcastReminders,
+                   Boolean notifyNewSchedule, Boolean notifySystemUpdates) {
         this.id = id;
         this.firstname = firstname;
         this.lastname = lastname;
         this.email = email;
         this.role = role;
+        this.notifyBroadcastStart = notifyBroadcastStart;
+        this.notifyBroadcastReminders = notifyBroadcastReminders;
+        this.notifyNewSchedule = notifyNewSchedule;
+        this.notifySystemUpdates = notifySystemUpdates;
     }
     
     // Convert from Entity to DTO
@@ -32,7 +43,11 @@ public class UserDTO {
             user.getFirstname(),
             user.getLastname(),
             user.getEmail(),
-            user.getRole().toString()
+            user.getRole().toString(),
+            user.isNotifyBroadcastStart(),
+            user.isNotifyBroadcastReminders(),
+            user.isNotifyNewSchedule(),
+            user.isNotifySystemUpdates()
         );
     }
     
@@ -76,4 +91,13 @@ public class UserDTO {
     public void setRole(String role) {
         this.role = role;
     }
+
+    public Boolean getNotifyBroadcastStart() { return notifyBroadcastStart; }
+    public void setNotifyBroadcastStart(Boolean v) { this.notifyBroadcastStart = v; }
+    public Boolean getNotifyBroadcastReminders() { return notifyBroadcastReminders; }
+    public void setNotifyBroadcastReminders(Boolean v) { this.notifyBroadcastReminders = v; }
+    public Boolean getNotifyNewSchedule() { return notifyNewSchedule; }
+    public void setNotifyNewSchedule(Boolean v) { this.notifyNewSchedule = v; }
+    public Boolean getNotifySystemUpdates() { return notifySystemUpdates; }
+    public void setNotifySystemUpdates(Boolean v) { this.notifySystemUpdates = v; }
 } 

@@ -100,12 +100,10 @@ export default function AnalyticsDashboard() {
   const [selectedTimeframe, setSelectedTimeframe] = useState('week');
   const [comparisonPeriod, setComparisonPeriod] = useState('yesterday');
 
-  // Initial data load only when needed (avoid double fetch with context)
+  // Avoid triggering a second fetch from the page. Context owns initial load.
   useEffect(() => {
-    if (!lastUpdated && currentUser && (currentUser.role === 'DJ' || currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR')) {
-      refreshData();
-    }
-  }, [lastUpdated, currentUser?.role]);
+    // no-op: keep hook so we can depend on role changes if needed later
+  }, [currentUser?.role]);
 
   // Filter activities by timeframe, similar to Notifications.jsx filtering approach
   const filteredActivities = useMemo(() => {
@@ -398,14 +396,14 @@ export default function AnalyticsDashboard() {
                     <>
                       <span className="inline-flex items-center">
                         <span className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-                        Manual refresh mode • Last updated: {format(new Date(lastUpdated), 'MMM d, yyyy • h:mm a')}
+                        Data loads on page view • Last updated: {format(new Date(lastUpdated), 'MMM d, yyyy • h:mm a')}
                       </span>
                     </>
-                  ) : 'Click "Refresh Data" to load analytics...'}
+                  ) : 'Loading analytics…'}
                 </p>
               </div>
             </div>
-            {/* Manual refresh controls */}
+            {/* Optional manual refresh */}
             <div className="flex items-center space-x-3">
               <button
                 onClick={refreshData}
@@ -414,7 +412,7 @@ export default function AnalyticsDashboard() {
               >
                 <ArrowPathIcon className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                 <span className="text-sm font-medium">
-                  {loading ? 'Refreshing...' : 'Refresh Data'}
+                  {loading ? 'Refreshing…' : 'Refresh'}
                 </span>
               </button>
             </div>
