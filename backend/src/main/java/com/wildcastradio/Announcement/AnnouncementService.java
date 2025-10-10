@@ -13,15 +13,18 @@ import com.wildcastradio.Announcement.DTO.CreateAnnouncementRequest;
 import com.wildcastradio.Announcement.DTO.ScheduleAnnouncementRequest;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserEntity.UserRole;
+import com.wildcastradio.storage.GcsStorageService;
 
 @Service
 public class AnnouncementService {
 
     private static final int MAX_PINNED_ANNOUNCEMENTS = 2;
     private final AnnouncementRepository announcementRepository;
+    private final GcsStorageService gcsStorageService;
 
-    public AnnouncementService(AnnouncementRepository announcementRepository) {
+    public AnnouncementService(AnnouncementRepository announcementRepository, GcsStorageService gcsStorageService) {
         this.announcementRepository = announcementRepository;
+        this.gcsStorageService = gcsStorageService;
     }
 
     /**
@@ -127,12 +130,24 @@ public class AnnouncementService {
         }
 
         String title = request.getTitle() != null ? request.getTitle().trim() : null;
-        String imageUrl = request.getImageUrl() != null ? request.getImageUrl().trim() : null;
+        String newImageUrl = request.getImageUrl() != null ? request.getImageUrl().trim() : null;
         String content = request.getContent() != null ? request.getContent().replaceAll("\\s+$", "") : null;
+
+        // If the user explicitly removed the image (clicked X), newImageUrl will be blank.
+        String oldImageUrl = announcement.getImageUrl();
+        boolean oldHasImage = oldImageUrl != null && !oldImageUrl.trim().isEmpty();
+        boolean removedNow = (newImageUrl == null || newImageUrl.isEmpty()) && oldHasImage;
+        if (removedNow) {
+            try {
+                gcsStorageService.deleteByPublicUrl(oldImageUrl);
+            } catch (Exception _e) {
+                // best-effort cleanup; do not block update
+            }
+        }
 
         announcement.setTitle(title);
         announcement.setContent(content);
-        announcement.setImageUrl(imageUrl);
+        announcement.setImageUrl(newImageUrl);
         announcement.setUpdatedAt(LocalDateTime.now());
 
         AnnouncementEntity updated = announcementRepository.save(announcement);
@@ -391,6 +406,16 @@ public class AnnouncementService {
         // Non-moderators who aren't the creator cannot delete
         if (!isCreator && !isModerator) {
             throw new RuntimeException("You are not authorized to delete this announcement");
+        }
+
+        // Best-effort delete of associated image from GCS (scoped to our bucket/prefix)
+        String oldImageUrl = announcement.getImageUrl();
+        if (oldImageUrl != null && !oldImageUrl.trim().isEmpty()) {
+            try {
+                gcsStorageService.deleteByPublicUrl(oldImageUrl);
+            } catch (Exception _e) {
+                // ignore failures
+            }
         }
 
         announcementRepository.delete(announcement);

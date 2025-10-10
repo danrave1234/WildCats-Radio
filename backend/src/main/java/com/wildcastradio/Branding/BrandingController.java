@@ -7,6 +7,8 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.wildcastradio.storage.GcsStorageService;
+
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.HashMap;
@@ -20,15 +22,29 @@ public class BrandingController {
     private static final Path UPLOAD_DIR = Paths.get("uploads");
     private static final String BANNER_BASENAME = "banner"; // we'll save as banner.ext
 
+    private final GcsStorageService gcs;
+
+    public BrandingController(GcsStorageService gcs) {
+        this.gcs = gcs;
+    }
+
     @GetMapping("/banner")
     public ResponseEntity<Map<String, Object>> getBanner() {
+        Map<String, Object> resp = new HashMap<>();
+        // Prefer GCS if configured
+        if (gcs != null && gcs.isEnabled()) {
+            String url = gcs.getBannerPublicUrl();
+            resp.put("exists", url != null);
+            resp.put("url", url);
+            return ResponseEntity.ok(resp);
+        }
+        // Fallback: local filesystem
         ensureUploadDir();
         try (Stream<Path> files = Files.list(UPLOAD_DIR)) {
             Path banner = files
                     .filter(p -> p.getFileName().toString().startsWith(BANNER_BASENAME + "."))
                     .findFirst()
                     .orElse(null);
-            Map<String, Object> resp = new HashMap<>();
             if (banner != null) {
                 String filename = banner.getFileName().toString();
                 resp.put("exists", true);
@@ -48,6 +64,17 @@ public class BrandingController {
         if (file == null || file.isEmpty()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "File is empty"));
         }
+        // Prefer GCS if configured
+        if (gcs != null && gcs.isEnabled()) {
+            try {
+                String original = StringUtils.cleanPath(file.getOriginalFilename() != null ? file.getOriginalFilename() : "banner");
+                String url = gcs.uploadBanner(file.getBytes(), file.getContentType(), original);
+                return ResponseEntity.ok(Map.of("url", url));
+            } catch (Exception e) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "Failed to upload to GCS"));
+            }
+        }
+        // Fallback: local filesystem
         ensureUploadDir();
         // remove old banner files
         deleteExistingBannerFiles();
@@ -73,6 +100,12 @@ public class BrandingController {
 
     @DeleteMapping("/banner")
     public ResponseEntity<?> deleteBanner() {
+        // Prefer GCS if configured
+        if (gcs != null && gcs.isEnabled()) {
+            boolean deleted = gcs.deleteBanner();
+            return ResponseEntity.ok(Map.of("deleted", deleted));
+        }
+        // Fallback: local filesystem
         ensureUploadDir();
         boolean deleted = deleteExistingBannerFiles();
         return ResponseEntity.ok(Map.of("deleted", deleted));
