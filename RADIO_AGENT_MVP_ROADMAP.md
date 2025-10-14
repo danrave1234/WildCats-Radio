@@ -132,13 +132,13 @@ UI state tips:
 ## Step-by-step implementation checklist
 
 1) Properties
-   - Add `radio.agent.*` properties (as above).
+   - Add `radio.agent.*` properties (as above). ✅ Done
 
 2) Backend code
-   - Add `RadioAgentProperties` (config bean).
-   - Add `RadioAgentClient` (start/stop/status with timeouts and bearer token).
-   - Add `RadioControlController` with `@PreAuthorize` guards and error mapping.
-   - (Optional) Add `SERVER_START` / `SERVER_STOP` to `ActivityLogEntity.ActivityType` and log via `ActivityLogService`.
+   - Add `RadioAgentProperties` (config bean). ✅ Done
+   - Add `RadioAgentClient` (start/stop/status with timeouts and bearer token). ✅ Done
+   - Add `RadioControlController` with `@PreAuthorize` guards and error mapping. ✅ Done
+   - (Optional) Add `SERVER_START` / `SERVER_STOP` to `ActivityLogEntity.ActivityType` and log via `ActivityLogService`. ✅ Done
 
 3) Frontend code
    - Add `frontend/src/services/radio.js` and export from your API index if needed.
@@ -181,7 +181,7 @@ curl -X POST -H "Cookie: <session>" https://<backend>/api/radio/stop
 
 - Backend:
   - `/api/radio/start`, `/api/radio/stop`, `/api/radio/status` work and are role-protected.
-  - Timeouts and agent errors are handled cleanly (no backend crash, clear 5xx JSON).
+  - Timeouts and agent errors are handled cleanly (no backend crash, clear 5xx JSON). ✅ Implemented
   - Activity log (optional) records who initiated start/stop.
 - Frontend:
   - Audio Source UI removed from DJ flow (BUTT-first).
