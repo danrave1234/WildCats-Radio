@@ -45,4 +45,4 @@ Operational guidance:
 - DJ/Admin can start a broadcast in test mode via POST /api/broadcasts/{id}/start-test.
 - Skips Icecast checks and tags stream URL with `?test=true`.
 
-For more operational notes, see AUDIO_ARCHIVING.md and ROADMAP.md.
+For more operational notes, see ROADMAP.md.

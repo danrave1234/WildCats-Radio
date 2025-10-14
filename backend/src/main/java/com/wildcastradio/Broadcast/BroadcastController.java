@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
@@ -32,6 +34,7 @@ import jakarta.validation.Valid;
 @RestController
 @RequestMapping("/api/broadcasts")
 public class BroadcastController {
+    private static final Logger logger = LoggerFactory.getLogger(BroadcastController.class);
 
     @Autowired
     private BroadcastService broadcastService;
@@ -170,7 +173,26 @@ public class BroadcastController {
     @GetMapping("/live")
     public ResponseEntity<List<BroadcastDTO>> getLiveBroadcasts() {
         List<BroadcastEntity> liveBroadcasts = broadcastService.getLiveBroadcasts();
+        
+        // CRITICAL: Filter out broadcasts where Liquidsoap is not actually running
+        // This prevents showing "live" broadcasts when the server is stopped
         List<BroadcastDTO> broadcasts = liveBroadcasts.stream()
+                .filter(broadcast -> {
+                    // For BUTT workflow: Only return broadcasts as "live" if radio server is running
+                    // This ensures consistency with ListenerDashboard's isLive computation
+                    try {
+                        // Check if radio agent is available and server is running
+                        boolean serverRunning = broadcastService.isRadioServerRunning();
+                        if (!serverRunning) {
+                            logger.warn("Broadcast {} is marked LIVE but radio server is not running", broadcast.getId());
+                        }
+                        return serverRunning;
+                    } catch (Exception e) {
+                        logger.error("Failed to check radio server status for broadcast {}: {}", broadcast.getId(), e.getMessage());
+                        // On error, include the broadcast (graceful degradation)
+                        return true;
+                    }
+                })
                 .map(BroadcastDTO::fromEntity)
                 .collect(java.util.stream.Collectors.toList());
         return ResponseEntity.ok(broadcasts);

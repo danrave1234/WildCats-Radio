@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
@@ -8,7 +8,9 @@ import {
   scheduleAnnouncement,
   publishAnnouncement 
 } from '../services/announcementService';
-import { ArrowLeft, Save, Send, Calendar as CalendarIcon, Image as ImageIcon, FileText, CheckCircle, XCircle } from 'lucide-react';
+import { requestAnnouncementImageUploadUrl, putToSignedUrl, MAX_IMAGE_BYTES, ALLOWED_IMAGE_TYPES } from '../services/gcsUpload';
+import { maybeDownscaleAndEncode } from '../utils/imageUtils';
+import { ArrowLeft, Save, Send, Calendar as CalendarIcon, Image as ImageIcon, FileText, CheckCircle, XCircle, Upload as UploadIcon, Trash2 } from 'lucide-react';
 
 const AnnouncementForm = () => {
   const navigate = useNavigate();
@@ -30,6 +32,12 @@ const AnnouncementForm = () => {
 
   const [publishOption, setPublishOption] = useState('draft'); // draft, publish, schedule
   const [message, setMessage] = useState({ type: '', text: '' });
+
+  // Image selection state (defer upload until Save)
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [localPreviewUrl, setLocalPreviewUrl] = useState('');
+  const pendingUploadRef = useRef(null); // { blob, contentType, originalName, objectUrl }
 
   const isDJ = currentUser?.role === 'DJ';
   const isModerator = currentUser?.role === 'MODERATOR' || currentUser?.role === 'ADMIN';
@@ -67,6 +75,72 @@ const AnnouncementForm = () => {
     }
   };
 
+  const fileInputRef = useRef(null);
+
+  const handleSelectImageClick = () => {
+    if (fileInputRef.current) fileInputRef.current.click();
+  };
+
+  const handleImageFileChange = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    // Reset input so selecting the same file again triggers change
+    e.target.value = '';
+
+    // Basic validations
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+      setMessage({ type: 'error', text: 'Unsupported image type. Please use JPG, PNG, WebP, or GIF.' });
+      return;
+    }
+    // Hard cap for original file to avoid extreme memory use (e.g., 25MB)
+    const HARD_CAP = 25 * 1024 * 1024;
+    if (file.size > HARD_CAP) {
+      setMessage({ type: 'error', text: 'Image is too large. Please select a file under 25 MB.' });
+      return;
+    }
+
+    try {
+      setIsUploadingImage(true);
+      setUploadProgress(0);
+      setMessage({ type: '', text: '' });
+
+      // Optional high-quality downscale/encode (but DO NOT upload yet)
+      const { blob, contentType } = await maybeDownscaleAndEncode(file);
+
+      if (blob.size > MAX_IMAGE_BYTES) {
+        setMessage({ type: 'error', text: 'Image is too large after processing. Please choose a smaller image.' });
+        setIsUploadingImage(false);
+        return;
+      }
+
+      // Prepare local preview and defer upload until Save
+      if (pendingUploadRef.current?.objectUrl) {
+        URL.revokeObjectURL(pendingUploadRef.current.objectUrl);
+      }
+      const objectUrl = URL.createObjectURL(blob);
+      pendingUploadRef.current = { blob, contentType, originalName: file.name, objectUrl };
+      setLocalPreviewUrl(objectUrl);
+      // Do not set formData.imageUrl yet; we only set it after a successful upload on Save
+      setMessage({ type: 'success', text: 'Image ready. It will be uploaded when you click Save.' });
+    } catch (err) {
+      console.error('Image processing failed', err);
+      setMessage({ type: 'error', text: err?.message || 'Image processing failed. Please try again.' });
+    } finally {
+      setIsUploadingImage(false);
+      setUploadProgress(0);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setFormData((prev) => ({ ...prev, imageUrl: '' }));
+    if (pendingUploadRef.current?.objectUrl) {
+      URL.revokeObjectURL(pendingUploadRef.current.objectUrl);
+    }
+    pendingUploadRef.current = null;
+    setLocalPreviewUrl('');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -79,11 +153,37 @@ const AnnouncementForm = () => {
       setLoading(true);
 
       // Sanitize inputs: trim title, imageUrl; trim trailing whitespace/newlines for content
-      const cleanedData = {
+      let cleanedData = {
         title: (formData.title || '').trim(),
         content: (formData.content || '').replace(/\s+$/g, ''),
         imageUrl: (formData.imageUrl || '').trim(),
       };
+
+      // If a new image was selected but not yet uploaded, upload now
+      if (pendingUploadRef.current && !cleanedData.imageUrl) {
+        try {
+          setIsUploadingImage(true);
+          setUploadProgress(0);
+          const { originalName, blob, contentType } = pendingUploadRef.current;
+          const signed = await requestAnnouncementImageUploadUrl(originalName || 'image', contentType);
+          await putToSignedUrl({
+            uploadUrl: signed.uploadUrl,
+            blob,
+            contentType: signed.requiredContentType || contentType,
+            onProgress: ({ percent }) => setUploadProgress(percent)
+          });
+          cleanedData = { ...cleanedData, imageUrl: signed.publicUrl };
+        } catch (uploadErr) {
+          console.error('Deferred image upload failed', uploadErr);
+          setMessage({ type: 'error', text: uploadErr?.message || 'Image upload failed. Please try again.' });
+          setLoading(false);
+          setIsUploadingImage(false);
+          return;
+        } finally {
+          setIsUploadingImage(false);
+          setUploadProgress(0);
+        }
+      }
 
       if (isEditing) {
         // Update existing announcement
@@ -242,30 +342,84 @@ const AnnouncementForm = () => {
               {/* Separator */}
               <div className="h-px bg-gradient-to-r from-transparent via-gray-300 dark:via-gray-600 to-transparent"></div>
 
-              {/* Image URL */}
+              {/* Image Upload & URL */}
               <div>
                 <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                   <ImageIcon className="w-4 h-4 text-maroon-600" />
-                  Image URL (optional)
+                  Image (optional)
                 </label>
-                <input
-                  type="url"
-                  maxLength={1000}
-                  value={formData.imageUrl}
-                  onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-maroon-500 focus:border-transparent transition-all"
-                  placeholder="https://example.com/image.jpg"
-                  disabled={loading}
-                />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                  Add a relevant image to make your announcement more engaging
-                </p>
-                {formData.imageUrl && (
+
+                {/* Upload controls */}
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="hidden"
+                      onChange={handleImageFileChange}
+                      disabled={loading || isUploadingImage}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSelectImageClick}
+                      disabled={loading || isUploadingImage}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition"
+                    >
+                      <UploadIcon className="w-4 h-4" />
+                      {isUploadingImage ? 'Uploading...' : 'Select image'}
+                    </button>
+                    {formData.imageUrl && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveImage}
+                        disabled={loading || isUploadingImage}
+                        className="inline-flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-200 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/50 transition"
+                      >
+                        <Trash2 className="w-4 h-4" /> Remove image
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Progress bar */}
+                  {isUploadingImage && (
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                      <div
+                        className="bg-maroon-600 h-2.5 rounded-full transition-all"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Manual URL input (fallback) */}
+                  <input
+                    type="url"
+                    maxLength={1000}
+                    value={formData.imageUrl}
+                    onChange={(e) => {
+                      setFormData({ ...formData, imageUrl: e.target.value });
+                      if (pendingUploadRef.current?.objectUrl) {
+                        URL.revokeObjectURL(pendingUploadRef.current.objectUrl);
+                      }
+                      pendingUploadRef.current = null;
+                      setLocalPreviewUrl('');
+                    }}
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-maroon-500 focus:border-transparent transition-all"
+                    placeholder="https://storage.googleapis.com/<bucket>/announcements/your-image.jpg"
+                    disabled={loading || isUploadingImage}
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Tip: Select an image to preview it. The image will be uploaded to storage only when you click Save, and associated with your announcement then.
+                  </p>
+                </div>
+
+                {/* Preview */}
+                {(localPreviewUrl || formData.imageUrl) && (
                   <div className="mt-4">
                     <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">Preview:</p>
-                    <img 
-                      src={formData.imageUrl} 
-                      alt="Preview" 
+                    <img
+                      src={localPreviewUrl || formData.imageUrl}
+                      alt="Preview"
                       className="w-full max-h-64 object-cover rounded-lg border border-gray-200 dark:border-gray-600"
                       onError={(e) => {
                         e.target.style.display = 'none';

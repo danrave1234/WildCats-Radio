@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wildcastradio.config.NetworkConfig;
+import com.wildcastradio.radio.RadioAgentClient;
 
 /**
  * Service to manage Icecast streaming related operations.
@@ -74,6 +75,10 @@ public class IcecastService {
     private String fallbackStreamUrl;
 
     private final NetworkConfig networkConfig;
+    
+    // Optional: Radio agent client to confirm Liquidsoap service state
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private RadioAgentClient radioAgentClient;
 
     // Track active broadcasting sessions
     private final Map<String, BroadcastInfo> activeBroadcasts = new ConcurrentHashMap<>();
@@ -516,8 +521,18 @@ public class IcecastService {
         boolean icecastLive = isStreamLive(shouldLogWarnings);
         boolean serverUp = isServerUp(shouldLogWarnings);
 
-        // Consider a stream live if either Icecast reports it as live OR we have active broadcasts
-        boolean isLive = icecastLive || !activeBroadcasts.isEmpty();
+        // Consider stream live ONLY if Icecast reports live.
+        // Optionally also require radio-agent Liquidsoap state to be running when available.
+        boolean agentSaysRunning = true; // graceful default
+        try {
+            if (radioAgentClient != null) {
+                Map<String, Object> agent = radioAgentClient.status();
+                Object st = agent != null ? agent.get("state") : null;
+                agentSaysRunning = "running".equals(st);
+            }
+        } catch (Exception ignored) { /* degrade gracefully */ }
+
+        boolean isLive = icecastLive && agentSaysRunning;
 
         // Backward-compatible fields and aliases expected by frontend
         status.put("live", isLive);

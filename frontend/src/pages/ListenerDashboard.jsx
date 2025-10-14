@@ -14,7 +14,7 @@ import {
   ArrowRightOnRectangleIcon,
   ExclamationTriangleIcon,
 } from "@heroicons/react/24/solid";
-import { broadcastService, chatService, songRequestService, pollService, streamService, authService } from "../services/api/index.js";
+import { broadcastService, chatService, songRequestService, pollService, streamService, authService, radioService } from "../services/api/index.js";
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from "../context/AuthContext";
 import { useStreaming } from "../context/StreamingContext";
@@ -35,7 +35,7 @@ export default function ListenerDashboard() {
 
   // Get streaming context
   const { 
-    isLive,
+    isLive: streamContextIsLive,
     audioPlaying,
     volume,
     isMuted,
@@ -151,6 +151,49 @@ export default function ListenerDashboard() {
 
   // Add this with other state declarations
   const [broadcastSession, setBroadcastSession] = useState(0);
+
+  // Radio server state (Liquidsoap status)
+  const [radioServerState, setRadioServerState] = useState("unknown"); // "running" | "stopped" | "unknown"
+  const radioStatusPollRef = useRef(null);
+
+  // Compute actual "isLive" state: requires BOTH broadcast to be live AND radio server to be running
+  // This prevents showing "live" UI when Liquidsoap is stopped
+  const isLive = streamContextIsLive && radioServerState === 'running';
+
+  // Radio Server Status Check
+  const fetchRadioStatus = async () => {
+    try {
+      const response = await radioService.status();
+      const data = response?.data || {};
+      const state = data.state || "unknown";
+      
+      logger.debug('Radio status fetched (Listener Dashboard):', { 
+        state, 
+        fullResponse: data,
+        timestamp: new Date().toISOString()
+      });
+      
+      setRadioServerState(state);
+    } catch (error) {
+      logger.error('Failed to fetch radio server status (Listener Dashboard):', error);
+      setRadioServerState("unknown");
+    }
+  };
+
+  // Poll radio server status every 10 seconds
+  useEffect(() => {
+    // Initial check
+    fetchRadioStatus();
+
+    // Set up polling interval
+    radioStatusPollRef.current = setInterval(fetchRadioStatus, 10000);
+
+    return () => {
+      if (radioStatusPollRef.current) {
+        clearInterval(radioStatusPollRef.current);
+      }
+    };
+  }, []);
 
   // Sync slow mode config from the current broadcast for display
   useEffect(() => {

@@ -19,13 +19,11 @@ import {
   HeartIcon,
   ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline"
-import { broadcastService, songRequestService, pollService, authService, chatService } from "../services/api/index.js"
+import { broadcastService, songRequestService, pollService, authService, chatService, radioService } from "../services/api/index.js"
 import { brandingApi } from "../services/api/brandingApi";
 import { useAuth } from "../context/AuthContext"
 import { useStreaming } from "../context/StreamingContext"
 import { formatDistanceToNow } from "date-fns"
-import AudioSourceSelector from "../components/AudioSourceSelector"
-import DJAudioControls from "../components/DJAudioControls"
 import AudioPlayer from "../components/AudioPlayer"
 import { EnhancedScrollArea } from "../components/ui/enhanced-scroll-area"
 import { createLogger } from "../services/logger"
@@ -178,6 +176,9 @@ export default function DJDashboard() {
   const [streamError, setStreamError] = useState(null)
   const [isRestoringAudio, setIsRestoringAudio] = useState(false)
   const [isStoppingBroadcast, setIsStoppingBroadcast] = useState(false)
+  const [confirmEndOpen, setConfirmEndOpen] = useState(false)
+  // Grace period to suppress transient unhealthy/isLive=false immediately after going live
+  const [graceUntilMs, setGraceUntilMs] = useState(0)
 
   // WebSocket and MediaRecorder refs
   const websocketRef = useRef(null)
@@ -219,6 +220,14 @@ export default function DJDashboard() {
 
   // Add abort controller ref for managing HTTP requests
   const abortControllerRef = useRef(null)
+
+  // Radio Agent State (Liquidsoap control)
+  const [radioServerState, setRadioServerState] = useState("unknown") // "running" | "stopped" | "unknown"
+  const [isStartingServer, setIsStartingServer] = useState(false)
+  const [isStoppingServer, setIsStoppingServer] = useState(false)
+  const [radioServerError, setRadioServerError] = useState(null)
+  const radioStatusPollRef = useRef(null)
+  const [isRecoveringBroadcast, setIsRecoveringBroadcast] = useState(false)
 
   // Analytics State
   const [broadcastStartTime, setBroadcastStartTime] = useState(null)
@@ -286,6 +295,77 @@ export default function DJDashboard() {
   // Chat timestamp update state
   const [chatTimestampTick, setChatTimestampTick] = useState(0)
 
+  // Radio Server Control Functions
+  const fetchRadioStatus = async () => {
+    try {
+      const response = await radioService.status()
+      const data = response?.data || {}
+      const state = data.state || "unknown"
+      
+      logger.debug("Radio status fetched:", { 
+        state, 
+        fullResponse: data,
+        timestamp: new Date().toISOString()
+      })
+      
+      setRadioServerState(state)
+      setRadioServerError(null)
+    } catch (error) {
+      logger.error("Failed to fetch radio server status:", error)
+      logger.error("Error details:", {
+        status: error?.response?.status,
+        data: error?.response?.data,
+        message: error.message
+      })
+      setRadioServerState("unknown")
+      setRadioServerError(error?.response?.data?.detail || "Failed to fetch status")
+    }
+  }
+
+  const handleStartRadioServer = async () => {
+    if (isStartingServer || radioServerState === "running") return
+    
+    try {
+      setIsStartingServer(true)
+      setRadioServerError(null)
+      const response = await radioService.start()
+      const data = response?.data || {}
+      setRadioServerState(data.state || "running")
+      logger.info("Radio server started successfully")
+      // Immediately poll status to confirm
+      await fetchRadioStatus()
+    } catch (error) {
+      logger.error("Failed to start radio server:", error)
+      const detail = error?.response?.data?.detail || error.message || "Failed to start server"
+      setRadioServerError(detail)
+      setRadioServerState("unknown")
+    } finally {
+      setIsStartingServer(false)
+    }
+  }
+
+  const handleStopRadioServer = async () => {
+    if (isStoppingServer || radioServerState === "stopped") return
+    
+    try {
+      setIsStoppingServer(true)
+      setRadioServerError(null)
+      const response = await radioService.stop()
+      const data = response?.data || {}
+      setRadioServerState(data.state || "stopped")
+      logger.info("Radio server stopped successfully")
+      // Immediately poll status to confirm
+      await fetchRadioStatus()
+    } catch (error) {
+      logger.error("Failed to stop radio server:", error)
+      const detail = error?.response?.data?.detail || error.message || "Failed to stop server"
+      setRadioServerError(detail)
+      setRadioServerState("unknown")
+    } finally {
+      setIsStoppingServer(false)
+    }
+  }
+
   // Update duration display every second when live
   useEffect(() => {
     let interval = null
@@ -321,31 +401,77 @@ export default function DJDashboard() {
     }
   }, [currentBroadcast?.id, currentBroadcast?.slowModeEnabled, currentBroadcast?.slowModeSeconds])
 
-  // Check for existing active broadcast on component mount
+  // Check for existing active broadcast and radio server state on component mount
+  // This enables recovery if the DJ refreshes the page or browser crashes during a live broadcast
   useEffect(() => {
-    const checkActiveBroadcast = async () => {
+    const checkActiveBroadcastAndServerState = async () => {
       try {
-        const activeBroadcast = await broadcastService.getActiveBroadcast()
+        logger.debug("DJ Dashboard: Checking for active broadcast and radio server state on mount")
+        
+        // Check both broadcast state and radio server state in parallel
+        const [activeBroadcast, serverStatusResponse] = await Promise.all([
+          broadcastService.getActiveBroadcast().catch((err) => {
+            logger.debug("No active broadcast found or error:", err)
+            return null
+          }),
+          radioService.status().catch((err) => {
+            logger.debug("Radio status check failed:", err)
+            return null
+          })
+        ])
+
+        const serverState = serverStatusResponse?.data?.state || "unknown"
+        setRadioServerState(serverState)
+        
+        logger.debug("DJ Dashboard: Recovery check results:", {
+          broadcastFound: !!activeBroadcast,
+          broadcastStatus: activeBroadcast?.status,
+          serverState: serverState
+        })
+
         if (activeBroadcast) {
-          setCurrentBroadcast(activeBroadcast)
-          setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
-          if (activeBroadcast.actualStart) {
-            try {
-              setBroadcastStartTime(new Date(activeBroadcast.actualStart))
-            } catch (_e) {
+          logger.debug("DJ Dashboard: Found active broadcast:", activeBroadcast)
+          
+          // Check if broadcast is LIVE (not just SCHEDULED)
+          if (activeBroadcast.status === 'LIVE') {
+            logger.info("DJ Dashboard: 🔴 LIVE BROADCAST RECOVERED - Restoring to streaming dashboard")
+            
+            // Only show recovery notification if we're actually recovering (not initial load)
+            setIsRecoveringBroadcast(true)
+            
+            setCurrentBroadcast(activeBroadcast)
+            setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
+            
+            if (activeBroadcast.actualStart) {
+              try {
+                setBroadcastStartTime(new Date(activeBroadcast.actualStart))
+              } catch (_e) {
+                setBroadcastStartTime(new Date())
+              }
+            } else {
               setBroadcastStartTime(new Date())
             }
-          } else {
-            setBroadcastStartTime(new Date())
+            
+            // Hide recovery notification after 3 seconds
+            setTimeout(() => {
+              setIsRecoveringBroadcast(false)
+            }, 3000)
+          } else if (activeBroadcast.status === 'SCHEDULED') {
+            // Broadcast exists but not started yet - go to READY_TO_STREAM
+            logger.debug("DJ Dashboard: Broadcast is SCHEDULED, showing ready-to-stream state")
+            setCurrentBroadcast(activeBroadcast)
+            setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
           }
+        } else {
+          logger.debug("DJ Dashboard: No active broadcast found, staying on CREATE_BROADCAST")
         }
       } catch (error) {
-        logger.error("Error checking for active broadcast:", error)
+        logger.error("DJ Dashboard: Error checking for active broadcast and server state:", error)
       }
     }
 
     if (currentUser && !streamingBroadcast) {
-      checkActiveBroadcast()
+      checkActiveBroadcastAndServerState()
     }
   }, [currentUser, streamingBroadcast])
 
@@ -395,6 +521,24 @@ export default function DJDashboard() {
       setChatTimestampTick((prev) => prev + 1)
     }, 60000) // Update every minute
     return () => clearInterval(interval)
+  }, [])
+
+  // Radio Server Status Polling (every 10 seconds)
+  useEffect(() => {
+    // Fetch initial status
+    fetchRadioStatus()
+
+    // Set up polling interval
+    radioStatusPollRef.current = setInterval(() => {
+      fetchRadioStatus()
+    }, 10000) // Poll every 10 seconds
+
+    return () => {
+      if (radioStatusPollRef.current) {
+        clearInterval(radioStatusPollRef.current)
+        radioStatusPollRef.current = null
+      }
+    }
   }, [])
 
   // Replace the connectStatusWebSocket useEffect with a simpler version that doesn't create its own WebSocket
@@ -842,137 +986,85 @@ export default function DJDashboard() {
     }
   }
 
-  const startBroadcast = async () => {
-    if (!currentBroadcast) {
+  // BUTT workflow: No browser-based broadcasting needed
+  // DJs will start the radio server, then connect via BUTT directly to Icecast
+  
+  const startBroadcastLive = async () => {
+    if (!currentBroadcast?.id) {
       setStreamError("No broadcast instance found")
       return
     }
 
     try {
       setStreamError(null)
+      logger.debug("Starting broadcast live:", currentBroadcast.id)
 
-      // Check if audio source is already active or if an audio source has been selected
-      if (!audioStreamRef.current && !audioSource) {
-        logger.info("No audio source selected, prompting for selection")
+      // Call backend to start the broadcast (marks as LIVE, sets actualStart)
+      const response = await broadcastService.start(currentBroadcast.id)
+      const liveBroadcast = response.data
 
+      setCurrentBroadcast(liveBroadcast)
+      setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
+
+      // Apply a short grace period (15s) to suppress transient unhealthy/isLive=false UI for DJs
+      try { setGraceUntilMs(Date.now() + 30000) } catch (_) {}
+
+      if (liveBroadcast.actualStart) {
         try {
-          // Prompt user to select audio source
-          const stream = await getAudioStream()
-
-          if (!stream) {
-            throw new Error("Failed to get audio stream")
-          }
-
-          logger.info("Audio source selected successfully")
-        } catch (error) {
-          logger.error("Error selecting audio source:", error)
-
-          setStreamError(
-              `Audio Source Selection Failed: ${error.message}\n\n` +
-              "💡 Please:\n" +
-              "• Select an audio source from the options above\n" +
-              "• Allow microphone/screen sharing access when prompted\n" +
-              "• Make sure you're using a supported browser (Chrome, Firefox, Edge)\n" +
-              "• Try refreshing the page if the issue persists",
-          )
-
-          return
+          setBroadcastStartTime(new Date(liveBroadcast.actualStart))
+        } catch (_e) {
+          setBroadcastStartTime(new Date())
         }
-      } else if (!audioStreamRef.current && audioSource) {
-        logger.info("Audio source selected but stream not active, re-acquiring stream")
-
-        try {
-          // Re-acquire the audio stream for the selected source
-          const stream = await getAudioStream(audioSource)
-
-          if (!stream) {
-            throw new Error("Failed to get audio stream")
-          }
-
-          logger.info("Audio stream re-acquired successfully")
-        } catch (error) {
-          logger.error("Error re-acquiring audio stream:", error)
-
-          setStreamError(
-              `Audio Stream Re-acquisition Failed: ${error.message}\n\n` +
-              "💡 Please:\n" +
-              "• Try selecting the audio source again from the options above\n" +
-              "• Allow microphone/screen sharing access when prompted\n" +
-              "• Make sure you're using a supported browser (Chrome, Firefox, Edge)\n" +
-              "• Try refreshing the page if the issue persists",
-          )
-
-          return
-        }
+      } else {
+        setBroadcastStartTime(new Date())
       }
 
-      // Use the global streaming context to start the broadcast
-      await startStreamingBroadcast({
-        id: currentBroadcast.id,
-        title: currentBroadcast.title,
-        description: currentBroadcast.description,
-      })
-
-      setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
-      // broadcastStartTime will be derived from backend actualStart when available
+      logger.debug("Broadcast is now live:", liveBroadcast)
     } catch (error) {
       logger.error("Error starting broadcast:", error)
-
-      // Provide user-friendly error messages based on the error type
-      const errorMessage = error.message || "Unknown error occurred"
-
-      if (errorMessage.includes("Desktop audio capture failed") || errorMessage.includes("NotSupported")) {
-        setStreamError(
-            `Desktop Audio Issue: ${errorMessage}\n\n` +
-            "💡 Suggestions:\n" +
-            "• Switch to 'Microphone Only' mode above\n" +
-            "• Make sure you're using Chrome, Firefox, or Edge\n" +
-            "• Ensure you're on HTTPS (or localhost)\n" +
-            "• When prompted, select a source with audio (like a browser tab playing music)",
-        )
-      } else if (errorMessage.includes("Permission denied") || errorMessage.includes("NotAllowed")) {
-        setStreamError(
-            `Permission Error: ${errorMessage}\n\n` +
-            "💡 Please:\n" +
-            "• Allow microphone/screen sharing access when prompted\n" +
-            "• Check your browser's permission settings\n" +
-            "• Try refreshing the page and allowing permissions",
-        )
-      } else if (errorMessage.includes("Mixed audio setup failed")) {
-        setStreamError(
-            `Mixed Audio Error: ${errorMessage}\n\n` +
-            "💡 Try:\n" +
-            "• Using 'Microphone Only' mode instead\n" +
-            "• Ensuring desktop audio is working in other apps\n" +
-            "• Using a supported browser (Chrome, Firefox, Edge)",
-        )
-      } else {
-        setStreamError(`Error starting broadcast: ${errorMessage}`)
-      }
+      const msg = error?.response?.data?.message || error.message || "Failed to start broadcast"
+      setStreamError(`Error starting broadcast: ${msg}`)
     }
   }
 
   const stopBroadcast = async () => {
-    // Prevent multiple calls while stopping
     if (isStoppingBroadcast) {
       logger.debug("Broadcast stop already in progress, ignoring duplicate call")
       return
     }
 
+    if (!currentBroadcast?.id) {
+      setStreamError("No broadcast instance found")
+      return
+    }
+
     try {
       setIsStoppingBroadcast(true)
-      logger.debug("Stopping broadcast")
+      setStreamError(null)
+      logger.debug("Ending broadcast via API:", currentBroadcast.id)
 
-      // Use the global streaming context to stop the broadcast
-      await stopStreamingBroadcast()
+      // Mark the broadcast as ended on the backend (records actualEnd, analytics/history)
+      await broadcastService.end(currentBroadcast.id)
 
-      // Reset local broadcast state immediately to prevent double-click issue
+      // Also stop the Liquidsoap radio server via the radio agent (idempotent)
+      try {
+        logger.debug("Stopping radio server via agent after ending broadcast")
+        await radioService.stop()
+        setRadioServerState('stopped')
+      } catch (stopErr) {
+        // Non-blocking: log error but continue cleanup
+        logger.error("Failed to stop radio server after ending broadcast:", stopErr)
+        setRadioServerError(stopErr?.response?.data?.detail || stopErr?.message || 'Failed to stop radio server')
+      } finally {
+        // Refresh status to confirm
+        try { await fetchRadioStatus() } catch (_) {}
+      }
+
+      // Reset local broadcast state
       setCurrentBroadcast(null)
-
-      // Reset state back to create new broadcast
       setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
 
-      // Reset analytics
+      // Reset analytics and UI state
       setBroadcastStartTime(null)
       setTotalInteractions(0)
       setPeakListeners(0)
@@ -983,11 +1075,20 @@ export default function DJDashboard() {
       setPolls([])
       setActivePoll(null)
     } catch (error) {
-      logger.error("Error stopping broadcast:", error)
-      setStreamError(`Error stopping broadcast: ${error.message}`)
+      logger.error("Error ending broadcast:", error)
+      const msg = error?.response?.data?.message || error.message || "Failed to end broadcast"
+      setStreamError(`Error ending broadcast: ${msg}`)
     } finally {
       setIsStoppingBroadcast(false)
     }
+  }
+
+  // Confirmation handler that triggers stop flow
+  const confirmStopBroadcast = async () => {
+    try {
+      setConfirmEndOpen(false)
+      await stopBroadcast()
+    } catch (_) { /* handled in stopBroadcast */ }
   }
 
   const cancelBroadcast = async () => {
@@ -1012,25 +1113,7 @@ export default function DJDashboard() {
     }
   }
 
-  const handleRestoreAudio = async () => {
-    setIsRestoringAudio(true)
-    setStreamError(null)
-
-    try {
-      const success = await restoreDJStreaming()
-
-      if (success) {
-        logger.debug("Audio streaming restored successfully")
-      } else {
-        setStreamError("Failed to restore audio streaming. Please try again.")
-      }
-    } catch (error) {
-      logger.error("Error restoring audio streaming:", error)
-      setStreamError(`Error restoring audio: ${error.message}`)
-    } finally {
-      setIsRestoringAudio(false)
-    }
-  }
+  // Audio restoration not needed for BUTT workflow
 
   // Slow mode save handler
   const handleSaveSlowMode = async () => {
@@ -1285,6 +1368,36 @@ export default function DJDashboard() {
   return (
       <div className="relative min-h-screen bg-gray-50 dark:bg-gray-900">
         <div className="container mx-auto px-4 py-4">
+          {/* End Broadcast Confirmation Modal */}
+          {confirmEndOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-5">
+                <div className="flex items-start space-x-3">
+                  <ExclamationTriangleIcon className="h-6 w-6 text-red-600 dark:text-red-400 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">End broadcast?</h3>
+                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                      This will end the current broadcast and stop the radio server (Liquidsoap). Are you sure you want to continue?
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    onClick={() => setConfirmEndOpen(false)}
+                    className="px-4 py-2 text-sm rounded-md bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmStopBroadcast}
+                    className="px-4 py-2 text-sm rounded-md bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    End Broadcast
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Live Streaming Status Bar - Fixed at top when live */}
           {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
               <div className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg shadow-lg mb-6 sticky top-4 z-50">
@@ -1299,30 +1412,12 @@ export default function DJDashboard() {
                         <h2 className="text-lg font-bold truncate">{currentBroadcast.title}</h2>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs opacity-90">
                           <div className="flex items-center">
-                        <span
-                            className={`h-1.5 w-1.5 rounded-full mr-1.5 ${
-                                websocketConnected ? "bg-green-300" : "bg-yellow-300"
-                            }`}
-                        ></span>
-                            <span>{websocketConnected ? "Connected" : "Disconnected"}</span>
+                            <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${radioServerState === 'running' ? 'bg-green-300' : 'bg-red-300'}`}></span>
+                            <span>Server: {radioServerState === 'running' ? 'Running' : 'Offline'}</span>
                           </div>
                           <div className="flex items-center">
-                        <span
-                            className={`h-1.5 w-1.5 rounded-full mr-1.5 ${
-                                mediaRecorderRef.current &&
-                                audioStreamRef.current &&
-                                mediaRecorderRef.current.state === "recording"
-                                    ? "bg-green-300"
-                                    : "bg-orange-300"
-                            }`}
-                        ></span>
-                            <span>
-                          {mediaRecorderRef.current &&
-                          audioStreamRef.current &&
-                          mediaRecorderRef.current.state === "recording"
-                              ? "Audio Streaming"
-                              : "Audio Disconnected"}
-                        </span>
+                            <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${websocketConnected ? "bg-green-300" : "bg-yellow-300"}`}></span>
+                            <span>{(graceUntilMs && Date.now() < graceUntilMs) ? "Connecting…" : (websocketConnected ? "Connected" : "Disconnected")}</span>
                           </div>
                           <div className="flex items-center">
                             <span className="font-semibold mr-1">{listenerCount}</span>
@@ -1332,19 +1427,6 @@ export default function DJDashboard() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {/* Audio Restoration Button - Show when audio is not streaming */}
-                      {(!mediaRecorderRef.current ||
-                          !audioStreamRef.current ||
-                          mediaRecorderRef.current.state !== "recording") && (
-                          <button
-                              onClick={handleRestoreAudio}
-                              disabled={isRestoringAudio}
-                              className="flex items-center px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-black rounded-md transition-all duration-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <MicrophoneIcon className="h-3.5 w-3.5 mr-1.5" />
-                            {isRestoringAudio ? "Restoring..." : "Restore Audio"}
-                          </button>
-                      )}
                       {/* Slow Mode Controls */}
                       {currentBroadcast && (
                         <div className="flex items-center bg-white bg-opacity-10 rounded-md px-2 py-1 mr-2 text-xs">
@@ -1378,7 +1460,7 @@ export default function DJDashboard() {
                         </div>
                       )}
                       <button
-                          onClick={stopBroadcast}
+                          onClick={() => setConfirmEndOpen(true)}
                           disabled={isStoppingBroadcast}
                           className="flex items-center px-4 py-1.5 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-md transition-all duration-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       >
@@ -1392,6 +1474,19 @@ export default function DJDashboard() {
           )}
 
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">DJ Dashboard</h1>
+
+          {/* Recovery Notification */}
+          {isRecoveringBroadcast && (
+              <div className="mb-6 p-4 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 rounded-md border border-green-300 dark:border-green-800 animate-pulse">
+                <div className="flex items-start space-x-3">
+                  <CheckIcon className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-green-900 dark:text-green-100 mb-1">🔴 Live Broadcast Recovered</h3>
+                    <p className="text-sm">Your live broadcast has been restored. You can continue streaming!</p>
+                  </div>
+                </div>
+              </div>
+          )}
 
           {/* Error Display */}
           {streamError && (
@@ -1409,22 +1504,7 @@ export default function DJDashboard() {
           {/* Profanity Manager (separate from broadcast containers) */}
           <ProfanityManager />
 
-          {/* Audio Restoration Notice - Show when live but audio not streaming */}
-          {workflowState === WORKFLOW_STATES.STREAMING_LIVE &&
-              (!mediaRecorderRef.current || !audioStreamRef.current || mediaRecorderRef.current.state !== "recording") && (
-                  <div className="mb-6 p-4 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 rounded-md border-l-4 border-yellow-500">
-                    <div className="flex items-center">
-                      <MicrophoneIcon className="h-5 w-5 mr-3 flex-shrink-0" />
-                      <div>
-                        <h3 className="font-semibold">Audio Streaming Disconnected</h3>
-                        <p className="text-sm mt-1">
-                          Your broadcast is live, but audio streaming has been disconnected. Click "Restore Audio" in the live
-                          bar above to reconnect your microphone and resume audio streaming.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-              )}
+          {/* BUTT workflow: Audio is managed via BUTT, not browser */}
 
           {/* Workflow Progress Indicator - Hidden when live */}
           {workflowState !== WORKFLOW_STATES.STREAMING_LIVE && (
@@ -1498,19 +1578,6 @@ export default function DJDashboard() {
               <div className="grid grid-cols-1 lg:grid-cols-12 xl:grid-cols-12 gap-6 mb-8">
                 {/* Main Content Area - Left Side */}
                 <div className="lg:col-span-8 min-w-0 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Audio Controls Section */}
-                  <div className="md:col-span-2 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-                    <div className="p-4">
-                      <div className="flex flex-col md:flex-row gap-4">
-                        <div className="flex-1">
-                          <AudioPlayer />
-                        </div>
-                        <div className="flex-1">
-                          <DJAudioControls />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
 
                   {/* Chat Section */}
                   <div className="md:col-span-2 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
@@ -2068,112 +2135,112 @@ export default function DJDashboard() {
               </div>
           )}
 
-          {/* Step 1: Create Broadcast Content */}
+          {/* Step 1: Create Broadcast Content (BUTT workflow) */}
           {workflowState === WORKFLOW_STATES.CREATE_BROADCAST && (
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden mb-6">
                 <div className="p-4">
                   <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
                     Create New Broadcast
                   </h2>
+                  
+                  {/* BUTT Info Banner */}
+                  <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <p className="text-sm text-blue-800 dark:text-blue-200">
+                      <strong>📻 BUTT Streaming:</strong> Create your broadcast, then use <strong>BUTT (Broadcast Using This Tool)</strong> to stream your audio to the radio server.
+                    </p>
+                  </div>
+
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                    {/* Left: Title */}
-                    <div className="lg:col-span-7">
-                      <label htmlFor="title" className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-                        Broadcast Title *
-                      </label>
-                      <input
-                          type="text"
-                          id="title"
-                          name="title"
-                          value={broadcastForm.title}
-                          onChange={handleFormChange}
-                          className="form-input w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          placeholder="Enter a title for your broadcast"
-                          disabled={isCreatingBroadcast}
-                      />
-                      {formErrors.title && (
-                          <p className="mt-1 text-sm text-red-600 dark:text-red-400">{formErrors.title}</p>
-                      )}
+                    {/* Left: Title and Description */}
+                    <div className="lg:col-span-7 space-y-4">
+                      <div>
+                        <label htmlFor="title" className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
+                          Broadcast Title *
+                        </label>
+                        <input
+                            type="text"
+                            id="title"
+                            name="title"
+                            value={broadcastForm.title}
+                            onChange={handleFormChange}
+                            className="form-input w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                            placeholder="Enter a title for your broadcast"
+                            disabled={isCreatingBroadcast}
+                        />
+                        {formErrors.title && (
+                            <p className="mt-1 text-sm text-red-600 dark:text-red-400">{formErrors.title}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label
+                            htmlFor="description"
+                            className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1"
+                        >
+                          Description *
+                        </label>
+                        <textarea
+                            id="description"
+                            name="description"
+                            value={broadcastForm.description}
+                            onChange={handleFormChange}
+                            rows={4}
+                            className="form-input w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                            placeholder="Describe what your broadcast is about"
+                            disabled={isCreatingBroadcast}
+                        />
+                        {formErrors.description && (
+                            <p className="mt-1 text-sm text-red-600 dark:text-red-400">{formErrors.description}</p>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Right: Audio Source (same row as Title) */}
+                    {/* Right: Station Banner */}
                     <div className="lg:col-span-5">
-                      {workflowState === WORKFLOW_STATES.CREATE_BROADCAST && (
-                        <AudioSourceSelector key="create-broadcast-audio" disabled={isCreatingBroadcast} showHeading={false} compact={true} />
-                      )}
-                    </div>
-
-                    {/* Left: Description */}
-                    <div className="lg:col-span-7">
-                      <label
-                          htmlFor="description"
-                          className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1"
-                      >
-                        Description *
-                      </label>
-                      <textarea
-                          id="description"
-                          name="description"
-                          value={broadcastForm.description}
-                          onChange={handleFormChange}
-                          rows={3}
-                          className="form-input w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          placeholder="Describe what your broadcast is about"
-                          disabled={isCreatingBroadcast}
-                      />
-                      {formErrors.description && (
-                          <p className="mt-1 text-sm text-red-600 dark:text-red-400">{formErrors.description}</p>
-                      )}
-                    </div>
-
-                    {/* Right: Station Banner (same row as Description) */}
-                    <div className="lg:col-span-5 mb-4">
                       <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Station Banner</h3>
-                      <div className="flex flex-col md:flex-row gap-3 items-start md:items-center bg-gray-50 dark:bg-gray-700/40 p-3 rounded-md border border-gray-200 dark:border-gray-600">
-                        <div className="w-full md:w-64">
+                      <div className="flex flex-col gap-3 bg-gray-50 dark:bg-gray-700/40 p-3 rounded-md border border-gray-200 dark:border-gray-600">
+                        <div className="w-full">
                           <div className="rounded-md overflow-hidden border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
                             {bannerUrl ? (
-                              <img src={cacheBust(bannerUrl)} alt="Current banner" className="w-full h-28 object-cover" />
+                              <img src={cacheBust(bannerUrl)} alt="Current banner" className="w-full h-32 object-cover" />
                             ) : (
-                              <div className="w-full h-28 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">No banner set</div>
+                              <div className="w-full h-32 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">No banner set</div>
                             )}
                           </div>
                         </div>
 
-                        <div className="flex-1 w-full">
-                          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
-                            <label className="inline-block">
-                              <span className="sr-only">Choose banner image</span>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={handleBannerUpload}
-                                disabled={bannerLoading}
-                                className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 focus:outline-none"
-                              />
-                            </label>
-                            <button
-                              onClick={handleBannerDelete}
-                              disabled={bannerLoading || !bannerUrl}
-                              className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm"
-                            >
-                              Remove
-                            </button>
-                            {bannerLoading && <span className="text-xs text-gray-600 dark:text-gray-300">Processing…</span>}
-                            {bannerError && <span className="text-xs text-red-600">{bannerError}</span>}
-                          </div>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Recommended size: 1200x300 or similar wide aspect. Supported: jpg, jpeg, png, gif, webp.</p>
+                        <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                          <label className="flex-1 inline-block">
+                            <span className="sr-only">Choose banner image</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleBannerUpload}
+                              disabled={bannerLoading}
+                              className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 focus:outline-none"
+                            />
+                          </label>
+                          <button
+                            onClick={handleBannerDelete}
+                            disabled={bannerLoading || !bannerUrl}
+                            className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm whitespace-nowrap"
+                          >
+                            Remove
+                          </button>
                         </div>
+                        {bannerLoading && <span className="text-xs text-gray-600 dark:text-gray-300">Processing…</span>}
+                        {bannerError && <span className="text-xs text-red-600">{bannerError}</span>}
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Recommended: 1200x300 or similar wide aspect.</p>
                       </div>
                     </div>
 
                     {/* Bottom-right: Create Button */}
-                    <div className="lg:col-span-5 flex items-center justify-end space-x-3">
+                    <div className="lg:col-span-12 flex items-center justify-center">
                       <button
                           type="button"
                           onClick={createBroadcast}
                           disabled={isCreatingBroadcast}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                          className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-base font-medium"
                       >
                         {isCreatingBroadcast ? (
                             <>
@@ -2190,29 +2257,32 @@ export default function DJDashboard() {
               </div>
           )}
 
-          {/* Step 2: Ready to Stream */}
+          {/* Step 2: Ready to Stream (BUTT workflow) */}
           {workflowState === WORKFLOW_STATES.READY_TO_STREAM && currentBroadcast && (
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden mb-6">
                 <div className="p-4">
                   <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
-                    Ready to Stream
+                    Ready to Stream with BUTT
                   </h2>
 
-                  {/* Header: Broadcast Title/Description/Status spanning full width */}
+                  {/* Header: Broadcast Title/Description/Status */}
                   <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4 mb-4">
                     <h3 className="text-base font-semibold text-blue-900 dark:text-blue-100 mb-1">
                       {currentBroadcast.title}
                     </h3>
                     <p className="text-sm text-blue-700 dark:text-blue-200 mb-2">{currentBroadcast.description}</p>
-                    <div className="text-xs">
-                      <span className="font-medium text-blue-900 dark:text-blue-100">Status:</span>
-                      <span className="ml-2 text-blue-700 dark:text-blue-200">Ready to broadcast live</span>
-                    </div>
                   </div>
 
+                  {/* Radio Server Status and Error */}
+                  {radioServerError && (
+                    <div className="mb-4 p-3 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md border border-red-300 dark:border-red-800 text-sm">
+                      <strong>Radio Server Error:</strong> {radioServerError}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                    {/* Column 1: Stream Preview then Station Banner */}
-                    <div className="lg:col-span-4 space-y-4 min-w-0">
+                    {/* Column 1: Stream Preview and Station Banner */}
+                    <div className="lg:col-span-5 space-y-4 min-w-0">
                       <div>
                         <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Stream Preview</h3>
                         <AudioPlayer isPreview={true} />
@@ -2220,56 +2290,95 @@ export default function DJDashboard() {
 
                       <div>
                         <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Station Banner</h3>
-                        <div className="flex flex-col md:flex-row gap-3 items-start md:items-center bg-gray-50 dark:bg-gray-700/40 p-3 rounded-md border border-gray-200 dark:border-gray-600">
-                          <div className="w-full md:w-64">
+                        <div className="flex flex-col gap-3 bg-gray-50 dark:bg-gray-700/40 p-3 rounded-md border border-gray-200 dark:border-gray-600">
+                          <div className="w-full">
                             <div className="rounded-md overflow-hidden border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
                               {bannerUrl ? (
-                                <img src={cacheBust(bannerUrl)} alt="Current banner" className="w-full h-28 object-cover" />
+                                <img src={cacheBust(bannerUrl)} alt="Current banner" className="w-full h-32 object-cover" />
                               ) : (
-                                <div className="w-full h-28 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">No banner set</div>
+                                <div className="w-full h-32 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">No banner set</div>
                               )}
                             </div>
                           </div>
-                          <div className="flex-1 w-full">
-                            <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
-                              <label className="inline-block">
-                                <span className="sr-only">Choose banner image</span>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  onChange={handleBannerUpload}
-                                  disabled={bannerLoading}
-                                  className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 focus:outline-none"
-                                />
-                              </label>
-                              <button
-                                onClick={handleBannerDelete}
-                                disabled={bannerLoading || !bannerUrl}
-                                className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm"
-                              >
-                                Remove
-                              </button>
-                              {bannerLoading && <span className="text-xs text-gray-600 dark:text-gray-300">Processing…</span>}
-                              {bannerError && <span className="text-xs text-red-600">{bannerError}</span>}
-                            </div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Recommended size: 1200x300 or similar wide aspect. Supported: jpg, jpeg, png, gif, webp.</p>
+                          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                            <label className="flex-1 inline-block">
+                              <span className="sr-only">Choose banner image</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleBannerUpload}
+                                disabled={bannerLoading}
+                                className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 focus:outline-none"
+                              />
+                            </label>
+                            <button
+                              onClick={handleBannerDelete}
+                              disabled={bannerLoading || !bannerUrl}
+                              className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm whitespace-nowrap"
+                            >
+                              Remove
+                            </button>
                           </div>
+                          {bannerLoading && <span className="text-xs text-gray-600 dark:text-gray-300">Processing…</span>}
+                          {bannerError && <span className="text-xs text-red-600">{bannerError}</span>}
+                          <p className="text-xs text-gray-500 dark:text-gray-400">Recommended: 1200x300 or similar wide aspect.</p>
                         </div>
                       </div>
                     </div>
 
-                    {/* Column 2: Audio Source Selection */}
-                    <div className="lg:col-span-4 space-y-4 min-w-0">
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-1">Audio Source</h3>
-                        {workflowState === WORKFLOW_STATES.READY_TO_STREAM && (
-                          <AudioSourceSelector key="ready-to-stream-audio" showHeading={false} compact={true} />
-                        )}
+                    {/* Column 2: Radio Server Control + Instructions */}
+                    <div className="lg:col-span-7 space-y-4 min-w-0">
+                      {/* Radio Server Control */}
+                      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 rounded-lg p-4 border border-indigo-200 dark:border-indigo-800">
+                        <h3 className="text-base font-semibold text-indigo-900 dark:text-indigo-100 mb-2">Radio Server Control</h3>
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center space-x-2">
+                            <span className={`h-3 w-3 rounded-full ${radioServerState === 'running' ? 'bg-green-500 animate-pulse' : radioServerState === 'stopped' ? 'bg-gray-400' : 'bg-yellow-500'}`}></span>
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              Server Status: <span className={radioServerState === 'running' ? 'text-green-600 dark:text-green-400' : radioServerState === 'stopped' ? 'text-gray-600 dark:text-gray-400' : 'text-yellow-600 dark:text-yellow-400'}>
+                                {radioServerState === 'running' ? 'Running' : radioServerState === 'stopped' ? 'Offline' : 'Unknown'}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+                        
+                        <div className="flex gap-3">
+                          <button
+                            onClick={handleStartRadioServer}
+                            disabled={isStartingServer || radioServerState === 'running'}
+                            className="flex-1 flex items-center justify-center px-4 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-base font-medium"
+                          >
+                            <MicrophoneIcon className="h-5 w-5 mr-2" />
+                            {isStartingServer ? 'Starting...' : radioServerState === 'running' ? 'Server Running' : 'Start Radio Server'}
+                          </button>
+                          <button
+                            onClick={handleStopRadioServer}
+                            disabled={isStoppingServer || radioServerState === 'stopped'}
+                            className="flex-1 flex items-center justify-center px-4 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-base font-medium"
+                          >
+                            <StopIcon className="h-5 w-5 mr-2" />
+                            {isStoppingServer ? 'Stopping...' : radioServerState === 'stopped' ? 'Server Offline' : 'Stop Radio Server'}
+                          </button>
+                        </div>
+                        <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-3">
+                          Start the server before connecting BUTT. The server can stay running for the whole day (idempotent).
+                        </p>
                       </div>
-                    </div>
 
-                    {/* Column 3: Chat Slow Mode + Actions */}
-                    <div className="lg:col-span-4 space-y-4 min-w-0">
+                      {/* BUTT Instructions */}
+                      <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 border border-yellow-200 dark:border-yellow-800">
+                        <h3 className="text-base font-semibold text-yellow-900 dark:text-yellow-100 mb-2">📻 BUTT Streaming Instructions</h3>
+                        <ol className="text-sm text-yellow-800 dark:text-yellow-200 space-y-1 list-decimal list-inside">
+                          <li>Click <strong>"Start Radio Server"</strong> above</li>
+                          <li>Open <strong>BUTT</strong> (Broadcast Using This Tool) on your computer</li>
+                          <li>Configure BUTT to connect to Icecast harbor port <strong>9000</strong></li>
+                          <li>Click <strong>"Play"</strong> in BUTT to start streaming your audio</li>
+                          <li>Monitor your broadcast from this dashboard (chat, requests, polls)</li>
+                          <li>When done, disconnect BUTT and click <strong>"Stop Radio Server"</strong></li>
+                        </ol>
+                      </div>
+
+                      {/* Chat Slow Mode */}
                       {currentBroadcast && (
                         <div>
                           <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Chat Slow Mode</h3>
@@ -2290,7 +2399,7 @@ export default function DJDashboard() {
                                 max={3600}
                                 value={slowModeSeconds}
                                 onChange={(e) => setSlowModeSeconds(e.target.value)}
-                                className="w-24 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                className="w-24 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
                                 placeholder="seconds"
                                 title="Seconds between messages"
                               />
@@ -2299,38 +2408,33 @@ export default function DJDashboard() {
                             <button
                               onClick={handleSaveSlowMode}
                               disabled={isSavingSlowMode}
-                              className="ml-auto px-3 py-1.5 bg-maroon-700 text-white rounded-md hover:bg-maroon-800 disabled:opacity-50"
-                              title="Save slow mode settings"
+                              className="ml-auto px-3 py-1.5 bg-maroon-700 text-white rounded-md hover:bg-maroon-800 disabled:opacity-50 text-sm"
                             >
                               {isSavingSlowMode ? 'Saving…' : 'Save'}
                             </button>
-                            <div className="w-full text-xs text-gray-500 dark:text-gray-400">
-                              Control how often listeners can send messages. Set 0 to disable.
-                            </div>
                           </div>
                         </div>
                       )}
 
-                      <div className="flex justify-center space-x-4">
+                      {/* Actions */}
+                      <div className="flex justify-center gap-3">
                         <button
-                            onClick={cancelBroadcast}
-                            className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors text-sm font-medium"
-                        >
-                          <XMarkIcon className="h-4 w-4 mr-2" />
-                          Cancel Broadcast
-                        </button>
-                        <button
-                            onClick={startBroadcast}
-                            disabled={!serverConfig}
-                            className="flex items-center px-6 py-2.5 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-base font-medium"
+                            onClick={startBroadcastLive}
+                            disabled={radioServerState !== 'running'}
+                            className="flex items-center px-6 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-base font-medium"
+                            title={radioServerState !== 'running' ? 'Start the radio server first' : 'Go live and open the interactive dashboard'}
                         >
                           <MicrophoneIcon className="h-5 w-5 mr-2" />
                           Go Live
                         </button>
+                        <button
+                            onClick={cancelBroadcast}
+                            className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors text-sm font-medium"
+                        >
+                          <XMarkIcon className="h-4 w-4 mr-2" />
+                          Cancel Broadcast
+                        </button>
                       </div>
-                      <p className="text-center text-xs text-gray-600 dark:text-gray-400 mt-1">
-                        Make sure to allow audio source access when prompted (microphone and/or screen sharing)
-                      </p>
                     </div>
                   </div>
                 </div>

@@ -44,13 +44,38 @@ import { useTheme } from "../context/ThemeContext.jsx";
 
 const Header = ({ onMobileMenuToggle }) => {
   const { currentUser, isAuthenticated, logout } = useAuth();
-  const { isLive, recovering, healthBroadcastLive } = useStreaming();
+  const { isLive, recovering, healthBroadcastLive, healthy } = useStreaming();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState("");
   const [currentDate, setCurrentDate] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
+  const [showRecovering, setShowRecovering] = useState(false);
+  const [recoveringTimer, setRecoveringTimer] = useState(null);
+
+  // Debounce the recovering banner so it only shows if recovery lasts > 4s
+  useEffect(() => {
+    try {
+      if (recovering) {
+        if (!recoveringTimer) {
+          const t = setTimeout(() => setShowRecovering(true), 4000);
+          setRecoveringTimer(t);
+        }
+      } else {
+        setShowRecovering(false);
+        if (recoveringTimer) {
+          clearTimeout(recoveringTimer);
+          setRecoveringTimer(null);
+        }
+      }
+    } catch (_) { /* no-op */ }
+    return () => {
+      if (recoveringTimer) {
+        clearTimeout(recoveringTimer);
+      }
+    };
+  }, [recovering]);
 
   useEffect(() => {
     const updateTime = () => {
@@ -245,7 +270,13 @@ const Header = ({ onMobileMenuToggle }) => {
         }}
       ></motion.div>
 
-              {recovering && healthBroadcastLive && (
+              {/* Temporarily disabled "Reconnecting to stream..." banner
+                  TODO: Investigate why this shows even when Liquidsoap/Icecast are running properly
+                  The banner appears when recovering=true && healthBroadcastLive=true && healthy=false
+                  but the health monitoring may be too sensitive or have timing issues
+                  Re-enable once the health check logic is refined for BUTT workflow
+              */}
+              {false && showRecovering && healthBroadcastLive && !healthy && (
                 <div className="w-full bg-yellow-50 border-b border-yellow-200 text-yellow-800 text-sm py-2 px-4 flex items-center justify-center">
                   <div className="flex items-center gap-2">
                     <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span>

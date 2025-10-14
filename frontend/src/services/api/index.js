@@ -11,6 +11,7 @@ import {
   pollApi, 
   streamApi 
 } from './otherApis';
+import { radioApi } from './radioApi';
 
 // Export all domain-specific API modules
 export { authApi } from './authApi';
@@ -23,8 +24,9 @@ export {
   activityLogApi, 
   songRequestApi, 
   pollApi, 
-  streamApi 
+  streamApi
 } from './otherApis';
+export { radioApi } from './radioApi';
 
 // Export base API functionality
 export { 
@@ -45,6 +47,7 @@ export const activityLogService = activityLogApi;
 export const songRequestService = songRequestApi;
 export const pollService = pollApi;
 export const streamService = streamApi;
+export const radioService = radioApi;
 export const analyticsService = analyticsApi;
 export const profanityService = profanityApi;
 
