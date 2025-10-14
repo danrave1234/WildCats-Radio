@@ -28,6 +28,9 @@ public class RegisterRequest {
     @Past(message = "Birthdate must be in the past")
     private LocalDate birthdate;
 
+    // Optional gender for demographics (MALE, FEMALE, OTHER)
+    private String gender;
+
     // Default constructor
     public RegisterRequest() {
     }
@@ -81,4 +84,12 @@ public class RegisterRequest {
     public void setBirthdate(LocalDate birthdate) {
         this.birthdate = birthdate;
     }
-} 
+
+    public String getGender() {
+        return gender;
+    }
+
+    public void setGender(String gender) {
+        this.gender = gender;
+    }
+}

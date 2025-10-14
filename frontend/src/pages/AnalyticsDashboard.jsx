@@ -10,16 +10,18 @@ import {
   CategoryScale,
   LinearScale,
   BarElement,
+  ArcElement,
   Title,
   Tooltip,
   Legend,
 } from 'chart.js';
-import { Bar } from 'react-chartjs-2';
+import { Bar, Doughnut } from 'react-chartjs-2';
 
 ChartJS.register(
   CategoryScale,
   LinearScale,
   BarElement,
+  ArcElement,
   Title,
   Tooltip,
   Legend
@@ -89,6 +91,7 @@ export default function AnalyticsDashboard() {
     broadcastStats,
     engagementStats,
     activityStats,
+    demographicStats,
     mostPopularBroadcasts,
     loading,
     error,
@@ -1093,6 +1096,130 @@ export default function AnalyticsDashboard() {
                   Current period data is shown in the summary cards above.
                 </p>
               </div>
+            )}
+          </div>
+
+          {/* Demographics */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6 mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Demographics</h2>
+              {demographicStats?.lastUpdated && (
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  Last updated: {format(new Date(demographicStats.lastUpdated), 'MMM d, yyyy • h:mm a')}
+                </div>
+              )}
+            </div>
+            <div className="mb-4 -mt-2 text-xs text-gray-600 dark:text-gray-400">
+              Overall app demographics. The downloadable Analytics in chat export is broadcast-scoped.
+              <a href="/broadcast-history" className="ml-1 text-indigo-600 dark:text-indigo-400 hover:underline">Go to Broadcast History</a>
+            </div>
+
+            {/* Totals */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+              <div className="bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Total Users</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-white">{demographicStats?.totalUsers ?? 0}</p>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Users with Birthdate</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-white">{demographicStats?.usersWithBirthdate ?? 0}</p>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Users with Gender</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-white">{demographicStats?.usersWithGender ?? 0}</p>
+              </div>
+            </div>
+
+            {/* Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Age Groups Bar */}
+              <div className="bg-white dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Age Groups</h3>
+                <div className="h-64">
+                  <Bar
+                    data={{
+                      labels: ['Teens', 'Young Adults', 'Adults', 'Middle-Aged', 'Seniors', 'Unknown'],
+                      datasets: [
+                        {
+                          label: 'Users',
+                          data: [
+                            demographicStats?.ageGroups?.teens || 0,
+                            demographicStats?.ageGroups?.youngAdults || 0,
+                            demographicStats?.ageGroups?.adults || 0,
+                            demographicStats?.ageGroups?.middleAged || 0,
+                            demographicStats?.ageGroups?.seniors || 0,
+                            demographicStats?.ageGroups?.unknown || 0,
+                          ],
+                          backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                          borderColor: 'rgb(59, 130, 246)',
+                          borderWidth: 1,
+                          borderRadius: 6,
+                          borderSkipped: false,
+                        },
+                      ],
+                    }}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: { legend: { display: false } },
+                      scales: {
+                        x: { grid: { display: false }, ticks: { color: 'rgb(156,163,175)' } },
+                        y: { grid: { color: 'rgba(156,163,175,0.2)' }, beginAtZero: true, ticks: { color: 'rgb(156,163,175)' } },
+                      },
+                    }}
+                  />
+                </div>
+                <div className="mt-3 text-xs text-gray-600 dark:text-gray-400"><span className="font-semibold">Legend:</span> Teens 13–19 • Young Adults 20–29 • Adults 30–49 • Middle‑Aged 50–64 • Seniors 65+ • Unknown = no birthdate</div>
+              </div>
+
+              {/* Gender Donut */}
+              <div className="bg-white dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Gender Distribution</h3>
+                <div className="h-64">
+                  <Doughnut
+                    data={{
+                      labels: ['Male', 'Female', 'Other', 'Unknown'],
+                      datasets: [
+                        {
+                          label: 'Users',
+                          data: [
+                            demographicStats?.gender?.male || 0,
+                            demographicStats?.gender?.female || 0,
+                            demographicStats?.gender?.other || 0,
+                            demographicStats?.gender?.unknown || 0,
+                          ],
+                          backgroundColor: [
+                            'rgba(37, 99, 235, 0.8)', // blue
+                            'rgba(236, 72, 153, 0.8)', // pink
+                            'rgba(234, 179, 8, 0.8)',  // amber
+                            'rgba(107, 114, 128, 0.8)', // gray
+                          ],
+                          borderColor: [
+                            'rgb(37, 99, 235)',
+                            'rgb(236, 72, 153)',
+                            'rgb(234, 179, 8)',
+                            'rgb(107, 114, 128)',
+                          ],
+                          borderWidth: 1,
+                        },
+                      ],
+                    }}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        legend: { position: 'bottom', labels: { color: 'rgb(156,163,175)' } },
+                      },
+                      cutout: '55%',
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Fallback for no data */}
+            {(!demographicStats || (!demographicStats.ageGroups && !demographicStats.gender)) && (
+              <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">No demographics data available yet.</div>
             )}
           </div>
 

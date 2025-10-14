@@ -307,6 +307,130 @@ public class ChatMessageService {
         infoSheet.autoSizeColumn(0);
         infoSheet.autoSizeColumn(1);
 
+        // Analytics sheet (summary + demographics)
+        Sheet analyticsSheet = workbook.createSheet("Analytics");
+        int aRow = 0;
+        Row a1 = analyticsSheet.createRow(aRow++);
+        a1.createCell(0).setCellValue("Total Messages:");
+        a1.createCell(1).setCellValue(messages.size());
+
+        // Unique senders and top senders
+        java.util.Map<String, Integer> senderCounts = new java.util.HashMap<>();
+        java.util.Map<String, String> senderNameByEmail = new java.util.HashMap<>();
+        java.util.Set<Long> uniqueSenderIds = new java.util.HashSet<>();
+        for (ChatMessageEntity m : messages) {
+            if (m.getSender() != null) {
+                uniqueSenderIds.add(m.getSender().getId());
+                String email = m.getSender().getEmail();
+                senderNameByEmail.put(email, m.getSender().getDisplayNameOrFullName());
+                senderCounts.put(email, senderCounts.getOrDefault(email, 0) + 1);
+            }
+        }
+        Row a2 = analyticsSheet.createRow(aRow++);
+        a2.createCell(0).setCellValue("Unique Senders:");
+        a2.createCell(1).setCellValue(uniqueSenderIds.size());
+
+        // Duration and messages per minute
+        Long durationMinutes = null;
+        if (broadcast.getActualStart() != null && broadcast.getActualEnd() != null) {
+            durationMinutes = java.time.Duration.between(broadcast.getActualStart(), broadcast.getActualEnd()).toMinutes();
+        }
+        Row a3 = analyticsSheet.createRow(aRow++);
+        a3.createCell(0).setCellValue("Duration (minutes):");
+        a3.createCell(1).setCellValue(durationMinutes != null ? durationMinutes : 0);
+        Row a4 = analyticsSheet.createRow(aRow++);
+        a4.createCell(0).setCellValue("Messages per minute:");
+        double mpm = (durationMinutes != null && durationMinutes > 0) ? (double) messages.size() / durationMinutes : 0.0;
+        a4.createCell(1).setCellValue(mpm);
+
+        // Demographics for participants (unique senders)
+        java.util.Map<String, Integer> ageGroups = new java.util.HashMap<>();
+        java.util.Map<String, Integer> genders = new java.util.HashMap<>();
+        String[] ageKeys = {"teens","youngAdults","adults","middleAged","seniors","unknown"};
+        for (String k : ageKeys) ageGroups.put(k, 0);
+        String[] genderKeys = {"male","female","other","unknown"};
+        for (String k : genderKeys) genders.put(k, 0);
+        java.time.LocalDate today = java.time.LocalDate.now();
+        // Build lookup for senders encountered
+        java.util.Map<Long, com.wildcastradio.User.UserEntity> senderById = new java.util.HashMap<>();
+        for (ChatMessageEntity m : messages) {
+            if (m.getSender() != null) {
+                senderById.put(m.getSender().getId(), m.getSender());
+            }
+        }
+        for (Long uid : uniqueSenderIds) {
+            com.wildcastradio.User.UserEntity u = senderById.get(uid);
+            // Age group
+            String ageKey;
+            if (u == null || u.getBirthdate() == null) {
+                ageKey = "unknown";
+            } else {
+                int age = java.time.Period.between(u.getBirthdate(), today).getYears();
+                if (age >= 13 && age <= 19) ageKey = "teens";
+                else if (age >= 20 && age <= 29) ageKey = "youngAdults";
+                else if (age >= 30 && age <= 49) ageKey = "adults";
+                else if (age >= 50 && age <= 64) ageKey = "middleAged";
+                else if (age >= 65) ageKey = "seniors";
+                else ageKey = "unknown";
+            }
+            ageGroups.put(ageKey, ageGroups.get(ageKey) + 1);
+            // Gender
+            String gKey;
+            if (u == null || u.getGender() == null) gKey = "unknown";
+            else if (u.getGender() == com.wildcastradio.User.UserEntity.Gender.MALE) gKey = "male";
+            else if (u.getGender() == com.wildcastradio.User.UserEntity.Gender.FEMALE) gKey = "female";
+            else if (u.getGender() == com.wildcastradio.User.UserEntity.Gender.OTHER) gKey = "other";
+            else gKey = "unknown";
+            genders.put(gKey, genders.get(gKey) + 1);
+        }
+
+        // Write demographics section
+        aRow++; // blank line
+        Row dHdr = analyticsSheet.createRow(aRow++);
+        dHdr.createCell(0).setCellValue("Demographics (Unique Chat Participants)");
+        Row ageHdr = analyticsSheet.createRow(aRow++);
+        ageHdr.createCell(0).setCellValue("Age Group");
+        ageHdr.createCell(1).setCellValue("Count");
+        for (String k : ageKeys) {
+            Row r = analyticsSheet.createRow(aRow++);
+            r.createCell(0).setCellValue(k);
+            r.createCell(1).setCellValue(ageGroups.get(k));
+        }
+        aRow++; // blank line
+        Row gHdr = analyticsSheet.createRow(aRow++);
+        gHdr.createCell(0).setCellValue("Gender");
+        gHdr.createCell(1).setCellValue("Count");
+        for (String k : genderKeys) {
+            Row r = analyticsSheet.createRow(aRow++);
+            r.createCell(0).setCellValue(k);
+            r.createCell(1).setCellValue(genders.get(k));
+        }
+
+        // Top 5 senders by message count
+        aRow++; // blank line
+        Row tHdr = analyticsSheet.createRow(aRow++);
+        tHdr.createCell(0).setCellValue("Top Senders");
+        Row tCols = analyticsSheet.createRow(aRow++);
+        tCols.createCell(0).setCellValue("Name");
+        tCols.createCell(1).setCellValue("Email");
+        tCols.createCell(2).setCellValue("Messages");
+        java.util.List<java.util.Map.Entry<String,Integer>> top = senderCounts.entrySet().stream()
+                .sorted((a,b) -> Integer.compare(b.getValue(), a.getValue()))
+                .limit(5)
+                .collect(java.util.stream.Collectors.toList());
+        for (java.util.Map.Entry<String,Integer> e : top) {
+            Row tr = analyticsSheet.createRow(aRow++);
+            tr.createCell(0).setCellValue(senderNameByEmail.getOrDefault(e.getKey(), ""));
+            tr.createCell(1).setCellValue(e.getKey());
+            tr.createCell(2).setCellValue(e.getValue());
+        }
+
+        // Autosize analytics columns
+        if (analyticsSheet instanceof SXSSFSheet) {
+            ((SXSSFSheet) analyticsSheet).trackAllColumnsForAutoSizing();
+        }
+        for (int c = 0; c < 4; c++) analyticsSheet.autoSizeColumn(c);
+
         // Write to byte array
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         try {
@@ -349,13 +473,19 @@ public class ChatMessageService {
 			cell.setCellStyle(headerStyle);
 		}
 
-		DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-		int rowNum = 1;
+  DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+  int rowNum = 1;
 
-		int page = 0;
-		int pageSize = 5000;
-		Page<ChatMessageEntity> pageResult;
-		String replacement = ProfanityFilter.getReplacementPhrase();
+  int page = 0;
+  int pageSize = 5000;
+  Page<ChatMessageEntity> pageResult;
+  String replacement = ProfanityFilter.getReplacementPhrase();
+
+  // Aggregation for Analytics sheet
+  java.util.Map<String, Integer> senderCounts = new java.util.HashMap<>();
+  java.util.Map<String, String> senderNameByEmail = new java.util.HashMap<>();
+  java.util.Set<Long> uniqueSenderIds = new java.util.HashSet<>();
+  java.util.Map<Long, com.wildcastradio.User.UserEntity> senderById = new java.util.HashMap<>();
 
 		do {
 			Pageable pageable = PageRequest.of(page, pageSize);
@@ -372,10 +502,19 @@ public class ChatMessageService {
 				if (isCensored) {
 					messageCell.setCellStyle(censoredStyle);
 				}
-				row.createCell(3).setCellValue(message.getCreatedAt().format(formatter));
-			}
-			page++;
-		} while (!pageResult.isLast());
+                row.createCell(3).setCellValue(message.getCreatedAt().format(formatter));
+
+                // Aggregate for analytics
+                if (message.getSender() != null) {
+                    uniqueSenderIds.add(message.getSender().getId());
+                    senderById.put(message.getSender().getId(), message.getSender());
+                    String email = message.getSender().getEmail();
+                    senderNameByEmail.put(email, message.getSender().getDisplayNameOrFullName());
+                    senderCounts.put(email, senderCounts.getOrDefault(email, 0) + 1);
+                }
+            }
+            page++;
+        } while (!pageResult.isLast());
 
 		// Auto-size columns with tracking for SXSSF
 		sheet.trackAllColumnsForAutoSizing();
@@ -430,16 +569,117 @@ public class ChatMessageService {
 		if (infoSheet instanceof SXSSFSheet) {
 			((SXSSFSheet) infoSheet).trackAllColumnsForAutoSizing();
 		}
-		infoSheet.autoSizeColumn(0);
-		infoSheet.autoSizeColumn(1);
+        infoSheet.autoSizeColumn(0);
+        infoSheet.autoSizeColumn(1);
 
-		try {
-			workbook.write(outputStream);
-			logger.info("Successfully exported chat for broadcast {}", broadcastId);
-		} finally {
-			workbook.dispose();
-			workbook.close();
-		}
+        // Analytics sheet (summary + demographics)
+        Sheet analyticsSheet = workbook.createSheet("Analytics");
+        int aRow = 0;
+        Row a1 = analyticsSheet.createRow(aRow++);
+        a1.createCell(0).setCellValue("Total Messages:");
+        a1.createCell(1).setCellValue(rowNum - 1);
+
+        Row a2 = analyticsSheet.createRow(aRow++);
+        a2.createCell(0).setCellValue("Unique Senders:");
+        a2.createCell(1).setCellValue(uniqueSenderIds.size());
+
+        Long durationMinutes = null;
+        if (broadcast.getActualStart() != null && broadcast.getActualEnd() != null) {
+            durationMinutes = java.time.Duration.between(broadcast.getActualStart(), broadcast.getActualEnd()).toMinutes();
+        }
+        Row a3 = analyticsSheet.createRow(aRow++);
+        a3.createCell(0).setCellValue("Duration (minutes):");
+        a3.createCell(1).setCellValue(durationMinutes != null ? durationMinutes : 0);
+        Row a4 = analyticsSheet.createRow(aRow++);
+        a4.createCell(0).setCellValue("Messages per minute:");
+        double mpm = (durationMinutes != null && durationMinutes > 0) ? (double) (rowNum - 1) / durationMinutes : 0.0;
+        a4.createCell(1).setCellValue(mpm);
+
+        // Demographics for participants (unique senders)
+        java.util.Map<String, Integer> ageGroups = new java.util.HashMap<>();
+        java.util.Map<String, Integer> genders = new java.util.HashMap<>();
+        String[] ageKeys = {"teens","youngAdults","adults","middleAged","seniors","unknown"};
+        for (String k : ageKeys) ageGroups.put(k, 0);
+        String[] genderKeys = {"male","female","other","unknown"};
+        for (String k : genderKeys) genders.put(k, 0);
+        java.time.LocalDate today = java.time.LocalDate.now();
+        for (Long uid : uniqueSenderIds) {
+            com.wildcastradio.User.UserEntity u = senderById.get(uid);
+            String ageKey;
+            if (u == null || u.getBirthdate() == null) {
+                ageKey = "unknown";
+            } else {
+                int age = java.time.Period.between(u.getBirthdate(), today).getYears();
+                if (age >= 13 && age <= 19) ageKey = "teens";
+                else if (age >= 20 && age <= 29) ageKey = "youngAdults";
+                else if (age >= 30 && age <= 49) ageKey = "adults";
+                else if (age >= 50 && age <= 64) ageKey = "middleAged";
+                else if (age >= 65) ageKey = "seniors";
+                else ageKey = "unknown";
+            }
+            ageGroups.put(ageKey, ageGroups.get(ageKey) + 1);
+            String gKey;
+            if (u == null || u.getGender() == null) gKey = "unknown";
+            else if (u.getGender() == com.wildcastradio.User.UserEntity.Gender.MALE) gKey = "male";
+            else if (u.getGender() == com.wildcastradio.User.UserEntity.Gender.FEMALE) gKey = "female";
+            else if (u.getGender() == com.wildcastradio.User.UserEntity.Gender.OTHER) gKey = "other";
+            else gKey = "unknown";
+            genders.put(gKey, genders.get(gKey) + 1);
+        }
+
+        // Write demographics section
+        aRow++;
+        Row dHdr = analyticsSheet.createRow(aRow++);
+        dHdr.createCell(0).setCellValue("Demographics (Unique Chat Participants)");
+        Row ageHdr = analyticsSheet.createRow(aRow++);
+        ageHdr.createCell(0).setCellValue("Age Group");
+        ageHdr.createCell(1).setCellValue("Count");
+        for (String k : ageKeys) {
+            Row r = analyticsSheet.createRow(aRow++);
+            r.createCell(0).setCellValue(k);
+            r.createCell(1).setCellValue(ageGroups.get(k));
+        }
+        aRow++;
+        Row gHdr = analyticsSheet.createRow(aRow++);
+        gHdr.createCell(0).setCellValue("Gender");
+        gHdr.createCell(1).setCellValue("Count");
+        for (String k : genderKeys) {
+            Row r = analyticsSheet.createRow(aRow++);
+            r.createCell(0).setCellValue(k);
+            r.createCell(1).setCellValue(genders.get(k));
+        }
+
+        // Top 5 senders by message count
+        aRow++;
+        Row tHdr = analyticsSheet.createRow(aRow++);
+        tHdr.createCell(0).setCellValue("Top Senders");
+        Row tCols = analyticsSheet.createRow(aRow++);
+        tCols.createCell(0).setCellValue("Name");
+        tCols.createCell(1).setCellValue("Email");
+        tCols.createCell(2).setCellValue("Messages");
+        java.util.List<java.util.Map.Entry<String,Integer>> top = senderCounts.entrySet().stream()
+                .sorted((a,b) -> Integer.compare(b.getValue(), a.getValue()))
+                .limit(5)
+                .collect(java.util.stream.Collectors.toList());
+        for (java.util.Map.Entry<String,Integer> e : top) {
+            Row tr = analyticsSheet.createRow(aRow++);
+            tr.createCell(0).setCellValue(senderNameByEmail.getOrDefault(e.getKey(), ""));
+            tr.createCell(1).setCellValue(e.getKey());
+            tr.createCell(2).setCellValue(e.getValue());
+        }
+
+        if (analyticsSheet instanceof SXSSFSheet) {
+            ((SXSSFSheet) analyticsSheet).trackAllColumnsForAutoSizing();
+        }
+        for (int c = 0; c < 4; c++) analyticsSheet.autoSizeColumn(c);
+
+        try {
+            workbook.write(outputStream);
+            logger.info("Successfully exported chat for broadcast {}", broadcastId);
+        } finally {
+            workbook.dispose();
+            workbook.close();
+        }
 	}
 
     @Transactional

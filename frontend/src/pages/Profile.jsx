@@ -11,6 +11,7 @@ export default function Profile() {
     firstname: "",
     lastname: "",
     email: "",
+    gender: "",
   })
   const [isLoading, setIsLoading] = useState(false)
   const [message, setMessage] = useState({ type: '', text: '' })
@@ -22,6 +23,7 @@ export default function Profile() {
         firstname: currentUser.firstname || "",
         lastname: currentUser.lastname || "",
         email: currentUser.email || "",
+        gender: currentUser.gender || "",
       })
     }
   }, [currentUser])
@@ -44,7 +46,8 @@ export default function Profile() {
       if (currentUser && currentUser.id) {
         await updateProfile(currentUser.id, {
           firstname: formData.firstname,
-          lastname: formData.lastname
+          lastname: formData.lastname,
+          gender: formData.gender || null,
         })
         setMessage({ type: 'success', text: 'Profile updated successfully!' })
       } else {
@@ -145,6 +148,21 @@ export default function Profile() {
                       onChange={handleInputChange}
                       className="form-input"
                     />
+                  </div>
+                  <div>
+                    <label htmlFor="gender" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Gender (optional)</label>
+                    <select
+                      name="gender"
+                      id="gender"
+                      value={formData.gender}
+                      onChange={handleInputChange}
+                      className="form-input"
+                    >
+                      <option value="">Prefer not to say</option>
+                      <option value="MALE">Male</option>
+                      <option value="FEMALE">Female</option>
+                      <option value="OTHER">Other</option>
+                    </select>
                   </div>
                   <div className="sm:col-span-2">
                     <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

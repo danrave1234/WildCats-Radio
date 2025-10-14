@@ -74,6 +74,15 @@ public class UserService implements UserDetailsService {
         user.setFirstname(request.getFirstname());
         user.setLastname(request.getLastname());
         user.setBirthdate(request.getBirthdate());
+        // Map optional gender if provided
+        if (request.getGender() != null && !request.getGender().trim().isEmpty()) {
+            try {
+                UserEntity.Gender g = UserEntity.Gender.valueOf(request.getGender().trim().toUpperCase());
+                user.setGender(g);
+            } catch (IllegalArgumentException ex) {
+                // Ignore invalid values; keep null to avoid bad data
+            }
+        }
         user.setRole(UserEntity.UserRole.LISTENER); // Default role
         user.setVerified(false);
         user.setVerificationCode(generateVerificationCode());
@@ -241,6 +250,16 @@ public class UserService implements UserDetailsService {
         }
         if (updatedInfo.getNotifySystemUpdates() != null) {
             user.setNotifySystemUpdates(updatedInfo.getNotifySystemUpdates());
+        }
+
+        // Optional: update gender if provided
+        if (updatedInfo.getGender() != null) {
+            try {
+                UserEntity.Gender g = UserEntity.Gender.valueOf(updatedInfo.getGender().trim().toUpperCase());
+                user.setGender(g);
+            } catch (Exception ex) {
+                // Ignore invalid values
+            }
         }
 
         // Don't update email here for security reasons

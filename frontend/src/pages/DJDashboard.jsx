@@ -27,7 +27,6 @@ import { formatDistanceToNow } from "date-fns"
 import AudioPlayer from "../components/AudioPlayer"
 import { EnhancedScrollArea } from "../components/ui/enhanced-scroll-area"
 import { createLogger } from "../services/logger"
-import AdSense from "../components/ads/AdSense"
 import { profanityService } from "../services/api";
 
 const logger = createLogger("DJDashboard")
@@ -2120,16 +2119,6 @@ export default function DJDashboard() {
                       </div>
                     </div>
 
-                    {/* Sponsored Ad within Analytics panel */}
-                    <div className="col-span-2 border-t border-gray-200 dark:border-gray-700 pt-3 mt-1">
-                      <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Sponsored</div>
-                      <AdSense
-                        slot={import.meta.env.VITE_ADSENSE_SLOT_DJ || '0000000001'}
-                        format="auto"
-                        responsive="true"
-                        style={{ display: 'block', minHeight: '90px' }}
-                      />
-                    </div>
                   </div>
                 </div>
               </div>

@@ -270,36 +270,56 @@ public class AnalyticsController {
             Map<String, Integer> ageGroupChatMessages = new HashMap<>();
             Map<String, Integer> ageGroupSongRequests = new HashMap<>();
 
+            // Gender interaction counters
+            Map<String, Integer> genderChatMessages = new HashMap<>();
+            Map<String, Integer> genderSongRequests = new HashMap<>();
+
             // Initialize counters
             String[] ageGroups = {"teens", "youngAdults", "adults", "middleAged", "seniors", "unknown"};
             for (String group : ageGroups) {
                 ageGroupChatMessages.put(group, 0);
                 ageGroupSongRequests.put(group, 0);
             }
+            String[] genders = {"male", "female", "other", "unknown"};
+            for (String g : genders) {
+                genderChatMessages.put(g, 0);
+                genderSongRequests.put(g, 0);
+            }
 
             LocalDate today = LocalDate.now();
 
-            // Analyze chat messages by age group
+            // Analyze chat messages by age group and gender
             if (broadcast.getChatMessages() != null) {
                 for (com.wildcastradio.ChatMessage.ChatMessageEntity message : broadcast.getChatMessages()) {
                     String ageGroup = getAgeGroup(message.getSender().getBirthdate(), today);
                     ageGroupChatMessages.put(ageGroup, ageGroupChatMessages.get(ageGroup) + 1);
+
+                    String g = toGenderKey(message.getSender() != null ? message.getSender().getGender() : null);
+                    genderChatMessages.put(g, genderChatMessages.get(g) + 1);
                 }
             }
 
-            // Analyze song requests by age group
+            // Analyze song requests by age group and gender
             if (broadcast.getSongRequests() != null) {
                 for (com.wildcastradio.SongRequest.SongRequestEntity request : broadcast.getSongRequests()) {
                     String ageGroup = getAgeGroup(request.getRequestedBy().getBirthdate(), today);
                     ageGroupSongRequests.put(ageGroup, ageGroupSongRequests.get(ageGroup) + 1);
+
+                    String g = toGenderKey(request.getRequestedBy() != null ? request.getRequestedBy().getGender() : null);
+                    genderSongRequests.put(g, genderSongRequests.get(g) + 1);
                 }
             }
 
-            // Calculate total interactions by age group
+            // Calculate totals by age group and gender
             Map<String, Integer> totalInteractionsByAge = new HashMap<>();
             for (String group : ageGroups) {
                 int total = ageGroupChatMessages.get(group) + ageGroupSongRequests.get(group);
                 totalInteractionsByAge.put(group, total);
+            }
+            Map<String, Integer> totalInteractionsByGender = new HashMap<>();
+            for (String g : genders) {
+                int total = genderChatMessages.get(g) + genderSongRequests.get(g);
+                totalInteractionsByGender.put(g, total);
             }
 
             // Build response
@@ -308,6 +328,9 @@ public class AnalyticsController {
             analytics.put("ageGroupChatMessages", ageGroupChatMessages);
             analytics.put("ageGroupSongRequests", ageGroupSongRequests);
             analytics.put("totalInteractionsByAge", totalInteractionsByAge);
+            analytics.put("genderChatMessages", genderChatMessages);
+            analytics.put("genderSongRequests", genderSongRequests);
+            analytics.put("totalInteractionsByGender", totalInteractionsByGender);
             analytics.put("lastUpdated", System.currentTimeMillis());
 
             return ResponseEntity.ok(analytics);
@@ -489,6 +512,19 @@ public class AnalyticsController {
             return "seniors";
         } else {
             return "unknown";
+        }
+    }
+
+    /**
+     * Helper to normalize gender to analytics key
+     */
+    private String toGenderKey(com.wildcastradio.User.UserEntity.Gender gender) {
+        if (gender == null) return "unknown";
+        switch (gender) {
+            case MALE: return "male";
+            case FEMALE: return "female";
+            case OTHER: return "other";
+            default: return "unknown";
         }
     }
 

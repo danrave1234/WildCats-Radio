@@ -63,6 +63,11 @@ public class UserEntity {
     @Column
     private LocalDate birthdate; // User birthdate for analytics
 
+    // Demographics
+    @Enumerated(EnumType.STRING)
+    @Column(name = "gender")
+    private Gender gender; // Optional gender for demographics analytics
+
     // Moderation fields
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean banned = false; // If true, user is banned from interactive features like chat
@@ -111,6 +116,11 @@ public class UserEntity {
     // User roles enum
     public enum UserRole {
         ADMIN, MODERATOR, DJ, LISTENER
+    }
+
+    // Gender enum for demographics
+    public enum Gender {
+        MALE, FEMALE, OTHER
     }
 
     // Default constructor
@@ -289,6 +299,14 @@ public class UserEntity {
 
     public void setBirthdate(LocalDate birthdate) {
         this.birthdate = birthdate;
+    }
+
+    public Gender getGender() {
+        return gender;
+    }
+
+    public void setGender(Gender gender) {
+        this.gender = gender;
     }
 
     public boolean isBanned() {

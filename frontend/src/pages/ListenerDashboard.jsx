@@ -22,7 +22,6 @@ import { useLocalBackend, config } from "../config";
 import { createLogger } from "../services/logger";
 import { globalWebSocketService } from '../services/globalWebSocketService';
 import SpotifyPlayer from '../components/SpotifyPlayer';
-import AdSense from '../components/ads/AdSense';
 
 const logger = createLogger('ListenerDashboard');
 
@@ -2262,18 +2261,6 @@ export default function ListenerDashboard() {
           </div>
         </div>
 
-        {/* Sponsored Ad - Desktop only */}
-        <div className="mt-4 hidden lg:block">
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
-            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Sponsored</div>
-            <AdSense
-              slot={import.meta.env.VITE_ADSENSE_SLOT_LISTENER || '0000000000'}
-              format="auto"
-              responsive="true"
-              style={{ display: 'block', minHeight: '90px' }}
-            />
-          </div>
-        </div>
       </div>
 
       {/* Mobile: Single column layout */}
