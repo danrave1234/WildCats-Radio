@@ -30,11 +30,10 @@ const AudioPlayer = ({ isPreview = false }) => {
   // Simulate track information updates
   useEffect(() => {
     if ((isLive || isPreview) && currentBroadcast) {
-      // In a real implementation, this would come from the streaming service
-      // For now, we'll show the broadcast title as the track
+      // Use broadcast title for track title; keep artist as station/DJ name if present
       setCurrentTrack({
-        title: currentBroadcast.title || 'Live Broadcast',
-        artist: currentBroadcast.dj?.name || 'WildCat Radio'
+        title: currentBroadcast.title || (isPreview ? 'Preview' : 'Live Broadcast'),
+        artist: currentBroadcast.dj?.name || currentBroadcast.host?.name || 'WildCat Radio'
       });
     } else {
       setCurrentTrack({
@@ -88,16 +87,11 @@ const AudioPlayer = ({ isPreview = false }) => {
         {/* Broadcast Title and Description - Primary Information */}
         <div className="mb-6">
           <h2 className="text-white text-2xl font-bold mb-2 truncate">
-            {currentBroadcast?.title || 'Live Broadcast'}
+            {currentBroadcast?.title || (isPreview ? 'Preview' : 'Live Broadcast')}
           </h2>
-          <p className="text-maroon-100 text-base mb-3">
-            {currentBroadcast?.dj?.name || currentBroadcast?.host?.name || 'Live Stream'}
+          <p className="text-maroon-100 text-base mb-3 truncate">
+            {currentBroadcast?.description || (isPreview ? 'Ready to Stream' : (currentBroadcast?.dj?.name || currentBroadcast?.host?.name || ''))}
           </p>
-          {currentBroadcast?.description && (
-            <p className="text-maroon-200 text-sm leading-relaxed">
-              {currentBroadcast.description}
-            </p>
-          )}
         </div>
 
         {/* Album Cover and Song Info - Secondary Information */}

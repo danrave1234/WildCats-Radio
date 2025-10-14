@@ -176,6 +176,9 @@ export default function DJDashboard() {
   const [streamError, setStreamError] = useState(null)
   const [isRestoringAudio, setIsRestoringAudio] = useState(false)
   const [isStoppingBroadcast, setIsStoppingBroadcast] = useState(false)
+  const [confirmEndOpen, setConfirmEndOpen] = useState(false)
+  // Grace period to suppress transient unhealthy/isLive=false immediately after going live
+  const [graceUntilMs, setGraceUntilMs] = useState(0)
 
   // WebSocket and MediaRecorder refs
   const websocketRef = useRef(null)
@@ -1003,6 +1006,9 @@ export default function DJDashboard() {
       setCurrentBroadcast(liveBroadcast)
       setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
 
+      // Apply a short grace period (15s) to suppress transient unhealthy/isLive=false UI for DJs
+      try { setGraceUntilMs(Date.now() + 30000) } catch (_) {}
+
       if (liveBroadcast.actualStart) {
         try {
           setBroadcastStartTime(new Date(liveBroadcast.actualStart))
@@ -1040,6 +1046,20 @@ export default function DJDashboard() {
       // Mark the broadcast as ended on the backend (records actualEnd, analytics/history)
       await broadcastService.end(currentBroadcast.id)
 
+      // Also stop the Liquidsoap radio server via the radio agent (idempotent)
+      try {
+        logger.debug("Stopping radio server via agent after ending broadcast")
+        await radioService.stop()
+        setRadioServerState('stopped')
+      } catch (stopErr) {
+        // Non-blocking: log error but continue cleanup
+        logger.error("Failed to stop radio server after ending broadcast:", stopErr)
+        setRadioServerError(stopErr?.response?.data?.detail || stopErr?.message || 'Failed to stop radio server')
+      } finally {
+        // Refresh status to confirm
+        try { await fetchRadioStatus() } catch (_) {}
+      }
+
       // Reset local broadcast state
       setCurrentBroadcast(null)
       setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
@@ -1061,6 +1081,14 @@ export default function DJDashboard() {
     } finally {
       setIsStoppingBroadcast(false)
     }
+  }
+
+  // Confirmation handler that triggers stop flow
+  const confirmStopBroadcast = async () => {
+    try {
+      setConfirmEndOpen(false)
+      await stopBroadcast()
+    } catch (_) { /* handled in stopBroadcast */ }
   }
 
   const cancelBroadcast = async () => {
@@ -1340,6 +1368,36 @@ export default function DJDashboard() {
   return (
       <div className="relative min-h-screen bg-gray-50 dark:bg-gray-900">
         <div className="container mx-auto px-4 py-4">
+          {/* End Broadcast Confirmation Modal */}
+          {confirmEndOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-5">
+                <div className="flex items-start space-x-3">
+                  <ExclamationTriangleIcon className="h-6 w-6 text-red-600 dark:text-red-400 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">End broadcast?</h3>
+                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                      This will end the current broadcast and stop the radio server (Liquidsoap). Are you sure you want to continue?
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    onClick={() => setConfirmEndOpen(false)}
+                    className="px-4 py-2 text-sm rounded-md bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmStopBroadcast}
+                    className="px-4 py-2 text-sm rounded-md bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    End Broadcast
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Live Streaming Status Bar - Fixed at top when live */}
           {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
               <div className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg shadow-lg mb-6 sticky top-4 z-50">
@@ -1359,7 +1417,7 @@ export default function DJDashboard() {
                           </div>
                           <div className="flex items-center">
                             <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${websocketConnected ? "bg-green-300" : "bg-yellow-300"}`}></span>
-                            <span>{websocketConnected ? "Connected" : "Disconnected"}</span>
+                            <span>{(graceUntilMs && Date.now() < graceUntilMs) ? "Connecting…" : (websocketConnected ? "Connected" : "Disconnected")}</span>
                           </div>
                           <div className="flex items-center">
                             <span className="font-semibold mr-1">{listenerCount}</span>
@@ -1402,7 +1460,7 @@ export default function DJDashboard() {
                         </div>
                       )}
                       <button
-                          onClick={stopBroadcast}
+                          onClick={() => setConfirmEndOpen(true)}
                           disabled={isStoppingBroadcast}
                           className="flex items-center px-4 py-1.5 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-md transition-all duration-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       >
@@ -1520,16 +1578,6 @@ export default function DJDashboard() {
               <div className="grid grid-cols-1 lg:grid-cols-12 xl:grid-cols-12 gap-6 mb-8">
                 {/* Main Content Area - Left Side */}
                 <div className="lg:col-span-8 min-w-0 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Audio Player Section */}
-                  <div className="md:col-span-2 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-                    <div className="p-4">
-                      <h3 className="text-base font-medium text-gray-900 dark:text-white mb-3">Stream Monitor</h3>
-                      <AudioPlayer />
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                        📻 Audio is streamed via BUTT. Use this player to monitor your live broadcast.
-                      </p>
-                    </div>
-                  </div>
 
                   {/* Chat Section */}
                   <div className="md:col-span-2 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
