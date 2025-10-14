@@ -1377,7 +1377,7 @@ export default function DJDashboard() {
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">End broadcast?</h3>
                     <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                      This will end the current broadcast and stop the radio server (Liquidsoap). Are you sure you want to continue?
+                      This will end the current broadcast and stop the radio server. Are you sure you want to continue?
                     </p>
                   </div>
                 </div>
