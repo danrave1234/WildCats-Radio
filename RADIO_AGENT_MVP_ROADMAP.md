@@ -144,13 +144,23 @@ UI state tips:
    - Add `RadioAgentClient` (start/stop/status with timeouts and bearer token). ✅ Done
    - Add `RadioControlController` with `@PreAuthorize` guards and error mapping. ✅ Done
    - (Optional) Add `SERVER_START` / `SERVER_STOP` to `ActivityLogEntity.ActivityType` and log via `ActivityLogService`. ✅ Done
+   - Add radio server status validation to `/api/broadcasts/live` endpoint. ✅ Done
+   - Add `isRadioServerRunning()` method to `BroadcastService`. ✅ Done
 
 3) Frontend code
-   - Add `frontend/src/services/radio.js` and export from your API index if needed.
-   - Update `DJDashboard.jsx`:
-     - Remove Audio Source UI and streaming-context audio-start calls (no browser streaming).
-     - Add Start/Stop buttons wired to radio service.
-     - Add 10s polling to `/api/radio/status` and show state badge (Offline/Live/Unknown with idempotent buttons).
+   - Add `frontend/src/services/api/radioApi.js` and export from API index. ✅ Done
+   - Update `DJDashboard.jsx`: ✅ Done
+     - Remove Audio Source UI and streaming-context audio-start calls (no browser streaming). ✅ Done
+     - Add Start/Stop Radio Server buttons wired to radio service. ✅ Done
+     - Add 10s polling to `/api/radio/status` and show state badge (Offline/Live/Unknown with idempotent buttons). ✅ Done
+     - Add BUTT instructions and workflow guidance. ✅ Done
+     - Add "Go Live" button to start broadcast and transition to interactive dashboard (chat, polls, requests). ✅ Done
+     - Add automatic broadcast state recovery on page load/refresh (prevents losing active broadcasts). ✅ Done
+     - On End Broadcast, call `/api/broadcasts/{id}/end` to record backend state. ✅ Done
+   - Update `ListenerDashboard.jsx`: ✅ Done
+     - Integrate with `/api/radio/status` to check Liquidsoap server state. ✅ Done
+     - Compute `isLive` based on BOTH broadcast status AND radio server running state. ✅ Done
+     - Prevent showing "live" UI when Liquidsoap is stopped. ✅ Done
 
 4) Testing (manual)
    - Agent down → `/api/radio/status` returns 502/504; UI shows error and leaves last known state.

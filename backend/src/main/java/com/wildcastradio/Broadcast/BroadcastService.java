@@ -53,6 +53,9 @@ public class BroadcastService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired(required = false)
+    private com.wildcastradio.radio.RadioAgentClient radioAgentClient;
+
     // Live stream health check configuration
     @Value("${broadcast.healthCheck.enabled:true}")
     private boolean healthCheckEnabled;
@@ -792,5 +795,31 @@ public class BroadcastService {
         snapshot.put("autoEndOnUnhealthy", autoEndOnUnhealthy);
         snapshot.put("healthCheckEnabled", healthCheckEnabled);
         return snapshot;
+    }
+
+    /**
+     * Check if the Liquidsoap radio server is currently running.
+     * This is used to validate if broadcasts marked as LIVE are actually streaming.
+     * 
+     * @return true if radio server is running, false otherwise
+     */
+    public boolean isRadioServerRunning() {
+        if (radioAgentClient == null) {
+            logger.warn("RadioAgentClient not available, assuming server is running (graceful degradation)");
+            return true; // Graceful degradation - assume running if agent not available
+        }
+
+        try {
+            java.util.Map<String, Object> status = radioAgentClient.status();
+            String state = (String) status.get("state");
+            boolean running = "running".equals(state);
+            
+            logger.debug("Radio server status check: state={}, running={}", state, running);
+            return running;
+        } catch (Exception e) {
+            logger.error("Failed to check radio server status: {}", e.getMessage());
+            // Graceful degradation - on error, assume running to avoid breaking existing functionality
+            return true;
+        }
     }
 } 
