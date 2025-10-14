@@ -100,6 +100,11 @@ export async function getRadioStatus() {
 
 Export from your existing service index if applicable.
 
+Compatibility note:
+- Project already centralizes API config via `frontend/src/services/api/apiBase.js` and exports services from `frontend/src/services/api/index.js`.
+- To align, we added `frontend/src/services/api/radioApi.js` using the shared axios instance and exported `radioService` from `api/index.js`.
+- If both `src/services/radio.js` (fetch-based) and `api/radioApi.js` exist, prefer `radioService` from `api/index.js` for consistency and interceptors.
+
 ### 2) DJ dashboard UX changes (BUTT workflow)
 
 File: `frontend/src/pages/DJDashboard.jsx`
