@@ -97,6 +97,7 @@ export default function AnalyticsDashboard() {
     error,
     lastUpdated,
     refreshData,
+    refreshDemographics,
     wsConnected
   } = useAnalytics();
 
@@ -307,12 +308,15 @@ export default function AnalyticsDashboard() {
     return num;
   };
 
-  // Format time duration from minutes to hours and minutes
-  const formatDuration = (minutes) => {
-    if (minutes < 60) return `${minutes} min`;
+  // Format time duration; show minutes with at most one decimal place
+  const formatDuration = (totalMinutes) => {
+    if (totalMinutes == null || isNaN(Number(totalMinutes))) return '0m';
+    const minutes = Number(totalMinutes);
+    if (minutes < 60) return `${minutes.toFixed(1)} min`;
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
-    return `${hours}h ${mins}m`;
+    const minsRounded = Number(mins.toFixed(1));
+    return `${hours}h ${minsRounded}m`;
   };
 
   // Format percentage change with color and icon
@@ -457,45 +461,47 @@ export default function AnalyticsDashboard() {
         <div className="space-y-8">
           {/* Summary Cards Row */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Total Users Card */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Users</p>
-                  <div className="flex items-baseline mt-1">
-                    <p className="text-3xl font-bold text-gray-900 dark:text-white">{userStats.totalUsers}</p>
-                    <p className={`ml-2 text-sm font-medium ${userStats.newUsersThisMonth > 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'}`}>
-                      {formatDelta(userStats.newUsersThisMonth)} this month
-                    </p>
+            {/* Total Users Card - Admins and Moderators */}
+            {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR') && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Users</p>
+                    <div className="flex items-baseline mt-1">
+                      <p className="text-3xl font-bold text-gray-900 dark:text-white">{userStats.totalUsers || demographicStats.totalUsers || 0}</p>
+                      <p className={`ml-2 text-sm font-medium ${(userStats.newUsersThisMonth || 0) > 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                        {formatDelta(userStats.newUsersThisMonth)} this month
+                      </p>
+                    </div>
+                  </div>
+                  <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                    <UsersIcon className="h-6 w-6 text-blue-600 dark:text-blue-400" />
                   </div>
                 </div>
-                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                  <UsersIcon className="h-6 w-6 text-blue-600 dark:text-blue-400" />
-                </div>
-              </div>
-              <div className="mt-3 border-t border-gray-100 dark:border-gray-700 pt-3">
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-white">{userStats.listeners}</p>
-                    <p className="text-gray-500 dark:text-gray-400">Listeners</p>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-white">{userStats.djs}</p>
-                    <p className="text-gray-500 dark:text-gray-400">DJs</p>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-white">{userStats.admins}</p>
-                    <p className="text-gray-500 dark:text-gray-400">Admins</p>
-                  </div>
-                  <div className="col-span-3 grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+                <div className="mt-3 border-t border-gray-100 dark:border-gray-700 pt-3">
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
                     <div>
-                      <p className="font-medium text-gray-900 dark:text-white">{userStats.moderators}</p>
-                      <p className="text-gray-500 dark:text-gray-400">Moderators</p>
+                      <p className="font-medium text-gray-900 dark:text-white">{userStats.listeners}</p>
+                      <p className="text-gray-500 dark:text-gray-400">Listeners</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-white">{userStats.djs}</p>
+                      <p className="text-gray-500 dark:text-gray-400">DJs</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-white">{userStats.admins}</p>
+                      <p className="text-gray-500 dark:text-gray-400">Admins</p>
+                    </div>
+                    <div className="col-span-3 grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+                      <div>
+                        <p className="font-medium text-gray-900 dark:text-white">{userStats.moderators}</p>
+                        <p className="text-gray-500 dark:text-gray-400">Moderators</p>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Broadcasting Summary Card */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
@@ -1100,41 +1106,119 @@ export default function AnalyticsDashboard() {
           </div>
 
           {/* Demographics */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-6 mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Demographics</h2>
-              {demographicStats?.lastUpdated && (
-                <div className="text-xs text-gray-500 dark:text-gray-400">
-                  Last updated: {format(new Date(demographicStats.lastUpdated), 'MMM d, yyyy • h:mm a')}
+          <div className="bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-900 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-8 mb-8 overflow-hidden relative">
+            {/* Decorative background pattern */}
+            <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/10 dark:to-purple-900/10 rounded-full blur-3xl opacity-30 -translate-y-1/2 translate-x-1/2"></div>
+            <div className="absolute bottom-0 left-0 w-48 h-48 bg-gradient-to-tr from-blue-100 to-cyan-100 dark:from-blue-900/10 dark:to-cyan-900/10 rounded-full blur-3xl opacity-30 translate-y-1/2 -translate-x-1/2"></div>
+            
+            {/* Header */}
+            <div className="relative z-10 mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2.5 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg shadow-lg">
+                    <UsersIcon className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Demographics</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Audience insights and distribution</p>
+                  </div>
                 </div>
-              )}
-            </div>
-            <div className="mb-4 -mt-2 text-xs text-gray-600 dark:text-gray-400">
-              Overall app demographics. The downloadable Analytics in chat export is broadcast-scoped.
-              <a href="/broadcast-history" className="ml-1 text-indigo-600 dark:text-indigo-400 hover:underline">Go to Broadcast History</a>
+                {demographicStats?.lastUpdated && (
+                  <div className="px-3 py-1.5 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Last updated</p>
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{format(new Date(demographicStats.lastUpdated), 'MMM d • h:mm a')}</p>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center space-x-2 text-xs text-gray-600 dark:text-gray-400 mt-2">
+                <div className="flex items-center">
+                  <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full mr-1.5"></div>
+                  <span>Overall app demographics</span>
+                </div>
+                <span className="text-gray-400">•</span>
+                <a href="/broadcast-history" className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium transition-colors">View Broadcast History</a>
+                <button
+                  type="button"
+                  onClick={refreshDemographics}
+                  className="ml-auto inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
+                  title="Refresh demographics"
+                >
+                  <ArrowPathIcon className="h-4 w-4 mr-1" /> Refresh
+                </button>
+              </div>
             </div>
 
-            {/* Totals */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-              <div className="bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                <p className="text-xs text-gray-500 dark:text-gray-400">Total Users</p>
-                <p className="text-xl font-bold text-gray-900 dark:text-white">{demographicStats?.totalUsers ?? 0}</p>
+            {/* Stats Cards */}
+            <div className="relative z-10 grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+              {/* Total Users */}
+              <div className="group bg-white dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-5 border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all duration-300 hover:scale-[1.02]">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-2 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg shadow-sm group-hover:shadow-md transition-shadow">
+                    <UsersIcon className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="px-2 py-1 bg-blue-50 dark:bg-blue-900/30 rounded-full">
+                    <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">100%</span>
+                  </div>
+                </div>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Total Users</p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">{demographicStats?.totalUsers ?? 0}</p>
+                <div className="mt-2 h-1 bg-gradient-to-r from-blue-500 to-blue-600 rounded-full"></div>
               </div>
-              <div className="bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                <p className="text-xs text-gray-500 dark:text-gray-400">Users with Birthdate</p>
-                <p className="text-xl font-bold text-gray-900 dark:text-white">{demographicStats?.usersWithBirthdate ?? 0}</p>
+
+              {/* Users with Birthdate */}
+              <div className="group bg-white dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-5 border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all duration-300 hover:scale-[1.02]">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-2 bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg shadow-sm group-hover:shadow-md transition-shadow">
+                    <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div className="px-2 py-1 bg-purple-50 dark:bg-purple-900/30 rounded-full">
+                    <span className="text-xs font-semibold text-purple-600 dark:text-purple-400">
+                      {demographicStats?.totalUsers > 0 ? Math.round((demographicStats?.usersWithBirthdate / demographicStats?.totalUsers) * 100) : 0}%
+                    </span>
+                  </div>
+                </div>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">With Birthdate</p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">{demographicStats?.usersWithBirthdate ?? 0}</p>
+                <div className="mt-2 h-1 bg-gradient-to-r from-purple-500 to-purple-600 rounded-full" style={{width: `${demographicStats?.totalUsers > 0 ? (demographicStats?.usersWithBirthdate / demographicStats?.totalUsers) * 100 : 0}%`}}></div>
               </div>
-              <div className="bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                <p className="text-xs text-gray-500 dark:text-gray-400">Users with Gender</p>
-                <p className="text-xl font-bold text-gray-900 dark:text-white">{demographicStats?.usersWithGender ?? 0}</p>
+
+              {/* Users with Gender */}
+              <div className="group bg-white dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-5 border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all duration-300 hover:scale-[1.02]">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-2 bg-gradient-to-br from-pink-500 to-pink-600 rounded-lg shadow-sm group-hover:shadow-md transition-shadow">
+                    <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                  <div className="px-2 py-1 bg-pink-50 dark:bg-pink-900/30 rounded-full">
+                    <span className="text-xs font-semibold text-pink-600 dark:text-pink-400">
+                      {demographicStats?.totalUsers > 0 ? Math.round((demographicStats?.usersWithGender / demographicStats?.totalUsers) * 100) : 0}%
+                    </span>
+                  </div>
+                </div>
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">With Gender</p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">{demographicStats?.usersWithGender ?? 0}</p>
+                <div className="mt-2 h-1 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full" style={{width: `${demographicStats?.totalUsers > 0 ? (demographicStats?.usersWithGender / demographicStats?.totalUsers) * 100 : 0}%`}}></div>
               </div>
             </div>
 
             {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Age Groups Bar */}
-              <div className="bg-white dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Age Groups</h3>
+              <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="p-1.5 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                      <ChartBarIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <h3 className="text-base font-semibold text-gray-900 dark:text-white">Age Groups</h3>
+                  </div>
+                  <div className="px-2.5 py-1 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-full border border-blue-200 dark:border-blue-800">
+                    <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Distribution</span>
+                  </div>
+                </div>
                 <div className="h-64">
                   <Bar
                     data={{
@@ -1150,10 +1234,24 @@ export default function AnalyticsDashboard() {
                             demographicStats?.ageGroups?.seniors || 0,
                             demographicStats?.ageGroups?.unknown || 0,
                           ],
-                          backgroundColor: 'rgba(59, 130, 246, 0.7)',
-                          borderColor: 'rgb(59, 130, 246)',
-                          borderWidth: 1,
-                          borderRadius: 6,
+                          backgroundColor: [
+                            'rgba(59, 130, 246, 0.8)',
+                            'rgba(99, 102, 241, 0.8)',
+                            'rgba(139, 92, 246, 0.8)',
+                            'rgba(168, 85, 247, 0.8)',
+                            'rgba(192, 132, 252, 0.8)',
+                            'rgba(156, 163, 175, 0.6)',
+                          ],
+                          borderColor: [
+                            'rgb(59, 130, 246)',
+                            'rgb(99, 102, 241)',
+                            'rgb(139, 92, 246)',
+                            'rgb(168, 85, 247)',
+                            'rgb(192, 132, 252)',
+                            'rgb(156, 163, 175)',
+                          ],
+                          borderWidth: 2,
+                          borderRadius: 8,
                           borderSkipped: false,
                         },
                       ],
@@ -1161,21 +1259,65 @@ export default function AnalyticsDashboard() {
                     options={{
                       responsive: true,
                       maintainAspectRatio: false,
-                      plugins: { legend: { display: false } },
+                      plugins: { 
+                        legend: { display: false },
+                        tooltip: {
+                          backgroundColor: 'rgba(17, 24, 39, 0.95)',
+                          padding: 12,
+                          titleColor: 'rgb(243, 244, 246)',
+                          bodyColor: 'rgb(209, 213, 219)',
+                          borderColor: 'rgba(75, 85, 99, 0.5)',
+                          borderWidth: 1,
+                          cornerRadius: 8,
+                        }
+                      },
                       scales: {
-                        x: { grid: { display: false }, ticks: { color: 'rgb(156,163,175)' } },
-                        y: { grid: { color: 'rgba(156,163,175,0.2)' }, beginAtZero: true, ticks: { color: 'rgb(156,163,175)' } },
+                        x: { 
+                          grid: { display: false },
+                          ticks: { 
+                            color: 'rgb(107, 114, 128)',
+                            font: { size: 11, weight: '500' }
+                          }
+                        },
+                        y: { 
+                          grid: { 
+                            color: 'rgba(156,163,175,0.1)',
+                            lineWidth: 1
+                          },
+                          beginAtZero: true,
+                          ticks: { 
+                            color: 'rgb(107, 114, 128)',
+                            font: { size: 11, weight: '500' }
+                          }
+                        },
                       },
                     }}
                   />
                 </div>
-                <div className="mt-3 text-xs text-gray-600 dark:text-gray-400"><span className="font-semibold">Legend:</span> Teens 13–19 • Young Adults 20–29 • Adults 30–49 • Middle‑Aged 50–64 • Seniors 65+ • Unknown = no birthdate</div>
+                <div className="mt-4 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10 rounded-lg border border-blue-100 dark:border-blue-900/30">
+                  <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">
+                    <span className="font-semibold text-blue-700 dark:text-blue-400">Age Ranges:</span> Teens 13–19 • Young Adults 20–29 • Adults 30–49 • Middle‑Aged 50–64 • Seniors 65+ • Unknown = no birthdate
+                  </p>
+                </div>
               </div>
 
               {/* Gender Donut */}
-              <div className="bg-white dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Gender Distribution</h3>
-                <div className="h-64">
+              <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="p-1.5 bg-pink-100 dark:bg-pink-900/30 rounded-lg">
+                      <svg className="h-4 w-4 text-pink-600 dark:text-pink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-base font-semibold text-gray-900 dark:text-white">Gender Distribution</h3>
+                  </div>
+                  <div className="px-2.5 py-1 bg-gradient-to-r from-pink-50 to-purple-50 dark:from-pink-900/20 dark:to-purple-900/20 rounded-full border border-pink-200 dark:border-pink-800">
+                    <span className="text-xs font-medium text-pink-700 dark:text-pink-300">Breakdown</span>
+                  </div>
+                </div>
+                <div className="h-64 flex items-center justify-center">
                   <Doughnut
                     data={{
                       labels: ['Male', 'Female', 'Other', 'Unknown'],
@@ -1189,18 +1331,19 @@ export default function AnalyticsDashboard() {
                             demographicStats?.gender?.unknown || 0,
                           ],
                           backgroundColor: [
-                            'rgba(37, 99, 235, 0.8)', // blue
-                            'rgba(236, 72, 153, 0.8)', // pink
-                            'rgba(234, 179, 8, 0.8)',  // amber
-                            'rgba(107, 114, 128, 0.8)', // gray
+                            'rgba(37, 99, 235, 0.85)',
+                            'rgba(236, 72, 153, 0.85)',
+                            'rgba(234, 179, 8, 0.85)',
+                            'rgba(156, 163, 175, 0.65)',
                           ],
                           borderColor: [
                             'rgb(37, 99, 235)',
                             'rgb(236, 72, 153)',
                             'rgb(234, 179, 8)',
-                            'rgb(107, 114, 128)',
+                            'rgb(156, 163, 175)',
                           ],
-                          borderWidth: 1,
+                          borderWidth: 3,
+                          hoverOffset: 8,
                         },
                       ],
                     }}
@@ -1208,9 +1351,36 @@ export default function AnalyticsDashboard() {
                       responsive: true,
                       maintainAspectRatio: false,
                       plugins: {
-                        legend: { position: 'bottom', labels: { color: 'rgb(156,163,175)' } },
+                        legend: { 
+                          position: 'bottom',
+                          labels: { 
+                            color: 'rgb(107, 114, 128)',
+                            font: { size: 12, weight: '500' },
+                            padding: 15,
+                            usePointStyle: true,
+                            pointStyle: 'circle',
+                          }
+                        },
+                        tooltip: {
+                          backgroundColor: 'rgba(17, 24, 39, 0.95)',
+                          padding: 12,
+                          titleColor: 'rgb(243, 244, 246)',
+                          bodyColor: 'rgb(209, 213, 219)',
+                          borderColor: 'rgba(75, 85, 99, 0.5)',
+                          borderWidth: 1,
+                          cornerRadius: 8,
+                          callbacks: {
+                            label: function(context) {
+                              const label = context.label || '';
+                              const value = context.parsed || 0;
+                              const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                              const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                              return `${label}: ${value} (${percentage}%)`;
+                            }
+                          }
+                        }
                       },
-                      cutout: '55%',
+                      cutout: '60%',
                     }}
                   />
                 </div>
@@ -1219,7 +1389,11 @@ export default function AnalyticsDashboard() {
 
             {/* Fallback for no data */}
             {(!demographicStats || (!demographicStats.ageGroups && !demographicStats.gender)) && (
-              <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">No demographics data available yet.</div>
+              <div className="relative z-10 mt-6 text-center p-8 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700">
+                <UsersIcon className="h-12 w-12 mx-auto text-gray-400 mb-3" />
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">No demographics data available yet</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Data will appear once users provide demographic information</p>
+              </div>
             )}
           </div>
 

@@ -456,6 +456,22 @@ export function AnalyticsProvider({ children }) {
     await fetchInitialData();
   };
 
+  // Refresh demographics only (lightweight, allowed for DJ/ADMIN/MODERATOR)
+  const refreshDemographics = async () => {
+    if (!isAuthenticated || !currentUser) return;
+    const role = currentUser.role;
+    const canViewAnalytics = role === 'DJ' || role === 'ADMIN' || role === 'MODERATOR';
+    if (!canViewAnalytics) return;
+    try {
+      const response = await analyticsService.getDemographicAnalytics();
+      const data = response.data || {};
+      setDemographicStats(data);
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.error('Analytics: Error refreshing demographic stats:', error);
+    }
+  };
+
   const value = {
     userStats,
     broadcastStats,
@@ -469,7 +485,8 @@ export function AnalyticsProvider({ children }) {
     lastUpdated,
     wsConnected,
     refreshData,
-    refreshActivityData
+    refreshActivityData,
+    refreshDemographics
   };
 
   return (
