@@ -1,6 +1,7 @@
 // Import SockJS and STOMP for React Native
 import SockJS from 'sockjs-client';
 import { Stomp, StompSubscription } from '@stomp/stompjs';
+import ENV from '../config/environment';
 
 interface WebSocketMessage {
   type: 'chat' | 'poll' | 'broadcast_update';
@@ -57,11 +58,8 @@ class WebSocketManager implements WebSocketService {
     console.log('🔄 Attempting STOMP connection to broadcast:', broadcastId);
     
     try {
-      // Use the same base as your API service for consistency
-      const API_BASE_URL = 'https://wildcat-radio-f05d362144e6.autoidleapp.com'; // Match your deployed backend
-      //const API_BASE_URL = 'http://192.168.5.60:8080'; // Match your apiService.ts Expo
-      //const API_BASE_URL = 'http://10.0.2.2:8080'; // For Android emulator (localhost)
-      const wsUrl = `${API_BASE_URL}/ws-radio`;
+      // Use environment configuration for consistency
+      const wsUrl = `${ENV.BACKEND_BASE_URL}/ws-radio`;
       
       console.log('🔗 WebSocket URL:', wsUrl);
       console.log('🔑 Auth token present:', !!authToken);
@@ -296,6 +294,41 @@ class WebSocketManager implements WebSocketService {
         broadcastId: this.currentBroadcastId
       });
       throw new Error('STOMP not connected');
+    }
+  }
+
+  /**
+   * Send listener status message (START_LISTENING or STOP_LISTENING)
+   * Matches website's listener tracking implementation
+   */
+  sendListenerStatus(action: 'START_LISTENING' | 'STOP_LISTENING', userId: number | null, userName: string): void {
+    if (this.stompClient && this.stompClient.connected && this.currentBroadcastId) {
+      const message = {
+        type: 'LISTENER_STATUS',
+        action,
+        broadcastId: this.currentBroadcastId,
+        userId,
+        userName,
+        timestamp: Date.now()
+      };
+      
+      const destination = `/app/listener/status`;
+      console.log(`📤 Sending listener ${action} to:`, destination);
+      console.log('📝 Listener status:', message);
+      
+      try {
+        const headers: any = {};
+        if (this.currentAuthToken) {
+          headers['Authorization'] = `Bearer ${this.currentAuthToken}`;
+        }
+        
+        this.stompClient.send(destination, headers, JSON.stringify(message));
+        console.log(`✅ Listener ${action} sent successfully`);
+      } catch (error) {
+        console.error(`❌ Failed to send listener ${action}:`, error);
+      }
+    } else {
+      console.warn(`❌ STOMP not connected, cannot send listener ${action}`);
     }
   }
 

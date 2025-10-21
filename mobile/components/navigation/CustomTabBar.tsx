@@ -2,9 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet, Dimensions, Platform, Animated, Easing } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
-const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 90 : 70;
+const BASE_TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 70 : 60;
 const ICON_SIZE = 24;
 const FOCUSED_ICON_CONTAINER_SIZE = 56;
 const CORDOVAN_COLOR = '#91403E'; // From your tailwind config
@@ -29,6 +30,9 @@ interface CustomTabBarProps extends BottomTabBarProps {
 }
 
 const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigation, isNotificationOpen = false, isBroadcastListening = false }) => {
+  // Safe area insets
+  const insets = useSafeAreaInsets();
+  
   // Animation values for the indicator line
   const [tabLayouts, setTabLayouts] = useState<Record<string, { x: number; width: number } | undefined>>({});
   const underlinePosition = useRef(new Animated.Value(0)).current;
@@ -93,13 +97,16 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
     }
   }, [state?.index, tabLayouts, underlinePosition, underlineWidth, underlineOpacity, isInitialLayoutDone]);
 
+  // Calculate total tab bar height including safe area
+  const totalTabBarHeight = BASE_TAB_BAR_HEIGHT + insets.bottom;
+
   // Effect to handle tab bar hide/show animation based on notification or broadcast state
   useEffect(() => {
     // Priority: notification takes precedence over broadcast listening
     if (isNotificationOpen) {
       // Hide tab bar by sliding down for notifications - faster to sync with notification opening
       Animated.timing(tabBarTranslateY, {
-        toValue: TAB_BAR_HEIGHT + 20, // Move down by tab bar height plus some extra
+        toValue: totalTabBarHeight + 20, // Move down by tab bar height plus some extra
         duration: 250, // Faster animation to sync with notification
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
@@ -107,7 +114,7 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
     } else if (isBroadcastListening) {
       // Hide tab bar by sliding down for broadcast tune-in - slower animation to match screen transition
       Animated.timing(tabBarTranslateY, {
-        toValue: TAB_BAR_HEIGHT + 20, // Move down by tab bar height plus some extra
+        toValue: totalTabBarHeight + 20, // Move down by tab bar height plus some extra
         duration: 500, // Slower animation to match broadcast screen transition
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
@@ -126,12 +133,23 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
         }).start();
       }, delay);
     }
-  }, [isNotificationOpen, isBroadcastListening, tabBarTranslateY, isBroadcastSelected]);
+  }, [isNotificationOpen, isBroadcastListening, tabBarTranslateY, isBroadcastSelected, totalTabBarHeight]);
 
   return (
     <Animated.View style={[styles.container, animatedStyle, {
-      transform: [{ translateY: tabBarTranslateY }]
+      transform: [{ translateY: tabBarTranslateY }],
+      paddingBottom: insets.bottom, // Add bottom safe area
     }]}>
+      {/* Background overlay to prevent content bleeding through system UI */}
+      <View style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: -insets.bottom, // Extend slightly below to cover system UI
+        backgroundColor: CORDOVAN_COLOR,
+        zIndex: -1, // Behind tab content but above system UI
+      }} />
       <View style={styles.tabBar}>
         {/* Animated Line Indicator - Placed at top of container */}
         <Animated.View
@@ -255,14 +273,13 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: TAB_BAR_HEIGHT,
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'flex-end', // Align tabBar to bottom of container
   },
   tabBar: {
     flexDirection: 'row',
-    height: Platform.OS === 'ios' ? 70 : 60, 
+    height: BASE_TAB_BAR_HEIGHT, 
     width: '100%', // Full width
     backgroundColor: CORDOVAN_COLOR, // Changed to cordovan background
     borderRadius: 0, // Remove rounded corners

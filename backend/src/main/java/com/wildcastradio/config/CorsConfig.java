@@ -54,6 +54,17 @@ public class CorsConfig {
             "https://wildcat-radio.live"
         ));
 
+        // Add mobile app origins (React Native/Expo)
+        origins.addAll(Arrays.asList(
+            "exp://192.168.1.2:8081",  // Expo development server
+            "exp://192.168.1.2:8083",  // Alternative Expo port
+            "exp://localhost:8081",   // Localhost Expo
+            "exp://localhost:8083",   // Alternative localhost port
+            "exp://127.0.0.1:8081",   // Localhost alternative
+            "exp://127.0.0.1:8083",   // Localhost alternative
+            "null"                     // Allow null origin for mobile apps
+        ));
+
         // Dynamically detect local network IPs
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
@@ -78,6 +89,12 @@ public class CorsConfig {
                     origins.add("http://" + ip + ":3000");
                     origins.add("http://" + ip + ":5173");
                     origins.add("http://" + ip + ":5174");
+                    
+                    // Add Expo development server ports for mobile apps
+                    origins.add("exp://" + ip + ":8081");
+                    origins.add("exp://" + ip + ":8083");
+                    origins.add("exp://" + ip + ":19000");
+                    origins.add("exp://" + ip + ":19001");
                 }
             }
         } catch (Exception e) {

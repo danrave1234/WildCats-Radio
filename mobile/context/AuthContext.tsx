@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import { getMe } from '../services/apiService';
 
 const TOKEN_KEY = 'user_auth_token';
 
@@ -25,7 +26,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       try {
         const storedToken = await SecureStore.getItemAsync(TOKEN_KEY);
         if (storedToken) {
-          setAuthToken(storedToken);
+          // Verify cookie-based session with backend
+          try {
+            const me = await getMe();
+            if ((me as any).error) {
+              await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
+              setAuthToken(null);
+            } else {
+              setAuthToken(storedToken);
+            }
+          } catch (verifyErr) {
+            console.error('Failed to verify session via /auth/me:', verifyErr);
+            await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {});
+            setAuthToken(null);
+          }
         }
       } catch (e) {
         console.error('Failed to load auth token:', e);

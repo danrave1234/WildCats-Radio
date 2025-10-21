@@ -25,6 +25,8 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import CustomHeader from '../../components/navigation/CustomHeader';
 import { useAuth } from '../../context/AuthContext';
 import { useBroadcastContext } from './_layout';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import BroadcastSkeleton from '../../components/BroadcastSkeleton';
 import {
   Broadcast,
   ChatMessageDTO,
@@ -373,7 +375,7 @@ interface NowPlayingInfo {
   artist: string;
 }
 
-// Animated Audio Wave Component
+// Animated Audio Wave Component - Fixed to prevent white screen issues
 const AnimatedAudioWave: React.FC<{ isPlaying: boolean; size?: number }> = ({ isPlaying, size = 40 }) => {
   const waveAnimations = useRef([
     new Animated.Value(0.3),
@@ -391,12 +393,12 @@ const AnimatedAudioWave: React.FC<{ isPlaying: boolean; size?: number }> = ({ is
             Animated.timing(anim, {
               toValue: Math.random() * 0.8 + 0.2,
               duration: 300 + Math.random() * 200,
-              useNativeDriver: false,
+              useNativeDriver: true, // Fixed: Use native driver for better performance
             }),
             Animated.timing(anim, {
               toValue: Math.random() * 0.8 + 0.2,
               duration: 300 + Math.random() * 200,
-              useNativeDriver: false,
+              useNativeDriver: true, // Fixed: Use native driver for better performance
             }),
           ])
         )
@@ -415,7 +417,7 @@ const AnimatedAudioWave: React.FC<{ isPlaying: boolean; size?: number }> = ({ is
         Animated.timing(anim, {
           toValue: 0.3,
           duration: 200,
-          useNativeDriver: false,
+          useNativeDriver: true, // Fixed: Use native driver for better performance
         }).start();
       });
     }
@@ -447,6 +449,7 @@ const BroadcastScreen: React.FC = () => {
   const authContext = useAuth();
   const navigation = useNavigation();
   const { setIsBroadcastListening } = useBroadcastContext();
+  const insets = useSafeAreaInsets();
   
   const params = useLocalSearchParams();
   const routeBroadcastId = params.broadcastId ? parseInt(params.broadcastId as string, 10) : null;
@@ -527,17 +530,55 @@ const BroadcastScreen: React.FC = () => {
   const [userData, setUserData] = useState<UserAuthData | null>(null);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
+  // Slow mode state (matching website implementation)
+  const [slowModeEnabled, setSlowModeEnabled] = useState(false);
+  const [slowModeSeconds, setSlowModeSeconds] = useState(0);
+  const [slowModeWaitSeconds, setSlowModeWaitSeconds] = useState<number | null>(null);
+  const [lastMessageTime, setLastMessageTime] = useState<number>(0);
+
+  // Ban detection state
+  const [isBanned, setIsBanned] = useState(false);
+  const [banMessage, setBanMessage] = useState<string | null>(null);
+
   // Early safety check for auth context - AFTER all hooks are called
   if (!authContext) {
     return (
-      <View className="flex-1 justify-center items-center bg-anti-flash_white">
-        <ActivityIndicator size="large" color="#91403E" />
-        <Text className="mt-4 text-gray-600 text-lg">Loading authentication...</Text>
+      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]} className="flex-1 bg-anti-flash_white">
+        <Stack.Screen 
+          options={{
+              headerShown: false, // Always hide the default header
+          }}
+         />
+        {/* Custom Header - Always visible */}
+        <CustomHeader 
+          showBackButton={false}
+          onBackPress={undefined}
+        />
+        <ScrollView
+          style={{ backgroundColor: '#F3F4F6' }}
+          contentContainerStyle={{ 
+            paddingBottom: 100,
+            paddingTop: Platform.OS === 'android' ? 12 : 6, // Tight spacing like other pages
+            paddingHorizontal: 20,
+            backgroundColor: '#F3F4F6'
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <BroadcastSkeleton />
+        </ScrollView>
       </View>
     );
   }
 
   const authToken = authContext.authToken;
+
+  // Sync slow mode settings from broadcast (matching website)
+  useEffect(() => {
+    if (currentBroadcast) {
+      setSlowModeEnabled(!!currentBroadcast.slowModeEnabled);
+      setSlowModeSeconds(typeof currentBroadcast.slowModeSeconds === 'number' ? currentBroadcast.slowModeSeconds : 0);
+    }
+  }, [currentBroadcast]);
 
   // Initialize stream configuration when broadcast becomes available
   useEffect(() => {
@@ -880,7 +921,7 @@ const BroadcastScreen: React.FC = () => {
 
       try {
         console.log('🔍 Fetching current user data for chat ownership...');
-        const result = await getMe(authToken);
+        const result = await getMe();
         if ('error' in result) {
           console.error('❌ Failed to fetch user data:', result.error);
           setUserData(null);
@@ -1202,13 +1243,13 @@ const BroadcastScreen: React.FC = () => {
             toValue: currentTabLayout.x,
             duration: 250,
             easing: Easing.out(Easing.ease),
-            useNativeDriver: false,
+            useNativeDriver: false, // Must be false for layout properties
           }),
           Animated.timing(underlineWidth, {
             toValue: currentTabLayout.width,
             duration: 250,
             easing: Easing.out(Easing.ease),
-            useNativeDriver: false,
+            useNativeDriver: false, // Must be false for layout properties
           }),
         ]).start();
       }
@@ -1485,12 +1526,164 @@ const BroadcastScreen: React.FC = () => {
     };
   }, [isWebSocketConnected, currentBroadcast?.id, authToken]);
 
+  // ===== AUTOMATIC STATUS UPDATES FOR LISTENERS =====
+  // Radio Status Polling (Every 10 seconds) - Check if stream is live
+  useEffect(() => {
+    const fetchRadioStatus = async () => {
+      try {
+        console.log('📡 Checking radio status...');
+        const response = await streamService.getStreamStatus();
+        
+        if (response.isLive && !currentBroadcast) {
+          console.log('📡 Stream is live but no broadcast found, refreshing...');
+          // Stream is live but we don't have a broadcast, refresh data
+          loadInitialDataForBroadcastScreen(true);
+        } else if (!response.isLive && currentBroadcast?.status === 'LIVE') {
+          console.log('📡 Stream is not live but broadcast shows LIVE, refreshing...');
+          // Stream is not live but broadcast shows LIVE, refresh data
+          loadInitialDataForBroadcastScreen(true);
+        }
+      } catch (error) {
+        console.error('📡 Error fetching radio status:', error);
+      }
+    };
+
+    // Initial check
+    fetchRadioStatus();
+    
+    // Poll every 10 seconds
+    const interval = setInterval(fetchRadioStatus, 10000);
+    
+    return () => clearInterval(interval);
+  }, [currentBroadcast, loadInitialDataForBroadcastScreen]);
+
+  // Broadcast Status Polling (Every 10 minutes) - Check for new broadcasts
+  useEffect(() => {
+    const checkBroadcastStatus = async () => {
+      try {
+        console.log('📻 Checking broadcast status...');
+        
+        // Skip polling if we have a specific broadcast ID from route
+        if (routeBroadcastId) {
+          console.log('📻 Skipping broadcast status check - using specific broadcast ID');
+          return;
+        }
+
+        const liveBroadcasts = await getLiveBroadcasts(authToken);
+        
+        if (liveBroadcasts.length > 0) {
+          const newBroadcast = liveBroadcasts[0];
+          
+          // Check if this is a different broadcast or status change
+          if (!currentBroadcast || 
+              currentBroadcast.id !== newBroadcast.id || 
+              currentBroadcast.status !== newBroadcast.status) {
+            console.log('📻 New broadcast or status change detected:', {
+              current: currentBroadcast?.id,
+              new: newBroadcast.id,
+              currentStatus: currentBroadcast?.status,
+              newStatus: newBroadcast.status
+            });
+            
+            // Update broadcast data
+            setCurrentBroadcast(newBroadcast);
+            
+            // If broadcast went from not live to live, show notification
+            if (currentBroadcast?.status !== 'LIVE' && newBroadcast.status === 'LIVE') {
+              console.log('🎉 Broadcast went LIVE!');
+              // You could add a notification here if needed
+            }
+          }
+        } else {
+          // No live broadcasts
+          if (currentBroadcast?.status === 'LIVE') {
+            console.log('📻 Broadcast ended, updating status...');
+            setCurrentBroadcast(null);
+          }
+        }
+      } catch (error) {
+        console.error('📻 Error checking broadcast status:', error);
+      }
+    };
+
+    // Initial check
+    checkBroadcastStatus();
+
+    // Poll every 10 minutes
+    const interval = setInterval(checkBroadcastStatus, 600000);
+    
+    return () => clearInterval(interval);
+  }, [currentBroadcast, routeBroadcastId, authToken]);
+
+  // Global Broadcast WebSocket (Real-time updates) - Listen for broadcast start/end
+  useEffect(() => {
+    const setupGlobalBroadcastWebSocket = async () => {
+      try {
+        console.log('🌐 Setting up global broadcast WebSocket...');
+        
+        // Use the existing WebSocket service to subscribe to global updates
+        const connection = await chatService.subscribeToGlobalBroadcastUpdates((update) => {
+          console.log('🌐 Global broadcast update received:', update);
+          
+          if (update.type === 'BROADCAST_STARTED') {
+            console.log('🎉 New broadcast started:', update.broadcast);
+            setCurrentBroadcast(update.broadcast);
+            
+            // Show notification to user
+            Alert.alert(
+              'Broadcast Started!',
+              `${update.broadcast.title} is now live!`,
+              [{ text: 'OK' }]
+            );
+          } else if (update.type === 'BROADCAST_ENDED') {
+            console.log('📻 Broadcast ended:', update.broadcastId);
+            if (currentBroadcast?.id === update.broadcastId) {
+              setCurrentBroadcast(null);
+            }
+          }
+        });
+        
+        console.log('🌐 Global broadcast WebSocket connected');
+      } catch (error) {
+        console.error('🌐 Failed to setup global broadcast WebSocket:', error);
+      }
+    };
+
+    // Only setup if we don't have a specific broadcast ID
+    if (!routeBroadcastId) {
+      setupGlobalBroadcastWebSocket();
+    }
+  }, [routeBroadcastId, currentBroadcast]);
+
   const handleSendChatMessage = async () => {
     if (!authToken || !currentBroadcast || !chatInput.trim()) return;
+    
+    // Check if user is banned
+    if (isBanned) {
+      Alert.alert("Banned from Chat", banMessage || "You have been banned from this chat.");
+      return;
+    }
+
+    // Check slow mode (matching website implementation)
+    if (slowModeEnabled && slowModeSeconds > 0) {
+      const now = Date.now();
+      const timeSinceLastMessage = (now - lastMessageTime) / 1000; // Convert to seconds
+      
+      if (lastMessageTime > 0 && timeSinceLastMessage < slowModeSeconds) {
+        const waitTime = Math.ceil(slowModeSeconds - timeSinceLastMessage);
+        setSlowModeWaitSeconds(waitTime);
+        Alert.alert(
+          "Slow Mode Active", 
+          `Please wait ${waitTime} second${waitTime !== 1 ? 's' : ''} before sending another message.`
+        );
+        return;
+      }
+    }
     
     const messageToSend = chatInput;
     setChatInput(''); // Clear input immediately
     setIsSubmitting(true);
+    setSlowModeWaitSeconds(null); // Clear any previous slow mode wait
     
     try {
       // Use chatService like frontend
@@ -1499,10 +1692,37 @@ const BroadcastScreen: React.FC = () => {
       
       if ('error' in result) {
         console.error('❌ Failed to send message:', result.error);
-        // Show error message to user
-        setChatInput(messageToSend); // Restore the message
-        Alert.alert("Error", result.error || "Failed to send message. Please try again.");
+        
+        // Enhanced error handling (matching website)
+        const errorMessage = result.error || "Failed to send message. Please try again.";
+        
+        // Check for slow mode error
+        if (errorMessage.toLowerCase().includes('slow mode')) {
+          const match = errorMessage.match(/(\d+)\s*second/i);
+          const waitSeconds = match ? parseInt(match[1], 10) : slowModeSeconds;
+          setSlowModeWaitSeconds(waitSeconds);
+          Alert.alert("Slow Mode", `Please wait ${waitSeconds} seconds before sending another message.`);
+        }
+        // Check for ban error
+        else if (errorMessage.toLowerCase().includes('banned')) {
+          setIsBanned(true);
+          setBanMessage(errorMessage);
+          Alert.alert("Banned from Chat", errorMessage);
+        }
+        // Check for profanity filter
+        else if (errorMessage.toLowerCase().includes('profanity') || errorMessage.toLowerCase().includes('inappropriate')) {
+          Alert.alert("Message Blocked", "Your message contains inappropriate content.");
+        }
+        // Generic error
+        else {
+          Alert.alert("Error", errorMessage);
+        }
+        
+        // Restore message to input on error
+        setChatInput(messageToSend);
       } else {
+        // Update last message time for slow mode
+        setLastMessageTime(Date.now());
         console.log('✅ Message sent successfully via chatService');
         // Message will appear via WebSocket when server broadcasts it
         // Track this as our own message FIRST to prevent left-side flicker
@@ -1743,7 +1963,7 @@ const BroadcastScreen: React.FC = () => {
             </View>
             <View>
               <Text className="text-xl font-bold text-gray-800">Live Chat</Text>
-              <Text className="text-sm text-gray-600">Chat with the DJ and other listeners</Text>
+              <Text className="text-base text-gray-600">Chat with the DJ and other listeners</Text>
             </View>
           </View>
           
@@ -1830,6 +2050,35 @@ const BroadcastScreen: React.FC = () => {
         })}
       </ScrollView>
       
+      {/* Slow Mode Indicator (matching website) */}
+      {slowModeEnabled && slowModeSeconds > 0 && (
+        <View className="bg-amber-50 border-t border-amber-200 px-4 py-2">
+          <View className="flex-row items-center">
+            <Ionicons name="time-outline" size={16} color="#D97706" />
+            <Text className="ml-2 text-amber-700 text-sm font-medium">
+              Slow mode is active ({slowModeSeconds}s between messages)
+            </Text>
+          </View>
+          {slowModeWaitSeconds !== null && slowModeWaitSeconds > 0 && (
+            <Text className="text-amber-600 text-xs mt-1">
+              Please wait {slowModeWaitSeconds} second{slowModeWaitSeconds !== 1 ? 's' : ''} before sending another message
+            </Text>
+          )}
+        </View>
+      )}
+
+      {/* Ban Indicator (matching website) */}
+      {isBanned && (
+        <View className="bg-red-50 border-t border-red-200 px-4 py-2">
+          <View className="flex-row items-center">
+            <Ionicons name="ban-outline" size={16} color="#DC2626" />
+            <Text className="ml-2 text-red-700 text-sm font-medium">
+              {banMessage || "You have been banned from this chat."}
+            </Text>
+          </View>
+        </View>
+      )}
+
       {/* Messenger-style Chat Input */}
       <View 
         className="bg-white border-t border-gray-200 px-4 py-3"
@@ -1851,11 +2100,11 @@ const BroadcastScreen: React.FC = () => {
             }}
           >
           <TextInput
-            placeholder="Type your message..."
+            placeholder={isBanned ? "You are banned from chatting" : "Type your message..."}
               placeholderTextColor="#9CA3AF"
             value={chatInput}
             onChangeText={setChatInput}
-            editable={!isSubmitting && !!currentBroadcast}
+            editable={!isSubmitting && !!currentBroadcast && !isBanned}
               className="text-gray-800 text-base py-1"
               multiline
               textAlignVertical="top"
@@ -1881,7 +2130,7 @@ const BroadcastScreen: React.FC = () => {
           
           <TouchableOpacity
             onPress={handleSendChatMessage}
-            disabled={!currentBroadcast || !chatInput.trim()}
+            disabled={!currentBroadcast || !chatInput.trim() || isBanned}
             className={`w-10 h-10 rounded-full items-center justify-center ${
               currentBroadcast && chatInput.trim()
                 ? 'bg-cordovan active:bg-cordovan/90' 
@@ -1917,7 +2166,7 @@ const BroadcastScreen: React.FC = () => {
             </View>
             <View>
               <Text className="text-xl font-bold text-gray-800">Request a Song</Text>
-              <Text className="text-sm text-gray-600">Let us know what you'd like to hear next</Text>
+              <Text className="text-base text-gray-600">Let us know what you'd like to hear next</Text>
             </View>
           </View>
           
@@ -1998,7 +2247,7 @@ const BroadcastScreen: React.FC = () => {
             </View>
             <View>
               <Text className="text-xl font-bold text-gray-800">Active Polls</Text>
-              <Text className="text-sm text-gray-600">Voice your opinion on current topics</Text>
+              <Text className="text-base text-gray-600">Voice your opinion on current topics</Text>
             </View>
           </View>
           
@@ -2037,7 +2286,7 @@ const BroadcastScreen: React.FC = () => {
             <View className="flex-1">
               {activePolls.map(poll => (
                 <View key={poll.id} className="bg-white p-4 rounded-lg shadow mb-3">
-                  <Text className="text-base font-semibold text-gray-800 mb-2">{poll.question}</Text>
+                  <Text className="text-lg font-bold text-gray-800 mb-2">{poll.question}</Text>
                   {poll.options.map(opt => (
                     <TouchableOpacity
                       key={opt.id} 
@@ -2081,9 +2330,29 @@ const BroadcastScreen: React.FC = () => {
 
   if (isLoading && !currentBroadcast && !nowPlayingInfo) { // Adjusted loading condition slightly for initial card appearance
     return (
-      <View className="flex-1 justify-center items-center bg-anti-flash_white">
-        <ActivityIndicator size="large" color="#91403E" />
-        <Text className="mt-4 text-gray-600 text-lg">Loading Live Broadcast...</Text>
+      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]} className="flex-1 bg-anti-flash_white">
+        <Stack.Screen 
+          options={{
+              headerShown: false, // Always hide the default header
+          }}
+         />
+        {/* Custom Header - Always visible */}
+        <CustomHeader 
+          showBackButton={false}
+          onBackPress={undefined}
+        />
+        <ScrollView
+          style={{ backgroundColor: '#F3F4F6' }}
+          contentContainerStyle={{ 
+            paddingBottom: 100,
+            paddingTop: Platform.OS === 'android' ? 12 : 6, // Tight spacing like other pages
+            paddingHorizontal: 20,
+            backgroundColor: '#F3F4F6'
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <BroadcastSkeleton />
+        </ScrollView>
       </View>
     );
   }
@@ -2338,36 +2607,41 @@ const BroadcastScreen: React.FC = () => {
   };
 
   return (
-    <View style={styles.container} className="flex-1 bg-anti-flash_white">
+    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]} className="flex-1 bg-anti-flash_white">
       <Stack.Screen 
         options={{
-            headerShown: false, // Always hide the default header
+            headerShown: true, // Always use tab layout header for consistency
         }}
        />
       
-      {/* Custom Header - Always visible */}
-      <CustomHeader 
-        showBackButton={isListening}
-        onBackPress={isListening ? animateBackToPoster : undefined}
-        showNotification={true}
-        onNotificationStateChange={handleNotificationStateChange}
-      />
-      
       {!currentBroadcast && !isLoading ? (
-        // Show off-air message without tabs
-        <View className="flex-1 justify-center items-center p-5 bg-anti-flash_white">
-          <Ionicons name="radio-outline" size={64} color="#A0A0A0" className="mb-4"/>
-          <Text className="text-2xl font-bold text-gray-700 mb-2">Currently Off Air</Text>
-          <Text className="text-gray-500 text-center text-base leading-relaxed px-4">
-            There is no live broadcast at the moment. Please check the schedule or try again later.
-          </Text>
-                      <TouchableOpacity
+        // Show off-air message with proper layout structure
+        <ScrollView
+          style={{ backgroundColor: '#F5F5F5' }}
+          contentContainerStyle={{ 
+            paddingBottom: 120 + insets.bottom, // Bottom safe area for navigation
+            paddingTop: Platform.OS === 'android' ? 12 : 6, // Tight spacing like other pages
+            paddingHorizontal: 20,
+            backgroundColor: '#F5F5F5',
+            flexGrow: 1,
+            justifyContent: 'center'
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View className="justify-center items-center p-5">
+            <Ionicons name="radio-outline" size={64} color="#A0A0A0" className="mb-4"/>
+            <Text className="text-2xl font-bold text-gray-700 mb-2">Currently Off Air</Text>
+            <Text className="text-base text-gray-500 text-center leading-relaxed px-4">
+              There is no live broadcast at the moment. Please check the schedule or try again later.
+            </Text>
+            <TouchableOpacity
               className="bg-cordovan py-3 px-8 rounded-lg shadow-md mt-8 active:opacity-80"
               onPress={() => loadInitialDataForBroadcastScreen()}
             >
-            <Text className="text-white font-semibold text-base">Refresh</Text>
-          </TouchableOpacity>
-        </View>
+              <Text className="text-white font-semibold text-base">Refresh</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       ) : currentBroadcast && currentBroadcast.status === 'LIVE' ? (
         // Show exciting ON AIR poster-style interface with animation overlay
         <View className="flex-1 bg-gray-50">
@@ -2378,7 +2652,7 @@ const BroadcastScreen: React.FC = () => {
             }}
           >
             <ScrollView
-              contentContainerStyle={{ paddingBottom: 120, paddingTop: 20 }}
+              contentContainerStyle={{ paddingBottom: 120, paddingTop: Platform.OS === 'android' ? 12 : 6 }}
               refreshControl={
                 <RefreshControl
                   refreshing={isRefreshingBroadcast}
@@ -2390,7 +2664,7 @@ const BroadcastScreen: React.FC = () => {
                 />
               }
               showsVerticalScrollIndicator={false}
-              className="px-6"
+              className="px-5"
             >
             {/* Dynamic ON AIR Poster Header */}
             <View className="items-center mb-8 relative">

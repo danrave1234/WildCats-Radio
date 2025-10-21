@@ -1,6 +1,30 @@
-const API_BASE_URL = 'https://api.wildcat-radio.live/api'; // Adjusted base URL
-//const API_BASE_URL = 'http://192.168.5.60:8080/api';
-//const API_BASE_URL = 'http://10.0.2.2:8080/api'; // For Android emulator, use this if running on localhost
+import ENV from '../config/environment';
+
+const API_BASE_URL = ENV.API_BASE_URL; // Automatically switches between dev/prod
+// Manual override (uncomment if needed):
+// const API_BASE_URL = 'http://192.168.5.60:8082/api'; // Local development
+// const API_BASE_URL = 'http://10.0.2.2:8082/api'; // For Android emulator
+
+// Timeout wrapper for fetch requests
+const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = ENV.NETWORK_TIMEOUT): Promise<Response> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('Request timeout - server is not responding. Please check your connection or try again later.');
+    }
+    throw error;
+  }
+};
 
 interface AuthResponse {
   token?: string; // Assuming your API returns a token
@@ -18,6 +42,11 @@ export interface UserData {
   role?: string;
   memberSince?: string; // Example for "Listener since May 2025"
   message?: string; // Added to handle potential error messages from API
+  // Notification preferences (matching backend UserDTO)
+  notifyBroadcastStart?: boolean;
+  notifyBroadcastReminders?: boolean;
+  notifyNewSchedule?: boolean;
+  notifySystemUpdates?: boolean;
   // Add other fields as expected from your API
   error?: string; // For error messages from the service
 }
@@ -60,6 +89,8 @@ export interface Broadcast {
   actualEnd?: string;      // ISO 8601 date-time string, present if ended
   dj?: BroadcastDJ;
   status?: string; // e.g., "SCHEDULED", "LIVE", "ENDED"
+  slowModeEnabled?: boolean; // Slow mode setting
+  slowModeSeconds?: number; // Slow mode delay in seconds
   // Add other fields as returned by your backend
   error?: string; // For error messages from the service
 }
@@ -136,11 +167,13 @@ export interface PollResultDTO extends PollDTO {}
 
 export const loginUser = async (email: string, password: string): Promise<AuthResponse> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    console.log(`🔐 Attempting login to: ${API_BASE_URL}/auth/login`);
+    const response = await fetchWithTimeout(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include' as RequestCredentials,
       body: JSON.stringify({ email, password }),
     });
 
@@ -204,14 +237,15 @@ export const registerUser = async (userData: object): Promise<AuthResponse> => {
   }
 };
 
-export const getMe = async (token: string): Promise<UserData> => {
+export const getMe = async (): Promise<UserData> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/auth/me`, {
+    console.log(`👤 Fetching user data from: ${API_BASE_URL}/auth/me`);
+    const response = await fetchWithTimeout(`${API_BASE_URL}/auth/me`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
       },
+      credentials: 'include' as RequestCredentials,
     });
 
     if (!response.ok) {
@@ -630,6 +664,39 @@ export const getBroadcastDetails = async (broadcastId: number, token: string): P
     return data as Broadcast;
   } catch (error) {
     console.error('GetBroadcastDetails API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// Notification Preferences API
+export interface NotificationPreferences {
+  notifyBroadcastStart?: boolean;
+  notifyBroadcastReminders?: boolean;
+  notifyNewSchedule?: boolean;
+  notifySystemUpdates?: boolean;
+}
+
+// Update user notification preferences
+export const updateNotificationPreferences = async (preferences: NotificationPreferences): Promise<UserData | { error: string }> => {
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/auth/me/preferences`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(preferences),
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to update notification preferences. Status: ${response.status}` };
+    }
+    
+    return data as UserData;
+  } catch (error) {
+    console.error('UpdateNotificationPreferences API error:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
     return { error: errorMessage };
   }

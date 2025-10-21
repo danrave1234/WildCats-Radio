@@ -4,12 +4,15 @@ import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { getLiveBroadcasts, getAllBroadcasts, Broadcast } from '../../services/apiService'; // Assuming apiService exports these
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import HomeSkeleton from '../../components/HomeSkeleton';
 import '../../global.css'; // Tailwind CSS
 import { format, parseISO, formatDistanceToNowStrict, isToday, isYesterday, differenceInDays } from 'date-fns';
 
 const HomeScreen: React.FC = () => {
   const router = useRouter();
   const { authToken } = useAuth();
+  const insets = useSafeAreaInsets();
   const [liveBroadcasts, setLiveBroadcasts] = useState<Broadcast[]>([]);
   const [recentBroadcasts, setRecentBroadcasts] = useState<Broadcast[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -145,9 +148,19 @@ const HomeScreen: React.FC = () => {
 
   if (isLoading) {
     return (
-      <SafeAreaView className="flex-1 justify-center items-center bg-anti-flash_white">
-        <ActivityIndicator size="large" color="#91403E" />
-        <Text className="mt-4 text-gray-600 text-lg">Loading Dashboard...</Text>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#F5F5F5' }}>
+        <ScrollView
+          style={{ backgroundColor: '#F5F5F5' }}
+          contentContainerStyle={{ 
+            paddingBottom: 120 + insets.bottom,
+            paddingTop: 12 + insets.top,
+            paddingHorizontal: 20,
+            backgroundColor: '#F5F5F5'
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <HomeSkeleton />
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -169,12 +182,16 @@ const HomeScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-anti-flash_white">
-      {/* <Stack.Screen options={{ headerShown: false }} /> */}
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F5F5F5' }}>
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 120, paddingTop: 12 }}
+        style={{ backgroundColor: '#F5F5F5' }} // Add background to ScrollView
+        contentContainerStyle={{ 
+          paddingBottom: 120 + insets.bottom, // Add bottom safe area for home indicator
+          paddingTop: Platform.OS === 'android' ? 12 : 6, // Tight spacing like schedule page
+          paddingHorizontal: 20,
+          backgroundColor: '#F5F5F5' // Ensure content area has background
+        }}
         showsVerticalScrollIndicator={false}
-        className="px-5 md:px-7"
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -187,57 +204,87 @@ const HomeScreen: React.FC = () => {
         }
       >
         {/* Welcome Message */}
-        <View className="mb-6">
+        <View className="mb-4">
           <Text className="text-3xl font-bold text-gray-800">Welcome, Listener!</Text>
-          <Text className="text-gray-600">Here's what's happening with Wildcat Radio.</Text>
+          <Text className="text-base text-gray-600">Here's what's happening with Wildcat Radio.</Text>
         </View>
 
         {/* Logo */}
-        <View className="items-center mb-7">
+        <View className="items-center mb-4">
           <Image 
             source={require('../../assets/images/wildcat_radio_logo_transparent.png')}
-            className="w-65 h-40" // Adjust width and height as needed
+            style={{ width: 260, height: 160 }}
             resizeMode="contain"
           />
         </View>
 
         {/* Broadcast Status Card */}
-        <View className="bg-white p-5 rounded-2xl shadow-lg mb-7"> {/* Slightly more rounded, increased padding/margin */}
-          <View className="flex-row justify-between items-center mb-4">
-            <Text className="text-xl font-bold text-gray-800">Broadcast Status</Text>
+        <View style={{ 
+          backgroundColor: 'white', 
+          padding: 20, 
+          borderRadius: 16, 
+          marginBottom: 16,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+          elevation: 3
+        }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1F2937' }}>Broadcast Status</Text>
             <TouchableOpacity
-              className="bg-cordovan py-2.5 px-4 rounded-lg flex-row items-center shadow-md active:opacity-80"
+              style={{
+                backgroundColor: '#91403E',
+                paddingVertical: 10,
+                paddingHorizontal: 16,
+                borderRadius: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.2,
+                shadowRadius: 2,
+                elevation: 2
+              }}
               onPress={() => router.push('/broadcast' as any)}
             >
               {!!isLive && (
-                <View className="bg-mikado_yellow py-1 px-2.5 rounded mr-2 flex-row items-center self-stretch">
-                  <Text className="text-black font-extrabold text-xs tracking-wider">LIVE</Text>
+                <View style={{
+                  backgroundColor: '#F4D03F',
+                  paddingVertical: 4,
+                  paddingHorizontal: 10,
+                  borderRadius: 4,
+                  marginRight: 8,
+                  flexDirection: 'row',
+                  alignItems: 'center'
+                }}>
+                  <Text style={{ color: 'black', fontWeight: 'bold', fontSize: 12, letterSpacing: 1 }}>LIVE</Text>
                 </View>
               )}
-              <Text className="text-white font-semibold text-sm">Listen Now</Text>
+              <Text style={{ color: 'white', fontWeight: '600', fontSize: 14 }}>Listen Now</Text>
               <Ionicons name="headset-outline" size={18} color="white" style={{ marginLeft: 6 }} />
             </TouchableOpacity>
           </View>
 
           {isLive && currentLiveBroadcast ? (
-            <View className="flex-row items-center mt-1">
-              <Ionicons name="radio-outline" size={30} color="#91403E" className="mr-3.5" />
-              <View className="flex-1">
-                <Text className="text-lg font-bold text-cordovan leading-tight">{currentLiveBroadcast.title}</Text>
-                <Text className="text-sm text-gray-600 mt-0.5">
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+              <Ionicons name="radio-outline" size={30} color="#91403E" style={{ marginRight: 14 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#91403E', lineHeight: 24 }}>{currentLiveBroadcast.title}</Text>
+                <Text style={{ fontSize: 14, color: '#6B7280', marginTop: 2 }}>
                   with {currentLiveBroadcast.dj?.name || 'Wildcat Radio'} • {renderBroadcastTimeInfo(currentLiveBroadcast)}
                 </Text>
               </View>
             </View>
           ) : (
-            <View className="flex-row items-center mt-1">
-              <Ionicons name="radio-outline" size={30} color="#6B7280" className="mr-3.5" />
-              <Text className="text-lg text-gray-700">Currently Off Air</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+              <Ionicons name="radio-outline" size={30} color="#6B7280" style={{ marginRight: 14 }} />
+              <Text style={{ fontSize: 18, color: '#6B7280' }}>Currently Off Air</Text>
             </View>
           )}
         </View>
         {/* Recent Broadcasts Section */}
-        <View className="mb-7">
+        <View className="mb-4">
           {/* Header for Recent Broadcasts */}
           <View className="flex-row justify-between items-center mb-3.5 px-1">
             <Text className="text-xl font-bold text-cordovan">Recent Broadcasts</Text>
@@ -266,7 +313,7 @@ const HomeScreen: React.FC = () => {
                       <Ionicons name="disc-outline" size={20} color="white" />
                     </View>
                     <View className="flex-1">
-                      <Text className="text-base font-semibold text-gray-800 leading-snug">{item.title}</Text>
+                      <Text className="text-lg font-bold text-gray-800 leading-snug">{item.title}</Text>
                       <Text className="text-sm text-gray-600 mt-0.5">
                         {item.dj?.name || 'Wildcat Radio'} • {renderBroadcastTimeInfo(item)}
                       </Text>
@@ -278,7 +325,7 @@ const HomeScreen: React.FC = () => {
                 </React.Fragment>
               ))
              : 
-              <Text className="text-gray-600 py-4 text-center">No recent broadcasts to display.</Text>
+              <Text className="text-base text-gray-600 py-4 text-center">No recent broadcasts to display.</Text>
             }
           </View>
         </View>

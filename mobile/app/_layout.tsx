@@ -3,6 +3,8 @@ import { Slot, useRouter, useSegments } from 'expo-router';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { ActivityIndicator, View, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 const InitialLayout = () => {
   const { authToken, isLoading } = useAuth();
@@ -48,11 +50,29 @@ const InitialLayout = () => {
 
 const RootLayout = () => {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <AuthProvider>
-          <InitialLayout />
-      </AuthProvider>
-    </GestureHandlerRootView>
+    <SafeAreaProvider>
+      <ErrorBoundary>
+        <GestureHandlerRootView style={{ 
+          flex: 1, 
+          backgroundColor: '#F5F5F5',
+          minHeight: '100%' // Ensure full height coverage
+        }}>
+          {/* Background overlay to prevent content bleeding through system UI */}
+          <View style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: '#F5F5F5',
+            zIndex: -1, // Behind content but above system UI
+          }} />
+          <AuthProvider>
+              <InitialLayout />
+          </AuthProvider>
+        </GestureHandlerRootView>
+      </ErrorBoundary>
+    </SafeAreaProvider>
   );
 };
 
