@@ -10,6 +10,9 @@ import {
   ActivityIndicator,
   Dimensions,
   Easing,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import "../../global.css"; // Adjust path based on actual global.css location
@@ -154,79 +157,90 @@ const LoginScreen: React.FC = () => {
 
   return (
     <SafeAreaView className="flex-1 bg-anti-flash_white overflow-hidden">
-      <Animated.View style={[{ flex: 1, width: '100%' }, { transform: [{ translateY: translateY }] }]}>
-        <View className="flex-1 justify-center items-center px-8">
-          <Animated.View style={logoAnim}>
-            <Image source={logo} className="w-48 h-28 mb-6" resizeMode="contain" />
-          </Animated.View>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        className="flex-1"
+      >
+        <Animated.View style={[{ flex: 1, width: '100%' }, { transform: [{ translateY: translateY }] }]}>
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View className="flex-1 justify-center items-center px-8 py-10">
+              <Animated.View style={logoAnim}>
+                <Image source={logo} className="w-48 h-28 mb-6" resizeMode="contain" />
+              </Animated.View>
 
-          <Animated.View style={titleAnim}>
-            <Text className="text-3xl font-bold text-black mb-2 text-center">
-              Welcome Back
-            </Text>
-          </Animated.View>
-
-          <Animated.View style={subtitleAnim}>
-            <Text className="text-base text-gray-600 mb-10 text-center">
-              Sign in to your account
-            </Text>
-          </Animated.View>
-
-          <AnimatedTextInput
-            label="Email Address"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            editable={!isLoading}
-            containerStyle={emailInputAnim} // Apply animation style
-          />
-
-          <AnimatedTextInput
-            label="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            editable={!isLoading}
-            containerStyle={passwordInputAnim} // Apply animation style
-          />
-          
-          <Animated.View style={forgotButtonAnim} className="w-full items-end mb-6">
-            <TouchableOpacity onPress={handleForgotPassword} disabled={isLoading}>
-              <Text className="text-sm text-cordovan font-semibold">
-                Forgot Password?
-              </Text>
-            </TouchableOpacity>
-          </Animated.View>
-
-          <Animated.View style={loginButtonAnim} className="w-full">
-            <TouchableOpacity
-              onPress={handleLogin}
-              className="bg-cordovan py-4 rounded-lg items-center justify-center shadow-md mb-6 flex-row"
-              activeOpacity={0.8}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" className="mr-2" />
-              ) : null}
-              <Text className="text-white text-lg font-semibold">Log In</Text>
-            </TouchableOpacity>
-          </Animated.View>
-
-          <Animated.View style={signupLinkAnim}>
-            <View className="flex-row justify-center">
-              <Text className="text-sm text-gray-600">
-                Don't have an account?{" "}
-              </Text>
-              <TouchableOpacity onPress={navigateToSignUp} disabled={isLoading}>
-                <Text className="text-sm text-cordovan font-semibold">
-                  Sign up
+              <Animated.View style={titleAnim}>
+                <Text className="text-3xl font-bold text-black mb-2 text-center">
+                  Welcome Back
                 </Text>
-              </TouchableOpacity>
+              </Animated.View>
+
+              <Animated.View style={subtitleAnim}>
+                <Text className="text-base text-gray-600 mb-10 text-center">
+                  Sign in to your account
+                </Text>
+              </Animated.View>
+
+              <AnimatedTextInput
+                label="Email Address"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                editable={!isLoading}
+                containerStyle={emailInputAnim} // Apply animation style
+              />
+
+              <AnimatedTextInput
+                label="Password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                editable={!isLoading}
+                containerStyle={passwordInputAnim} // Apply animation style
+              />
+              
+              <Animated.View style={forgotButtonAnim} className="w-full items-end mb-6">
+                <TouchableOpacity onPress={handleForgotPassword} disabled={isLoading}>
+                  <Text className="text-sm text-cordovan font-semibold">
+                    Forgot Password?
+                  </Text>
+                </TouchableOpacity>
+              </Animated.View>
+
+              <Animated.View style={loginButtonAnim} className="w-full">
+                <TouchableOpacity
+                  onPress={handleLogin}
+                  className="bg-cordovan py-4 rounded-lg items-center justify-center shadow-md mb-6 flex-row"
+                  activeOpacity={0.8}
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" className="mr-2" />
+                  ) : null}
+                  <Text className="text-white text-lg font-semibold">Log In</Text>
+                </TouchableOpacity>
+              </Animated.View>
+
+              <Animated.View style={signupLinkAnim}>
+                <View className="flex-row justify-center">
+                  <Text className="text-sm text-gray-600">
+                    Don't have an account?{" "}
+                  </Text>
+                  <TouchableOpacity onPress={navigateToSignUp} disabled={isLoading}>
+                    <Text className="text-sm text-cordovan font-semibold">
+                      Sign up
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </Animated.View>
             </View>
-          </Animated.View>
-        </View>
-      </Animated.View>
+          </ScrollView>
+        </Animated.View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
