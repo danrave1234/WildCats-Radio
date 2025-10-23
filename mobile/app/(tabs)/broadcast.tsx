@@ -44,6 +44,8 @@ import {
 } from '../../services/apiService';
 import { chatService } from '../../services/chatService';
 import { pollService } from '../../services/pollService';
+import { songRequestService } from '../../services/songRequestService';
+import { broadcastService } from '../../services/broadcastService';
 import streamService from '../../services/streamService';
 import audioStreamingService from '../../services/audioStreamingService';
 import { useAudioStreaming } from '../../hooks/useAudioStreaming';
@@ -433,10 +435,15 @@ const AnimatedAudioWave: React.FC<{ isPlaying: boolean; size?: number }> = ({ is
             backgroundColor: '#91403E',
             marginHorizontal: 1,
             borderRadius: 1.5,
-            height: anim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [size * 0.2, size],
-            }),
+            height: size, // Fixed height
+            transform: [
+              {
+                scaleY: anim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.2, 1], // Scale from 20% to 100%
+                }),
+              },
+            ],
           }}
         />
       ))}
@@ -479,6 +486,7 @@ const BroadcastScreen: React.FC = () => {
   const [userMessageIds, setUserMessageIds] = useState<Set<number>>(new Set());
   const [isListening, setIsListening] = useState(false);
   const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
 
   // Stream status state
   const [streamStatus, setStreamStatus] = useState<{
@@ -629,11 +637,9 @@ const BroadcastScreen: React.FC = () => {
         console.log('🎵 Loading MP3 stream from:', mp3StreamUrl);
         await streamingActions.loadStream(mp3StreamUrl);
         
-        // Wait a moment for the stream to be ready
-        setTimeout(() => {
-          setIsStreamReady(true);
-          console.log('✅ MP3 stream loaded and ready for playback');
-        }, 1000);
+        // Stream is ready immediately after loading
+        setIsStreamReady(true);
+        console.log('✅ MP3 stream loaded and ready for playback');
         
       } catch (error) {
         console.error('❌ Failed to initialize MP3 stream:', error);
@@ -710,7 +716,7 @@ const BroadcastScreen: React.FC = () => {
     if (!currentBroadcast || currentBroadcast.status !== 'LIVE') {
       // Clean up WebSocket if broadcast is not live
       if (listenerWsRef.current) {
-        listenerWsRef.current.close();
+        listenerWsRef.current.close(1000, 'Broadcast ended');
         listenerWsRef.current = null;
       }
       if (heartbeatInterval.current) {
@@ -720,18 +726,35 @@ const BroadcastScreen: React.FC = () => {
       return;
     }
 
+    // Skip if already connected
+    if (listenerWsRef.current && listenerWsRef.current.readyState === WebSocket.OPEN) {
+      console.log('📡 Listener WebSocket already connected');
+      return;
+    }
+
     const connectListenerWebSocket = async () => {
       try {
         // Get WebSocket URLs
         const wsUrls = await streamService.getWebSocketUrls();
         const listenerWsUrl = wsUrls.listenerUrl.replace('http://', 'ws://').replace('https://', 'wss://');
 
+        console.log('🔄 Connecting to listener WebSocket:', listenerWsUrl);
+
         // Create WebSocket connection
         const ws = new WebSocket(listenerWsUrl);
         listenerWsRef.current = ws;
 
+        // Connection timeout
+        const connectionTimeout = setTimeout(() => {
+          if (ws.readyState === WebSocket.CONNECTING) {
+            console.warn('⚠️ Listener WebSocket connection timeout');
+            ws.close();
+          }
+        }, 10000); // 10 second timeout
+
         ws.onopen = () => {
-          console.log('Listener WebSocket connected');
+          console.log('✅ Listener WebSocket connected');
+          clearTimeout(connectionTimeout);
           
           // Send initial status if playing
           if (streamingState.isPlaying) {
@@ -746,24 +769,26 @@ const BroadcastScreen: React.FC = () => {
             ws.send(JSON.stringify(message));
           }
 
-          // Setup heartbeat
+          // Setup heartbeat with ping/pong
           heartbeatInterval.current = setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN && streamingState.isPlaying) {
-              const message = {
-                type: 'LISTENER_STATUS',
-                action: 'HEARTBEAT',
-                broadcastId: currentBroadcast.id,
-                userId: currentUserId,
-                userName: userData?.name || 'Anonymous Listener',
-                timestamp: Date.now(),
-              };
-              ws.send(JSON.stringify(message));
+            if (ws.readyState === WebSocket.OPEN) {
+              try {
+                // Send ping message
+                ws.send('ping');
+              } catch (error) {
+                console.error('❌ Failed to send heartbeat:', error);
+              }
             }
-          }, 15000) as ReturnType<typeof setInterval>;
+          }, 30000) as ReturnType<typeof setInterval>; // 30 seconds to match backend
         };
 
         ws.onmessage = (event) => {
           try {
+            // Handle pong response
+            if (event.data === 'pong') {
+              return;
+            }
+
             const data = JSON.parse(event.data);
             if (data.type === 'STREAM_STATUS' && data.listenerCount !== undefined) {
               setStreamStatus(prev => ({
@@ -777,18 +802,43 @@ const BroadcastScreen: React.FC = () => {
         };
 
         ws.onerror = (error) => {
-          console.error('Listener WebSocket error:', error);
+          console.error('❌ Listener WebSocket error:', error);
+          clearTimeout(connectionTimeout);
         };
 
-        ws.onclose = () => {
-          console.log('Listener WebSocket disconnected');
+        ws.onclose = (event) => {
+          console.log('🔌 Listener WebSocket disconnected:', event.code, event.reason);
+          clearTimeout(connectionTimeout);
+          
           if (heartbeatInterval.current) {
             clearInterval(heartbeatInterval.current);
             heartbeatInterval.current = null;
           }
+
+          // Only reconnect if it's an unexpected close and broadcast is still live
+          if (event.code !== 1000 && event.code !== 1001 && 
+              !isReconnecting && 
+              currentBroadcast && currentBroadcast.status === 'LIVE') {
+            console.log('🔄 Listener WebSocket closed unexpectedly, reconnecting...');
+            setIsReconnecting(true);
+            setTimeout(() => {
+              connectListenerWebSocket();
+              setIsReconnecting(false);
+            }, 3000);
+          }
         };
       } catch (error) {
-        console.error('Failed to connect listener WebSocket:', error);
+        console.error('❌ Failed to connect listener WebSocket:', error);
+        
+        // Retry connection after delay
+        if (!isReconnecting && currentBroadcast && currentBroadcast.status === 'LIVE') {
+          setIsReconnecting(true);
+          setTimeout(() => {
+            console.log('🔄 Retrying listener WebSocket connection...');
+            connectListenerWebSocket();
+            setIsReconnecting(false);
+          }, 5000);
+        }
       }
     };
 
@@ -821,7 +871,7 @@ const BroadcastScreen: React.FC = () => {
     }
   }, [streamingState.isPlaying, currentBroadcast?.id, currentUserId, userData]);
 
-  // Custom play function with better error handling
+  // Custom play function with better error handling and immediate loading feedback
   const handlePlayPause = useCallback(async () => {
     console.log('🎵 Play/Pause requested. Current audio state:', streamingState.isPlaying, 'Loading:', streamingState.isLoading);
     
@@ -841,25 +891,24 @@ const BroadcastScreen: React.FC = () => {
       if (isStreamReady || streamingState.isPlaying) {
         console.log('🎵 Stream ready or playing, toggling...');
         await streamingActions.togglePlayPause();
-          return;
-        }
+        return;
+      }
         
       // If stream not ready and not playing, try to load first
       console.log('🎵 Stream not ready, attempting to load...');
       const mp3StreamUrl = 'https://icecast.software/live.mp3';
       
       try {
+        // Load stream - this will show loading state automatically
         await streamingActions.loadStream(mp3StreamUrl);
         
-        // Wait a moment and try to play
-        setTimeout(async () => {
-          setIsStreamReady(true);
-          try {
-            await streamingActions.togglePlayPause();
-          } catch (error) {
-            console.error('❌ Failed to start playback after loading:', error);
-          }
-        }, 1000);
+        // Stream is ready immediately, try to play
+        setIsStreamReady(true);
+        try {
+          await streamingActions.togglePlayPause();
+        } catch (error) {
+          console.error('❌ Failed to start playback after loading:', error);
+        }
       } catch (error) {
         console.error('❌ Failed to load stream:', error);
         Alert.alert('Connection Error', 'Unable to connect to the audio stream. Please check your internet connection and try again.');
@@ -997,8 +1046,6 @@ const BroadcastScreen: React.FC = () => {
 
     const setupChatWebSocket = async () => {
       try {
-        console.log('🔄 Setting up chat WebSocket for broadcast:', currentBroadcast.id);
-        
         // Clean up existing connection
         if (chatConnectionRef.current) {
           chatConnectionRef.current.disconnect();
@@ -1012,11 +1059,9 @@ const BroadcastScreen: React.FC = () => {
           (newMessage: ChatMessageDTO) => {
             // Double-check the message is for the current broadcast
             if (newMessage.broadcastId === currentBroadcast.id) {
-              console.log('📨 Received new chat message:', newMessage);
               setChatMessages(prev => {
                 const exists = prev.some(msg => msg.id === newMessage.id);
                 if (exists) {
-                  console.log('⚠️ Duplicate message ignored (ID already exists)');
                   return prev;
                 }
                 
@@ -1027,26 +1072,32 @@ const BroadcastScreen: React.FC = () => {
                   Math.abs(new Date(msg.createdAt).getTime() - new Date(newMessage.createdAt).getTime()) < 5000
                 );
                 if (contentDuplicate) {
-                  console.log('⚠️ Duplicate message ignored (content + timing match)');
                   return prev;
                 }
                 
                 // Add new message and sort by timestamp
-                console.log('✅ Adding new WebSocket message to chat');
                 const newMessages = [...prev, newMessage];
                 return newMessages.sort((a, b) => 
                   new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
                 );
               });
-            } else {
-              console.log('⚠️ Ignoring message for different broadcast:', newMessage.broadcastId);
+            }
+          },
+          {
+            onConnectionChange: (connected: boolean) => {
+              // Update WebSocket connection status
+              console.log('🔌 Chat WebSocket connection status changed:', connected);
+              setIsWebSocketConnected(connected);
+            },
+            onError: (error: any) => {
+              console.error('❌ Chat WebSocket error:', error);
+              setIsWebSocketConnected(false);
             }
           }
         );
         
         chatConnectionRef.current = connection;
-        setIsWebSocketConnected(true);
-        console.log('✅ Chat WebSocket connected successfully');
+        // Don't set connected to true here - wait for actual connection
         
       } catch (error) {
         console.error('❌ Failed to setup chat WebSocket:', error);
@@ -1390,11 +1441,11 @@ const BroadcastScreen: React.FC = () => {
       }
 
       if (broadcastToUse) {
-        // Use chatService for messages and pollService for polls, keep original API for song requests
+        // Use consistent services for all data fetching
         const [messagesResult, pollsResult, songRequestsResult] = await Promise.all([
           chatService.getMessages(broadcastToUse.id, authToken),
           pollService.getPollsForBroadcast(broadcastToUse.id, authToken),
-          getSongRequestsForBroadcast(broadcastToUse.id, authToken),
+          songRequestService.getSongRequests(broadcastToUse.id, authToken),
         ]);
 
         if (!('error' in messagesResult)) {
@@ -1433,8 +1484,11 @@ const BroadcastScreen: React.FC = () => {
           console.error('Failed to fetch initial polls:', 'error' in pollsResult ? pollsResult.error : 'Unknown error');
         }
 
-        if (!('error' in songRequestsResult)) setSongRequests(songRequestsResult);
-        else console.error('Failed to fetch initial song requests:', songRequestsResult.error);
+        if (!('error' in songRequestsResult)) {
+          setSongRequests(songRequestsResult.data || []);
+        } else {
+          console.error('Failed to fetch initial song requests:', songRequestsResult.error);
+        }
       }
     } catch (e: any) {
       setError(e.message || "Failed to load broadcast data.");
@@ -1527,22 +1581,26 @@ const BroadcastScreen: React.FC = () => {
   }, [isWebSocketConnected, currentBroadcast?.id, authToken]);
 
   // ===== AUTOMATIC STATUS UPDATES FOR LISTENERS =====
-  // Radio Status Polling (Every 10 seconds) - Check if stream is live
+  // Radio Status Polling (Every 30 seconds) - Check if stream is live
   useEffect(() => {
     const fetchRadioStatus = async () => {
       try {
         console.log('📡 Checking radio status...');
         const response = await streamService.getStreamStatus();
         
+        // Only act on significant status changes, not just isLive mismatch
+        // The stream status checks OGG, but mobile uses MP3, so they can differ
         if (response.isLive && !currentBroadcast) {
           console.log('📡 Stream is live but no broadcast found, refreshing...');
           // Stream is live but we don't have a broadcast, refresh data
           loadInitialDataForBroadcastScreen(true);
-        } else if (!response.isLive && currentBroadcast?.status === 'LIVE') {
-          console.log('📡 Stream is not live but broadcast shows LIVE, refreshing...');
-          // Stream is not live but broadcast shows LIVE, refresh data
-          loadInitialDataForBroadcastScreen(true);
-        }
+        } 
+        // Removed the else if that was causing refresh loops
+        // The broadcast and stream can have different "live" states because:
+        // - Broadcast status is from backend DB
+        // - Stream status is from Icecast (OGG stream)
+        // - Mobile uses MP3 stream
+        // So this mismatch is actually normal and expected
       } catch (error) {
         console.error('📡 Error fetching radio status:', error);
       }
@@ -1551,8 +1609,8 @@ const BroadcastScreen: React.FC = () => {
     // Initial check
     fetchRadioStatus();
     
-    // Poll every 10 seconds
-    const interval = setInterval(fetchRadioStatus, 10000);
+    // Poll every 30 seconds (reduced from 10s to be less aggressive)
+    const interval = setInterval(fetchRadioStatus, 30000);
     
     return () => clearInterval(interval);
   }, [currentBroadcast, loadInitialDataForBroadcastScreen]);
@@ -1617,12 +1675,19 @@ const BroadcastScreen: React.FC = () => {
 
   // Global Broadcast WebSocket (Real-time updates) - Listen for broadcast start/end
   useEffect(() => {
+    // Only setup if we don't have a specific broadcast ID
+    if (routeBroadcastId) {
+      return;
+    }
+
+    let connection: any = null;
+
     const setupGlobalBroadcastWebSocket = async () => {
       try {
         console.log('🌐 Setting up global broadcast WebSocket...');
         
         // Use the existing WebSocket service to subscribe to global updates
-        const connection = await chatService.subscribeToGlobalBroadcastUpdates((update) => {
+        connection = await chatService.subscribeToGlobalBroadcastUpdates((update) => {
           console.log('🌐 Global broadcast update received:', update);
           
           if (update.type === 'BROADCAST_STARTED') {
@@ -1641,7 +1706,7 @@ const BroadcastScreen: React.FC = () => {
               setCurrentBroadcast(null);
             }
           }
-        });
+        }, authToken);
         
         console.log('🌐 Global broadcast WebSocket connected');
       } catch (error) {
@@ -1649,11 +1714,16 @@ const BroadcastScreen: React.FC = () => {
       }
     };
 
-    // Only setup if we don't have a specific broadcast ID
-    if (!routeBroadcastId) {
-      setupGlobalBroadcastWebSocket();
-    }
-  }, [routeBroadcastId, currentBroadcast]);
+    setupGlobalBroadcastWebSocket();
+
+    // Cleanup function
+    return () => {
+      if (connection?.data?.disconnect) {
+        console.log('🌐 Cleaning up global broadcast WebSocket');
+        connection.data.disconnect();
+      }
+    };
+  }, [routeBroadcastId, authToken]); // Remove currentBroadcast from dependencies to prevent reconnections
 
   const handleSendChatMessage = async () => {
     if (!authToken || !currentBroadcast || !chatInput.trim()) return;
@@ -1765,7 +1835,7 @@ const BroadcastScreen: React.FC = () => {
       songTitle: songTitleInput,
       artist: artistInput,
     };
-    const result = await createSongRequest(currentBroadcast.id, payload, authToken);
+    const result = await songRequestService.createSongRequest(currentBroadcast.id, payload, authToken);
     if ('error' in result) {
       Alert.alert("Error", result.error || "Failed to request song.");
     } else {
@@ -1855,9 +1925,9 @@ const BroadcastScreen: React.FC = () => {
     if (!authToken || !currentBroadcast?.id) return;
     setIsRefreshingRequests(true);
     try {
-      const songRequestsResult = await getSongRequestsForBroadcast(currentBroadcast.id, authToken);
+      const songRequestsResult = await songRequestService.getSongRequests(currentBroadcast.id, authToken);
       if (!('error' in songRequestsResult)) {
-        setSongRequests(songRequestsResult);
+        setSongRequests(songRequestsResult.data || []);
       }
     } catch (err) {
       console.warn('Error refreshing song requests:', err);
@@ -2428,14 +2498,16 @@ const BroadcastScreen: React.FC = () => {
                           : 'bg-gray-400'
                 }`} />
                 
-                {/* Play/Pause Button - Clean without loading state */}
+                {/* Play/Pause Button with Loading State */}
                 <TouchableOpacity
                   onPress={handlePlayPause}
-                  disabled={!currentBroadcast}
+                  disabled={!currentBroadcast || streamingState.isLoading}
                   className={`p-3 rounded-full ${
-                    streamingState.isPlaying
-                      ? 'bg-yellow-100'
-                      : 'bg-green-100'
+                    streamingState.isLoading
+                      ? 'bg-blue-100'
+                      : streamingState.isPlaying
+                        ? 'bg-yellow-100'
+                        : 'bg-green-100'
                   }`}
                   style={{
                     shadowColor: '#000',
@@ -2445,7 +2517,9 @@ const BroadcastScreen: React.FC = () => {
                     elevation: 3,
                   }}
                 >
-                  {streamingState.isPlaying ? (
+                  {streamingState.isLoading ? (
+                    <ActivityIndicator size="small" color="#3B82F6" />
+                  ) : streamingState.isPlaying ? (
                     <Ionicons name="pause" size={24} color="#B5830F" />
                   ) : (
                     <Ionicons name="play" size={24} color="#22C55E" />
@@ -2497,24 +2571,6 @@ const BroadcastScreen: React.FC = () => {
                 />
               </TouchableOpacity>
 
-              {/* Debug: Simple Load Button (remove in production) */}
-              {__DEV__ && (
-                <TouchableOpacity
-                  onPress={async () => {
-                    try {
-                      console.log('🔧 DEBUG: Direct MP3 load test');
-                      await streamingActions.loadStream('https://icecast.software/live.mp3');
-                      setIsStreamReady(true);
-                      Alert.alert('Debug', 'MP3 stream loaded directly!');
-                    } catch (error) {
-                      Alert.alert('Debug Error', `Failed: ${error}`);
-                    }
-                  }}
-                  className="p-2 ml-1"
-                >
-                  <Ionicons name="bug" size={16} color="#91403E" />
-                </TouchableOpacity>
-              )}
             </View>
           </View>
 
