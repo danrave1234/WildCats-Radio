@@ -1,5 +1,6 @@
 import React, { useState, createContext, useContext } from 'react';
 import { Tabs } from 'expo-router';
+import { View } from 'react-native';
 import CustomTabBar from '../../components/navigation/CustomTabBar';
 import CustomHeader from '../../components/navigation/CustomHeader';
 
@@ -45,19 +46,32 @@ export default function TabLayout() {
   return (
     <NotificationContext.Provider value={{ isNotificationOpen, setIsNotificationOpen }}>
       <BroadcastContext.Provider value={{ isBroadcastListening, setIsBroadcastListening }}>
-    <Tabs
+        {/* Targeted background overlay to prevent content bleeding through system UI */}
+        <View style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: '#F5F5F5',
+          zIndex: -1, // Behind content but above system UI
+        }} />
+        <Tabs
           tabBar={(props) => <CustomTabBar {...props} isNotificationOpen={isNotificationOpen} isBroadcastListening={isBroadcastListening} />}
-      screenOptions={{
-        headerShown: true,
+          screenOptions={{
+            headerShown: true,
             header: () => <CustomHeader onNotificationStateChange={handleNotificationStateChange} />,
-      }}
-    >
-      <Tabs.Screen name="home" />
-      <Tabs.Screen name="list" />
-      <Tabs.Screen name="broadcast" />
-      <Tabs.Screen name="schedule" />
-      <Tabs.Screen name="profile" />
-    </Tabs>
+            tabBarStyle: {
+              backgroundColor: '#91403E', // Ensure tab bar has background
+            },
+          }}
+        >
+          <Tabs.Screen name="home" />
+          <Tabs.Screen name="list" />
+          <Tabs.Screen name="broadcast" />
+          <Tabs.Screen name="schedule" />
+          <Tabs.Screen name="profile" />
+        </Tabs>
       </BroadcastContext.Provider>
     </NotificationContext.Provider>
   );

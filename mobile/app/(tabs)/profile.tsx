@@ -11,6 +11,7 @@ import {
   Pressable,
   Animated,
   Easing,
+  Switch,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -20,9 +21,13 @@ import {
   UpdateUserProfilePayload,
   changeUserPassword,
   ChangePasswordPayload,
+  updateNotificationPreferences,
+  NotificationPreferences,
 } from '../../services/apiService';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import AnimatedTextInput from '../../components/ui/AnimatedTextInput';
+import ProfileSkeleton from '../../components/ProfileSkeleton';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import "../../global.css";
 
 type ProfileTabKey = 'Personal Information' | 'Security' | 'Preferences';
@@ -43,6 +48,7 @@ const getInitials = (user: UserData | null) => {
 
 const ProfileScreen: React.FC = () => {
   const { authToken, signOut } = useAuth();
+  const insets = useSafeAreaInsets();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +113,10 @@ const ProfileScreen: React.FC = () => {
     
     console.log(`🔄 Profile: Tab change requested: ${activeTab} → ${newTab}`);
     
+    // Clear preference messages when switching tabs
+    setPreferenceUpdateError(null);
+    setPreferenceUpdateSuccess(null);
+    
     // Change tab immediately
     setActiveTab(newTab);
     
@@ -149,17 +159,17 @@ const ProfileScreen: React.FC = () => {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  
+  // States for notification preferences
+  const [isUpdatingPreferences, setIsUpdatingPreferences] = useState(false);
+  const [preferenceUpdateError, setPreferenceUpdateError] = useState<string | null>(null);
+  const [preferenceUpdateSuccess, setPreferenceUpdateSuccess] = useState<string | null>(null);
 
   const fetchUserData = async (showLoading = true) => {
-    if (!authToken) {
-      if (showLoading) setIsLoading(false);
-      setError('Authentication token not found.');
-      return;
-    }
     try {
       if (showLoading) setIsLoading(true);
       setError(null);
-      const data = await getMe(authToken);
+      const data = await getMe();
       if (data.error) {
         setError(data.error);
         setUserData(null);
@@ -240,6 +250,54 @@ const ProfileScreen: React.FC = () => {
     }
   };
 
+  const handlePreferenceChange = async (preferenceKey: keyof NotificationPreferences, value: boolean) => {
+    if (!userData || isUpdatingPreferences) return;
+    
+    setIsUpdatingPreferences(true);
+    setPreferenceUpdateError(null);
+    setPreferenceUpdateSuccess(null);
+    
+    try {
+      // Update local state immediately for responsive UI
+      setUserData(prev => prev ? { ...prev, [preferenceKey]: value } : null);
+      
+      // Update preferences on server
+      const preferences: NotificationPreferences = {
+        [preferenceKey]: value,
+      };
+      
+      const result = await updateNotificationPreferences(preferences);
+      
+      if ('error' in result) {
+        // Revert local state on error
+        setUserData(prev => prev ? { ...prev, [preferenceKey]: !value } : null);
+        setPreferenceUpdateError(result.error);
+        Alert.alert('Error', result.error);
+      } else {
+        // Update with server response
+        setUserData(result);
+        // Show success feedback
+        const preferenceName = preferenceKey.replace('notify', '').replace(/([A-Z])/g, ' $1').trim();
+        setPreferenceUpdateSuccess(`${preferenceName} preference updated successfully!`);
+        console.log(`✅ Notification preference updated: ${preferenceKey} = ${value}`);
+        
+        // Clear success message after 3 seconds
+        setTimeout(() => {
+          setPreferenceUpdateSuccess(null);
+        }, 3000);
+      }
+    } catch (error) {
+      // Revert local state on error
+      setUserData(prev => prev ? { ...prev, [preferenceKey]: !value } : null);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update notification preference. Please try again.';
+      setPreferenceUpdateError(errorMessage);
+      console.error('Preference update error:', error);
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setIsUpdatingPreferences(false);
+    }
+  };
+
   const renderTabContent = () => {
     const cardPadding = "p-6 md:p-8"; 
     const formVerticalSpacing = "space-y-6";
@@ -249,7 +307,7 @@ const ProfileScreen: React.FC = () => {
     if (isEditingPersonalInfo && activeTab === 'Personal Information') {
       return (
         <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
-            <Text className="text-2xl font-semibold text-cordovan mb-8">Edit Personal Information</Text>
+            <Text className="text-2xl font-bold text-cordovan mb-8">Edit Personal Information</Text>
             <View className={formVerticalSpacing}>
               <AnimatedTextInput
                 label="First Name"
@@ -295,7 +353,7 @@ const ProfileScreen: React.FC = () => {
       return (
         <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
           <View className="flex-row justify-between items-center mb-6">
-            <Text className="text-2xl font-semibold text-cordovan">Personal Information</Text>
+            <Text className="text-2xl font-bold text-cordovan">Personal Information</Text>
             <TouchableOpacity onPress={() => setIsEditingPersonalInfo(true)} className="p-2">
                 <MaterialIcons name="edit" size={24} color="#91403E" />
             </TouchableOpacity>
@@ -303,15 +361,15 @@ const ProfileScreen: React.FC = () => {
           <View className={formVerticalSpacing}>
             <View>
               <Text className="text-sm text-cordovan font-medium">FULL NAME</Text>
-              <Text className="text-lg text-gray-800 mt-0.5">{`${firstname} ${lastname}`.trim() || 'N/A'}</Text>
+              <Text className="text-base text-gray-800 mt-0.5">{`${firstname} ${lastname}`.trim() || 'N/A'}</Text>
             </View>
             <View>
               <Text className="text-sm text-cordovan font-medium">EMAIL</Text>
-              <Text className="text-lg text-gray-800 mt-0.5">{email || 'N/A'}</Text>
+              <Text className="text-base text-gray-800 mt-0.5">{email || 'N/A'}</Text>
             </View>
             <View>
               <Text className="text-sm text-cordovan font-medium">ROLE</Text>
-              <Text className="text-lg text-gray-800 mt-0.5">{userData?.role || 'N/A'}</Text>
+              <Text className="text-base text-gray-800 mt-0.5">{userData?.role || 'N/A'}</Text>
             </View>
           </View>
         </View>
@@ -321,7 +379,7 @@ const ProfileScreen: React.FC = () => {
     if (activeTab === 'Security') {
       return (
         <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
-          <Text className="text-2xl font-semibold text-cordovan mb-8">Change Password</Text>
+          <Text className="text-2xl font-bold text-cordovan mb-8">Change Password</Text>
           {passwordError && (
               <Text className="text-red-500 bg-red-100 p-3 rounded-lg mb-4">{passwordError}</Text>
           )}
@@ -365,10 +423,92 @@ const ProfileScreen: React.FC = () => {
     if (activeTab === 'Preferences') {
       return (
         <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
-          <Text className="text-2xl font-semibold text-cordovan mb-8">Preferences</Text>
-          {/* Add preference toggles here, e.g., for dark mode, notifications */}
-          <View>
-            <Text>Theme settings and other user preferences will go here.</Text>
+          <Text className="text-2xl font-bold text-cordovan mb-8">Notification Preferences</Text>
+          
+          {/* Success Display */}
+          {preferenceUpdateSuccess && (
+            <View className="bg-green-50 border border-green-200 rounded-lg p-3 mb-6">
+              <Text className="text-green-600 text-sm font-medium">{preferenceUpdateSuccess}</Text>
+            </View>
+          )}
+          
+          {/* Error Display */}
+          {preferenceUpdateError && (
+            <View className="bg-red-50 border border-red-200 rounded-lg p-3 mb-6">
+              <Text className="text-red-600 text-sm font-medium">{preferenceUpdateError}</Text>
+            </View>
+          )}
+          
+          {/* Loading Indicator */}
+          {isUpdatingPreferences && (
+            <View className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6">
+              <View className="flex-row items-center">
+                <ActivityIndicator size="small" color="#3B82F6" className="mr-2" />
+                <Text className="text-blue-600 text-sm font-medium">Updating preferences...</Text>
+              </View>
+            </View>
+          )}
+          
+          <View className="space-y-6">
+            {/* Broadcast Start Notifications */}
+            <View className="flex-row items-center justify-between">
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-gray-800">Broadcast Start</Text>
+                <Text className="text-sm text-gray-600">Get notified when broadcasts begin</Text>
+              </View>
+              <Switch
+                value={userData?.notifyBroadcastStart ?? true}
+                onValueChange={(value) => handlePreferenceChange('notifyBroadcastStart', value)}
+                disabled={isUpdatingPreferences}
+                trackColor={{ false: '#E5E7EB', true: '#91403E' }}
+                thumbColor={userData?.notifyBroadcastStart ? '#FFFFFF' : '#F3F4F6'}
+              />
+            </View>
+
+            {/* Broadcast Reminders */}
+            <View className="flex-row items-center justify-between">
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-gray-800">Broadcast Reminders</Text>
+                <Text className="text-sm text-gray-600">Get notified before broadcasts start</Text>
+              </View>
+              <Switch
+                value={userData?.notifyBroadcastReminders ?? true}
+                onValueChange={(value) => handlePreferenceChange('notifyBroadcastReminders', value)}
+                disabled={isUpdatingPreferences}
+                trackColor={{ false: '#E5E7EB', true: '#91403E' }}
+                thumbColor={userData?.notifyBroadcastReminders ? '#FFFFFF' : '#F3F4F6'}
+              />
+            </View>
+
+            {/* New Schedule Notifications */}
+            <View className="flex-row items-center justify-between">
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-gray-800">New Schedule</Text>
+                <Text className="text-sm text-gray-600">Get notified about new broadcast schedules</Text>
+              </View>
+              <Switch
+                value={userData?.notifyNewSchedule ?? false}
+                onValueChange={(value) => handlePreferenceChange('notifyNewSchedule', value)}
+                disabled={isUpdatingPreferences}
+                trackColor={{ false: '#E5E7EB', true: '#91403E' }}
+                thumbColor={userData?.notifyNewSchedule ? '#FFFFFF' : '#F3F4F6'}
+              />
+            </View>
+
+            {/* System Updates */}
+            <View className="flex-row items-center justify-between">
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-gray-800">System Updates</Text>
+                <Text className="text-sm text-gray-600">Get notified about system announcements</Text>
+              </View>
+              <Switch
+                value={userData?.notifySystemUpdates ?? true}
+                onValueChange={(value) => handlePreferenceChange('notifySystemUpdates', value)}
+                disabled={isUpdatingPreferences}
+                trackColor={{ false: '#E5E7EB', true: '#91403E' }}
+                thumbColor={userData?.notifySystemUpdates ? '#FFFFFF' : '#F3F4F6'}
+              />
+            </View>
           </View>
         </View>
       );
@@ -379,9 +519,18 @@ const ProfileScreen: React.FC = () => {
 
   if (isLoading && !userData) {
     return (
-      <SafeAreaView className="flex-1 justify-center items-center bg-gray-100">
-        <ActivityIndicator size="large" color="#8C1D18" />
-        <Text className="mt-4 text-gray-600 text-lg">Loading Profile...</Text>
+      <SafeAreaView className="flex-1 bg-gray-100">
+        <ScrollView
+          style={{ backgroundColor: '#F3F4F6' }}
+          contentContainerStyle={{ 
+            paddingBottom: 120 + insets.bottom, // Increased bottom padding to account for app navigation bar
+            paddingTop: Platform.OS === 'android' ? 12 : 6, // Tight spacing like schedule page
+            backgroundColor: '#F3F4F6'
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <ProfileSkeleton />
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -418,16 +567,21 @@ const ProfileScreen: React.FC = () => {
   return (
     <SafeAreaView className="flex-1 bg-gray-100">
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 40 }}
+        style={{ backgroundColor: '#F3F4F6' }} // Add background to ScrollView
+        contentContainerStyle={{ 
+          paddingBottom: 120 + insets.bottom, // Increased bottom padding to account for app navigation bar
+          paddingTop: Platform.OS === 'android' ? 12 : 6, // Tight spacing like schedule page
+          backgroundColor: '#F3F4F6' // Ensure content area has background
+        }}
         showsVerticalScrollIndicator={false}
       >
         {/* Header Section */}
-        <View className="bg-white pt-16 pb-8 px-6 items-center shadow-lg">
+        <View className="bg-white pt-16 pb-8 px-5 items-center shadow-lg">
           <View className="w-24 h-24 rounded-full bg-mikado_yellow justify-center items-center mb-2 border-4 border-white shadow-lg">
             <Text className="text-3xl font-bold text-black">{getInitials(userData)}</Text>
           </View>
-          <Text className="text-xl font-semibold text-gray-900 mb-1">{`${firstname} ${lastname}`.trim()}</Text>
-          <Text className="text-sm text-gray-500">{userData?.role || 'Role not found'}</Text>
+          <Text className="text-2xl font-bold text-gray-900 mb-1">{`${firstname} ${lastname}`.trim()}</Text>
+          <Text className="text-base text-gray-500">{userData?.role || 'Role not found'}</Text>
         </View>
 
         {/* Tab Navigation */}

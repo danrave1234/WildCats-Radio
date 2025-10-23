@@ -185,6 +185,44 @@ class ChatService {
   getActiveSubscriptionCount(): number {
     return this.subscriptions.size;
   }
+
+  /**
+   * Subscribe to global broadcast updates (start/end events)
+   * @param callback - Callback function for broadcast updates
+   * @returns Promise with connection or error
+   */
+  async subscribeToGlobalBroadcastUpdates(
+    callback: (update: { type: string; broadcast?: any; broadcastId?: number }) => void
+  ): Promise<ChatConnection | { error: string }> {
+    try {
+      console.log('🌐 ChatService: Setting up global broadcast WebSocket...');
+      
+      // Use the existing WebSocket service to connect
+      const connection = await websocketService.connect(0, ''); // Use broadcast ID 0 for global updates
+      
+      // Subscribe to global broadcast topic
+      const subscription = websocketService.subscribe('/topic/broadcasts/global', (message) => {
+        try {
+          const update = JSON.parse(message.body);
+          console.log('🌐 ChatService: Received global broadcast update:', update);
+          callback(update);
+        } catch (error) {
+          console.error('🌐 ChatService: Error parsing global broadcast update:', error);
+        }
+      });
+
+      return {
+        disconnect: () => {
+          console.log('🌐 ChatService: Disconnecting global broadcast WebSocket...');
+          subscription?.unsubscribe();
+        }
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      console.error('❌ ChatService: Failed to setup global broadcast WebSocket:', errorMessage);
+      return { error: errorMessage };
+    }
+  }
 }
 
 // Export a singleton instance

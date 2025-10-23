@@ -23,6 +23,7 @@ export default function Register() {
     password: "",
     confirmPassword: "",
     birthdate: "",
+    gender: "",
   })
   const [error, setError] = useState("")
   const [showPasswords, setShowPasswords] = useState(false)
@@ -206,6 +207,28 @@ export default function Register() {
                   />
                   <p className="text-xs text-muted-foreground pt-1">
                     Used for analytics and age-appropriate content
+                  </p>
+                </div>
+
+                {/* Gender Field (optional) */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="gender" className="text-xs font-semibold text-muted-foreground">
+                    Gender (optional)
+                  </Label>
+                  <select
+                    id="gender"
+                    name="gender"
+                    value={formData.gender}
+                    onChange={handleChange}
+                    className="h-10 !rounded-none w-full border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  >
+                    <option value="">Prefer not to say</option>
+                    <option value="MALE">Male</option>
+                    <option value="FEMALE">Female</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Helps us improve demographics analytics
                   </p>
                 </div>
 

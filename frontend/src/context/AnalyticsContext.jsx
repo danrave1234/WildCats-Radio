@@ -82,8 +82,15 @@ export function AnalyticsProvider({ children }) {
       seniors: 0,
       unknown: 0
     },
+    gender: {
+      male: 0,
+      female: 0,
+      other: 0,
+      unknown: 0
+    },
     totalUsers: 0,
     usersWithBirthdate: 0,
+    usersWithGender: 0,
     lastUpdated: null
   });
 
@@ -101,9 +108,7 @@ export function AnalyticsProvider({ children }) {
   // Function to refresh activity data from analytics endpoint
   const refreshActivityData = async () => {
     try {
-      console.log('Analytics: Refreshing activity data...');
       const response = await analyticsService.getActivityStats();
-      console.log('Analytics: Activity stats refresh response:', response);
       const data = response.data || {};
 
       // Transform the recentActivities to match expected format for dashboard
@@ -298,20 +303,16 @@ export function AnalyticsProvider({ children }) {
     try {
       // Check user permissions
       if (!currentUser) {
-        console.warn('Analytics: User not authenticated, skipping data fetch');
         setLoading(false);
         return;
       }
 
-      console.log('Analytics: Current user:', currentUser);
       const role = currentUser.role;
       const canViewAnalytics = role === 'DJ' || role === 'ADMIN' || role === 'MODERATOR';
       const isAdmin = role === 'ADMIN';
-      console.log('Analytics: Permissions - canViewAnalytics:', canViewAnalytics, 'isAdmin:', isAdmin);
 
       // If user doesn't have proper permissions, set default values and return
       if (!canViewAnalytics) {
-        console.warn('Analytics: User does not have proper permissions for analytics');
         setLoading(false);
         return;
         }
@@ -344,9 +345,7 @@ export function AnalyticsProvider({ children }) {
           // Use analytics endpoint for activity stats (accessible to DJ and ADMIN)
           analyticsService.getActivityStats({ limit: 200, signal })
             .then(response => {
-              console.log('Analytics: Activity stats response:', response);
               const data = response.data || {};
-              console.log('Analytics: Activity stats data:', data);
 
               // The analytics endpoint already provides the counts and recentActivities
               // Transform the recentActivities to match expected format for dashboard
@@ -398,12 +397,10 @@ export function AnalyticsProvider({ children }) {
       // Process results
       results.forEach(result => {
         if (result.error) {
-          console.error(`Analytics: Failed to fetch ${result.type} analytics:`, result.error);
           return;
         }
 
         const { type, data } = result;
-        console.log(`Analytics: Successfully fetched ${type} data:`, data);
 
         switch (type) {
           case 'broadcasts':
@@ -429,7 +426,6 @@ export function AnalyticsProvider({ children }) {
 
       setLastUpdated(new Date());
     } catch (err) {
-      console.error('Error fetching analytics data:', err);
       setError('Failed to load analytics data. Please check your connection and try again.');
     } finally {
       setLoading(false);
@@ -460,6 +456,22 @@ export function AnalyticsProvider({ children }) {
     await fetchInitialData();
   };
 
+  // Refresh demographics only (lightweight, allowed for DJ/ADMIN/MODERATOR)
+  const refreshDemographics = async () => {
+    if (!isAuthenticated || !currentUser) return;
+    const role = currentUser.role;
+    const canViewAnalytics = role === 'DJ' || role === 'ADMIN' || role === 'MODERATOR';
+    if (!canViewAnalytics) return;
+    try {
+      const response = await analyticsService.getDemographicAnalytics();
+      const data = response.data || {};
+      setDemographicStats(data);
+      setLastUpdated(new Date());
+    } catch (error) {
+      console.error('Analytics: Error refreshing demographic stats:', error);
+    }
+  };
+
   const value = {
     userStats,
     broadcastStats,
@@ -473,7 +485,8 @@ export function AnalyticsProvider({ children }) {
     lastUpdated,
     wsConnected,
     refreshData,
-    refreshActivityData
+    refreshActivityData,
+    refreshDemographics
   };
 
   return (

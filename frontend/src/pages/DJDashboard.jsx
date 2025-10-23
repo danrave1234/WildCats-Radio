@@ -27,7 +27,6 @@ import { formatDistanceToNow } from "date-fns"
 import AudioPlayer from "../components/AudioPlayer"
 import { EnhancedScrollArea } from "../components/ui/enhanced-scroll-area"
 import { createLogger } from "../services/logger"
-import AdSense from "../components/ads/AdSense"
 import { profanityService } from "../services/api";
 
 const logger = createLogger("DJDashboard")
@@ -1377,7 +1376,7 @@ export default function DJDashboard() {
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">End broadcast?</h3>
                     <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                      This will end the current broadcast and stop the radio server (Liquidsoap). Are you sure you want to continue?
+                      This will end the current broadcast and stop the radio server. Are you sure you want to continue?
                     </p>
                   </div>
                 </div>
@@ -2120,16 +2119,6 @@ export default function DJDashboard() {
                       </div>
                     </div>
 
-                    {/* Sponsored Ad within Analytics panel */}
-                    <div className="col-span-2 border-t border-gray-200 dark:border-gray-700 pt-3 mt-1">
-                      <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Sponsored</div>
-                      <AdSense
-                        slot={import.meta.env.VITE_ADSENSE_SLOT_DJ || '0000000001'}
-                        format="auto"
-                        responsive="true"
-                        style={{ display: 'block', minHeight: '90px' }}
-                      />
-                    </div>
                   </div>
                 </div>
               </div>

@@ -16,12 +16,14 @@ import {
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
+import ListSkeleton from '../../components/ListSkeleton';
 import {
   Broadcast,
   getAllBroadcasts,
   getUpcomingBroadcasts,
   getLiveBroadcasts,
 } from '../../services/apiService';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import '../../global.css';
 import { format, parseISO, isAfter, isBefore, addDays } from 'date-fns';
 
@@ -43,6 +45,7 @@ interface BroadcastSection {
 const ListScreen: React.FC = () => {
   const router = useRouter();
   const { authToken } = useAuth();
+  const insets = useSafeAreaInsets();
   const { tab } = useLocalSearchParams<{ tab?: FilterTab }>();
 
   const [activeFilter, setActiveFilter] = useState<FilterTab>(tab || 'all');
@@ -85,13 +88,13 @@ const ListScreen: React.FC = () => {
             toValue: currentTabLayout.x,
             duration: 250,
             easing: Easing.out(Easing.ease),
-            useNativeDriver: false,
+            useNativeDriver: false, // Must be false for layout properties
           }),
           Animated.timing(underlineWidth, {
             toValue: currentTabLayout.width,
             duration: 250,
             easing: Easing.out(Easing.ease),
-            useNativeDriver: false,
+            useNativeDriver: false, // Must be false for layout properties
           }),
         ]).start();
       }
@@ -968,9 +971,23 @@ const ListScreen: React.FC = () => {
 
   if (isLoading && !isRefreshing) {
     return (
-      <SafeAreaView className="flex-1 justify-center items-center bg-anti-flash_white">
-        <ActivityIndicator size="large" color="#91403E" />
-        <Text className="mt-4 text-gray-600 text-lg">Loading Broadcasts...</Text>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#F9FAFB', paddingTop: insets.top, paddingBottom: insets.bottom }}>
+        <Stack.Screen 
+          options={{ 
+            title: 'Broadcasts',
+            headerShadowVisible: false,
+          }} 
+        />
+        <ScrollView
+          style={{ backgroundColor: '#F9FAFB' }}
+          contentContainerStyle={{ 
+            paddingBottom: 100 + insets.bottom,
+            backgroundColor: '#F9FAFB'
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <ListSkeleton />
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -992,7 +1009,7 @@ const ListScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
       <Stack.Screen 
         options={{ 
           title: 'Broadcasts',
@@ -1001,7 +1018,7 @@ const ListScreen: React.FC = () => {
       />
       
       {/* Screen Title */}
-      <View className="pt-4 pb-4 mb-2 px-4 bg-gray-50">
+      <View className="pt-2 pb-4 mb-2 px-5 bg-gray-50">
         <View>
           <Text className="text-3xl font-bold text-gray-800 mb-1">Broadcast Directory</Text>
           <Text className="text-base text-gray-600">Explore live shows, upcoming broadcasts and recent episodes</Text>
@@ -1095,7 +1112,12 @@ const ListScreen: React.FC = () => {
       {activeFilter === 'all' ? (
         <ScrollView
           className="flex-1"
-          contentContainerStyle={{ paddingTop: 16, paddingBottom: 100 }}
+          style={{ backgroundColor: '#F9FAFB' }} // Add background to ScrollView
+          contentContainerStyle={{ 
+            paddingTop: 16, 
+            paddingBottom: 100 + insets.bottom,
+            backgroundColor: '#F9FAFB' // Ensure content area has background
+          }}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -1204,7 +1226,11 @@ const ListScreen: React.FC = () => {
           
           <ScrollView
             className="flex-1"
-            contentContainerStyle={{ paddingBottom: 100 }}
+            style={{ backgroundColor: '#F9FAFB' }} // Add background to ScrollView
+            contentContainerStyle={{ 
+              paddingBottom: 100 + insets.bottom,
+              backgroundColor: '#F9FAFB' // Ensure content area has background
+            }}
             refreshControl={
               <RefreshControl
                 refreshing={isRefreshing}

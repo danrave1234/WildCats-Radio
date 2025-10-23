@@ -57,7 +57,7 @@ const AnimatedTextInput: React.FC<AnimatedTextInputProps> = ({
       toValue: isFocused || (value && value.length > 0) ? 1 : 0,
       duration: 200,
       easing: Easing.bezier(0.4, 0, 0.2, 1),
-      useNativeDriver: false, 
+      useNativeDriver: false, // Must be false for layout properties like fontSize, top, paddingHorizontal
     }).start();
   }, [isFocused, value, animatedValue]);
 

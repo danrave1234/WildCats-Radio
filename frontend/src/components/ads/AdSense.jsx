@@ -11,7 +11,7 @@ import React, { useEffect, useRef } from 'react';
 export default function AdSense({ slot, format = 'auto', responsive = 'true', style = { display: 'block' }, className = '' }) {
   const containerRef = useRef(null);
 
-  const enabled = import.meta.env.VITE_ENABLE_ADS === 'true' || import.meta.env.VITE_ENABLE_ADS === true;
+  const enabled = false; // Ads disabled globally
   const client = import.meta.env.VITE_ADSENSE_CLIENT;
 
   useEffect(() => {

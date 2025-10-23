@@ -1,15 +1,14 @@
 import { StreamConfig } from './audioStreamingService';
 import { createLogger } from './logger';
 import { Platform } from 'react-native';
+import ENV from '../config/environment';
 
 const logger = createLogger('StreamService');
 
-// Base URLs from the roadmap
-const BACKEND_BASE_URL = 'https://wildcat-radio-f05d362144e6.autoidleapp.com';
-//const BACKEND_BASE_URL = 'http://10.0.2.2:8080/api'; // Android emulator to access local server
-//const BACKEND_BASE_URL = 'http://192.168.5.60:8080'; // Local development URL
-const ICECAST_SERVER_URL = 'https://icecast.software';
-const STREAM_URL = 'https://icecast.software/live.mp3'; // Mobile-exclusive MP3 stream
+// Use environment configuration
+const BACKEND_BASE_URL = ENV.BACKEND_BASE_URL; // Automatically switches between dev/prod
+const ICECAST_SERVER_URL = ENV.ICECAST_SERVER_URL;
+const STREAM_URL = ENV.STREAM_URL; // Mobile-exclusive MP3 stream
 
 interface StreamStatusResponse {
   live: boolean;
