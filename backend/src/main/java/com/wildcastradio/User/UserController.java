@@ -84,13 +84,7 @@ public class UserController {
             // Success: keep counters (cooldown enforced by natural refill)
             loginAttemptLimiter.onSuccess(username, clientIp);
             
-            // Detect if request is from mobile app by checking User-Agent or custom header
-            String userAgent = httpRequest.getHeader("User-Agent");
-            String clientType = httpRequest.getHeader("X-Client-Type");
-            boolean isMobileApp = (clientType != null && clientType.equalsIgnoreCase("mobile")) ||
-                                  (userAgent != null && (userAgent.contains("Expo") || userAgent.contains("ReactNative")));
-            
-            // Create secure HttpOnly cookies for web browsers
+            // Create secure HttpOnly cookies for token and user information
             Cookie tokenCookie = new Cookie("token", loginResponse.getToken());
             tokenCookie.setHttpOnly(true);
             tokenCookie.setSecure(useSecureCookies); // Env-aware
@@ -116,16 +110,9 @@ public class UserController {
             userRoleCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
             response.addCookie(userRoleCookie);
             
-            // For mobile apps, return the token in the response body
-            // For web browsers, return null token (they'll use cookies)
-            if (isMobileApp) {
-                logger.info("Mobile app login detected, returning token in response body for user: {}", username);
-                return ResponseEntity.ok(loginResponse); // Include token in response
-            } else {
-                // Return response without the token (token is now in secure cookie for web)
-                LoginResponse secureResponse = new LoginResponse(null, loginResponse.getUser());
-                return ResponseEntity.ok(secureResponse);
-            }
+            // Return response without the token (token is now in secure cookie)
+            LoginResponse secureResponse = new LoginResponse(null, loginResponse.getUser());
+            return ResponseEntity.ok(secureResponse);
         } catch (IllegalArgumentException e) {
             // Failure: count towards limiter
             loginAttemptLimiter.onFailure(username, clientIp);
