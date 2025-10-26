@@ -9,7 +9,7 @@ const ModeratorDashboard = () => {
   // Users state (moderator-managed)
   const [users, setUsers] = useState([]);
   const [rolesLoading, setRolesLoading] = useState(false);
-  const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'LISTENER' });
+  const [newUser, setNewUser] = useState({ firstname: '', lastname: '', email: '', password: '', role: 'LISTENER', birthdate: '' });
 
   // Live broadcasts state
   const [liveBroadcasts, setLiveBroadcasts] = useState([]);
@@ -148,16 +148,22 @@ const ModeratorDashboard = () => {
     e.preventDefault();
     setRolesLoading(true);
     try {
-      const registerRequest = { name: newUser.username, email: newUser.email, password: newUser.password };
+      const registerRequest = {
+        firstname: newUser.firstname,
+        lastname: newUser.lastname,
+        email: newUser.email,
+        password: newUser.password,
+        birthdate: newUser.birthdate
+      };
       const res = await authService.register(registerRequest);
       const created = res.data;
-      // Moderators cannot create admins/moderators; set role if LISTENER or DJ
-      if (newUser.role === 'DJ') {
-        await authService.updateUserRoleByActor(created.id, 'DJ');
-        created.role = 'DJ';
+      // Set role if selected (Listener is default from backend)
+      if (newUser.role === 'DJ' || newUser.role === 'MODERATOR') {
+        await authService.updateUserRoleByActor(created.id, newUser.role);
+        created.role = newUser.role;
       }
       setUsers(prev => [...prev, created]);
-      setNewUser({ username: '', email: '', password: '', role: 'LISTENER' });
+      setNewUser({ firstname: '', lastname: '', email: '', password: '', role: 'LISTENER', birthdate: '' });
       alert('User created');
     } catch (err) {
       alert('Failed to create user');
@@ -265,7 +271,7 @@ const ModeratorDashboard = () => {
               {activeTab === 'overview' && (
                 <div className="p-6">
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Quick Actions</h2>
-                  <p className="text-gray-600 dark:text-gray-300">Use the tabs to monitor live broadcasts, manage user bans, add profanity words, create Listener/DJ users, and toggle roles between Listener and DJ. Moderators cannot assign or create Admin/Moderator roles.</p>
+                  <p className="text-gray-600 dark:text-gray-300">Use the tabs to monitor live broadcasts, manage user bans, add profanity words, create Listener/DJ/Moderator users, and toggle roles between Listener and DJ. Moderators cannot assign or create Admin roles.</p>
                 </div>
               )}
 
@@ -318,7 +324,15 @@ const ModeratorDashboard = () => {
                           <div className="text-gray-900 dark:text-white font-medium">{(foundUser.firstname||'') + ' ' + (foundUser.lastname||'')}</div>
                           <div className="text-gray-600 dark:text-gray-300 text-sm">{foundUser.email}</div>
                           <div className="text-xs mt-2">
-                            <span className={`px-2 py-0.5 rounded-full ${foundUser.role==='ADMIN'?'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200':foundUser.role==='DJ'?'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200':'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'}`}>{foundUser.role}</span>
+                            <span className={`px-2 py-0.5 rounded-full ${
+                              foundUser.role==='ADMIN'
+                                ?'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                                :foundUser.role==='MODERATOR'
+                                  ?'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
+                                  :foundUser.role==='DJ'
+                                    ?'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                                    :'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                            }`}>{foundUser.role}</span>
                           </div>
                         </div>
                         <div className="text-sm text-gray-700 dark:text-gray-300">
@@ -347,12 +361,15 @@ const ModeratorDashboard = () => {
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Create User (Listener or DJ)</h3>
                     <form onSubmit={handleCreateUser} className="space-y-3">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <input name="username" value={newUser.username} onChange={handleNewUserChange} placeholder="Username" className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
+                        <input name="firstname" value={newUser.firstname} onChange={handleNewUserChange} placeholder="First name" className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
+                        <input name="lastname" value={newUser.lastname} onChange={handleNewUserChange} placeholder="Last name" className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
                         <input type="email" name="email" value={newUser.email} onChange={handleNewUserChange} placeholder="Email" className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
                         <input type="password" name="password" value={newUser.password} onChange={handleNewUserChange} placeholder="Password" className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
+                        <input type="date" name="birthdate" value={newUser.birthdate} onChange={handleNewUserChange} placeholder="Birthdate" className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
                         <select name="role" value={newUser.role} onChange={handleNewUserChange} className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                           <option value="LISTENER">Listener</option>
                           <option value="DJ">DJ</option>
+                          <option value="MODERATOR">Moderator</option>
                         </select>
                       </div>
                       <div className="text-right">
