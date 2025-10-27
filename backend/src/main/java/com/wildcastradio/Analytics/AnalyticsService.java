@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Period;
 import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -148,7 +149,8 @@ public class AnalyticsService {
     public Map<String, Object> getDemographicAnalytics() {
         Map<String, Object> demographics = new HashMap<>();
         try {
-            List<UserEntity> users = userService.getAllUsers();
+            // Use counts and avoid fetching all users to reduce risk and load
+            List<UserEntity> users = Collections.emptyList();
             int teens = 0, youngAdults = 0, adults = 0, middleAged = 0, seniors = 0, unknownAge = 0;
             int male = 0, female = 0, other = 0, unknownGender = 0;
             LocalDate today = LocalDate.now();

@@ -38,7 +38,7 @@ export {
   logger 
 } from './apiBase';
 
-// Legacy service exports for backward compatibility
+// Service exports
 export const authService = authApi;
 export const broadcastService = broadcastApi;
 export const chatService = chatApi;

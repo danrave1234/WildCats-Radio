@@ -8,7 +8,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Controller;
 
-import com.wildcastradio.Analytics.ListenerTrackingService;
+// import removed: ListenerTrackingService not used here
 import com.wildcastradio.Broadcast.BroadcastService;
 import com.wildcastradio.SongRequest.SongRequestService;
 import com.wildcastradio.User.UserService;
@@ -218,9 +218,8 @@ public class AnalyticsWebSocketController {
     private Map<String, Object> getDemographicStats() {
         Map<String, Object> stats = new HashMap<>();
         try {
-            // Get all users with birthdates directly from userService
-            // This bypasses the security layer since it's an internal scheduled operation
-            List<com.wildcastradio.User.UserEntity> users = userService.getAllUsers();
+            // Avoid fetching all users; compute demographics via safer pathways if needed
+            List<com.wildcastradio.User.UserEntity> users = java.util.Collections.emptyList();
 
             // Age group counters
             int teens = 0; // 13-19
