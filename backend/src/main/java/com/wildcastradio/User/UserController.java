@@ -27,6 +27,9 @@ import com.wildcastradio.User.DTO.RegisterRequest;
 import com.wildcastradio.User.DTO.UserDTO;
 import com.wildcastradio.ratelimit.IpUtils;
 import com.wildcastradio.ratelimit.LoginAttemptLimiter;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -232,13 +235,16 @@ public class UserController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    @GetMapping("/getAll")
+    
+
+    @GetMapping("/paged")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<UserDTO>> getAllUsers() {
-        List<UserDTO> users = userService.findAllUsers().stream()
-                .map(UserDTO::fromEntity)
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(users);
+    public ResponseEntity<Page<UserDTO>> getUsersPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "15") int size) {
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, size));
+        Page<UserDTO> dtoPage = userService.findAllUsers(pageable).map(UserDTO::fromEntity);
+        return ResponseEntity.ok(dtoPage);
     }
 
     @GetMapping("/by-role/{role}")

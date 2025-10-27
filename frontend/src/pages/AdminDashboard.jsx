@@ -13,6 +13,10 @@ import { Spinner } from '../components/ui/spinner';
 const AdminDashboard = () => {
   const { isAuthenticated } = useAuth();
   const [users, setUsers] = useState([]);
+  const [page, setPage] = useState(0);
+  const [pageSize] = useState(15);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -53,15 +57,16 @@ const AdminDashboard = () => {
       setOverviewRefreshing(true);
       // Fetch users and broadcast stats in parallel (1 lightweight analytics call for broadcast totals)
       const [usersResp, broadcastStatsResp] = await Promise.all([
-        authService.getAllUsers(),
+        authService.getUsersPaged(0, 1),
         analyticsService.getBroadcastStats()
       ]);
 
       // Users
-      const allUsers = usersResp.data || [];
-      const totalUsers = allUsers.length;
-      const totalDJs = allUsers.filter(u => u.role === 'DJ').length;
-      const totalListeners = allUsers.filter(u => u.role === 'LISTENER').length;
+      const pageData = usersResp.data || {};
+      const totalUsers = typeof pageData.totalElements === 'number' ? pageData.totalElements : 0;
+      // For lightweight overview, skip per-role counts to avoid heavy queries
+      const totalDJs = 0;
+      const totalListeners = 0;
 
       // Broadcasts from analytics (fast server-side counts)
       const b = broadcastStatsResp.data || {};
@@ -103,7 +108,7 @@ const AdminDashboard = () => {
     if (activeTab === 'users') {
       fetchUsers();
     }
-  }, [activeTab]);
+  }, [activeTab, page]);
 
   // Fetch simple totals for overview once
   useEffect(() => {
@@ -161,16 +166,20 @@ const AdminDashboard = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await authService.getAllUsers();
-      setUsers(response.data);
+      const response = await authService.getUsersPaged(page, pageSize);
+      const data = response.data;
+      const content = Array.isArray(data?.content) ? data.content : [];
+      setUsers(content);
+      setTotalPages(typeof data.totalPages === 'number' ? data.totalPages : 0);
+      setTotalElements(typeof data.totalElements === 'number' ? data.totalElements : content.length);
 
-      // Update stats
-      const djCount = response.data.filter(user => user.role === 'DJ').length;
-      const listenerCount = response.data.filter(user => user.role === 'LISTENER').length;
+      // Update stats based on this page only for table counts; overall totals come from analytics
+      const djCount = content.filter(user => user.role === 'DJ').length;
+      const listenerCount = content.filter(user => user.role === 'LISTENER').length;
 
       setStats(prev => ({
         ...prev,
-        totalUsers: response.data.length,
+        totalUsers: prev.totalUsers, // leave overall to analytics
         totalDJs: djCount,
         totalListeners: listenerCount
       }));
@@ -636,6 +645,29 @@ const AdminDashboard = () => {
                         </tbody>
                       </table>
                     )}
+                  </div>
+                  {/* Pagination Controls */}
+                  <div className="mt-4 flex items-center justify-between">
+                    <div className="text-sm text-gray-600 dark:text-gray-300">
+                      Page {totalPages > 0 ? page + 1 : 0} of {totalPages}
+                      {totalElements ? ` • ${totalElements} users total` : ''}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setPage((p) => Math.max(0, p - 1))}
+                        disabled={page === 0 || loading}
+                        className={`px-3 py-1 rounded-md text-sm ${page === 0 || loading ? 'bg-gray-300 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed' : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500'}`}
+                      >
+                        Previous
+                      </button>
+                      <button
+                        onClick={() => setPage((p) => (totalPages && p < totalPages - 1 ? p + 1 : p))}
+                        disabled={loading || !totalPages || page >= totalPages - 1}
+                        className={`px-3 py-1 rounded-md text-sm ${loading || !totalPages || page >= totalPages - 1 ? 'bg-gray-300 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed' : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500'}`}
+                      >
+                        Next
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
