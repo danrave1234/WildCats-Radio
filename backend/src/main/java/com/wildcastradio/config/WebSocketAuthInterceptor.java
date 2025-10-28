@@ -78,9 +78,8 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
                     return null; // Block the connection
                 }
             } else {
-                // No valid Authorization header - reject the connection
-                System.err.println("WebSocket authentication failed: No valid Authorization header provided");
-                return null; // Block the connection
+                // No auth header present: allow anonymous connection for public topics (read-only)
+                // Do not set any authentication; downstream user-queue use simply won't apply
             }
         }
         

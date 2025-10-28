@@ -95,9 +95,32 @@ class WebSocketManager implements WebSocketService {
         
         this.connectHandlers.forEach(handler => handler());
         
-        // Special case for broadcastId 0 - skip broadcast subscriptions for global connections
+        // Always subscribe to public announcements topic for global toasts
+        try {
+          const pub = this.stompClient.subscribe('/topic/announcements/public', (message: any) => {
+            try {
+              const payload = JSON.parse(message.body);
+              this.messageHandlers.forEach(handler => handler({
+                type: 'broadcast_update',
+                data: payload,
+                broadcastId: 0
+              }));
+            } catch (e) {
+              console.error('❌ Error parsing public announcement payload:', e);
+            }
+          });
+          // Keep a reference by reusing broadcastSubscription when id is 0
+          if (broadcastId === 0) {
+            this.broadcastSubscription = pub;
+            console.log('📢 Subscribed to public announcements topic');
+          }
+        } catch (e) {
+          console.error('❌ Failed subscribing to public announcements:', e);
+        }
+
+        // Special case for broadcastId 0 - skip other broadcast subscriptions for global connections
         if (broadcastId === 0) {
-          console.log('✅ Global connection established (no broadcast subscriptions)');
+          console.log('✅ Global connection established (public announcements only)');
           return;
         }
         

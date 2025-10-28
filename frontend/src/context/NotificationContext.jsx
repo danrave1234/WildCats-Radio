@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
+// Announcement popups removed per new requirement
 import { notificationService } from '../services/api/index.js';
 import { useAuth } from './AuthContext';
 import { createLogger } from '../services/logger';
@@ -17,6 +18,7 @@ export function NotificationProvider({ children }) {
   const { isAuthenticated } = useAuth();
   const wsConnection = useRef(null);
   const refreshInterval = useRef(null);
+  // Popup state removed
 
   // Preferences with local persistence
   const defaultPreferences = {
@@ -83,10 +85,10 @@ export function NotificationProvider({ children }) {
 
   // Fetch notifications on mount and when user logs in
   useEffect(() => {
+    // Connect only for authenticated users now
     if (isAuthenticated) {
       connectToWebSocket();
     } else {
-      // Clean up when user logs out
       disconnectWebSocket();
       setNotifications([]);
       setUnreadCount(0);
@@ -96,6 +98,8 @@ export function NotificationProvider({ children }) {
       disconnectWebSocket();
     };
   }, [isAuthenticated]);
+
+  // Removed public polling fallback
 
   const startPeriodicRefresh = () => {
     // Clear any existing interval
@@ -120,15 +124,18 @@ export function NotificationProvider({ children }) {
   };
 
   const connectToWebSocket = async () => {
-    if (!isAuthenticated || wsConnection.current) {
-      return; // Don't connect if not authenticated or already connected
+    if (wsConnection.current) {
+      return; // Already connected
     }
 
     try {
       logger.debug('Connecting to WebSocket for real-time notifications...');
       const connection = await notificationService.subscribeToNotifications((notification) => {
         logger.debug('Received real-time notification:', notification);
-        addNotification(notification);
+        // Add user-queue item to inbox
+        if (notification && typeof notification.id !== 'undefined') {
+          addNotification(notification);
+        }
       });
 
       wsConnection.current = connection;

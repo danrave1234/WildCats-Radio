@@ -39,6 +39,16 @@ export const notificationApi = {
           }
         });
 
+        // Also subscribe to public announcements for anonymous visitors
+        stompClient.subscribe('/topic/announcements/public', (message) => {
+          try {
+            const payload = JSON.parse(message.body);
+            callback(payload);
+          } catch (error) {
+            logger.error('Error parsing public announcement:', error);
+          }
+        });
+
         resolve({
           disconnect: () => {
             if (stompClient && stompClient.connected) {

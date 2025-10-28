@@ -13,19 +13,21 @@ public class NotificationDTO {
     private LocalDateTime timestamp;
     private boolean read;
     private UserDTO recipient;
+    private Long announcementId;
     
     // Constructors
     public NotificationDTO() {
     }
     
     public NotificationDTO(Long id, String message, String type, LocalDateTime timestamp,
-                          boolean read, UserDTO recipient) {
+                          boolean read, UserDTO recipient, Long announcementId) {
         this.id = id;
         this.message = message;
         this.type = type;
         this.timestamp = timestamp;
         this.read = read;
         this.recipient = recipient;
+        this.announcementId = announcementId;
     }
     
     // Convert from Entity to DTO
@@ -40,7 +42,8 @@ public class NotificationDTO {
             notification.getType().toString(),
             notification.getTimestamp(),
             notification.isRead(),
-            UserDTO.fromEntity(notification.getRecipient())
+            UserDTO.fromEntity(notification.getRecipient()),
+            notification.getAnnouncement() != null ? notification.getAnnouncement().getId() : null
         );
     }
     
@@ -91,5 +94,13 @@ public class NotificationDTO {
     
     public void setRecipient(UserDTO recipient) {
         this.recipient = recipient;
+    }
+
+    public Long getAnnouncementId() {
+        return announcementId;
+    }
+
+    public void setAnnouncementId(Long announcementId) {
+        this.announcementId = announcementId;
     }
 } 

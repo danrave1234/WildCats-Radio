@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { CheckCircleIcon, XCircleIcon, ExclamationTriangleIcon, InformationCircleIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
-export default function Toast({ message, type = 'success', duration = 3000, onClose }) {
+export default function Toast({ message, type = 'success', duration = 3000, onClose, position = 'bottom-right' }) {
   const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
@@ -25,8 +25,23 @@ export default function Toast({ message, type = 'success', duration = 3000, onCl
         return 'bg-yellow-50 dark:bg-yellow-900/30 border-l-4 border-yellow-500 text-yellow-800 dark:text-yellow-300';
       case 'info':
         return 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500 text-blue-800 dark:text-blue-300';
+      case 'maroon':
+        return 'bg-maroon-600/95 text-white border-l-4 border-gold-500 shadow-maroon';
       default:
         return 'bg-white dark:bg-gray-800 border-l-4 border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-300';
+    }
+  };
+
+  const getPositionStyles = () => {
+    switch (position) {
+      case 'top-left':
+        return 'top-4 left-4';
+      case 'top-right':
+        return 'top-4 right-4';
+      case 'bottom-left':
+        return 'bottom-4 left-4';
+      default:
+        return 'bottom-4 right-4';
     }
   };
 
@@ -48,7 +63,7 @@ export default function Toast({ message, type = 'success', duration = 3000, onCl
   if (!isVisible) return null;
 
   return (
-    <div className={`fixed bottom-4 right-4 z-50 transform transition-all duration-300 ${
+    <div className={`fixed ${getPositionStyles()} z-50 transform transition-all duration-300 ${
       isVisible ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0'
     }`}>
       <div className={`rounded-lg shadow-lg p-4 flex items-center space-x-3 ${getToastStyles()}`}>

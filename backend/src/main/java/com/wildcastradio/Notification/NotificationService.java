@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.wildcastradio.Notification.DTO.NotificationDTO;
+import com.wildcastradio.Notification.DTO.PublicNotificationDTO;
+import com.wildcastradio.Announcement.AnnouncementEntity;
 import com.wildcastradio.User.UserEntity;
 
 @Service
@@ -64,6 +66,41 @@ public class NotificationService {
         );
 
         return savedNotification;
+    }
+
+    @Transactional
+    public NotificationEntity sendNotificationWithAnnouncement(
+            UserEntity recipient,
+            String message,
+            NotificationType type,
+            AnnouncementEntity announcement
+    ) {
+        NotificationEntity notification = sendNotification(recipient, message, type);
+        // attach announcement link and re-save
+        notification.setAnnouncement(announcement);
+        NotificationEntity saved = notificationRepository.save(notification);
+
+        // Push updated DTO with announcementId to WS
+        NotificationDTO dto = NotificationDTO.fromEntity(saved);
+        messagingTemplate.convertAndSendToUser(
+                recipient.getEmail(),
+                "/queue/notifications",
+                dto
+        );
+        return saved;
+    }
+
+    public void sendPublicAnnouncementToast(AnnouncementEntity announcement, String message) {
+        try {
+            PublicNotificationDTO dto = new PublicNotificationDTO(
+                    NotificationType.ANNOUNCEMENT_PUBLISHED.name(),
+                    message,
+                    announcement != null ? announcement.getId() : null,
+                    LocalDateTime.now()
+            );
+            messagingTemplate.convertAndSend("/topic/announcements/public", dto);
+        } catch (Exception ignored) {
+        }
     }
 
     /**

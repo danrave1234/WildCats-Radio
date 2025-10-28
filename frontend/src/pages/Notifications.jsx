@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNotifications } from '../context/NotificationContext';
+import { getAllAnnouncements } from '../services/announcementService';
+import { getAllAnnouncements } from '../services/announcementService';
 import { formatDistanceToNow, format } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import { parseISO } from 'date-fns';
@@ -68,12 +70,14 @@ export default function Notifications() {
   const [sortBy, setSortBy] = useState('newest');
   const [selectedNotifications, setSelectedNotifications] = useState([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [announcementItems, setAnnouncementItems] = useState([]);
 
   // Manual refresh function
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
     try {
       await fetchNotifications();
+      await loadAnnouncements(true);
     } finally {
       setIsRefreshing(false);
     }
@@ -152,6 +156,33 @@ export default function Notifications() {
   const formatNotificationType = (type) => {
     return type.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
   };
+
+  // Load recent announcements (last 7 days) and map to notification-like items
+  const loadAnnouncements = async (reset = false) => {
+    try {
+      const resp = await getAllAnnouncements(0, 20);
+      const content = resp?.content || resp?.data?.content || [];
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const items = content
+        .filter(a => a?.publishedAt && new Date(a.publishedAt) >= sevenDaysAgo)
+        .map(a => ({
+          id: `ann-${a.id}`,
+          message: a.title,
+          type: 'ANNOUNCEMENT',
+          timestamp: a.publishedAt,
+          read: true, // Do not count toward unread
+          link: '/announcements'
+        }));
+      setAnnouncementItems(reset ? items : items);
+    } catch (_e) {
+      setAnnouncementItems([]);
+    }
+  };
+
+  useEffect(() => {
+    loadAnnouncements(true);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -265,9 +296,23 @@ export default function Notifications() {
           )}
         </div>
 
-        {/* Notifications List */}
+          {/* Notifications List (includes recent announcements from last 7 days) */}
         <div className="space-y-3">
-          {filteredAndSortedNotifications.length === 0 ? (
+          {(() => {
+            const combined = [...notifications, ...announcementItems]
+              .sort((a,b) => new Date((b.timestamp||b.createdAt)) - new Date((a.timestamp||a.createdAt)));
+            const list = (() => {
+              let arr = combined;
+              if (searchTerm) {
+                arr = arr.filter(n => (n.message||'').toLowerCase().includes(searchTerm.toLowerCase()) || (n.type||'').toLowerCase().includes(searchTerm.toLowerCase()));
+              }
+              if (selectedFilter === 'unread') arr = arr.filter(n => !n.read && !String(n.id).startsWith('ann-'));
+              if (selectedFilter === 'read') arr = arr.filter(n => n.read || String(n.id).startsWith('ann-'));
+              if (sortBy === 'oldest') arr = arr.slice().reverse();
+              if (sortBy === 'unread') arr = arr.slice().sort((a,b)=> (a.read?1:0)-(b.read?1:0));
+              return arr;
+            })();
+            return list.length === 0 ? (
             <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
               <Bell className="h-16 w-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
               <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
@@ -280,7 +325,7 @@ export default function Notifications() {
               </p>
             </div>
           ) : (
-            filteredAndSortedNotifications.map((notification) => {
+            list.map((notification) => {
               const IconComponent = getNotificationIcon(notification.type);
               const isSelected = selectedNotifications.includes(notification.id);
               
@@ -313,7 +358,13 @@ export default function Notifications() {
                       {/* Content */}
                       <div 
                         className="flex-1 cursor-pointer"
-                        onClick={() => handleNotificationClick(notification)}
+                        onClick={() => {
+                          if (String(notification.id).startsWith('ann-')) {
+                            window.location.href = '/announcements';
+                            return;
+                          }
+                          handleNotificationClick(notification)
+                        }}
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
@@ -321,7 +372,7 @@ export default function Notifications() {
                               <span className="text-sm font-medium text-gray-900 dark:text-white">
                                 {formatNotificationType(notification.type)}
                               </span>
-                              {!notification.read && (
+                              {!notification.read && !String(notification.id).startsWith('ann-') && (
                                 <span className="inline-block h-2 w-2 bg-maroon-500 rounded-full"></span>
                               )}
                             </div>
@@ -337,7 +388,7 @@ export default function Notifications() {
 
                           {/* Actions */}
                           <div className="flex items-center space-x-2 ml-4">
-                            {!notification.read && (
+                            {!notification.read && !String(notification.id).startsWith('ann-') && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -357,8 +408,10 @@ export default function Notifications() {
                 </div>
               );
             })
-          )}
+          )})()}
         </div>
+
+        
 
         {/* Load More */}
         {filteredAndSortedNotifications.length > 0 && hasMore && (
