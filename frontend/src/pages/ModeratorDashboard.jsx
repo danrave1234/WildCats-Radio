@@ -2,9 +2,14 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { broadcastService, authService, profanityService, notificationService } from '../services/api/index.js';
 import { Spinner } from '../components/ui/spinner';
+import { useAuth } from '../context/AuthContext';
+import { ExclamationTriangleIcon } from '@heroicons/react/24/solid';
 
 const ModeratorDashboard = () => {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const isModOrAdmin = !!currentUser && ['ADMIN', 'MODERATOR'].includes(currentUser.role);
+
   const [activeTab, setActiveTab] = useState('moderation');
   // Users state (moderator-managed)
   const [users, setUsers] = useState([]);
@@ -46,6 +51,7 @@ const ModeratorDashboard = () => {
   };
 
   useEffect(() => {
+    if (!isModOrAdmin) return;
     if (activeTab === 'live') {
       fetchLive();
     }
@@ -69,7 +75,7 @@ const ModeratorDashboard = () => {
         .catch(()=>setUsers([]))
         .finally(()=>setRolesLoading(false));
     }
-  }, [activeTab]);
+  }, [activeTab, isModOrAdmin]);
 
   const handleWatch = (broadcastId) => {
     if (!broadcastId) return;
@@ -220,6 +226,7 @@ const ModeratorDashboard = () => {
   };
 
   return (
+    isModOrAdmin ? (
     <div className="container mx-auto px-4">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">Moderator Dashboard</h1>
@@ -458,6 +465,20 @@ const ModeratorDashboard = () => {
         </div>
       </div>
     </div>
+    ) : (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center">
+          <ExclamationTriangleIcon className="mx-auto h-12 w-12 text-red-500 mb-4" />
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h2>
+          <p className="text-gray-600 dark:text-gray-300 mb-4">
+            You must be a Moderator or Administrator to access this page.
+          </p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Your current role is: <span className="font-semibold">{currentUser?.role || 'Not Authenticated'}</span>
+          </p>
+        </div>
+      </div>
+    )
   );
 };
 
