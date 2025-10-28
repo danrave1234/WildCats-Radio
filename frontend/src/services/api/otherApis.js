@@ -30,16 +30,19 @@ export const notificationApi = {
         logger.debug('Connected to WebSocket:', frame);
         isConnected = true;
 
-        stompClient.subscribe('/user/queue/notifications', (message) => {
-          try {
-            const notification = JSON.parse(message.body);
-            callback(notification);
-          } catch (error) {
-            logger.error('Error parsing notification:', error);
-          }
-        });
+        // Only subscribe to user notifications if authenticated
+        if (token) {
+          stompClient.subscribe('/user/queue/notifications', (message) => {
+            try {
+              const notification = JSON.parse(message.body);
+              callback(notification);
+            } catch (error) {
+              logger.error('Error parsing notification:', error);
+            }
+          });
+        }
 
-        // Also subscribe to public announcements for anonymous visitors
+        // Subscribe to public announcements for all users (authenticated and anonymous)
         stompClient.subscribe('/topic/announcements/public', (message) => {
           try {
             const payload = JSON.parse(message.body);
