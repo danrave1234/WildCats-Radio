@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNotifications } from '../context/NotificationContext';
 import { getAllAnnouncements } from '../services/announcementService';
-import { getAllAnnouncements } from '../services/announcementService';
 import { formatDistanceToNow, format } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import { parseISO } from 'date-fns';

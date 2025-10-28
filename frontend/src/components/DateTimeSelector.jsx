@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
 import { CalendarIcon, ClockIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 
-export function DateSelector({ value, onChange, label, required = false, id }) {
+export function DateSelector({ value, onChange, label, required = false, id, min }) {
   const [isOpen, setIsOpen] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(value ? new Date(value) : new Date());
   const [selectedDate, setSelectedDate] = useState(value ? new Date(value) : null);
@@ -10,6 +10,21 @@ export function DateSelector({ value, onChange, label, required = false, id }) {
   
   // Format displayed value
   const displayValue = selectedDate ? format(selectedDate, 'MMMM d, yyyy') : '';
+  
+  // Check if a date is disabled (before minimum date) - using local date components to avoid timezone issues
+  const isDateDisabled = (date) => {
+    if (!min) return false;
+    
+    // Parse the min date string (YYYY-MM-DD format) using local components
+    const [minYear, minMonth, minDay] = min.split('-').map(Number);
+    const minDate = new Date(minYear, minMonth - 1, minDay); // month is 0-indexed
+    
+    // Create date objects for comparison (set to start of day)
+    const dateToCheck = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const minDateToCheck = new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate());
+    
+    return dateToCheck < minDateToCheck;
+  };
   
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -95,6 +110,10 @@ export function DateSelector({ value, onChange, label, required = false, id }) {
   
   // Handle date selection
   const handleDateSelect = (date) => {
+    // Don't allow selection of disabled dates
+    if (isDateDisabled(date)) {
+      return;
+    }
     setSelectedDate(date);
     const formattedDate = format(date, 'yyyy-MM-dd');
     onChange(formattedDate);
@@ -161,7 +180,12 @@ export function DateSelector({ value, onChange, label, required = false, id }) {
                   type="button"
                   key={`prev-${index}`}
                   onClick={() => handleDateSelect(date)}
-                  className="p-1 text-center text-xs text-gray-400 dark:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
+                  disabled={isDateDisabled(date)}
+                  className={`p-1 text-center text-xs rounded-md ${
+                    isDateDisabled(date)
+                      ? 'text-gray-300 dark:text-gray-700 cursor-not-allowed'
+                      : 'text-gray-400 dark:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
                 >
                   {date.getDate()}
                 </button>
@@ -172,12 +196,15 @@ export function DateSelector({ value, onChange, label, required = false, id }) {
                   type="button"
                   key={`current-${index}`}
                   onClick={() => handleDateSelect(date)}
+                  disabled={isDateDisabled(date)}
                   className={`p-1 text-center text-xs rounded-md ${
-                    isSelected(date)
-                      ? 'bg-maroon-600 text-white hover:bg-maroon-700'
-                      : isToday(date)
-                        ? 'bg-maroon-100 text-maroon-800 dark:bg-maroon-900/30 dark:text-maroon-300 hover:bg-maroon-200 dark:hover:bg-maroon-900/50'
-                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    isDateDisabled(date)
+                      ? 'text-gray-300 dark:text-gray-700 cursor-not-allowed'
+                      : isSelected(date)
+                        ? 'bg-maroon-600 text-white hover:bg-maroon-700'
+                        : isToday(date)
+                          ? 'bg-maroon-100 text-maroon-800 dark:bg-maroon-900/30 dark:text-maroon-300 hover:bg-maroon-200 dark:hover:bg-maroon-900/50'
+                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
                   {date.getDate()}
@@ -189,7 +216,12 @@ export function DateSelector({ value, onChange, label, required = false, id }) {
                   type="button"
                   key={`next-${index}`}
                   onClick={() => handleDateSelect(date)}
-                  className="p-1 text-center text-xs text-gray-400 dark:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
+                  disabled={isDateDisabled(date)}
+                  className={`p-1 text-center text-xs rounded-md ${
+                    isDateDisabled(date)
+                      ? 'text-gray-300 dark:text-gray-700 cursor-not-allowed'
+                      : 'text-gray-400 dark:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
                 >
                   {date.getDate()}
                 </button>
@@ -202,7 +234,7 @@ export function DateSelector({ value, onChange, label, required = false, id }) {
   );
 }
 
-export function TimeSelector({ value, onChange, label, required = false, id }) {
+export function TimeSelector({ value, onChange, label, required = false, id, min, max, disabled = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const [customHour, setCustomHour] = useState('');
   const [customMinute, setCustomMinute] = useState('');
@@ -212,18 +244,34 @@ export function TimeSelector({ value, onChange, label, required = false, id }) {
   const containerRef = useRef(null);
   const formRef = useRef(null);
   
-  // Generate time options (30 minute intervals)
+  // Generate time options (30 minute intervals) within min/max range
   const generateTimeOptions = () => {
     const options = [];
-    
+
     for (let hour = 0; hour < 24; hour++) {
       for (let minute = 0; minute < 60; minute += 30) {
         const time = new Date();
         time.setHours(hour, minute, 0);
+        
+        // Filter by min/max if provided
+        if (min) {
+          const [minHour, minMinute] = min.split(':').map(Number);
+          const minTime = new Date();
+          minTime.setHours(minHour, minMinute, 0);
+          if (time < minTime) continue;
+        }
+        
+        if (max) {
+          const [maxHour, maxMinute] = max.split(':').map(Number);
+          const maxTime = new Date();
+          maxTime.setHours(maxHour, maxMinute, 0);
+          if (time > maxTime) continue;
+        }
+        
         options.push(time);
       }
     }
-    
+
     return options;
   };
   
@@ -401,16 +449,17 @@ export function TimeSelector({ value, onChange, label, required = false, id }) {
           name={id}
           value={displayValue}
           readOnly
-          onClick={() => setIsOpen(!isOpen)}
-          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border cursor-pointer"
+          disabled={disabled}
+          onClick={() => !disabled && setIsOpen(!isOpen)}
+          className={`block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border ${disabled ? 'cursor-not-allowed bg-gray-100 dark:bg-gray-600 opacity-60' : 'cursor-pointer'}`}
           required={required}
         />
         <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-          <ClockIcon className="h-5 w-5 text-gray-400" />
+          <ClockIcon className={`h-5 w-5 ${disabled ? 'text-gray-300 dark:text-gray-500' : 'text-gray-400'}`} />
         </div>
       </div>
       
-      {isOpen && (
+      {isOpen && !disabled && (
         <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto bg-white dark:bg-gray-800 rounded-md shadow-lg border border-gray-200 dark:border-gray-700">
           <div className="p-1">
             {/* Custom time input */}

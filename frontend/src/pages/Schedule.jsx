@@ -13,6 +13,7 @@ import {
   XMarkIcon,
 } from "@heroicons/react/24/outline"
 import { broadcastService } from "../services/api/index.js" // Import the broadcast service
+import { useAuth } from "../context/AuthContext";
 import Toast from "../components/Toast" // Import Toast component
 import { DateSelector, TimeSelector } from "../components/DateTimeSelector" // Import our custom date/time selectors
 import { createLogger } from '../services/logger';
@@ -21,14 +22,6 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { parseISO } from 'date-fns';
 
 const logger = createLogger('Schedule');
-
-// Cookie helper function
-const getCookie = (name) => {
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
-  return null;
-};
 
 // Helper to parse backend timestamp as UTC
 const parseBackendTimestamp = (timestamp) => {
@@ -48,8 +41,7 @@ const formatTimeTo12h = (timeString) => {
 };
 
 export default function Schedule() {
-  const [viewType, setViewType] = useState("list") // 'calendar' or 'list'
-  const [userRole, setUserRole] = useState("LISTENER") // In a real app, this would come from auth state
+  const [viewType, setViewType] = useState("calendar") // 'calendar' or 'list'
   const [showScheduleForm, setShowScheduleForm] = useState(false)
   const [selectedBroadcast, setSelectedBroadcast] = useState(null)
   const [showBroadcastDetails, setShowBroadcastDetails] = useState(false)
@@ -57,6 +49,8 @@ export default function Schedule() {
   const [isLoading, setIsLoading] = useState(false) // Loading state for API calls
   const [isEditMode, setIsEditMode] = useState(false) // Whether we're editing or creating
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false) // Confirmation modal for delete
+  const [showReviewStep, setShowReviewStep] = useState(false) // Review step in modal
+  const { currentUser } = useAuth()
 
   // Toast notification state
   const [toast, setToast] = useState({ visible: false, message: '', type: 'success' })
@@ -137,21 +131,15 @@ export default function Schedule() {
     return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${milliseconds}`
   }
 
-  // Check user role from authentication
-  useEffect(() => {
-    const checkUserRole = async () => {
-      // Get role from cookies (set during login)
-      const role = getCookie("userRole") || "LISTENER"
-      setUserRole(role)
-    }
+// no-op: role is derived from AuthContext
 
-    checkUserRole()
-  }, [])
-
-  // Helper function to get minimum allowed date (today)
+  // Helper function to get minimum allowed date (today) - using local date components to avoid timezone issues
   const getMinDate = () => {
     const today = new Date()
-    return today.toISOString().split('T')[0]
+    const year = today.getFullYear()
+    const month = String(today.getMonth() + 1).padStart(2, '0')
+    const day = String(today.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
   }
 
   // Helper function to get minimum allowed time for today
@@ -183,6 +171,13 @@ export default function Schedule() {
     return true
   }
 
+  // Check if selected date is in the past
+  const isSelectedDateInPast = () => {
+    if (!broadcastDetails.date) return false
+    const todayStr = getMinDate()
+    return broadcastDetails.date < todayStr
+  }
+
   // Helper function to check if end time is after start time
   const isEndTimeAfterStartTime = () => {
     if (!broadcastDetails.date || !broadcastDetails.startTime || !broadcastDetails.endTime) {
@@ -197,6 +192,100 @@ export default function Schedule() {
     const endTime = new Date(year, month - 1, day, endHour, endMinute, 0)
     
     return endTime > startTime
+  }
+
+  // Allowed scheduling window: 06:00 - 22:00
+  const ALLOWED_START = "06:00"
+  const ALLOWED_END = "22:00"
+
+  const compareTimes = (a, b) => {
+    // a, b in HH:MM
+    const [ah, am] = (a || '00:00').split(':').map(Number)
+    const [bh, bm] = (b || '00:00').split(':').map(Number)
+    const aMin = ah * 60 + am
+    const bMin = bh * 60 + bm
+    return aMin - bMin // >0 means a>b
+  }
+
+  const isWithinAllowedHours = () => {
+    const s = broadcastDetails.startTime
+    const e = broadcastDetails.endTime
+    if (!s || !e) return false
+    if (compareTimes(s, ALLOWED_START) < 0) return false
+    if (compareTimes(e, ALLOWED_END) > 0) return false
+    return true
+  }
+
+  // Dynamic min for start time considering today buffer vs 06:00
+  const getMinStartTimeForSelectedDate = () => {
+    const todayStr = getMinDate()
+    let minCandidate = ALLOWED_START
+    if (broadcastDetails.date === todayStr) {
+      const minNow = getMinTime() // e.g., 13:07
+      minCandidate = compareTimes(minNow, ALLOWED_START) > 0 ? minNow : ALLOWED_START
+    }
+    // Guard: never let min exceed ALLOWED_END to avoid empty dropdown
+    if (compareTimes(minCandidate, ALLOWED_END) > 0) return ALLOWED_END
+    return minCandidate
+  }
+
+  // Convenience helpers for review summary
+  const calculateDuration = () => {
+    if (!broadcastDetails.startTime || !broadcastDetails.endTime) return ""
+    const [sh, sm] = broadcastDetails.startTime.split(':').map(Number)
+    const [eh, em] = broadcastDetails.endTime.split(':').map(Number)
+    const diff = (eh * 60 + em) - (sh * 60 + sm)
+    if (diff <= 0) return ""
+    const h = Math.floor(diff / 60)
+    const m = diff % 60
+    if (h === 0) return `${m} minute${m !== 1 ? 's' : ''}`
+    if (m === 0) return `${h} hour${h !== 1 ? 's' : ''}`
+    return `${h} hour${h !== 1 ? 's' : ''} ${m} minute${m !== 1 ? 's' : ''}`
+  }
+
+  const formatDateWithDay = (dateStr) => {
+    if (!dateStr) return ""
+    const [y, m, d] = dateStr.split('-').map(Number)
+    const dt = new Date(y, m - 1, d)
+    return dt.toLocaleDateString("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    })
+  }
+
+  const isFormValid = () => {
+    if (!broadcastDetails.title?.trim()) return false
+    if (!broadcastDetails.description?.trim()) return false
+    if (!broadcastDetails.date || !broadcastDetails.startTime || !broadcastDetails.endTime) return false
+    if (isSelectedDateInPast()) return false // Prevent submission for past dates
+    if (!isEndTimeAfterStartTime()) return false
+    if (!validateTimeInput(broadcastDetails.startTime, 'startTime')) return false
+    if (!isWithinAllowedHours()) return false
+    // Duration constraints: 15 minutes to 8 hours
+    const [sh, sm] = broadcastDetails.startTime.split(':').map(Number)
+    const [eh, em] = broadcastDetails.endTime.split(':').map(Number)
+    const diff = (eh * 60 + em) - (sh * 60 + sm)
+    if (diff < 15) return false
+    if (diff > 8 * 60) return false
+    return true
+  }
+
+  const handleReviewStep = () => {
+    if (!isFormValid()) {
+      if (isSelectedDateInPast()) {
+        showToast("Cannot schedule broadcasts for past dates. Please select today or a future date.", "error")
+      } else {
+        showToast("Please complete all required fields and ensure time is valid (6:00 AM to 10:00 PM)", "error")
+      }
+      return
+    }
+    setShowReviewStep(true)
+  }
+
+  const handleBackToEdit = () => {
+    setShowReviewStep(false)
   }
 
   // Fetch upcoming broadcasts
@@ -249,8 +338,12 @@ export default function Schedule() {
     return () => {}
   }, [])
 
-  // Check if user can schedule broadcasts (admin or DJ)
-  const canScheduleBroadcasts = userRole === "ADMIN" || userRole === "DJ"
+// Check if user can schedule broadcasts (DJ, Moderator, or Admin)
+const canScheduleBroadcasts = !!currentUser && (
+  currentUser.role === "ADMIN" ||
+  currentUser.role === "DJ" ||
+  currentUser.role === "MODERATOR"
+)
 
   // Group broadcasts by date for calendar view
   const broadcastsByDate = upcomingBroadcasts.reduce((acc, broadcast) => {
@@ -272,7 +365,7 @@ export default function Schedule() {
 
   // Handle broadcast details submission
   const handleBroadcastScheduleSubmit = async (e) => {
-    e.preventDefault()
+    try { if (e && typeof e.preventDefault === 'function') e.preventDefault() } catch (_) {}
 
     try {
       setIsLoading(true)
@@ -366,7 +459,7 @@ export default function Schedule() {
         date: date, // Use the original date directly
         startTime: formatTimeTo12h(broadcastDetails.startTime),
         endTime: formatTimeTo12h(broadcastDetails.endTime),
-        dj: response.data.createdBy?.name || (userRole === "DJ" ? "You (DJ)" : "Admin"),
+        dj: response.data.createdBy?.name || (currentUser?.role === "DJ" ? "You (DJ)" : "Admin"),
         details: broadcastDetails.details,
       }
 
@@ -573,36 +666,104 @@ export default function Schedule() {
             </div>
           </div>
 
-          {/* Loading indicator */}
-          {isLoading && (
-              <div className="text-center py-4">
-                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-maroon-700"></div>
-                <p className="mt-2 text-gray-600 dark:text-gray-400">Loading...</p>
-              </div>
-          )}
 
           {/* DJ/Admin Broadcast Scheduling Form */}
           {canScheduleBroadcasts && showScheduleForm && (
-              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 my-8 overflow-auto max-h-[90vh]">
-                  <div className="p-6">
+              <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-40">
+                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 max-w-6xl w-full mx-4 my-8 overflow-auto max-h-[90vh]">
+                  <div className="p-6 md:p-8">
                     <div className="flex justify-between items-start mb-4">
-                      <h2 className="text-xl font-bold text-gray-900 dark:text-white border-b pb-2 border-gray-200 dark:border-gray-700">
-                        Schedule New Broadcast
+                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white pb-2 border-b border-gray-200 dark:border-gray-700">
+                        {showReviewStep ? "Confirm Your Broadcast" : (isEditMode ? "Edit Broadcast" : "Schedule New Broadcast")}
                       </h2>
                       <button
                           onClick={() => setShowScheduleForm(false)}
-                          className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                          className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
                       >
                         <XMarkIcon className="h-6 w-6" />
                       </button>
                     </div>
 
-                    <form onSubmit={handleBroadcastScheduleSubmit}>
+                    {showReviewStep ? (
+                      <div className="space-y-6">
+                        <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-6">
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Broadcast Summary</h3>
+                          <div className="space-y-4">
+                            <div>
+                              <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Title</label>
+                              <p className="text-lg font-semibold text-gray-900 dark:text-white">{broadcastDetails.title}</p>
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Description</label>
+                              <p className="text-gray-900 dark:text-white">{broadcastDetails.description || '—'}</p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Date</label>
+                                <p className="text-lg font-semibold text-gray-900 dark:text-white">{formatDateWithDay(broadcastDetails.date)}</p>
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Duration</label>
+                                <p className="text-lg font-semibold text-gray-900 dark:text-white">{calculateDuration()}</p>
+                              </div>
+                            </div>
+                            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                              <label className="text-sm font-medium text-yellow-800 dark:text-yellow-200">Time</label>
+                              <p className="text-xl font-bold text-yellow-900 dark:text-yellow-100">
+                                {formatTimeTo12h(broadcastDetails.startTime)} - {formatTimeTo12h(broadcastDetails.endTime)}
+                              </p>
+                              <p className="text-xs text-yellow-800/80 dark:text-yellow-300/80 mt-1">Allowed hours: 6:00 AM – 10:00 PM</p>
+                            </div>
+                            {broadcastDetails.details && (
+                              <div>
+                                <label className="text-sm font-medium text-gray-600 dark:text-gray-400">Staff Details</label>
+                                <p className="text-gray-900 dark:text-white bg-maroon-50 dark:bg-maroon-900/30 p-3 rounded-md">{broadcastDetails.details}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex justify-end space-x-3">
+                          <button
+                              type="button"
+                              onClick={handleBackToEdit}
+                              className="px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 dark:bg-gray-700 dark:text-white dark:border-gray-600 dark:hover:bg-gray-600"
+                          >
+                            <svg className="h-4 w-4 mr-2 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                            </svg>
+                            Go Back & Edit
+                          </button>
+                          <button
+                              type="button"
+                              onClick={handleBroadcastScheduleSubmit}
+                              className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600"
+                              disabled={isLoading}
+                          >
+                            {isLoading ? (
+                                <>
+                                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                  Scheduling...
+                                </>
+                            ) : (
+                                <>
+                                  <svg className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Confirm & Schedule
+                                </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                    <form onSubmit={(e) => { e.preventDefault(); handleReviewStep(); }}>
                       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                         <div className="sm:col-span-2">
                           <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Broadcast Title
+                            Broadcast Title <span className="text-red-500">*</span>
                           </label>
                           <input
                               type="text"
@@ -611,6 +772,7 @@ export default function Schedule() {
                               value={broadcastDetails.title}
                               onChange={handleBroadcastDetailsChange}
                               required
+                              placeholder="Enter broadcast title"
                               className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
                           />
                         </div>
@@ -619,7 +781,7 @@ export default function Schedule() {
                               htmlFor="description"
                               className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                           >
-                            Description
+                            Description <span className="text-red-500">*</span>
                           </label>
                           <textarea
                               name="description"
@@ -627,13 +789,13 @@ export default function Schedule() {
                               rows="3"
                               value={broadcastDetails.description}
                               onChange={handleBroadcastDetailsChange}
-                              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+                              required
+                              placeholder="Enter broadcast description"
+                              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-maroon-600 focus:ring-maroon-600 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border resize-none"
+                              style={{ maxHeight: '120px', minHeight: '80px' }}
                           ></textarea>
                         </div>
                         <div>
-                          <label htmlFor="date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Date
-                          </label>
                           <DateSelector
                               value={broadcastDetails.date}
                               onChange={(date) => handleBroadcastDetailsChange({ target: { name: 'date', value: date } })}
@@ -642,14 +804,25 @@ export default function Schedule() {
                               required={true}
                               min={getMinDate()}
                           />
+                          {isSelectedDateInPast() && (
+                            <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                              <div className="flex">
+                                <svg className="h-5 w-5 text-red-400 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                                </svg>
+                                <div>
+                                  <h3 className="text-sm font-medium text-red-800 dark:text-red-200">
+                                    Past Date Selected
+                                  </h3>
+                                  <p className="mt-1 text-sm text-red-700 dark:text-red-300">
+                                    You cannot schedule broadcasts for past dates. Please select today or a future date.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                         <div>
-                          <label
-                              htmlFor="startTime"
-                              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                          >
-                            Start Time
-                          </label>
                           <TimeSelector
                               value={broadcastDetails.startTime}
                               onChange={(time) => {
@@ -661,30 +834,44 @@ export default function Schedule() {
                               label="Start Time"
                               id="startTime"
                               required={true}
-                              min={getMinTime()}
+                              min={broadcastDetails.date && !isSelectedDateInPast() ? getMinStartTimeForSelectedDate() : undefined}
+                              max={ALLOWED_END}
+                              disabled={isSelectedDateInPast()}
                           />
+                          {isSelectedDateInPast() && (
+                            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 italic">
+                              Time selection disabled for past dates
+                            </p>
+                          )}
                           {broadcastDetails.startTime && !validateTimeInput(broadcastDetails.startTime, 'startTime') && (
                             <p className="mt-1 text-sm text-red-600">Start time cannot be in the past</p>
                           )}
+                          {broadcastDetails.startTime && compareTimes(broadcastDetails.startTime, ALLOWED_START) < 0 && (
+                            <p className="mt-1 text-sm text-red-600">Start time must be at or after 6:00 AM</p>
+                          )}
                         </div>
                         <div>
-                          <label
-                              htmlFor="endTime"
-                              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                          >
-                            End Time
-                          </label>
                           <TimeSelector
                               value={broadcastDetails.endTime}
                               onChange={(time) => handleBroadcastDetailsChange({ target: { name: 'endTime', value: time } })}
                               label="End Time"
                               id="endTime"
                               required={true}
-                              min={broadcastDetails.startTime || getMinTime()}
+                              min={broadcastDetails.startTime || (broadcastDetails.date && !isSelectedDateInPast() ? getMinStartTimeForSelectedDate() : undefined)}
+                              max={ALLOWED_END}
+                              disabled={isSelectedDateInPast()}
                           />
+                          {isSelectedDateInPast() && (
+                            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 italic">
+                              Time selection disabled for past dates
+                            </p>
+                          )}
                           {broadcastDetails.startTime && broadcastDetails.endTime && 
                            !isEndTimeAfterStartTime() && (
                             <p className="mt-1 text-sm text-red-600">End time must be after start time</p>
+                          )}
+                          {broadcastDetails.endTime && compareTimes(broadcastDetails.endTime, ALLOWED_END) > 0 && (
+                            <p className="mt-1 text-sm text-red-600">End time must be at or before 10:00 PM</p>
                           )}
                         </div>
                         <div className="sm:col-span-2">
@@ -716,26 +903,17 @@ export default function Schedule() {
                         </button>
                         <button
                             type="submit"
-                            className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-maroon-700 hover:bg-maroon-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-600"
-                            disabled={isLoading}
+                            className={`inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white ${isFormValid() ? 'bg-maroon-700 hover:bg-maroon-800' : 'bg-gray-400 cursor-not-allowed'} focus:outline-none focus:ring-2 focus:ring-offset-2 ${isFormValid() ? 'focus:ring-maroon-600' : 'focus:ring-gray-400'}`}
+                            disabled={isLoading || !isFormValid()}
                         >
-                          {isLoading ? (
-                              <>
-                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          <svg className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
-                                Scheduling...
-                              </>
-                          ) : (
-                              <>
-                                <CalendarIcon className="h-5 w-5 mr-1" />
-                                Schedule Broadcast
-                              </>
-                          )}
+                          Review Broadcast
                         </button>
                       </div>
                     </form>
+                    )}
                   </div>
                 </div>
               </div>
@@ -938,15 +1116,24 @@ export default function Schedule() {
                             {canScheduleBroadcasts && day.isCurrentMonth && (
                                 <button
                                     onClick={() => {
-                                      const dateStr = day.date.toISOString().split("T")[0]
+                                      const y = day.date.getFullYear()
+                                      const m = String(day.date.getMonth() + 1).padStart(2, '0')
+                                      const d = String(day.date.getDate()).padStart(2, '0')
+                                      const dateStr = `${y}-${m}-${d}`
                                       setBroadcastDetails((prev) => ({
                                         ...prev,
                                         date: dateStr,
                                       }))
                                       setShowScheduleForm(true)
                                     }}
-                                    className="text-maroon-600 hover:text-maroon-800 dark:text-yellow-400 dark:hover:text-yellow-300"
-                                    title="Schedule broadcast"
+                                    disabled={day.date < new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())}
+                                    className={`rounded-full p-1 transition-all duration-150 focus:outline-none focus:ring-2 ${
+                                      day.date < new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())
+                                        ? 'text-gray-400 dark:text-gray-600'
+                                        : 'text-yellow-600 dark:text-yellow-400 hover:text-white hover:bg-yellow-500 cursor-pointer focus:ring-yellow-500/60 shadow-sm hover:shadow'
+                                    }`}
+                                    title={day.date < new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()) ? "Cannot schedule broadcasts for past dates" : "Schedule broadcast"}
+                                    aria-label={day.date < new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()) ? "Cannot schedule broadcasts for past dates" : "Schedule broadcast"}
                                 >
                                   <PlusCircleIcon className="h-4 w-4" />
                                 </button>
