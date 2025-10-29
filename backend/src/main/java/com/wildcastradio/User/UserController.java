@@ -238,7 +238,7 @@ public class UserController {
     
 
     @GetMapping("/paged")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<Page<UserDTO>> getUsersPaged(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "15") int size) {

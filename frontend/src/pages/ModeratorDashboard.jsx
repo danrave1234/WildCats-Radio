@@ -5,14 +5,16 @@ import { Spinner } from '../components/ui/spinner';
 import { useAuth } from '../context/AuthContext';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/solid';
 
-const ModeratorDashboard = () => {
+const ModeratorDashboardContent = () => {
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
-  const isModOrAdmin = !!currentUser && ['ADMIN', 'MODERATOR'].includes(currentUser.role);
-
   const [activeTab, setActiveTab] = useState('moderation');
-  // Users state (moderator-managed)
+  
+  // Users state with pagination
   const [users, setUsers] = useState([]);
+  const [page, setPage] = useState(0);
+  const [pageSize] = useState(15);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
   const [rolesLoading, setRolesLoading] = useState(false);
   const [newUser, setNewUser] = useState({ firstname: '', lastname: '', email: '', password: '', role: 'LISTENER', birthdate: '' });
 
@@ -50,8 +52,30 @@ const ModeratorDashboard = () => {
     }
   };
 
+  const fetchUsers = async () => {
+    setRolesLoading(true);
+    setError(null);
+    try {
+      const response = await authService.getUsersPaged(page, pageSize);
+      const data = response.data;
+      const content = Array.isArray(data?.content) ? data.content : [];
+      
+      // Moderators should not see or manage Admins
+      const filteredContent = content.filter(user => user.role !== 'ADMIN');
+      
+      setUsers(filteredContent);
+      setTotalPages(typeof data.totalPages === 'number' ? data.totalPages : 0);
+      // Adjust total elements count based on filtering if necessary, though for UI it might be fine to show total
+      setTotalElements(typeof data.totalElements === 'number' ? data.totalElements : content.length);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+      setError('Failed to fetch users. Please try again.');
+    } finally {
+      setRolesLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (!isModOrAdmin) return;
     if (activeTab === 'live') {
       fetchLive();
     }
@@ -62,20 +86,10 @@ const ModeratorDashboard = () => {
         .then((data) => setProfanityWords(Array.isArray(data) ? data : []))
         .catch(() => {})
         .finally(() => setProfLoading(false));
-      // Load users list for role management (moderator-visible, not showing admins only)
-      setRolesLoading(true);
-      authService.getUsersByRole('LISTENER')
-        .then((r1)=>{
-          const listeners = Array.isArray(r1.data) ? r1.data : [];
-          return authService.getUsersByRole('DJ').then((r2)=>{
-            const djs = Array.isArray(r2.data) ? r2.data : [];
-            setUsers([...listeners, ...djs]);
-          });
-        })
-        .catch(()=>setUsers([]))
-        .finally(()=>setRolesLoading(false));
+      
+      fetchUsers();
     }
-  }, [activeTab, isModOrAdmin]);
+  }, [activeTab, page]);
 
   const handleWatch = (broadcastId) => {
     if (!broadcastId) return;
@@ -93,17 +107,20 @@ const ModeratorDashboard = () => {
     setFoundUser(null);
     try {
       const resp = await authService.getUserByEmail(searchEmail);
+      if (resp.data?.role === 'ADMIN') {
+        throw new Error('Not permitted to view admin users.');
+      }
       setFoundUser(resp.data || null);
     } catch (e) {
       setFoundUser(null);
-      setError('User not found or not permitted');
+      setError(e.message || 'User not found or not permitted');
     } finally {
       setSearching(false);
     }
   };
 
   const handleBan = async (user) => {
-    if (!user) return;
+    if (!user || user.role === 'ADMIN') return;
     const unit = (window.prompt('Ban duration unit (DAYS, WEEKS, YEARS, PERMANENT):', 'DAYS') || '').toUpperCase().trim();
     if (!unit) return;
     if (!['DAYS','WEEKS','YEARS','PERMANENT'].includes(unit)) { alert('Invalid unit'); return; }
@@ -120,7 +137,6 @@ const ModeratorDashboard = () => {
     try {
       await authService.banUser(user.id, { unit, amount, reason });
       alert('User banned');
-      // Refresh details
       const resp = await authService.getUserByEmail(user.email);
       setFoundUser(resp.data || null);
     } catch (e) {
@@ -163,7 +179,6 @@ const ModeratorDashboard = () => {
       };
       const res = await authService.register(registerRequest);
       const created = res.data;
-      // Set role if selected (Listener is default from backend)
       if (newUser.role === 'DJ' || newUser.role === 'MODERATOR') {
         await authService.updateUserRoleByActor(created.id, newUser.role);
         created.role = newUser.role;
@@ -179,7 +194,7 @@ const ModeratorDashboard = () => {
   };
 
   const handleChangeRole = async (userId, currentRole, nextRole) => {
-    if (nextRole === 'ADMIN' || nextRole === 'MODERATOR') { alert('Not permitted'); return; }
+    if (nextRole === 'ADMIN' || currentRole === 'ADMIN') { alert('Not permitted'); return; }
     try {
       setRolesLoading(true);
       await authService.updateUserRoleByActor(userId, nextRole);
@@ -226,7 +241,6 @@ const ModeratorDashboard = () => {
   };
 
   return (
-    isModOrAdmin ? (
     <div className="container mx-auto px-4">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">Moderator Dashboard</h1>
@@ -256,18 +270,6 @@ const ModeratorDashboard = () => {
                   onClick={() => navigate('/dashboard')}
                   className="w-full text-left px-4 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
                 >Dashboard</button>
-                <button
-                  onClick={() => navigate('/schedule')}
-                  className="w-full text-left px-4 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-                >Schedule</button>
-                <button
-                  onClick={() => navigate('/broadcast-history')}
-                  className="w-full text-left px-4 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-                >Broadcast History</button>
-                <button
-                  onClick={() => navigate('/notifications')}
-                  className="w-full text-left px-4 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-                >Notifications</button>
               </nav>
             </div>
           </div>
@@ -365,7 +367,7 @@ const ModeratorDashboard = () => {
                   )}
 
                   <div className="mt-8">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Create User (Listener or DJ)</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Create User (Listener, DJ, or Moderator)</h3>
                     <form onSubmit={handleCreateUser} className="space-y-3">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <input name="firstname" value={newUser.firstname} onChange={handleNewUserChange} placeholder="First name" className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
@@ -386,36 +388,63 @@ const ModeratorDashboard = () => {
                   </div>
 
                   <div className="mt-8">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Change Roles (Listeners/DJs)</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Manage User Roles</h3>
                     {rolesLoading && users.length === 0 ? (
                       <div className="text-sm text-gray-500">Loading users...</div>
                     ) : (
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full text-sm">
-                          <thead>
-                            <tr className="text-left">
-                              <th className="p-2">ID</th>
-                              <th className="p-2">Name</th>
-                              <th className="p-2">Email</th>
-                              <th className="p-2">Role</th>
-                              <th className="p-2">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {users.map(u => (
-                              <tr key={u.id} className="border-t">
-                                <td className="p-2">{u.id}</td>
-                                <td className="p-2">{(u.firstname||'') + ' ' + (u.lastname||'')}</td>
-                                <td className="p-2">{u.email}</td>
-                                <td className="p-2">{u.role}</td>
-                                <td className="p-2">
-                                  <button onClick={()=>handleChangeRole(u.id, u.role, u.role==='LISTENER'?'DJ':'LISTENER')} className="px-3 py-1 text-xs rounded bg-purple-600 text-white hover:bg-purple-700">Toggle DJ</button>
-                                </td>
+                      <>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-sm">
+                            <thead className="bg-gray-50 dark:bg-gray-700">
+                              <tr className="text-left">
+                                <th className="p-2">ID</th>
+                                <th className="p-2">Name</th>
+                                <th className="p-2">Email</th>
+                                <th className="p-2">Role</th>
+                                <th className="p-2">Actions</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                            </thead>
+                            <tbody>
+                              {users.map(u => (
+                                <tr key={u.id} className="border-t dark:border-gray-700">
+                                  <td className="p-2">{u.id}</td>
+                                  <td className="p-2">{(u.firstname||'') + ' ' + (u.lastname||'')}</td>
+                                  <td className="p-2">{u.email}</td>
+                                  <td className="p-2">{u.role}</td>
+                                  <td className="p-2">
+                                    {u.role !== 'ADMIN' && (
+                                      <button onClick={()=>handleChangeRole(u.id, u.role, u.role==='LISTENER'?'DJ':'LISTENER')} className="px-3 py-1 text-xs rounded bg-purple-600 text-white hover:bg-purple-700">Toggle DJ/Listener</button>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {/* Pagination Controls */}
+                        <div className="mt-4 flex items-center justify-between">
+                          <div className="text-sm text-gray-600 dark:text-gray-300">
+                            Page {totalPages > 0 ? page + 1 : 0} of {totalPages}
+                            {totalElements ? ` • ${totalElements} users total` : ''}
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setPage((p) => Math.max(0, p - 1))}
+                              disabled={page === 0 || rolesLoading}
+                              className={`px-3 py-1 rounded-md text-sm ${page === 0 || rolesLoading ? 'bg-gray-300 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed' : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500'}`}
+                            >
+                              Previous
+                            </button>
+                            <button
+                              onClick={() => setPage((p) => (totalPages && p < totalPages - 1 ? p + 1 : p))}
+                              disabled={rolesLoading || !totalPages || page >= totalPages - 1}
+                              className={`px-3 py-1 rounded-md text-sm ${rolesLoading || !totalPages || page >= totalPages - 1 ? 'bg-gray-300 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed' : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500'}`}
+                            >
+                              Next
+                            </button>
+                          </div>
+                        </div>
+                      </>
                     )}
                   </div>
 
@@ -465,7 +494,14 @@ const ModeratorDashboard = () => {
         </div>
       </div>
     </div>
-    ) : (
+  );
+}
+
+const ModeratorDashboard = () => {
+  const { currentUser } = useAuth();
+
+  if (!currentUser || !['ADMIN', 'MODERATOR'].includes(currentUser.role)) {
+    return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center">
           <ExclamationTriangleIcon className="mx-auto h-12 w-12 text-red-500 mb-4" />
@@ -478,10 +514,10 @@ const ModeratorDashboard = () => {
           </p>
         </div>
       </div>
-    )
-  );
+    );
+  }
+
+  return <ModeratorDashboardContent />;
 };
 
 export default ModeratorDashboard;
-
-

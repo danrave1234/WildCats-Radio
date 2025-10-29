@@ -77,20 +77,10 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
                     System.err.println("WebSocket authentication failed: " + e.getMessage());
                     return null; // Block the connection
                 }
-            }
-        }
-
-        // Enforce destination-level access controls for unauthenticated clients
-        if (StompCommand.SUBSCRIBE.equals(accessor.getCommand()) || StompCommand.SEND.equals(accessor.getCommand())) {
-            String destination = accessor.getDestination();
-            boolean isPublicAnnouncements = destination != null && destination.startsWith("/topic/announcements/public");
-
-            boolean isAuthenticated = accessor.getUser() != null && SecurityContextHolder.getContext().getAuthentication() != null;
-
-            // Allow anonymous only for explicit public announcements topic; block everything else without auth
-            if (!isAuthenticated && !isPublicAnnouncements) {
-                System.err.println("WebSocket access denied: unauthenticated access to non-public destination " + destination);
-                return null; // Block unauthorized subscribe/send
+            } else {
+                // No valid Authorization header - reject the connection
+                System.err.println("WebSocket authentication failed: No valid Authorization header provided");
+                return null; // Block the connection
             }
         }
         
