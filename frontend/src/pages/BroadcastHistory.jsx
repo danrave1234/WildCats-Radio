@@ -47,13 +47,10 @@ const broadcastTypeColors = {
   default: 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/30'
 };
 
-// Helper to parse backend timestamp as UTC
+// Helper to parse backend timestamp (treat backend LocalDateTime as local time)
 const parseBackendTimestamp = (timestamp) => {
   if (!timestamp) return null;
-  if (/Z$|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
-    return parseISO(timestamp);
-  }
-  return parseISO(timestamp + 'Z');
+  return parseISO(timestamp);
 };
 
 export default function BroadcastHistory() {

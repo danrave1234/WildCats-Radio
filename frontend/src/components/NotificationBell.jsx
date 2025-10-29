@@ -95,15 +95,10 @@ const notificationTypeColors = {
   default: { bg: 'bg-maroon-100 dark:bg-maroon-900/20', icon: 'text-maroon-600' }
 };
 
-// Helper to parse backend timestamp as UTC
+// Helper to parse backend timestamp (treat backend LocalDateTime as local time)
 const parseBackendTimestamp = (timestamp) => {
   if (!timestamp) return null;
-  // If timestamp already ends with 'Z' or has timezone, parse as is
-  if (/Z$|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
-    return parseISO(timestamp);
-  }
-  // Otherwise, treat as UTC by appending 'Z'
-  return parseISO(timestamp + 'Z');
+  return parseISO(timestamp);
 };
 
 export default function NotificationBell() {

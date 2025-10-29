@@ -43,13 +43,10 @@ const notificationTypeColors = {
   default: 'text-gray-600 bg-gray-100 dark:text-gray-400 dark:bg-gray-900/30'
 };
 
-// Helper to parse backend timestamp as UTC
+// Helper to parse backend timestamp (treat backend LocalDateTime as local time)
 const parseBackendTimestamp = (timestamp) => {
   if (!timestamp) return null;
-  if (/Z$|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
-    return parseISO(timestamp);
-  }
-  return parseISO(timestamp + 'Z');
+  return parseISO(timestamp);
 };
 
 export default function Notifications() {
@@ -103,12 +100,12 @@ export default function Notifications() {
     // Apply sorting
     filtered.sort((a, b) => {
       if (sortBy === 'newest') {
-        const aTs = typeof a.timestamp === 'string' && !a.timestamp.endsWith('Z') ? a.timestamp + 'Z' : a.timestamp;
-        const bTs = typeof b.timestamp === 'string' && !b.timestamp.endsWith('Z') ? b.timestamp + 'Z' : b.timestamp;
+        const aTs = a.timestamp;
+        const bTs = b.timestamp;
         return new Date(bTs) - new Date(aTs);
       } else if (sortBy === 'oldest') {
-        const aTs = typeof a.timestamp === 'string' && !a.timestamp.endsWith('Z') ? a.timestamp + 'Z' : a.timestamp;
-        const bTs = typeof b.timestamp === 'string' && !b.timestamp.endsWith('Z') ? b.timestamp + 'Z' : b.timestamp;
+        const aTs = a.timestamp;
+        const bTs = b.timestamp;
         return new Date(aTs) - new Date(bTs);
       } else if (sortBy === 'unread') {
         return b.read - a.read; // Unread first

@@ -23,13 +23,10 @@ import { parseISO } from 'date-fns';
 
 const logger = createLogger('Schedule');
 
-// Helper to parse backend timestamp as UTC
+// Helper to parse backend timestamp (treat backend LocalDateTime as local time)
 const parseBackendTimestamp = (timestamp) => {
   if (!timestamp) return null;
-  if (/Z$|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
-    return parseISO(timestamp);
-  }
-  return parseISO(timestamp + 'Z');
+  return parseISO(timestamp);
 };
 
 // Format a HH:mm string to 12-hour display (e.g., 09:30 PM)

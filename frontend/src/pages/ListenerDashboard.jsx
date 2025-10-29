@@ -1603,9 +1603,7 @@ export default function ListenerDashboard() {
       // Handle date parsing more robustly
       let messageDate;
       try {
-        messageDate = msg.createdAt
-          ? new Date(typeof msg.createdAt === 'string' && !msg.createdAt.endsWith('Z') ? msg.createdAt + 'Z' : msg.createdAt)
-          : null;
+        messageDate = msg.createdAt ? new Date(msg.createdAt) : null;
       } catch (error) {
         logger.error('Error parsing message date:', error);
         messageDate = new Date();

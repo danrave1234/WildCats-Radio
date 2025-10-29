@@ -1643,9 +1643,7 @@ export default function DJDashboard() {
 
                                   let messageDate;
                                   try {
-                                    messageDate = msg.createdAt
-                                      ? new Date(typeof msg.createdAt === 'string' && !msg.createdAt.endsWith('Z') ? msg.createdAt + 'Z' : msg.createdAt)
-                                      : null;
+                                    messageDate = msg.createdAt ? new Date(msg.createdAt) : null;
                                   } catch (error) {
                                     messageDate = new Date();
                                   }
@@ -1783,8 +1781,7 @@ export default function DJDashboard() {
                                       <div className="text-xs text-gray-500 dark:text-gray-400">
                                         {(() => {
                                           try {
-                                            let ts = request.timestamp;
-                                            if (ts && typeof ts === 'string' && !ts.endsWith('Z')) ts = ts + 'Z';
+                                            const ts = request.timestamp;
                                             const requestDate = ts ? new Date(ts) : null;
                                             return requestDate && !isNaN(requestDate.getTime())
                                                 ? formatDistanceToNow(requestDate, { addSuffix: true })
@@ -1794,8 +1791,7 @@ export default function DJDashboard() {
                                           }
                                         })()}• {(() => {
                                         try {
-                                          let ts = request.createdAt;
-                                          if (ts && typeof ts === 'string' && !ts.endsWith('Z')) ts = ts + 'Z';
+                                          const ts = request.createdAt;
                                           const requestDate = ts ? new Date(ts) : null;
                                           return requestDate && !isNaN(requestDate.getTime())
                                               ? formatDistanceToNow(requestDate, { addSuffix: true })
