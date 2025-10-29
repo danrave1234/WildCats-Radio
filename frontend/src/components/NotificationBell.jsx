@@ -15,10 +15,12 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { useNotifications } from '../context/NotificationContext';
+import { useAuth } from '../context/AuthContext';
 import { formatDistanceToNow, format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { Popover, PopoverTrigger, PopoverContent } from './ui/popover';
 import { useState, useEffect } from 'react';
+import { getAllAnnouncements } from '../services/announcementService';
 import { formatInTimeZone } from 'date-fns-tz';
 import { parseISO } from 'date-fns';
 
@@ -73,6 +75,8 @@ const notificationTypeIcons = {
   BROADCAST_STARTED: Mic,
   BROADCAST_ENDED: Volume2,
   NEW_BROADCAST_POSTED: Info,
+  ANNOUNCEMENT: Info,
+  ANNOUNCEMENT_PUBLISHED: Info,
   USER_REGISTERED: User,
   GENERAL: Info,
   default: Bell
@@ -84,20 +88,17 @@ const notificationTypeColors = {
   BROADCAST_STARTED: { bg: 'bg-green-100 dark:bg-green-900/20', icon: 'text-green-500' },
   BROADCAST_ENDED: { bg: 'bg-red-100 dark:bg-red-900/20', icon: 'text-red-500' },
   NEW_BROADCAST_POSTED: { bg: 'bg-purple-100 dark:bg-purple-900/20', icon: 'text-purple-500' },
+  ANNOUNCEMENT: { bg: 'bg-maroon-100 dark:bg-maroon-900/20', icon: 'text-maroon-600' },
+  ANNOUNCEMENT_PUBLISHED: { bg: 'bg-maroon-100 dark:bg-maroon-900/20', icon: 'text-maroon-600' },
   USER_REGISTERED: { bg: 'bg-indigo-100 dark:bg-indigo-900/20', icon: 'text-indigo-500' },
   GENERAL: { bg: 'bg-gray-100 dark:bg-gray-900/20', icon: 'text-gray-500' },
   default: { bg: 'bg-maroon-100 dark:bg-maroon-900/20', icon: 'text-maroon-600' }
 };
 
-// Helper to parse backend timestamp as UTC
+// Helper to parse backend timestamp (treat backend LocalDateTime as local time)
 const parseBackendTimestamp = (timestamp) => {
   if (!timestamp) return null;
-  // If timestamp already ends with 'Z' or has timezone, parse as is
-  if (/Z$|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
-    return parseISO(timestamp);
-  }
-  // Otherwise, treat as UTC by appending 'Z'
-  return parseISO(timestamp + 'Z');
+  return parseISO(timestamp);
 };
 
 export default function NotificationBell() {
@@ -108,8 +109,10 @@ export default function NotificationBell() {
         markAllAsRead,
         deleteNotification
     } = useNotifications();
+    const { isAuthenticated } = useAuth();
     
     const [isOpen, setIsOpen] = useState(false);
+    const [announcementItems, setAnnouncementItems] = useState([]);
     const [swipeStates, setSwipeStates] = useState({}); // Track swipe state for each notification
 
     const handleMarkAllAsRead = async () => {
@@ -146,6 +149,36 @@ export default function NotificationBell() {
         }
         setIsOpen(false); // Close popover after clicking notification
     };
+
+    // Load a small slice of recent announcements (public) and map to notification-like items
+    useEffect(() => {
+        const load = async () => {
+            try {
+                if (!isAuthenticated) {
+                    setAnnouncementItems([]);
+                    return;
+                }
+                const resp = await getAllAnnouncements(0, 10);
+                const content = resp?.content || resp?.data?.content || [];
+                const sevenDaysAgo = new Date();
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                const items = content
+                  .filter(a => a?.publishedAt && new Date(a.publishedAt) >= sevenDaysAgo)
+                  .map(a => ({
+                    id: `ann-${a.id}`,
+                    message: a.title,
+                    type: 'ANNOUNCEMENT',
+                    timestamp: a.publishedAt,
+                    read: false,
+                    link: '/announcements'
+                  }));
+                setAnnouncementItems(items);
+            } catch (_e) {
+                setAnnouncementItems([]);
+            }
+        };
+        load();
+    }, [isAuthenticated]);
 
     // Get 10 latest unread notifications: newest first
     const latestUnreadNotifications = notifications
@@ -269,10 +302,10 @@ export default function NotificationBell() {
                     </button>
                 </PopoverTrigger>
                 
-                <PopoverContent 
+            <PopoverContent 
                     align="end" 
                     sideOffset={12}
-                    className="w-96 p-0 border border-border bg-card text-card-foreground shadow-xl !rounded-none"
+                    className="w-[420px] max-h-[520px] p-0 border border-border bg-card text-card-foreground shadow-xl !rounded-none"
                 >
                     {/* Header */}
                     <div className="px-4 py-3 border-b border-border bg-muted">
@@ -294,9 +327,17 @@ export default function NotificationBell() {
                     </div>
 
                     {/* Notifications List */}
-                    <div className={`${latestUnreadNotifications.length === 0 ? '' : 'h-96 overflow-y-auto notification-scroll'}`}>
-                        {latestUnreadNotifications.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center text-center p-8 h-96">
+                    <div className={`${(!isAuthenticated || (latestUnreadNotifications.length + announcementItems.length) === 0) ? 'p-4' : 'max-h-96 overflow-y-auto notification-scroll'}`}>
+                        {!isAuthenticated ? (
+                            <div className="flex flex-col items-center justify-center text-center p-8">
+                                <div className="relative mb-4">
+                                    <Bell className="h-12 w-12 text-muted-foreground mx-auto" />
+                                </div>
+                                <h3 className="text-lg font-medium mb-2">Sign in to view notifications</h3>
+                                <a href="/login" className="text-sm text-maroon-600 hover:underline">Login</a>
+                            </div>
+                        ) : ((latestUnreadNotifications.length + announcementItems.length) === 0 ? (
+                            <div className="flex flex-col items-center justify-center text-center p-8">
                                 <div className="relative mb-4">
                                     <Bell className="h-12 w-12 text-muted-foreground mx-auto" />
                                     <div className="absolute -top-1 -right-1 h-4 w-4 bg-muted rounded-full"></div>
@@ -306,8 +347,11 @@ export default function NotificationBell() {
                                     You're all caught up! New notifications will appear here.
                                 </p>
                             </div>
-                            ) : (
-                            latestUnreadNotifications.map((notification, index) => {
+                        ) : (
+                            [...announcementItems, ...latestUnreadNotifications]
+                              .sort((a,b) => new Date(b.timestamp || b.createdAt) - new Date(a.timestamp || a.createdAt))
+                              .slice(0, 10)
+                              .map((notification, index) => {
                                 const swipeState = swipeStates[notification.id] || { offset: 0, isDragging: false };
                                 const opacity = swipeState.isDragging ? Math.max(0.3, 1 - Math.abs(swipeState.offset) / 200) : 1;
                                 const transform = `translateX(${swipeState.offset}px)`;
@@ -401,7 +445,7 @@ export default function NotificationBell() {
                                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-wildcats-maroon transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-left"></div>
                                 </div>
                             )})
-                        )}
+                        ))}
                     </div>
 
                     {/* Footer */}

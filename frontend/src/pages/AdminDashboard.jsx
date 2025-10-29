@@ -9,10 +9,17 @@ import {
 } from '@heroicons/react/24/outline';
 import { authService, broadcastService, analyticsService, logger } from '../services/api/index.js';
 import { Spinner } from '../components/ui/spinner';
+import { ExclamationTriangleIcon } from '@heroicons/react/24/solid';
 
 const AdminDashboard = () => {
-  const { isAuthenticated } = useAuth();
+  const { currentUser } = useAuth();
+  const isAuthenticated = !!currentUser;
+  const isAdmin = !!currentUser && currentUser.role === 'ADMIN';
   const [users, setUsers] = useState([]);
+  const [page, setPage] = useState(0);
+  const [pageSize] = useState(15);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -32,10 +39,12 @@ const AdminDashboard = () => {
 
   const [activeTab, setActiveTab] = useState('dashboard');
   const [newUser, setNewUser] = useState({
-    username: '',
+    firstname: '',
+    lastname: '',
     email: '',
     role: 'LISTENER',
-    password: ''
+    password: '',
+    birthdate: ''
   });
 
   // State for live broadcasts
@@ -51,15 +60,16 @@ const AdminDashboard = () => {
       setOverviewRefreshing(true);
       // Fetch users and broadcast stats in parallel (1 lightweight analytics call for broadcast totals)
       const [usersResp, broadcastStatsResp] = await Promise.all([
-        authService.getAllUsers(),
+        authService.getUsersPaged(0, 1),
         analyticsService.getBroadcastStats()
       ]);
 
       // Users
-      const allUsers = usersResp.data || [];
-      const totalUsers = allUsers.length;
-      const totalDJs = allUsers.filter(u => u.role === 'DJ').length;
-      const totalListeners = allUsers.filter(u => u.role === 'LISTENER').length;
+      const pageData = usersResp.data || {};
+      const totalUsers = typeof pageData.totalElements === 'number' ? pageData.totalElements : 0;
+      // For lightweight overview, skip per-role counts to avoid heavy queries
+      const totalDJs = 0;
+      const totalListeners = 0;
 
       // Broadcasts from analytics (fast server-side counts)
       const b = broadcastStatsResp.data || {};
@@ -98,17 +108,17 @@ const AdminDashboard = () => {
 
   // Fetch users when component mounts or users tab active
   useEffect(() => {
-    if (activeTab === 'users') {
+    if (activeTab === 'users' && isAdmin) {
       fetchUsers();
     }
-  }, [activeTab]);
+  }, [activeTab, page, isAdmin]);
 
   // Fetch simple totals for overview once
   useEffect(() => {
-    if (activeTab === 'dashboard' && !overviewLoaded) {
+    if (activeTab === 'dashboard' && !overviewLoaded && isAdmin) {
       fetchTotals();
     }
-  }, [activeTab, overviewLoaded]);
+  }, [activeTab, overviewLoaded, isAdmin]);
 
   const refreshOverview = async () => {
     await fetchTotals();
@@ -116,14 +126,14 @@ const AdminDashboard = () => {
 
   // Fetch live list when broadcasts tab opens
   useEffect(() => {
-    if (activeTab === 'broadcasts') {
+    if (activeTab === 'broadcasts' && isAdmin) {
       fetchLiveBroadcasts();
     }
-  }, [activeTab]);
+  }, [activeTab, isAdmin]);
 
   // Setup WebSocket for live broadcast updates
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !isAdmin) return;
 
     let liveBroadcastWs = null;
 
@@ -152,23 +162,27 @@ const AdminDashboard = () => {
         logger.debug('Live broadcast WebSocket disconnected from admin dashboard');
       }
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isAdmin]);
 
   // Fetch users from the backend
   const fetchUsers = async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await authService.getAllUsers();
-      setUsers(response.data);
+      const response = await authService.getUsersPaged(page, pageSize);
+      const data = response.data;
+      const content = Array.isArray(data?.content) ? data.content : [];
+      setUsers(content);
+      setTotalPages(typeof data.totalPages === 'number' ? data.totalPages : 0);
+      setTotalElements(typeof data.totalElements === 'number' ? data.totalElements : content.length);
 
-      // Update stats
-      const djCount = response.data.filter(user => user.role === 'DJ').length;
-      const listenerCount = response.data.filter(user => user.role === 'LISTENER').length;
+      // Update stats based on this page only for table counts; overall totals come from analytics
+      const djCount = content.filter(user => user.role === 'DJ').length;
+      const listenerCount = content.filter(user => user.role === 'LISTENER').length;
 
       setStats(prev => ({
         ...prev,
-        totalUsers: response.data.length,
+        totalUsers: prev.totalUsers, // leave overall to analytics
         totalDJs: djCount,
         totalListeners: listenerCount
       }));
@@ -242,9 +256,11 @@ const AdminDashboard = () => {
     try {
       // Create user registration request
       const registerRequest = {
-        name: newUser.username,
+        firstname: newUser.firstname,
+        lastname: newUser.lastname,
         email: newUser.email,
-        password: newUser.password
+        password: newUser.password,
+        birthdate: newUser.birthdate
       };
 
       // Register the user
@@ -262,10 +278,12 @@ const AdminDashboard = () => {
 
       // Reset form
       setNewUser({
-        username: '',
+        firstname: '',
+        lastname: '',
         email: '',
         role: 'LISTENER',
-        password: ''
+        password: '',
+        birthdate: ''
       });
 
       // Update stats
@@ -299,6 +317,7 @@ const AdminDashboard = () => {
   };
 
   return (
+    isAdmin ? (
     <div className="container mx-auto px-4">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">Admin Dashboard</h1>
@@ -437,14 +456,28 @@ const AdminDashboard = () => {
                     <form onSubmit={handleNewUserSubmit} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Username
+                          <label htmlFor="firstname" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            First Name
                           </label>
                           <input
                             type="text"
-                            id="username"
-                            name="username"
-                            value={newUser.username}
+                            id="firstname"
+                            name="firstname"
+                            value={newUser.firstname}
+                            onChange={handleNewUserChange}
+                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="lastname" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Last Name
+                          </label>
+                          <input
+                            type="text"
+                            id="lastname"
+                            name="lastname"
+                            value={newUser.lastname}
                             onChange={handleNewUserChange}
                             className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
                             required
@@ -491,8 +524,23 @@ const AdminDashboard = () => {
                           >
                             <option value="LISTENER">Listener</option>
                             <option value="DJ">DJ</option>
+                            <option value="MODERATOR">Moderator</option>
                             <option value="ADMIN">Admin</option>
                           </select>
+                        </div>
+                        <div>
+                          <label htmlFor="birthdate" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Birthdate
+                          </label>
+                          <input
+                            type="date"
+                            id="birthdate"
+                            name="birthdate"
+                            value={newUser.birthdate}
+                            onChange={handleNewUserChange}
+                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white p-2 border"
+                            required
+                          />
                         </div>
                       </div>
                       <div className="flex justify-end">
@@ -539,7 +587,7 @@ const AdminDashboard = () => {
                               ID
                             </th>
                             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                              Username
+                              Name
                             </th>
                             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                               Email
@@ -566,7 +614,7 @@ const AdminDashboard = () => {
                                   {user.id}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                                  {user.name || user.username}
+                                  {[user.firstname, user.lastname].filter(Boolean).join(' ') || user.email}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                   {user.email}
@@ -575,9 +623,11 @@ const AdminDashboard = () => {
                                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                     user.role === 'ADMIN' 
                                       ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
-                                      : user.role === 'DJ'
-                                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-                                        : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                      : user.role === 'MODERATOR'
+                                        ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
+                                        : user.role === 'DJ'
+                                          ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                                          : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                                   }`}>
                                     {user.role}
                                   </span>
@@ -599,6 +649,29 @@ const AdminDashboard = () => {
                         </tbody>
                       </table>
                     )}
+                  </div>
+                  {/* Pagination Controls */}
+                  <div className="mt-4 flex items-center justify-between">
+                    <div className="text-sm text-gray-600 dark:text-gray-300">
+                      Page {totalPages > 0 ? page + 1 : 0} of {totalPages}
+                      {totalElements ? ` • ${totalElements} users total` : ''}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setPage((p) => Math.max(0, p - 1))}
+                        disabled={page === 0 || loading}
+                        className={`px-3 py-1 rounded-md text-sm ${page === 0 || loading ? 'bg-gray-300 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed' : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500'}`}
+                      >
+                        Previous
+                      </button>
+                      <button
+                        onClick={() => setPage((p) => (totalPages && p < totalPages - 1 ? p + 1 : p))}
+                        disabled={loading || !totalPages || page >= totalPages - 1}
+                        className={`px-3 py-1 rounded-md text-sm ${loading || !totalPages || page >= totalPages - 1 ? 'bg-gray-300 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed' : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500'}`}
+                      >
+                        Next
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -699,7 +772,7 @@ const AdminDashboard = () => {
               </h3>
               <div className="mt-2 px-7 py-3">
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                  Change role for user: {editingUser?.name || editingUser?.email}
+                  Change role for user: {([editingUser?.firstname, editingUser?.lastname].filter(Boolean).join(' ') || editingUser?.email) }
                 </p>
 
                 <div className="mb-4">
@@ -750,6 +823,20 @@ const AdminDashboard = () => {
         </div>
       )}
     </div>
+    ) : (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center">
+          <ExclamationTriangleIcon className="mx-auto h-12 w-12 text-red-500 mb-4" />
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h2>
+          <p className="text-gray-600 dark:text-gray-300 mb-4">
+            You must be an Administrator to access this page.
+          </p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Your current role is: <span className="font-semibold">{currentUser?.role || 'Not Authenticated'}</span>
+          </p>
+        </div>
+      </div>
+    )
   );
 };
 

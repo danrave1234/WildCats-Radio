@@ -23,6 +23,8 @@ import com.wildcastradio.User.DTO.LoginResponse;
 import com.wildcastradio.User.DTO.RegisterRequest;
 import com.wildcastradio.User.DTO.UserDTO;
 import com.wildcastradio.config.JwtUtil;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 @Service
 public class UserService implements UserDetailsService {
@@ -490,6 +492,10 @@ public class UserService implements UserDetailsService {
         return userRepository.findAll();
     }
 
+    public Page<UserEntity> findAllUsers(Pageable pageable) {
+        return userRepository.findAll(pageable);
+    }
+
     public List<UserEntity> findUsersByRole(UserEntity.UserRole role) {
         return userRepository.findByRole(role);
     }
@@ -566,7 +572,5 @@ public class UserService implements UserDetailsService {
         return getNewUsersThisMonthCount();
     }
 
-    public List<UserEntity> getAllUsers() {
-        return userRepository.findAll();
-    }
+    // Removed insecure getAllUsers exposure
 } 

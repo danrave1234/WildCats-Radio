@@ -3,6 +3,7 @@ package com.wildcastradio.Notification;
 import java.time.LocalDateTime;
 
 import com.wildcastradio.User.UserEntity;
+import com.wildcastradio.Announcement.AnnouncementEntity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -49,6 +50,11 @@ public class NotificationEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "recipient_id", nullable = false)
     private UserEntity recipient;
+
+    // Optional link to an announcement that generated this notification
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "announcement_id")
+    private AnnouncementEntity announcement;
 
     // No-arg constructor required by JPA
     public NotificationEntity() {
@@ -119,5 +125,13 @@ public class NotificationEntity {
 
     public void setRead(boolean read) {
         isRead = read;
+    }
+
+    public AnnouncementEntity getAnnouncement() {
+        return announcement;
+    }
+
+    public void setAnnouncement(AnnouncementEntity announcement) {
+        this.announcement = announcement;
     }
 }

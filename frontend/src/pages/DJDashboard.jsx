@@ -194,6 +194,32 @@ export default function DJDashboard() {
 
   // Song Requests State
   const [songRequests, setSongRequests] = useState([])
+  // Helper: derive best-effort sent time for a song request
+  const getSongRequestTimeMs = (request, isIncoming = false) => {
+    try {
+      const raw = request?.timestamp ?? request?.createdAt
+      let parsed = null
+      if (raw) {
+        if (typeof raw === 'string') {
+          const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)
+          // If backend provided UTC without zone, assume UTC by appending 'Z'
+          parsed = new Date(hasZone ? raw : `${raw}Z`)
+        } else {
+          parsed = new Date(raw)
+        }
+      }
+      const parsedMs = parsed && !isNaN(parsed.getTime()) ? parsed.getTime() : NaN
+      if (isIncoming) {
+        // If the parsed time is clearly off, trust the receive time
+        if (!parsedMs || Math.abs(Date.now() - parsedMs) > 1000 * 60 * 60 * 4) {
+          return Date.now()
+        }
+      }
+      return parsedMs || Date.now()
+    } catch (_) {
+      return Date.now()
+    }
+  }
 
   // Poll Creation State
   const [newPoll, setNewPoll] = useState({
@@ -593,7 +619,10 @@ export default function DJDashboard() {
         logger.debug("DJ Dashboard: Loaded initial song requests:", requestsResponse.data?.length || 0)
 
         if (currentBroadcast?.id === currentBroadcast?.id && !signal.aborted) {
-          setSongRequests(requestsResponse.data || [])
+          const withDerivedTimes = (requestsResponse.data || [])
+            .map(r => ({ ...r, _sentAt: getSongRequestTimeMs(r, false) }))
+            .sort((a, b) => (b._sentAt || 0) - (a._sentAt || 0)) // newest first
+          setSongRequests(withDerivedTimes)
         }
 
         // Fetch polls
@@ -692,28 +721,31 @@ export default function DJDashboard() {
         logger.debug("DJ Dashboard: Setting up song request WebSocket for broadcast:", currentBroadcast.id)
 
         const connection = await songRequestService.subscribeToSongRequests(currentBroadcast.id, (message) => {
-          // Check if this is a deletion notification
-          if (message.type === "SONG_REQUEST_DELETED") {
-            logger.debug("DJ Dashboard: Received song request deletion notification:", message)
-
-            // Remove the deleted request from the state
+          // Normalize incoming payloads from WS
+          const isDeletion = message?.type === "SONG_REQUEST_DELETED"
+          if (isDeletion) {
             setSongRequests((prev) => prev.filter((req) => req.id !== message.requestId))
             return
           }
 
-          // Handle new song request
-          // Double-check the request is for the current broadcast
-          if (message.broadcastId === currentBroadcast.id) {
-            logger.debug("DJ Dashboard: Received new song request:", message)
+          // Possible shapes: { ...request }, { type: 'NEW', request: {...} }, { songRequest: {...} }
+          const candidate = message?.request || message?.songRequest || message
+          if (!candidate) return
 
-            setSongRequests((prev) => {
-              const exists = prev.some((req) => req.id === message.id)
-              if (exists) return prev
-              return [message, ...prev]
-            })
-          } else {
-            logger.debug("DJ Dashboard: Ignoring song request for different broadcast:", message.broadcastId)
-          }
+          const broadcastId = candidate.broadcastId ?? message.broadcastId
+          if (broadcastId !== currentBroadcast.id) return
+
+          const id = candidate.id ?? candidate.requestId
+          const normalized = { ...candidate, id }
+
+          setSongRequests((prev) => {
+            const exists = prev.some((req) => req.id === normalized.id)
+            if (exists) return prev
+            const enhanced = { ...normalized, _sentAt: getSongRequestTimeMs(normalized, true) }
+            const updated = [enhanced, ...prev]
+            updated.sort((a, b) => (b._sentAt || 0) - (a._sentAt || 0))
+            return updated
+          })
         })
 
         songRequestWsRef.current = connection
@@ -1643,9 +1675,7 @@ export default function DJDashboard() {
 
                                   let messageDate;
                                   try {
-                                    messageDate = msg.createdAt
-                                      ? new Date(typeof msg.createdAt === 'string' && !msg.createdAt.endsWith('Z') ? msg.createdAt + 'Z' : msg.createdAt)
-                                      : null;
+                                    messageDate = msg.createdAt ? new Date(msg.createdAt) : null;
                                   } catch (error) {
                                     messageDate = new Date();
                                   }
@@ -1721,89 +1751,92 @@ export default function DJDashboard() {
 
                   {/* Song Requests Section */}
                   <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-                    <div className="bg-yellow-600 text-white px-4 py-2.5">
+                    <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white px-4 py-3">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <MusicalNoteIcon className="h-4 w-4 mr-2" />
-                          <h3 className="font-semibold text-sm">Song Requests</h3>
+                        <div className="flex items-center gap-2">
+                          <MusicalNoteIcon className="h-5 w-5" />
+                          <h3 className="font-semibold text-base">Song Requests</h3>
                         </div>
-                        <span className="text-xs bg-white bg-opacity-20 px-2 py-0.5 rounded-full">
+                        <span
+                          className="text-sm bg-white/25 backdrop-blur-sm px-2.5 py-0.5 rounded-full font-semibold min-w-[2rem] text-center"
+                          title="Total song requests"
+                          aria-label={`Total song requests: ${songRequests.length}`}
+                        >
                       {songRequests.length}
                     </span>
                       </div>
                     </div>
                     <EnhancedScrollArea className="h-[300px]">
-                      <div className="p-3 space-y-2">
+                      <div className="p-3 space-y-2.5">
                         {songRequests.length === 0 ? (
-                            <div className="text-center text-gray-500 dark:text-gray-400 py-8">No requests yet</div>
+                            <div className="text-center text-gray-500 dark:text-gray-400 py-12 px-4">
+                              <MusicalNoteIcon className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                              <p className="text-sm">No song requests yet</p>
+                            </div>
                         ) : (
                             songRequests.map((request) => (
-                                <div key={request.id} className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
-                                  <div className="flex items-start space-x-2">
-                                    <div className="flex-shrink-0">
-                                      <div className="w-6 h-6 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-full flex items-center justify-center">
-                                        <MusicalNoteIcon className="w-3 h-3 text-white" />
+                                <div key={request.id} className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-750 rounded-lg p-3 border border-gray-200 dark:border-gray-600 hover:shadow-md transition-shadow">
+                                  <div className="flex items-start gap-3">
+                                    <div className="flex-shrink-0 mt-0.5">
+                                      <div className="w-8 h-8 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-lg flex items-center justify-center shadow-sm">
+                                        <MusicalNoteIcon className="w-4 h-4 text-white" />
                                       </div>
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                      <div className="flex justify-between items-start">
-                                        <div className="mb-1">
-                                  <span className="text-sm font-medium text-gray-900 dark:text-white block">
+                                      <div className="flex justify-between items-start gap-2">
+                                        <div>
+                                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white leading-snug">
                                     {request.songTitle}
-                                  </span>
-                                          <span className="text-xs text-gray-600 dark:text-gray-300">by {request.artist}</span>
+                                  </h4>
+                                          {request.artist && (
+                                            <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">by {request.artist}</p>
+                                          )}
                                           {request.requestedBy && (
-                                            <div className="text-xs text-gray-500 dark:text-gray-400">
-                                              Requested by {(() => {
-                                                try {
-                                                  const f = request.requestedBy?.firstname || '';
-                                                  const l = request.requestedBy?.lastname || '';
-                                                  const full = `${f} ${l}`.trim();
-                                                  return full || request.requestedBy?.email || 'Unknown User';
-                                                } catch (_) {
-                                                  return 'Unknown User';
-                                                }
-                                              })()}
+                                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1">
+                                              <span> • </span>
+                                              <span>
+                                                {(() => {
+                                                  try {
+                                                    const f = request.requestedBy?.firstname || '';
+                                                    const l = request.requestedBy?.lastname || '';
+                                                    const full = `${f} ${l}`.trim();
+                                                    return full || request.requestedBy?.email || 'Anonymous';
+                                                  } catch (_) {
+                                                    return 'Anonymous';
+                                                  }
+                                                })()}
+                                              </span>
                                             </div>
                                           )}
                                         </div>
                                         <button
                                             onClick={() => handleDeleteSongRequest(request.id)}
-                                            className="text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 transition-colors"
-                                            title="Delete request"
+                                            className="flex-shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                                            title="Remove request"
+                                            aria-label="Remove song request"
                                         >
                                           <XMarkIcon className="h-4 w-4" />
                                         </button>
                                       </div>
                                       {request.dedication && (
-                                          <p className="text-xs text-gray-600 dark:text-gray-400 italic mb-1">
+                                          <p className="text-xs text-gray-600 dark:text-gray-400 italic mt-2 pl-2 border-l-2 border-yellow-400">
                                             "{request.dedication}"
                                           </p>
                                       )}
-                                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                                      <div className="text-xs text-gray-500 dark:text-gray-500 mt-2">
                                         {(() => {
                                           try {
-                                            let ts = request.timestamp;
-                                            if (ts && typeof ts === 'string' && !ts.endsWith('Z')) ts = ts + 'Z';
-                                            const requestDate = ts ? new Date(ts) : null;
-                                            return requestDate && !isNaN(requestDate.getTime())
-                                                ? formatDistanceToNow(requestDate, { addSuffix: true })
-                                                : "just now"
+                                            const ms = request?._sentAt ?? getSongRequestTimeMs(request, false)
+                                            if (typeof ms === 'number') {
+                                              const diffMs = Date.now() - ms
+                                              if (diffMs < 60 * 1000) return 'just now'
+                                              return formatDistanceToNow(new Date(ms), { addSuffix: true })
+                                            }
+                                            return 'just now'
                                           } catch (error) {
-                                            return "just now"
+                                            return 'just now'
                                           }
-                                        })()}• {(() => {
-                                        try {
-                                          let ts = request.createdAt;
-                                          if (ts && typeof ts === 'string' && !ts.endsWith('Z')) ts = ts + 'Z';
-                                          const requestDate = ts ? new Date(ts) : null;
-                                          return requestDate && !isNaN(requestDate.getTime())
-                                              ? formatDistanceToNow(requestDate, { addSuffix: true })
-                                              : "just now"
-                                        } catch (error) {
-                                          return "just now"
-                                        }
-                                      })()}
+                                        })()}
                                       </div>
                                     </div>
                                   </div>

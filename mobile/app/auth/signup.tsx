@@ -12,6 +12,8 @@ import {
   ActivityIndicator,
   Dimensions,
   Easing,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import "../../global.css";
@@ -128,9 +130,17 @@ const SignupScreen: React.FC = () => {
 
   return (
     <SafeAreaView className="flex-1 bg-anti-flash_white overflow-hidden">
-      <Animated.View style={[{ flex: 1, width: '100%' }, { transform: [{ translateY: translateY }] }]}>
-        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}>
-          <View className="items-center px-8 py-10">
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        className="flex-1"
+      >
+        <Animated.View style={[{ flex: 1, width: '100%' }, { transform: [{ translateY: translateY }] }]}>
+          <ScrollView
+            contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View className="items-center px-8 py-10">
             <Animated.View style={logoAnim}>
               <Image source={logo} className="w-48 h-28 mb-6" resizeMode="contain" />
             </Animated.View>
@@ -236,8 +246,9 @@ const SignupScreen: React.FC = () => {
               </View>
             </Animated.View>
           </View>
-        </ScrollView>
-      </Animated.View>
+          </ScrollView>
+        </Animated.View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };

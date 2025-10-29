@@ -9,6 +9,10 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.wildcastradio.Notification.NotificationService;
+import com.wildcastradio.Notification.NotificationType;
+import com.wildcastradio.User.UserService;
+
 /**
  * Scheduled tasks for announcements:
  * - Auto-publish scheduled announcements
@@ -20,9 +24,15 @@ public class AnnouncementScheduler {
     private static final Logger logger = LoggerFactory.getLogger(AnnouncementScheduler.class);
 
     private final AnnouncementRepository announcementRepository;
+    private final NotificationService notificationService;
+    private final UserService userService;
 
-    public AnnouncementScheduler(AnnouncementRepository announcementRepository) {
+    public AnnouncementScheduler(AnnouncementRepository announcementRepository,
+                                 NotificationService notificationService,
+                                 UserService userService) {
         this.announcementRepository = announcementRepository;
+        this.notificationService = notificationService;
+        this.userService = userService;
     }
 
     /**
@@ -46,6 +56,19 @@ public class AnnouncementScheduler {
                     
                     logger.info("Published announcement: {} (ID: {})", 
                         announcement.getTitle(), announcement.getId());
+
+                    // Notify all users for each published announcement
+                    final AnnouncementEntity published = announcement;
+                    String message = "New announcement: " + (published.getTitle() != null ? published.getTitle() : "View details");
+                    userService.findAllUsers().forEach(user -> {
+                        notificationService.sendNotificationWithAnnouncement(
+                            user,
+                            message,
+                            NotificationType.ANNOUNCEMENT_PUBLISHED,
+                            published
+                        );
+                    });
+                    notificationService.sendPublicAnnouncementToast(published, message);
                 }
             }
         } catch (Exception e) {

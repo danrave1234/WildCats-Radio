@@ -15,7 +15,7 @@ public class TimeConfig {
      */
     @PostConstruct
     public void init() {
-        // Set default timezone for the JVM to UTC
-        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        // Set default timezone for the JVM to Asia/Manila to keep times consistent in PH
+        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Manila"));
     }
 } 
