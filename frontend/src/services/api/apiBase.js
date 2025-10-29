@@ -167,7 +167,8 @@ class ApiProxyBase {
     const sockJsUrl = configUtils.getSockJsUrl(endpoint);
 
     // Use factory function for proper auto-reconnect support
-    const stompClient = Stomp.over(() => new SockJS(sockJsUrl));
+    // Explicitly disable JSONP transport to avoid server warnings and origin-check limitations
+    const stompClient = Stomp.over(() => new SockJS(sockJsUrl, null, { transports: ['websocket', 'xhr-streaming', 'xhr-polling'] }));
 
     // Enhanced reconnection settings
     stompClient.reconnect_delay = this.config.wsReconnectDelay;
