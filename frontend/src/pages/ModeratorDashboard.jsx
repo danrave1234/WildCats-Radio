@@ -179,6 +179,7 @@ const ModeratorDashboardContent = () => {
       };
       const res = await authService.register(registerRequest);
       const created = res.data;
+      // Set role if selected (Listener is default from backend)
       if (newUser.role === 'DJ' || newUser.role === 'MODERATOR') {
         await authService.updateUserRoleByActor(created.id, newUser.role);
         created.role = newUser.role;
