@@ -23,7 +23,7 @@ import { broadcastService, songRequestService, pollService, authService, chatSer
 import { brandingApi } from "../services/api/brandingApi";
 import { useAuth } from "../context/AuthContext"
 import { useStreaming } from "../context/StreamingContext"
-import { formatDistanceToNow } from "date-fns"
+import { format, formatDistanceToNow } from "date-fns"
 import AudioPlayer from "../components/AudioPlayer"
 import { EnhancedScrollArea } from "../components/ui/enhanced-scroll-area"
 import { createLogger } from "../services/logger"
@@ -198,19 +198,9 @@ export default function DJDashboard() {
   const getSongRequestTimeMs = (request, isIncoming = false) => {
     try {
       const raw = request?.timestamp ?? request?.createdAt
-      let parsed = null
-      if (raw) {
-        if (typeof raw === 'string') {
-          const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)
-          // If backend provided UTC without zone, assume UTC by appending 'Z'
-          parsed = new Date(hasZone ? raw : `${raw}Z`)
-        } else {
-          parsed = new Date(raw)
-        }
-      }
+      const parsed = raw ? new Date(raw) : null
       const parsedMs = parsed && !isNaN(parsed.getTime()) ? parsed.getTime() : NaN
       if (isIncoming) {
-        // If the parsed time is clearly off, trust the receive time
         if (!parsedMs || Math.abs(Date.now() - parsedMs) > 1000 * 60 * 60 * 4) {
           return Date.now()
         }
@@ -1675,19 +1665,20 @@ export default function DJDashboard() {
 
                                   let messageDate;
                                   try {
-                                    messageDate = msg.createdAt ? new Date(msg.createdAt) : null;
+                                    const ts = msg.createdAt || msg.timestamp || msg.sentAt || msg.time || msg.date;
+                                    messageDate = ts ? new Date(ts) : null;
                                   } catch (error) {
                                     messageDate = new Date();
                                   }
 
-                                  // Format relative time (updated every minute due to chatTimestampTick)
-                                  const timeAgo = (() => {
+                                  // Show absolute local time
+                                  const timeText = (() => {
                                     try {
                                       return messageDate && !isNaN(messageDate.getTime())
-                                          ? formatDistanceToNow(messageDate, { addSuffix: true })
-                                          : "just now"
+                                        ? format(messageDate, 'hh:mm a')
+                                        : ''
                                     } catch (error) {
-                                      return "just now"
+                                      return ''
                                     }
                                   })()
 
@@ -1705,7 +1696,9 @@ export default function DJDashboard() {
                                   <span className="text-xs font-medium text-gray-900 dark:text-white">
                                     {senderName}
                                   </span>
-                                            <span className="text-xs text-gray-500 dark:text-gray-400">{timeAgo}</span>
+                                            {timeText && (
+                                              <span className="text-xs text-gray-500 dark:text-gray-400">{timeText}</span>
+                                            )}
                                                                                         {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
                                                                                           <button
                                                                                             type="button"

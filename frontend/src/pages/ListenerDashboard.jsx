@@ -16,7 +16,7 @@ import {
 } from "@heroicons/react/24/solid";
 import Toast from "../components/Toast";
 import { broadcastService, chatService, songRequestService, pollService, streamService, authService, radioService } from "../services/api/index.js";
-import { formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { useAuth } from "../context/AuthContext";
 import { useStreaming } from "../context/StreamingContext";
 import { useLocalBackend, config } from "../config";
@@ -1608,26 +1608,17 @@ export default function ListenerDashboard() {
       // Handle date parsing more robustly
       let messageDate;
       try {
-        messageDate = msg.createdAt ? new Date(msg.createdAt) : null;
+        const ts = msg.createdAt || msg.timestamp || msg.sentAt || msg.time || msg.date;
+        messageDate = ts ? new Date(ts) : null;
       } catch (error) {
         logger.error('Error parsing message date:', error);
         messageDate = new Date();
       }
 
-      // Format relative time
-      const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
-        ? formatDistanceToNow(messageDate, { addSuffix: false }) 
-        : 'just now';
-
-      const formattedTimeAgo = timeAgo
-        .replace(' seconds', ' sec')
-        .replace(' second', ' sec')
-        .replace(' minutes', ' min')
-        .replace(' minute', ' min')
-        .replace(' hours', ' hour')
-        .replace(' days', ' day')
-        .replace(' months', ' month')
-        .replace(' years', ' year');
+      // Absolute local time for display
+      const formattedTime = messageDate && !isNaN(messageDate.getTime())
+        ? format(messageDate, 'hh:mm a')
+        : '';
 
       return (
         <div key={msg.id} className="mb-4">
@@ -1637,6 +1628,9 @@ export default function ListenerDashboard() {
             </div>
             <div className="ml-2 overflow-hidden flex items-center gap-2">
               <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{senderName}</span>
+              {formattedTime && (
+                <span className="text-sm text-gray-600 dark:text-gray-300 font-medium">{formattedTime}</span>
+              )}
               {currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR') && msg.sender?.id !== currentUser.id && msg.sender?.role !== 'ADMIN' && (
                 <button
                   onClick={(e) => { e.stopPropagation(); handleBanUserPrompt(msg.sender); }}
@@ -1652,9 +1646,9 @@ export default function ListenerDashboard() {
             <div className={`rounded-lg p-3 message-bubble ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
               <p className="text-sm text-gray-800 dark:text-gray-200 chat-message" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content || 'No content'}</p>
             </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 pl-1">
-              {formattedTimeAgo} ago
-            </div>
+            {false && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 pl-1" />
+            )}
           </div>
         </div>
       );
