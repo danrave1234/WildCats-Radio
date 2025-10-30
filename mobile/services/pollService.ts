@@ -7,12 +7,9 @@ import {
   getPollResults 
 } from './apiService';
 import { websocketService } from './websocketService';
+import { BaseService, ServiceConnection, ServiceResult, ServiceSubscriptionOptions } from './baseService';
 
-interface PollConnection {
-  disconnect: () => void;
-}
-
-
+interface PollConnection extends ServiceConnection {}
 
 interface PollUpdateMessage {
   type: 'POLL_VOTE' | 'NEW_POLL' | 'POLL_UPDATED' | 'POLL_RESULTS';
@@ -28,28 +25,23 @@ interface PollUpdateMessage {
   };
 }
 
-class PollService {
-  private subscriptions: Map<number, PollConnection> = new Map();
+class PollService extends BaseService<PollConnection> {
 
   /**
    * Get polls for a specific broadcast
    */
-  async getPollsForBroadcast(broadcastId: number, authToken: string): Promise<{ data: PollDTO[] } | { error: string }> {
+  async getPollsForBroadcast(broadcastId: number, authToken: string): Promise<ServiceResult<PollDTO[]>> {
     try {
-      console.log('📊 PollService: Fetching polls for broadcast:', broadcastId);
       const result = await getActivePollsForBroadcast(broadcastId, authToken);
 
       if ('error' in result) {
-        console.error('❌ PollService: Error fetching polls:', result.error);
-        return { error: result.error || 'Failed to fetch polls' };
+        return this.createResult(undefined, result.error || 'Failed to fetch polls');
       }
       
-      console.log('✅ PollService: Fetched', result.length, 'polls');
-      return { data: result };
+      return this.createResult(result);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      console.error('❌ PollService: Exception fetching polls:', errorMessage);
-      return { error: errorMessage };
+      const errorMessage = this.handleError(error, 'PollService: Exception fetching polls');
+      return this.createResult(undefined, errorMessage);
     }
   }
 
@@ -60,22 +52,18 @@ class PollService {
     pollId: number, 
     voteData: VoteOnPollPayload, 
     authToken: string
-  ): Promise<{ data: PollResultDTO } | { error: string }> {
+  ): Promise<ServiceResult<PollResultDTO>> {
     try {
-      console.log('🗳️ PollService: Voting on poll:', pollId, 'option:', voteData.optionId);
       const result = await voteOnPoll(pollId, voteData, authToken);
 
       if ('error' in result) {
-        console.error('❌ PollService: Error voting on poll:', result.error);
-        return { error: result.error || 'Failed to vote on poll' };
+        return this.createResult(undefined, result.error || 'Failed to vote on poll');
       }
       
-      console.log('✅ PollService: Vote submitted successfully for poll:', pollId);
-      return { data: result };
+      return this.createResult(result);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      console.error('❌ PollService: Exception voting on poll:', errorMessage);
-      return { error: errorMessage };
+      const errorMessage = this.handleError(error, 'PollService: Exception voting on poll');
+      return this.createResult(undefined, errorMessage);
     }
   }
 
@@ -142,7 +130,7 @@ class PollService {
           console.log('🔌 PollService: Poll WebSocket disconnected for broadcast:', broadcastId);
         };
 
-        const handleError = (error: Event) => {
+        const handleError = (error: any) => {
           console.error('❌ PollService: Poll WebSocket error for broadcast:', broadcastId, error);
         };
 

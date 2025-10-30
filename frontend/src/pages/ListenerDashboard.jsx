@@ -14,8 +14,9 @@ import {
   ArrowRightOnRectangleIcon,
   ExclamationTriangleIcon,
 } from "@heroicons/react/24/solid";
+import Toast from "../components/Toast";
 import { broadcastService, chatService, songRequestService, pollService, streamService, authService, radioService } from "../services/api/index.js";
-import { formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { useAuth } from "../context/AuthContext";
 import { useStreaming } from "../context/StreamingContext";
 import { useLocalBackend, config } from "../config";
@@ -48,6 +49,9 @@ export default function ListenerDashboard() {
 
   // If we're accessing a specific broadcast by ID, set it as the current broadcast
   const targetBroadcastId = isSpecificBroadcast && broadcastIdParam ? parseInt(broadcastIdParam, 10) : null;
+
+  // Toast notification state (UI only)
+  const [toast, setToast] = useState({ visible: false, message: "", type: "success" });
   const [streamError, setStreamError] = useState(null);
     // Filter function to prevent showing audio playback errors
     const setFilteredStreamError = (error) => {
@@ -1466,6 +1470,7 @@ export default function ListenerDashboard() {
         // Reset to normal chat mode after successful submission
         setIsSongRequestMode(false);
         setSongRequestText('');
+        setToast({ visible: true, message: 'Song request sent to the DJ', type: 'success' });
       } catch (error) {
         logger.error('Error submitting song request:', error);
       }
@@ -1603,28 +1608,17 @@ export default function ListenerDashboard() {
       // Handle date parsing more robustly
       let messageDate;
       try {
-        messageDate = msg.createdAt
-          ? new Date(typeof msg.createdAt === 'string' && !msg.createdAt.endsWith('Z') ? msg.createdAt + 'Z' : msg.createdAt)
-          : null;
+        const ts = msg.createdAt || msg.timestamp || msg.sentAt || msg.time || msg.date;
+        messageDate = ts ? new Date(ts) : null;
       } catch (error) {
         logger.error('Error parsing message date:', error);
         messageDate = new Date();
       }
 
-      // Format relative time
-      const timeAgo = messageDate && !isNaN(messageDate.getTime()) 
-        ? formatDistanceToNow(messageDate, { addSuffix: false }) 
-        : 'just now';
-
-      const formattedTimeAgo = timeAgo
-        .replace(' seconds', ' sec')
-        .replace(' second', ' sec')
-        .replace(' minutes', ' min')
-        .replace(' minute', ' min')
-        .replace(' hours', ' hour')
-        .replace(' days', ' day')
-        .replace(' months', ' month')
-        .replace(' years', ' year');
+      // Absolute local time for display
+      const formattedTime = messageDate && !isNaN(messageDate.getTime())
+        ? format(messageDate, 'hh:mm a')
+        : '';
 
       return (
         <div key={msg.id} className="mb-4">
@@ -1634,6 +1628,9 @@ export default function ListenerDashboard() {
             </div>
             <div className="ml-2 overflow-hidden flex items-center gap-2">
               <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{senderName}</span>
+              {formattedTime && (
+                <span className="text-sm text-gray-600 dark:text-gray-300 font-medium">{formattedTime}</span>
+              )}
               {currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR') && msg.sender?.id !== currentUser.id && msg.sender?.role !== 'ADMIN' && (
                 <button
                   onClick={(e) => { e.stopPropagation(); handleBanUserPrompt(msg.sender); }}
@@ -1649,9 +1646,9 @@ export default function ListenerDashboard() {
             <div className={`rounded-lg p-3 message-bubble ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
               <p className="text-sm text-gray-800 dark:text-gray-200 chat-message" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content || 'No content'}</p>
             </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 pl-1">
-              {formattedTimeAgo} ago
-            </div>
+            {false && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 pl-1" />
+            )}
           </div>
         </div>
       );
@@ -1708,13 +1705,21 @@ export default function ListenerDashboard() {
 
     return (
       <div>
+        {isSongRequestMode && (
+          <div className="mb-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 border-l-2 border-yellow-500 rounded">
+            <p className="text-xs text-yellow-800 dark:text-yellow-300 flex items-center gap-1.5 font-medium">
+              <MusicalNoteIcon className="h-3.5 w-3.5" />
+              Song Request Mode — Type the song title and click Send
+            </p>
+          </div>
+        )}
         {(slowModeEnabled && slowModeSeconds > 0) && (
           <p className="text-[11px] text-gray-600 dark:text-gray-300 mb-1">Slow mode: {slowModeSeconds} second{slowModeSeconds === 1 ? '' : 's'}</p>
         )}
         {(typeof slowModeWaitSeconds === 'number' && slowModeWaitSeconds > 0) && (
           <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">Please wait {slowModeWaitSeconds} second{slowModeWaitSeconds === 1 ? '' : 's'} before sending another message.</p>
         )}
-        <form onSubmit={handleChatSubmit} className="flex items-center space-x-2">
+        <form onSubmit={handleChatSubmit} className="flex items-center gap-2">
         <input
           type="text"
           value={isSongRequestMode ? songRequestText : chatMessage}
@@ -1728,11 +1733,11 @@ export default function ListenerDashboard() {
               }
             }
           }}
-          placeholder={isSongRequestMode ? "Enter song title..." : "Type your message..."}
-          className={`flex-1 p-2 border rounded-l-md text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:border-transparent transition-all duration-300 ease-in-out ${
+          placeholder={isSongRequestMode ? "e.g., Shape of You - Ed Sheeran" : "Type your message..."}
+          className={`flex-1 px-3 py-2 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 transition-all ${
             isSongRequestMode 
-              ? "border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-500 focus:ring-yellow-500 animate-pulse" 
-              : "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 focus:ring-maroon-500"
+              ? "border-yellow-400 bg-yellow-50/50 dark:bg-yellow-900/10 dark:border-yellow-500 focus:ring-yellow-400 focus:border-yellow-400" 
+              : "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 focus:ring-maroon-500 focus:border-maroon-500"
           }`}
           disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id)}
           maxLength={1500}
@@ -1745,17 +1750,22 @@ export default function ListenerDashboard() {
               type="button"
               onClick={handleSongRequest}
               disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id) || !songRequestText.trim()}
-              className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 ${
-                isLive && songRequestText.trim() ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm ${
+                isLive && songRequestText.trim() 
+                  ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
               }`}
+              aria-label="Send song request"
             >
-              Request
+              <MusicalNoteIcon className="h-4 w-4" />
+              Send
             </button>
             <button
               type="button"
               onClick={handleCancelSongRequest}
               disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id)}
-              className="px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 bg-red-500 hover:bg-red-600 text-white"
+              className="px-3 py-2 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+              aria-label="Cancel song request"
             >
               Cancel
             </button>
@@ -1766,22 +1776,28 @@ export default function ListenerDashboard() {
               type="button"
               onClick={handleSongRequest}
               disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id)}
-              className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 ${
-                isLive ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm ${
+                isLive 
+                  ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
               }`}
+              aria-label="Request a song"
             >
-              Request Song
+              <MusicalNoteIcon className="h-4 w-4" />
+              Request
             </button>
             <button
               type="submit"
               disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id) || !chatMessage.trim()}
-              className={`p-2 rounded-r-md transition-all duration-300 ${
+              className={`p-2 rounded-lg transition-all ${
                 isLive && chatMessage.trim()
-                  ? "bg-maroon-700 hover:bg-maroon-800 text-white"
-                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                  ? "bg-maroon-600 hover:bg-maroon-700 active:bg-maroon-800 text-white shadow-sm hover:shadow-md"
+                  : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
               }`}
+              aria-label="Send message"
             >
               <PaperAirplaneIcon className="h-5 w-5" />
+              <span className="sr-only">Send message</span>
             </button>
           </>
         )}
@@ -2191,7 +2207,7 @@ export default function ListenerDashboard() {
                             }
                           }
                         }}
-                        placeholder={isSongRequestMode ? "Enter song title..." : "Type your message..."}
+                        placeholder={isSongRequestMode ? "Song title - optional artist" : "Type your message..."}
                         className={`flex-1 p-2 border rounded-l-md text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:border-transparent transition-all duration-300 ease-in-out ${
                           isSongRequestMode 
                             ? "border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-500 focus:ring-yellow-500 animate-pulse" 
@@ -2208,17 +2224,22 @@ export default function ListenerDashboard() {
                             type="button"
                             onClick={handleSongRequest}
                             disabled={!isLive || !songRequestText.trim()}
-                            className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 ${
-                              isLive && songRequestText.trim() ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm ${
+                              isLive && songRequestText.trim() 
+                                ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
+                                : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
                             }`}
+                            aria-label="Send song request"
                           >
-                            Request
+                            <MusicalNoteIcon className="h-4 w-4" />
+                            Send
                           </button>
                           <button
                             type="button"
                             onClick={handleCancelSongRequest}
                             disabled={!isLive}
-                            className="px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 bg-red-500 hover:bg-red-600 text-white"
+                            className="px-3 py-2 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            aria-label="Cancel song request"
                           >
                             Cancel
                           </button>
@@ -2229,22 +2250,28 @@ export default function ListenerDashboard() {
                             type="button"
                             onClick={handleSongRequest}
                             disabled={!isLive}
-                            className={`px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 ${
-                              isLive ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm ${
+                              isLive 
+                                ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
+                                : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
                             }`}
+                            aria-label="Request a song"
                           >
-                            Request Song
+                            <MusicalNoteIcon className="h-4 w-4" />
+                            Request
                           </button>
                           <button
                             type="submit"
                             disabled={!isLive || !chatMessage.trim()}
-                            className={`p-2 rounded-r-md transition-all duration-300 ${
+                            className={`p-2 rounded-lg transition-all ${
                               isLive && chatMessage.trim()
-                                ? "bg-maroon-700 hover:bg-maroon-800 text-white"
-                                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                                ? "bg-maroon-600 hover:bg-maroon-700 active:bg-maroon-800 text-white shadow-sm hover:shadow-md"
+                                : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
                             }`}
+                            aria-label="Send message"
                           >
                             <PaperAirplaneIcon className="h-5 w-5" />
+                            <span className="sr-only">Send message</span>
                           </button>
                         </>
                       )}
@@ -2310,6 +2337,15 @@ export default function ListenerDashboard() {
           </div>
         </div>
       </div>
+    {/* Toast (fixed position) */}
+    {toast.visible && (
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        onClose={() => setToast((prev) => ({ ...prev, visible: false }))}
+        position="bottom-right"
+      />
+    )}
     </div>
   );
 }

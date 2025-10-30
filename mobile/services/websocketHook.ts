@@ -10,7 +10,7 @@ interface UseWebSocketProps {
   onBroadcastUpdate?: (data: any) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
-  onError?: (error: Event) => void;
+  onError?: (error: any) => void;
 }
 
 export const useWebSocket = ({
@@ -87,7 +87,7 @@ export const useWebSocket = ({
     }
   }, []);
 
-  const handleError = useCallback((error: Event) => {
+  const handleError = useCallback((error: any) => {
     console.error('❌ WebSocket error:', error);
     setIsConnected(false);
     const callbacks = callbacksRef.current;

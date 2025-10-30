@@ -9,9 +9,12 @@ import {
 } from '@heroicons/react/24/outline';
 import { authService, broadcastService, analyticsService, logger } from '../services/api/index.js';
 import { Spinner } from '../components/ui/spinner';
+import { ExclamationTriangleIcon } from '@heroicons/react/24/solid';
 
 const AdminDashboard = () => {
-  const { isAuthenticated } = useAuth();
+  const { currentUser } = useAuth();
+  const isAuthenticated = !!currentUser;
+  const isAdmin = !!currentUser && currentUser.role === 'ADMIN';
   const [users, setUsers] = useState([]);
   const [page, setPage] = useState(0);
   const [pageSize] = useState(15);
@@ -105,17 +108,17 @@ const AdminDashboard = () => {
 
   // Fetch users when component mounts or users tab active
   useEffect(() => {
-    if (activeTab === 'users') {
+    if (activeTab === 'users' && isAdmin) {
       fetchUsers();
     }
-  }, [activeTab, page]);
+  }, [activeTab, page, isAdmin]);
 
   // Fetch simple totals for overview once
   useEffect(() => {
-    if (activeTab === 'dashboard' && !overviewLoaded) {
+    if (activeTab === 'dashboard' && !overviewLoaded && isAdmin) {
       fetchTotals();
     }
-  }, [activeTab, overviewLoaded]);
+  }, [activeTab, overviewLoaded, isAdmin]);
 
   const refreshOverview = async () => {
     await fetchTotals();
@@ -123,14 +126,14 @@ const AdminDashboard = () => {
 
   // Fetch live list when broadcasts tab opens
   useEffect(() => {
-    if (activeTab === 'broadcasts') {
+    if (activeTab === 'broadcasts' && isAdmin) {
       fetchLiveBroadcasts();
     }
-  }, [activeTab]);
+  }, [activeTab, isAdmin]);
 
   // Setup WebSocket for live broadcast updates
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !isAdmin) return;
 
     let liveBroadcastWs = null;
 
@@ -159,7 +162,7 @@ const AdminDashboard = () => {
         logger.debug('Live broadcast WebSocket disconnected from admin dashboard');
       }
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isAdmin]);
 
   // Fetch users from the backend
   const fetchUsers = async () => {
@@ -314,6 +317,7 @@ const AdminDashboard = () => {
   };
 
   return (
+    isAdmin ? (
     <div className="container mx-auto px-4">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center">Admin Dashboard</h1>
@@ -819,6 +823,20 @@ const AdminDashboard = () => {
         </div>
       )}
     </div>
+    ) : (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center">
+          <ExclamationTriangleIcon className="mx-auto h-12 w-12 text-red-500 mb-4" />
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h2>
+          <p className="text-gray-600 dark:text-gray-300 mb-4">
+            You must be an Administrator to access this page.
+          </p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Your current role is: <span className="font-semibold">{currentUser?.role || 'Not Authenticated'}</span>
+          </p>
+        </div>
+      </div>
+    )
   );
 };
 

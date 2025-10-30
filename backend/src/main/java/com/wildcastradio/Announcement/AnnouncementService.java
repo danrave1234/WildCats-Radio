@@ -14,6 +14,9 @@ import com.wildcastradio.Announcement.DTO.ScheduleAnnouncementRequest;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserEntity.UserRole;
 import com.wildcastradio.storage.GcsStorageService;
+import com.wildcastradio.Notification.NotificationService;
+import com.wildcastradio.Notification.NotificationType;
+import com.wildcastradio.User.UserService;
 
 @Service
 public class AnnouncementService {
@@ -21,10 +24,15 @@ public class AnnouncementService {
     private static final int MAX_PINNED_ANNOUNCEMENTS = 2;
     private final AnnouncementRepository announcementRepository;
     private final GcsStorageService gcsStorageService;
+    private final NotificationService notificationService;
+    private final UserService userService;
 
-    public AnnouncementService(AnnouncementRepository announcementRepository, GcsStorageService gcsStorageService) {
+    public AnnouncementService(AnnouncementRepository announcementRepository, GcsStorageService gcsStorageService,
+                               NotificationService notificationService, UserService userService) {
         this.announcementRepository = announcementRepository;
         this.gcsStorageService = gcsStorageService;
+        this.notificationService = notificationService;
+        this.userService = userService;
     }
 
     /**
@@ -98,6 +106,13 @@ public class AnnouncementService {
         }
 
         AnnouncementEntity saved = announcementRepository.save(announcement);
+
+        // If created directly as published by a moderator/admin, broadcast notification
+        if (saved.getStatus() == AnnouncementStatus.PUBLISHED) {
+            broadcastAnnouncementPublished(saved);
+            notificationService.sendPublicAnnouncementToast(saved, "New announcement: " + (saved.getTitle() != null ? saved.getTitle() : "View details"));
+        }
+
         return AnnouncementDTO.fromEntity(saved);
     }
 
@@ -176,6 +191,11 @@ public class AnnouncementService {
         announcement.setUpdatedAt(LocalDateTime.now());
 
         AnnouncementEntity published = announcementRepository.save(announcement);
+
+        // Broadcast notification for published announcement
+        broadcastAnnouncementPublished(published);
+        notificationService.sendPublicAnnouncementToast(published, "New announcement: " + (published.getTitle() != null ? published.getTitle() : "View details"));
+
         return AnnouncementDTO.fromEntity(published);
     }
 
@@ -419,5 +439,21 @@ public class AnnouncementService {
         }
 
         announcementRepository.delete(announcement);
+    }
+
+    private void broadcastAnnouncementPublished(AnnouncementEntity announcement) {
+        try {
+            String message = "New announcement: " + (announcement.getTitle() != null ? announcement.getTitle() : "View details");
+            userService.findAllUsers().forEach(user -> {
+                notificationService.sendNotificationWithAnnouncement(
+                    user,
+                    message,
+                    NotificationType.ANNOUNCEMENT_PUBLISHED,
+                    announcement
+                );
+            });
+        } catch (Exception _e) {
+            // Fail-soft: do not interrupt publish flow
+        }
     }
 }

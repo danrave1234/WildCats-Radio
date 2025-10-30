@@ -5,6 +5,7 @@ import { ActivityIndicator, View, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import ErrorBoundary from '../components/ErrorBoundary';
+import { websocketService } from '../services/websocketService';
 
 const InitialLayout = () => {
   const { authToken, isLoading } = useAuth();
@@ -36,6 +37,12 @@ const InitialLayout = () => {
       }
     }
   }, [authToken, isLoading, segments, router]);
+
+  // Connect a lightweight global WS for public announcements (no auth needed)
+  useEffect(() => {
+    websocketService.connect(0, '');
+    return () => websocketService.disconnect();
+  }, []);
 
   if (isLoading) {
     return (

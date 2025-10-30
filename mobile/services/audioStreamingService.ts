@@ -268,8 +268,8 @@ class AudioStreamingService {
       if (Platform.OS === 'ios' && isIcecastStream) {
         logger.debug('🍎 Starting iOS Icecast stream playback with optimizations');
         
-        // For iOS Icecast streams, add a small delay to prevent duplicate connections
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // Reduced delay for faster startup
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
       
       logger.debug('🎵 Starting audio playback...');
@@ -552,7 +552,7 @@ class AudioStreamingService {
       
       const audioState: AudioState = {
         isPlaying: successStatus.isPlaying,
-        isLoading: successStatus.isBuffering,
+        isLoading: false, // Don't set loading to buffering state - loading is only for initial stream loading
         volume: successStatus.volume * 100,
         isMuted: successStatus.isMuted,
         position: successStatus.positionMillis || 0,
