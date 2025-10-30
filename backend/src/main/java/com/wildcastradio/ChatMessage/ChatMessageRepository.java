@@ -33,4 +33,23 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessageEntity, 
 
 	// Count messages within a time range
 	long countByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
+	
+	// Count messages for a specific broadcast
+	long countByBroadcast_Id(Long broadcastId);
+	
+	// Count messages for a specific broadcast within a time range
+	@Query("SELECT COUNT(c) FROM ChatMessageEntity c WHERE c.broadcast.id = :broadcastId AND c.createdAt BETWEEN :start AND :end")
+	long countByBroadcast_IdAndCreatedAtBetween(@Param("broadcastId") Long broadcastId, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+	
+	// Bulk count: Count all messages for broadcasts created by a specific DJ
+	@Query("SELECT COUNT(c) FROM ChatMessageEntity c WHERE c.broadcast.createdBy.id = :userId")
+	long countByBroadcast_CreatedBy_Id(@Param("userId") Long userId);
+	
+	// Bulk count: Count messages for DJ's broadcasts within a time range
+	@Query("SELECT COUNT(c) FROM ChatMessageEntity c WHERE c.broadcast.createdBy.id = :userId AND c.createdAt BETWEEN :start AND :end")
+	long countByBroadcast_CreatedBy_IdAndCreatedAtBetween(@Param("userId") Long userId, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+	
+	// Batch aggregation: Get message counts grouped by broadcast ID for multiple broadcasts
+	@Query("SELECT c.broadcast.id, COUNT(c) FROM ChatMessageEntity c WHERE c.broadcast.id IN :broadcastIds GROUP BY c.broadcast.id")
+	List<Object[]> countMessagesByBroadcastIds(@Param("broadcastIds") List<Long> broadcastIds);
 }

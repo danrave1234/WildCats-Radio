@@ -2,24 +2,9 @@ import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { config } from '../config';
 import { useAuth } from './AuthContext';
 import { analyticsService } from '../services/api/index.js';
-import SockJS from 'sockjs-client';
-import { Stomp } from '@stomp/stompjs';
 
 const AnalyticsContext = createContext();
 
-// Cookie helper function (consistent with AuthContext)
-const getCookie = (name) => {
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
-  return null;
-};
-
-// Get the proper WebSocket URL from config
-const getWsUrl = () => {
-  const sockJsBaseUrl = config.sockJsBaseUrl;
-  return sockJsBaseUrl + '/ws-radio';
-};
 
 export function useAnalytics() {
   const context = useContext(AnalyticsContext);
@@ -98,11 +83,8 @@ export function AnalyticsProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [wsConnected, setWsConnected] = useState(false);
 
-  // WebSocket reference
-  const stompClientRef = useRef(null);
-  const wsReconnectTimerRef = useRef(null);
+  // Fetch abort controller for cancelling requests
   const fetchAbortControllerRef = useRef(null);
 
   // Function to refresh activity data from analytics endpoint
@@ -141,158 +123,6 @@ export function AnalyticsProvider({ children }) {
     }
   };
 
-  // Connect to WebSocket for real-time analytics updates
-  const connectWebSocket = () => {
-    if (stompClientRef.current && stompClientRef.current.connected) {
-      return;
-    }
-
-    try {
-      // Clear any reconnection timer
-      if (wsReconnectTimerRef.current) {
-        clearTimeout(wsReconnectTimerRef.current);
-      }
-
-      // Get authentication token from cookies
-      const token = getCookie('token');
-      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-
-      // Create WebSocket connection
-      const stompClient = Stomp.over(() => new SockJS(getWsUrl()));
-      stompClient.reconnect_delay = 5000;
-      stompClient.debug = () => {};
-
-      stompClient.connect(headers, () => {
-        console.log('Connected to analytics WebSocket');
-        stompClientRef.current = stompClient;
-        setWsConnected(true);
-
-        // Subscribe to analytics updates
-        stompClient.subscribe('/topic/analytics/broadcasts', message => {
-          try {
-            const data = JSON.parse(message.body);
-            setBroadcastStats(prevStats => ({ ...prevStats, ...data }));
-            setLastUpdated(new Date());
-          } catch (error) {
-            console.warn('Error processing broadcast stats update:', error);
-          }
-        });
-
-        stompClient.subscribe('/topic/analytics/users', message => {
-          try {
-            const data = JSON.parse(message.body);
-            setUserStats(prevStats => ({ ...prevStats, ...data }));
-            setLastUpdated(new Date());
-          } catch (error) {
-            console.warn('Error processing user stats update:', error);
-          }
-        });
-
-        stompClient.subscribe('/topic/analytics/engagement', message => {
-          try {
-            const data = JSON.parse(message.body);
-            setEngagementStats(prevStats => ({ ...prevStats, ...data }));
-            setLastUpdated(new Date());
-          } catch (error) {
-            console.warn('Error processing engagement stats update:', error);
-          }
-        });
-
-        stompClient.subscribe('/topic/analytics/activity', message => {
-          try {
-            const data = JSON.parse(message.body);
-            console.log('Analytics: Received activity update via WebSocket:', data);
-
-            // Only update if we receive complete activity data via WebSocket
-            if (data.recentActivities && Array.isArray(data.recentActivities)) {
-              setActivityStats(prev => ({
-                ...prev,
-                todayActivities: data.todayActivities || prev.todayActivities,
-                weekActivities: data.weekActivities || prev.weekActivities,
-                monthActivities: data.monthActivities || prev.monthActivities,
-                recentActivities: data.recentActivities
-              }));
-              setLastUpdated(new Date());
-            }
-            // No automatic refresh - user must manually refresh for new data
-          } catch (error) {
-            console.warn('Error processing activity update:', error);
-          }
-        });
-
-        stompClient.subscribe('/topic/analytics/popular-broadcasts', message => {
-          try {
-            const data = JSON.parse(message.body);
-            setMostPopularBroadcasts(data);
-            setLastUpdated(new Date());
-          } catch (error) {
-            console.warn('Error processing popular broadcasts update:', error);
-          }
-        });
-
-        // Subscribe to real-time metrics updates
-        stompClient.subscribe('/topic/analytics/realtime', message => {
-          try {
-            const data = JSON.parse(message.body);
-            console.log('Analytics: Received real-time update via WebSocket:', data);
-            setRealtimeStats(prevStats => ({ ...prevStats, ...data }));
-            setLastUpdated(new Date());
-          } catch (error) {
-            console.warn('Error processing real-time stats update:', error);
-          }
-        });
-
-        // Subscribe to demographic analytics updates
-        stompClient.subscribe('/topic/analytics/demographics', message => {
-          try {
-            const data = JSON.parse(message.body);
-            console.log('Analytics: Received demographic update via WebSocket:', data);
-            setDemographicStats(prevStats => ({ ...prevStats, ...data }));
-            setLastUpdated(new Date());
-          } catch (error) {
-            console.warn('Error processing demographic stats update:', error);
-          }
-        });
-
-        // Immediately ask server to push a fresh snapshot (avoids waiting for scheduler)
-        try {
-          stompClient.send('/app/analytics/refresh', {}, '{}');
-        } catch (e) {
-          console.warn('Analytics: initial refresh send failed', e);
-        }
-
-      }, error => {
-        console.error('WebSocket connection error:', error);
-        setWsConnected(false);
-        wsReconnectTimerRef.current = setTimeout(() => {
-          console.log('Attempting to reconnect analytics WebSocket...');
-          connectWebSocket();
-        }, 5000);
-      });
-
-    } catch (error) {
-      console.error('WebSocket setup error:', error);
-      setWsConnected(false);
-      wsReconnectTimerRef.current = setTimeout(() => {
-        console.log('Attempting to reconnect analytics WebSocket...');
-        connectWebSocket();
-      }, 5000);
-    }
-  };
-
-  // Disconnect WebSocket
-  const disconnectWebSocket = () => {
-    if (stompClientRef.current && stompClientRef.current.connected) {
-      stompClientRef.current.disconnect();
-      stompClientRef.current = null;
-      setWsConnected(false);
-    }
-
-    if (wsReconnectTimerRef.current) {
-      clearTimeout(wsReconnectTimerRef.current);
-      wsReconnectTimerRef.current = null;
-    }
-  };
 
   // Fetch initial analytics data using the new analytics API endpoints
   const fetchInitialData = async () => {
@@ -436,7 +266,7 @@ export function AnalyticsProvider({ children }) {
     }
   };
 
-  // Fetch once on mount and when user/role becomes available; skip WebSocket usage per new requirement
+  // Fetch once on mount and when user/role becomes available
   useEffect(() => {
     if (isAuthenticated && currentUser && (currentUser.role === 'DJ' || currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR')) {
       fetchInitialData();
@@ -483,7 +313,6 @@ export function AnalyticsProvider({ children }) {
     loading,
     error,
     lastUpdated,
-    wsConnected,
     refreshData,
     refreshActivityData,
     refreshDemographics

@@ -247,6 +247,7 @@ public class UserController {
         return ResponseEntity.ok(dtoPage);
     }
 
+    @GetMapping("/by-role/{role}")
     @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<List<UserDTO>> getUsersByRole(@PathVariable UserEntity.UserRole role) {
         List<UserDTO> users = userService.findUsersByRole(role).stream()

@@ -23,6 +23,8 @@ import { useLocalBackend, config } from "../config";
 import { createLogger } from "../services/logger";
 import { globalWebSocketService } from '../services/globalWebSocketService';
 import SpotifyPlayer from '../components/SpotifyPlayer';
+import SEO from '../components/SEO';
+import { generateRadioStationData, generateBroadcastEventData } from '../utils/structuredData';
 
 const logger = createLogger('ListenerDashboard');
 
@@ -667,7 +669,10 @@ export default function ListenerDashboard() {
               case 'POLL_UPDATED': {
                 const p = pollUpdate.poll;
                 if (p) {
-                  if (p.active) {
+                  // Keep showing poll even if ended - show results
+                  // Only clear if poll has no votes and is not active
+                  const hasVotes = p.options?.some(opt => (opt.votes || 0) > 0) || p.totalVotes > 0;
+                  if (p.active || hasVotes) {
                     setActivePoll(p);
                   } else {
                     setActivePoll(null);
@@ -1224,7 +1229,7 @@ export default function ListenerDashboard() {
     };
   }, []); // Run once on component mount
 
-  // Load active poll once on broadcast/session change; subsequent updates arrive via WebSocket
+  // Load polls (active or ended with votes) once on broadcast/session change; subsequent updates arrive via WebSocket
   useEffect(() => {
     const loadInitialPoll = async () => {
       if (!currentBroadcastId) {
@@ -1232,24 +1237,84 @@ export default function ListenerDashboard() {
         return;
       }
       try {
-        const response = await pollService.getActivePollsForBroadcast(currentBroadcastId);
-        if (response.data && response.data.length > 0) {
-          const firstActive = response.data[0];
-          setActivePoll({
-            ...firstActive,
-            totalVotes: firstActive.options.reduce((sum, option) => sum + option.votes, 0),
-            userVoted: false
-          });
-        } else {
-          setActivePoll(null);
+        // First try to get active polls
+        const activeResponse = await pollService.getActivePollsForBroadcast(currentBroadcastId);
+        if (activeResponse.data && activeResponse.data.length > 0) {
+          const firstActive = activeResponse.data[0];
+          // Fetch results for active poll
+          try {
+            const resultsResponse = await pollService.getPollResults(firstActive.id);
+            setActivePoll({
+              ...firstActive,
+              options: resultsResponse.data.options || firstActive.options,
+              totalVotes: resultsResponse.data.totalVotes || firstActive.options.reduce((sum, option) => sum + (option.votes || 0), 0),
+              userVoted: false
+            });
+          } catch (error) {
+            // Fallback if results fetch fails
+            setActivePoll({
+              ...firstActive,
+              totalVotes: firstActive.options.reduce((sum, option) => sum + (option.votes || 0), 0),
+              userVoted: false
+            });
+          }
+          return;
         }
+        
+        // If no active poll, try to get most recent ended poll with votes
+        const allPollsResponse = await pollService.getPollsForBroadcast(currentBroadcastId);
+        if (allPollsResponse.data && allPollsResponse.data.length > 0) {
+          // Get ended polls with votes
+          const endedPolls = await Promise.all(
+            allPollsResponse.data
+              .filter(p => !p.active)
+              .map(async (poll) => {
+                try {
+                  const resultsResponse = await pollService.getPollResults(poll.id);
+                  return {
+                    ...poll,
+                    options: resultsResponse.data.options || poll.options,
+                    totalVotes: resultsResponse.data.totalVotes || 0
+                  };
+                } catch (error) {
+                  return poll;
+                }
+              })
+          );
+          
+          const endedWithVotes = endedPolls
+            .filter(p => p.totalVotes > 0)
+            .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+          
+          if (endedWithVotes.length > 0) {
+            const pollToShow = endedWithVotes[0];
+            // Check if user voted
+            try {
+              if (currentUser) {
+                const userVoteResponse = await pollService.getUserVote(pollToShow.id);
+                setActivePoll({
+                  ...pollToShow,
+                  userVoted: !!userVoteResponse.data,
+                  userVotedFor: userVoteResponse.data || null
+                });
+              } else {
+                setActivePoll(pollToShow);
+              }
+            } catch (error) {
+              setActivePoll(pollToShow);
+            }
+            return;
+          }
+        }
+        
+        setActivePoll(null);
       } catch (e) {
-        logger.error('Error loading initial active poll:', e);
+        logger.error('Error loading initial poll:', e);
       }
     };
 
     loadInitialPoll();
-  }, [currentBroadcastId, broadcastSession]);
+  }, [currentBroadcastId, broadcastSession, currentUser]);
 
   // Toggle play/pause with enhanced logic from ListenerDashboard2.jsx
   const togglePlay = async () => {
@@ -1498,7 +1563,8 @@ export default function ListenerDashboard() {
       handleLoginRedirect();
       return;
     }
-    if (!activePoll || !selectedPollOption || activePoll.userVoted || !isLive) return;
+    // Allow voting only if poll is active
+    if (!activePoll || !selectedPollOption || activePoll.userVoted || !activePoll.active || !isLive) return;
 
     try {
       setPollLoading(true);
@@ -1630,29 +1696,37 @@ export default function ListenerDashboard() {
         .replace(' years', ' year');
 
       return (
-        <div key={msg.id} className="mb-4">
-          <div className="flex items-center mb-1">
-            <div className={`h-8 w-8 min-w-[2rem] rounded-full flex items-center justify-center text-xs text-white font-medium ${isDJ ? 'bg-maroon-600' : 'bg-gray-500'}`}>
+        <div key={msg.id} className="mb-5">
+          <div className="flex items-center mb-2">
+            <div className={`h-10 w-10 min-w-[2.5rem] rounded-lg flex items-center justify-center text-xs text-white font-bold shadow-md ${
+              isDJ 
+                ? 'bg-maroon-600 dark:bg-maroon-700 border border-maroon-700' 
+                : 'bg-slate-500 dark:bg-slate-600 border border-slate-600'
+            }`}>
               {isDJ ? 'DJ' : initials}
             </div>
-            <div className="ml-2 overflow-hidden flex items-center gap-2">
-              <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{senderName}</span>
+            <div className="ml-3 overflow-hidden flex items-center gap-2">
+              <span className="font-semibold text-sm text-slate-900 dark:text-white truncate">{senderName}</span>
               {currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR') && msg.sender?.id !== currentUser.id && msg.sender?.role !== 'ADMIN' && (
                 <button
                   onClick={(e) => { e.stopPropagation(); handleBanUserPrompt(msg.sender); }}
                   title="Ban user"
-                  className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300"
+                  className="text-xs px-2.5 py-1 rounded-md bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-300 transition-colors"
                 >
                   Ban
                 </button>
               )}
             </div>
           </div>
-          <div className="ml-10 space-y-1">
-            <div className={`rounded-lg p-3 message-bubble ${isDJ ? 'bg-maroon-100 dark:bg-maroon-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
-              <p className="text-sm text-gray-800 dark:text-gray-200 chat-message" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content || 'No content'}</p>
+          <div className="ml-14 space-y-1">
+            <div className={`rounded-lg p-4 message-bubble shadow-sm border ${
+              isDJ 
+                ? 'bg-maroon-50 dark:bg-maroon-900/30 border-maroon-200 dark:border-maroon-700/50' 
+                : 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600'
+            }`}>
+              <p className="text-sm text-slate-800 dark:text-slate-200 chat-message leading-relaxed" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content || 'No content'}</p>
             </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 pl-1">
+            <div className="text-xs text-slate-500 dark:text-slate-400 pl-1 font-medium">
               {formattedTimeAgo} ago
             </div>
           </div>
@@ -1683,29 +1757,29 @@ export default function ListenerDashboard() {
   const renderChatInput = () => {
     if (!currentUser) {
       return (
-        <div className="p-4 bg-gray-50 dark:bg-gray-700 border-t border-gray-200 dark:border-gray-600">
-          <div className="text-center">
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-              Join the conversation! Login or create an account to chat with other listeners.
-            </p>
-            <div className="flex space-x-2 justify-center">
-              <button
-                onClick={handleLoginRedirect}
-                className="flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
-              >
-                <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
-                Login
-              </button>
-              <button
-                onClick={handleRegisterRedirect}
-                className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
-              >
-                <UserPlusIcon className="h-4 w-4 mr-2" />
-                Register
-              </button>
-            </div>
-          </div>
-        </div>
+                    <div className="p-4 bg-gradient-to-br from-slate-50 to-white dark:from-slate-700/50 dark:to-slate-800/50 border-t border-slate-200/50 dark:border-slate-600/50 rounded-b-lg">
+                      <div className="text-center">
+                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 font-medium">
+                          Join the conversation! Login or create an account to chat with other listeners.
+                        </p>
+                        <div className="flex space-x-3 justify-center">
+                          <button
+                            onClick={handleLoginRedirect}
+                            className="flex items-center px-5 py-2.5 bg-gradient-to-r from-radio-600 to-ocean-600 hover:from-radio-700 hover:to-ocean-700 text-white text-sm font-semibold rounded-xl transition-all shadow-radio hover:shadow-glow hover:scale-105"
+                          >
+                            <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
+                            Login
+                          </button>
+                          <button
+                            onClick={handleRegisterRedirect}
+                            className="flex items-center px-5 py-2.5 bg-gradient-to-r from-sunset-500 to-sunset-600 hover:from-sunset-600 hover:to-sunset-700 text-white text-sm font-semibold rounded-xl transition-all shadow-lg hover:shadow-glow hover:scale-105"
+                          >
+                            <UserPlusIcon className="h-4 w-4 mr-2" />
+                            Register
+                          </button>
+                        </div>
+                      </div>
+                    </div>
       );
     }
 
@@ -1725,7 +1799,7 @@ export default function ListenerDashboard() {
         {(typeof slowModeWaitSeconds === 'number' && slowModeWaitSeconds > 0) && (
           <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">Please wait {slowModeWaitSeconds} second{slowModeWaitSeconds === 1 ? '' : 's'} before sending another message.</p>
         )}
-        <form onSubmit={handleChatSubmit} className="flex items-center gap-2">
+        <form onSubmit={handleChatSubmit} className="flex items-center gap-2 w-full min-w-0">
         <input
           type="text"
           value={isSongRequestMode ? songRequestText : chatMessage}
@@ -1740,7 +1814,7 @@ export default function ListenerDashboard() {
             }
           }}
           placeholder={isSongRequestMode ? "e.g., Shape of You - Ed Sheeran" : "Type your message..."}
-          className={`flex-1 px-3 py-2 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 transition-all ${
+          className={`flex-1 min-w-0 max-w-full px-3 py-2 border rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 transition-all text-sm ${
             isSongRequestMode 
               ? "border-yellow-400 bg-yellow-50/50 dark:bg-yellow-900/10 dark:border-yellow-500 focus:ring-yellow-400 focus:border-yellow-400" 
               : "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 focus:ring-maroon-500 focus:border-maroon-500"
@@ -1756,7 +1830,7 @@ export default function ListenerDashboard() {
               type="button"
               onClick={handleSongRequest}
               disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id) || !songRequestText.trim()}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm ${
+              className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
                 isLive && songRequestText.trim() 
                   ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
                   : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
@@ -1764,13 +1838,13 @@ export default function ListenerDashboard() {
               aria-label="Send song request"
             >
               <MusicalNoteIcon className="h-4 w-4" />
-              Send
+              Send Request
             </button>
             <button
               type="button"
               onClick={handleCancelSongRequest}
               disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id)}
-              className="px-3 py-2 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+              className="flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap"
               aria-label="Cancel song request"
             >
               Cancel
@@ -1782,7 +1856,7 @@ export default function ListenerDashboard() {
               type="button"
               onClick={handleSongRequest}
               disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id)}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm ${
+              className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
                 isLive 
                   ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
                   : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
@@ -1795,7 +1869,7 @@ export default function ListenerDashboard() {
             <button
               type="submit"
               disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id) || !chatMessage.trim()}
-              className={`p-2 rounded-lg transition-all ${
+              className={`flex-shrink-0 p-2 rounded-lg transition-all ${
                 isLive && chatMessage.trim()
                   ? "bg-maroon-600 hover:bg-maroon-700 active:bg-maroon-800 text-white shadow-sm hover:shadow-md"
                   : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
@@ -1898,27 +1972,55 @@ export default function ListenerDashboard() {
     };
   }, [serverConfig?.wsBaseUrl, currentBroadcastId, currentUser, localAudioPlaying]);
 
+  // Generate SEO data based on current broadcast
+  const broadcastTitle = currentBroadcast 
+    ? `${currentBroadcast.title || 'Live Broadcast'} | Wildcat Radio`
+    : 'Wildcat Radio | Live Campus Radio';
+  
+  const broadcastDescription = currentBroadcast && currentBroadcast.description
+    ? currentBroadcast.description
+    : 'Wildcat Radio streams live campus radio. Listen live, chat with the community, and explore broadcast history and schedules.';
+  
+  const structuredData = currentBroadcast
+    ? generateBroadcastEventData(currentBroadcast)
+    : generateRadioStationData();
+
   return (
-    <div className="container mx-auto px-4 mb-8 bg-gray-100 dark:bg-gray-900">
-      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 pt-6">Broadcast Stream</h2>
+    <>
+      <SEO
+        title={broadcastTitle}
+        description={broadcastDescription}
+        url={location.pathname}
+        type={currentBroadcast ? "article" : "website"}
+        structuredData={structuredData}
+        keywords={currentBroadcast 
+          ? `wildcat radio, ${currentBroadcast.title || ''}, live broadcast, campus radio`
+          : 'wildcat radio, campus radio, live streaming, online radio'
+        }
+      />
+      <div className="container mx-auto px-4 mb-8">
+        <div className="mb-4 pt-4">
+          <h2 className="text-xl font-semibold text-maroon-700 dark:text-maroon-400 mb-1">Broadcast Stream</h2>
+          <p className="text-slate-600 dark:text-slate-400 text-xs">Tune in to live broadcasts and connect with listeners</p>
+        </div>
 
       {/* Desktop: Grid layout */}
-      <div className="hidden lg:grid lg:grid-cols-3 lg:gap-6">
+      <div className="hidden lg:grid lg:grid-cols-3 lg:gap-8">
         {/* Desktop Left Column - Broadcast + Poll */}
         <div className="lg:col-span-2 space-y-6">
           {/* Spotify-style Music Player */}
           <SpotifyPlayer />
 
           {/* Desktop Poll section */}
-          <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-grow">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden flex-grow">
             {/* Tab header */}
-            <div className="flex">
+            <div className="flex border-b border-slate-200 dark:border-slate-700">
               <button
                 onClick={() => setActiveTab("poll")}
-                className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
+                className={`flex-1 py-4 px-6 text-center text-sm font-semibold transition-all duration-200 ${
                   activeTab === "poll"
-                    ? "border-b-2 border-maroon-700 text-maroon-700 dark:border-maroon-500 dark:text-maroon-400"
-                    : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 border-b border-gray-200 dark:border-gray-700"
+                    ? "border-b-2 border-maroon-600 text-maroon-600 dark:border-maroon-500 dark:text-maroon-400 bg-maroon-50/50 dark:bg-maroon-900/20"
+                    : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50"
                 }`}
               >
                 <div className="flex justify-center items-center">
@@ -1942,9 +2044,9 @@ export default function ListenerDashboard() {
             </div>
 
             {/* Desktop Tab content */}
-            <div className="bg-white dark:bg-gray-800 flex-grow flex flex-col h-[450px]">
+            <div className="bg-white dark:bg-slate-800 flex-grow flex flex-col h-[450px]">
               {activeTab === "poll" && (
-                <div className="p-6 flex-grow flex flex-col h-full">
+                <div className="p-8 flex-grow flex flex-col h-full">
                   {isLive ? (
                     <>
                       {pollLoading && !activePoll ? (
@@ -1954,12 +2056,14 @@ export default function ListenerDashboard() {
                       ) : activePoll ? (
                         <div className="flex-grow flex flex-col">
                           {/* Poll Question */}
-                          <div className="mb-4">
-                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                          <div className="mb-6">
+                            <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-3 font-montserrat">
                               {activePoll.question || activePoll.title}
                             </h3>
-                            <div className="text-sm text-gray-600 dark:text-gray-400">
-                              {!currentUser 
+                            <div className="text-sm text-slate-600 dark:text-slate-400 font-medium">
+                              {!activePoll.active ? (
+                                <span className="text-orange-600 dark:text-orange-400 font-semibold">Poll has ended - View results below</span>
+                              ) : !currentUser 
                                 ? 'Login to participate in the poll'
                                 : activePoll.userVoted 
                                   ? 'You have voted' 
@@ -1971,36 +2075,38 @@ export default function ListenerDashboard() {
                           {/* Poll Options */}
                           <div className="space-y-3 mb-6 flex-grow">
                             {activePoll.options.map((option) => {
-                              const percentage = (activePoll.userVoted && currentUser) 
+                              // Show percentages if poll is ended OR user has voted
+                              const showResults = !activePoll.active || (activePoll.userVoted && currentUser);
+                              const percentage = (activePoll.totalVotes > 0 && showResults)
                                 ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 
                                 : 0;
                               const isSelected = selectedPollOption === option.id;
                               const isUserChoice = activePoll.userVotedFor === option.id;
-                              const canInteract = currentUser && !activePoll.userVoted;
+                              const canInteract = currentUser && !activePoll.userVoted && activePoll.active;
 
                               return (
-                                <div key={option.id} className="space-y-1">
+                                <div key={option.id} className="space-y-2">
                                   <div 
                                     className={`w-full border-2 rounded-lg overflow-hidden transition-all duration-200 ${
                                       !currentUser
-                                        ? 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 cursor-not-allowed opacity-75'
+                                        ? 'border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 cursor-not-allowed opacity-75'
                                         : activePoll.userVoted 
                                           ? isUserChoice
-                                            ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
-                                            : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
+                                            ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30 shadow-md'
+                                            : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700'
                                           : isSelected
-                                            ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20 cursor-pointer'
-                                            : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 hover:border-maroon-300 cursor-pointer'
+                                            ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20 cursor-pointer shadow-md'
+                                            : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 hover:border-maroon-300 dark:hover:border-maroon-600 hover:bg-maroon-50/50 dark:hover:bg-maroon-900/20 cursor-pointer transition-all'
                                     }`}
                                     onClick={() => canInteract && handlePollOptionSelect(option.id)}
                                   >
-                                    <div className="p-3">
+                                    <div className="p-4">
                                       <div className="flex items-center justify-between">
-                                        <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                        <span className="text-base font-semibold text-slate-900 dark:text-white">
                                           {option.optionText || option.text}
                                         </span>
                                         <div className="flex items-center">
-                                          {(activePoll.userVoted && currentUser) && (
+                                          {showResults && (
                                             <span className="text-xs text-gray-600 dark:text-gray-400 mr-2">
                                               {option.votes || 0} votes
                                             </span>
@@ -2020,19 +2126,19 @@ export default function ListenerDashboard() {
                                         </div>
                                       </div>
 
-                                      {/* Progress bar for voted polls */}
-                                      {(activePoll.userVoted && currentUser) && (
-                                        <div className="mt-2">
-                                          <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                                      {/* Progress bar - show for ended polls or when user has voted */}
+                                      {showResults && (
+                                        <div className="mt-3">
+                                          <div className="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-2.5 overflow-hidden">
                                             <div 
-                                              className={`h-2 rounded-full transition-all duration-300 ${
-                                                isUserChoice ? 'bg-green-500' : 'bg-gray-400'
+                                              className={`h-2.5 rounded-full transition-all duration-300 ${
+                                                isUserChoice ? 'bg-emerald-500' : 'bg-slate-400'
                                               }`}
                                               style={{ width: `${percentage}%` }}
                                             />
                                           </div>
-                                          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                                            {percentage}%
+                                          <div className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1.5">
+                                            {percentage}% • {option.votes || 0} {option.votes === 1 ? 'vote' : 'votes'}
                                           </div>
                                         </div>
                                       )}
@@ -2047,20 +2153,20 @@ export default function ListenerDashboard() {
                           <div className="mt-auto flex justify-center">
                             {!currentUser ? (
                               <div className="text-center">
-                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 font-medium">
                                   Login to participate in polls
                                 </p>
-                                <div className="flex space-x-2 justify-center">
+                                <div className="flex space-x-3 justify-center">
                                   <button
                                     onClick={handleLoginRedirect}
-                                    className="flex items-center px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
+                                    className="flex items-center px-5 py-2.5 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-semibold rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
                                   >
                                     <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
                                     Login
                                   </button>
                                   <button
                                     onClick={handleRegisterRedirect}
-                                    className="flex items-center px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
+                                    className="flex items-center px-5 py-2.5 bg-gold-500 hover:bg-gold-600 text-maroon-900 text-sm font-semibold rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
                                   >
                                     <UserPlusIcon className="h-4 w-4 mr-2" />
                                     Register
@@ -2069,27 +2175,41 @@ export default function ListenerDashboard() {
                               </div>
                             ) : activePoll.userVoted ? (
                               <div className="text-center">
-                                <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                                <div className="text-sm text-slate-600 dark:text-slate-400 mb-3 font-semibold">
                                   Total votes: {activePoll.totalVotes || 0}
                                 </div>
-                                <span className="inline-flex items-center px-4 py-2 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 rounded-lg">
-                                  <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                <span className="inline-flex items-center px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg shadow-md font-semibold transition-colors">
+                                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
                                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                                   </svg>
                                   You have voted
                                 </span>
                               </div>
+                            ) : !activePoll.active ? (
+                              <div className="text-center">
+                                <div className="text-sm text-slate-600 dark:text-slate-400 mb-3 font-semibold">
+                                  Total votes: {activePoll.totalVotes || 0}
+                                </div>
+                                <span className="inline-flex items-center px-6 py-3 bg-orange-500 text-white rounded-lg shadow-md font-semibold">
+                                  Poll Ended
+                                </span>
+                              </div>
                             ) : (
                               <button
                                 onClick={handlePollVote}
-                                disabled={!selectedPollOption || pollLoading}
-                                className={`px-8 py-2 rounded-lg font-medium transition-colors ${
-                                  selectedPollOption && !pollLoading
-                                    ? 'bg-yellow-500 hover:bg-yellow-600 text-black' 
-                                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                disabled={!selectedPollOption || pollLoading || !activePoll.active}
+                                className={`px-10 py-3 rounded-lg font-semibold transition-all duration-200 shadow-md ${
+                                  selectedPollOption && !pollLoading && activePoll.active
+                                    ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105' 
+                                    : 'bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed'
                                 }`}
                               >
-                                {pollLoading ? 'Voting...' : 'Vote'}
+                                {pollLoading ? (
+                                  <span className="flex items-center gap-2">
+                                    <div className="w-4 h-4 border-2 border-maroon-900 border-t-transparent rounded-full animate-spin"></div>
+                                    Voting...
+                                  </span>
+                                ) : 'Vote'}
                               </button>
                             )}
                           </div>
@@ -2098,10 +2218,15 @@ export default function ListenerDashboard() {
                         <div className="flex items-center justify-center h-full">
                           <div className="text-center w-full">
                             <div className="mb-8">
-                              <h3 className="text-xl font-medium text-gray-900 dark:text-white">Vote</h3>
-                              <p className="text-sm text-gray-500 dark:text-gray-400">selects which you prefer the most?</p>
+                              <div className="w-20 h-20 mx-auto mb-4 rounded-xl bg-maroon-700 flex items-center justify-center shadow-lg mb-6 border border-maroon-600">
+                                <svg className="w-10 h-10 text-gold-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                </svg>
+                              </div>
+                              <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2 font-montserrat">Vote</h3>
+                              <p className="text-base text-slate-600 dark:text-slate-400">Select which you prefer the most?</p>
                             </div>
-                            <p className="text-gray-500 dark:text-gray-400">Polls are only available during live broadcasts</p>
+                            <p className="text-slate-500 dark:text-slate-400">Polls are only available during live broadcasts</p>
                           </div>
                         </div>
                       )}
@@ -2125,17 +2250,17 @@ export default function ListenerDashboard() {
 
         {/* Desktop Right Column - Live Chat */}
         <div className="lg:col-span-1 flex flex-col">
-          <div className="bg-maroon-700 text-white p-3 rounded-t-lg">
-            <h3 className="font-medium">Live Chat</h3>
-            <p className="text-xs opacity-70">{Math.max(listenerCount, localListenerCount)} listeners online</p>
+          <div className="bg-maroon-700 dark:bg-maroon-800 text-white p-4 rounded-t-xl shadow-md border-b border-maroon-800 dark:border-maroon-900">
+            <h3 className="font-bold text-lg mb-1 font-montserrat">Live Chat</h3>
+            <p className="text-xs opacity-90 font-medium">{Math.max(listenerCount, localListenerCount)} listeners online</p>
           </div>
 
-          <div className="bg-white dark:bg-gray-800 border border-t-0 border-gray-200 dark:border-gray-700 rounded-b-lg flex-grow flex flex-col h-[494px]">
+          <div className="bg-white dark:bg-slate-800 border border-t-0 border-slate-200 dark:border-slate-700 rounded-b-xl flex-grow flex flex-col h-[494px] shadow-lg">
             {isLive ? (
               <>
                 <div 
                   ref={chatContainerRef}
-                  className="flex-grow overflow-y-auto p-4 space-y-4 chat-messages-container relative"
+                  className="flex-grow overflow-y-auto p-5 space-y-4 chat-messages-container relative"
                 >
                   {chatMessages
                     .slice()
@@ -2146,10 +2271,10 @@ export default function ListenerDashboard() {
 
                 {/* Scroll to bottom button */}
                 {showScrollBottom && (
-                  <div className="absolute bottom-20 right-4">
+                  <div className="absolute bottom-20 right-4 z-10">
                     <button
                       onClick={scrollToBottom}
-                      className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full p-2.5 shadow-lg transition-all duration-200 ease-in-out flex items-center justify-center"
+                      className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full p-3 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
                       aria-label="Scroll to bottom"
                     >
                       <svg 
@@ -2168,23 +2293,23 @@ export default function ListenerDashboard() {
                   </div>
                 )}
 
-                <div className="p-2 border-t border-gray-200 dark:border-gray-700 mt-auto">
+                <div className="p-4 border-t border-slate-200 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800 overflow-hidden">
                   {!currentUser ? (
-                    <div className="p-2 text-center">
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                    <div className="p-4 text-center">
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 font-medium">
                         Join the conversation! Login or create an account to chat.
                       </p>
-                      <div className="flex space-x-2 justify-center">
+                      <div className="flex space-x-3 justify-center">
                         <button
                           onClick={handleLoginRedirect}
-                          className="flex items-center px-3 py-2 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-medium rounded-md transition-colors"
+                          className="flex items-center px-5 py-2.5 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-semibold rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
                         >
                           <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
                           Login
                         </button>
                         <button
                           onClick={handleRegisterRedirect}
-                          className="flex items-center px-3 py-2 bg-yellow-500 hover:bg-yellow-600 text-black text-sm font-medium rounded-md transition-colors"
+                          className="flex items-center px-5 py-2.5 bg-gold-500 hover:bg-gold-600 text-maroon-900 text-sm font-semibold rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
                         >
                           <UserPlusIcon className="h-4 w-4 mr-2" />
                           Register
@@ -2199,7 +2324,7 @@ export default function ListenerDashboard() {
                       {(typeof slowModeWaitSeconds === 'number' && slowModeWaitSeconds > 0) && (
                         <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">Please wait {slowModeWaitSeconds} second{slowModeWaitSeconds === 1 ? '' : 's'} before sending another message.</p>
                       )}
-                    <form onSubmit={handleChatSubmit} className="flex items-center space-x-2">
+                    <form onSubmit={handleChatSubmit} className="flex items-center space-x-2 w-full min-w-0 overflow-hidden">
                       <input
                         type="text"
                         value={isSongRequestMode ? songRequestText : chatMessage}
@@ -2214,10 +2339,10 @@ export default function ListenerDashboard() {
                           }
                         }}
                         placeholder={isSongRequestMode ? "Song title - optional artist" : "Type your message..."}
-                        className={`flex-1 p-2 border rounded-l-md text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:border-transparent transition-all duration-300 ease-in-out ${
+                        className={`flex-1 min-w-0 max-w-full px-3 py-2.5 border rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:border-transparent transition-all duration-200 text-sm ${
                           isSongRequestMode 
-                            ? "border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-500 focus:ring-yellow-500 animate-pulse" 
-                            : "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 focus:ring-maroon-500"
+                            ? "border-gold-400 bg-gold-50 dark:bg-gold-900/20 dark:border-gold-500 focus:ring-gold-500 shadow-md" 
+                            : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 focus:ring-maroon-500"
                         }`}
                         disabled={!isLive}
                         maxLength={1500}
@@ -2230,21 +2355,21 @@ export default function ListenerDashboard() {
                             type="button"
                             onClick={handleSongRequest}
                             disabled={!isLive || !songRequestText.trim()}
-                            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm ${
+                            className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-md whitespace-nowrap ${
                               isLive && songRequestText.trim() 
-                                ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
-                                : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                                ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105' 
+                                : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                             }`}
                             aria-label="Send song request"
                           >
                             <MusicalNoteIcon className="h-4 w-4" />
-                            Send
+                            Send Request
                           </button>
                           <button
                             type="button"
                             onClick={handleCancelSongRequest}
                             disabled={!isLive}
-                            className="px-3 py-2 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            className="flex-shrink-0 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap"
                             aria-label="Cancel song request"
                           >
                             Cancel
@@ -2256,7 +2381,7 @@ export default function ListenerDashboard() {
                             type="button"
                             onClick={handleSongRequest}
                             disabled={!isLive}
-                            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm ${
+                            className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
                               isLive 
                                 ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
                                 : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
@@ -2269,10 +2394,10 @@ export default function ListenerDashboard() {
                           <button
                             type="submit"
                             disabled={!isLive || !chatMessage.trim()}
-                            className={`p-2 rounded-lg transition-all ${
+                            className={`flex-shrink-0 p-2.5 rounded-lg transition-all ${
                               isLive && chatMessage.trim()
-                                ? "bg-maroon-600 hover:bg-maroon-700 active:bg-maroon-800 text-white shadow-sm hover:shadow-md"
-                                : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                                ? "bg-maroon-600 hover:bg-maroon-700 text-white shadow-sm hover:shadow-md"
+                                : "bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed"
                             }`}
                             aria-label="Send message"
                           >
@@ -2288,7 +2413,14 @@ export default function ListenerDashboard() {
               </>
             ) : (
               <div className="flex items-center justify-center h-full">
-                <p className="text-gray-500 dark:text-gray-400">Live chat is only available during broadcasts</p>
+                <div className="text-center">
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-maroon-700 flex items-center justify-center shadow-lg mb-4 border border-maroon-600">
+                    <svg className="w-8 h-8 text-gold-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                  </div>
+                  <p className="text-slate-600 dark:text-slate-400 font-medium">Live chat is only available during broadcasts</p>
+                </div>
               </div>
             )}
           </div>
@@ -2302,25 +2434,25 @@ export default function ListenerDashboard() {
         <SpotifyPlayer />
 
         {/* Mobile Tabs */}
-        <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+        <div className="card-modern overflow-hidden">
           {/* Tab headers */}
-          <div className="flex">
+          <div className="flex border-b border-slate-200/50 dark:border-slate-700/50">
             <button
               onClick={() => setActiveTab("chat")}
-              className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
+              className={`flex-1 py-4 px-4 text-center text-sm font-semibold transition-all duration-200 ${
                 activeTab === "chat"
-                  ? "border-b-2 border-maroon-700 text-maroon-700 dark:border-maroon-500 dark:text-maroon-400"
-                  : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 border-b border-gray-200 dark:border-gray-700"
+                  ? "border-b-2 border-radio-600 text-radio-600 dark:border-radio-400 dark:text-radio-400 bg-gradient-to-b from-radio-50 to-transparent dark:from-radio-950/30"
+                  : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 hover:bg-slate-50/50 dark:hover:bg-slate-800/50"
               }`}
             >
               Live Chat
             </button>
             <button
               onClick={() => setActiveTab("poll")}
-              className={`flex-1 py-3 px-4 text-center text-sm font-medium ${
+              className={`flex-1 py-4 px-4 text-center text-sm font-semibold transition-all duration-200 ${
                 activeTab === "poll"
-                  ? "border-b-2 border-maroon-700 text-maroon-700 dark:border-maroon-500 dark:text-maroon-400"
-                  : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 border-b border-gray-200 dark:border-gray-700"
+                  ? "border-b-2 border-radio-600 text-radio-600 dark:border-radio-400 dark:text-radio-400 bg-gradient-to-b from-radio-50 to-transparent dark:from-radio-950/30"
+                  : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 hover:bg-slate-50/50 dark:hover:bg-slate-800/50"
               }`}
             >
               Poll
@@ -2328,16 +2460,16 @@ export default function ListenerDashboard() {
           </div>
 
           {/* Mobile Tab content */}
-          <div className="bg-white dark:bg-gray-800 p-4">
+          <div className="bg-gradient-to-br from-white/80 to-slate-50/50 dark:from-slate-800/80 dark:to-slate-900/50 p-6 backdrop-blur-sm">
             {activeTab === "chat" && (
-              <div>
+              <div className="animate-fade-in">
                 {renderChatMessages()}
                 {renderChatInput()}
               </div>
             )}
             {activeTab === "poll" && (
-              <div>
-                {/* Poll content */}
+              <div className="animate-fade-in">
+                {/* Poll content will be rendered here */}
               </div>
             )}
           </div>
@@ -2352,7 +2484,8 @@ export default function ListenerDashboard() {
         position="bottom-right"
       />
     )}
-    </div>
+      </div>
+    </>
   );
 }
 

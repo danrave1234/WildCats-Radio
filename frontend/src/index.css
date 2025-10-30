@@ -79,7 +79,50 @@
   }
   
   body {
-    @apply bg-background text-foreground font-kumbh;
+    @apply bg-slate-50 dark:bg-slate-900 text-foreground font-kumbh;
+  }
+}
+
+/* Glass morphism utility */
+@layer utilities {
+  .glass {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px) saturate(180%);
+    -webkit-backdrop-filter: blur(10px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  
+  .glass-light {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+  
+  .glass-dark {
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .gradient-radio {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  }
+  
+  .gradient-ocean {
+    background: linear-gradient(135deg, #0ea5e9 0%, #3b82f6 50%, #6366f1 100%);
+  }
+  
+  .gradient-sunset {
+    background: linear-gradient(135deg, #f97316 0%, #ef4444 50%, #ec4899 100%);
+  }
+  
+  .text-gradient {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
   }
 }
 
@@ -104,9 +147,15 @@
   }
   
   .card {
-    @apply bg-wildcats-white dark:bg-gray-800 rounded-lg shadow-md p-6 
-           border border-gray-100 dark:border-gray-700 
-           hover:shadow-lg transition-shadow duration-200;
+    @apply bg-white/80 dark:bg-slate-800/80 rounded-xl shadow-radio p-6 
+           border border-slate-200/50 dark:border-slate-700/50 
+           hover:shadow-radio-lg transition-all duration-300 backdrop-blur-sm;
+  }
+  
+  .card-modern {
+    @apply bg-gradient-to-br from-white/90 to-blue-50/50 dark:from-slate-800/90 dark:to-slate-900/50 
+           rounded-2xl shadow-radio-lg p-6 border border-white/20 dark:border-slate-700/30 
+           hover:shadow-radio-lg hover:scale-[1.02] transition-all duration-300 backdrop-blur-md;
   }
   
   .form-input {

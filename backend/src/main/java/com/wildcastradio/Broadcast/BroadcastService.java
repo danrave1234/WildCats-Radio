@@ -26,6 +26,8 @@ import com.wildcastradio.Schedule.ScheduleEntity;
 import com.wildcastradio.Schedule.ScheduleService;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserRepository;
+import com.wildcastradio.ChatMessage.ChatMessageRepository;
+import com.wildcastradio.SongRequest.SongRequestRepository;
 import com.wildcastradio.icecast.IcecastService;
 
 @Service
@@ -52,6 +54,12 @@ public class BroadcastService {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private ChatMessageRepository chatMessageRepository;
+
+    @Autowired
+    private SongRequestRepository songRequestRepository;
 
     @Autowired(required = false)
     private com.wildcastradio.radio.RadioAgentClient radioAgentClient;
@@ -604,13 +612,56 @@ public class BroadcastService {
 
     public List<BroadcastEntity> getPopularBroadcasts(int limit) {
         // Prefer ended broadcasts with most interactions, then live, then scheduled
+        // Fetch all broadcasts (without collections to avoid MultipleBagFetchException)
         List<BroadcastEntity> all = broadcastRepository.findAll();
+        
+        if (all.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        
+        // Get all broadcast IDs
+        List<Long> broadcastIds = all.stream()
+            .map(BroadcastEntity::getId)
+            .collect(java.util.stream.Collectors.toList());
+        
+        // Use batch aggregation queries to get all counts in just 2 queries
+        java.util.Map<Long, Integer> interactionCounts = new java.util.HashMap<>();
+        
+        // Initialize all broadcasts with 0 counts
+        for (Long id : broadcastIds) {
+            interactionCounts.put(id, 0);
+        }
+        
+        // Batch query for chat messages - single query for all broadcasts
+        List<Object[]> chatCounts = chatMessageRepository.countMessagesByBroadcastIds(broadcastIds);
+        for (Object[] result : chatCounts) {
+            Long broadcastId = ((Number) result[0]).longValue();
+            Long count = ((Number) result[1]).longValue();
+            interactionCounts.put(broadcastId, count.intValue());
+        }
+        
+        // Batch query for song requests - single query for all broadcasts
+        List<Object[]> requestCounts = songRequestRepository.countSongRequestsByBroadcastIds(broadcastIds);
+        java.util.Map<Long, Integer> requestCountsMap = new java.util.HashMap<>();
+        for (Object[] result : requestCounts) {
+            Long broadcastId = ((Number) result[0]).longValue();
+            Long count = ((Number) result[1]).longValue();
+            requestCountsMap.put(broadcastId, count.intValue());
+        }
+        
+        // Combine chat and request counts
+        for (Long id : broadcastIds) {
+            int chatCount = interactionCounts.getOrDefault(id, 0);
+            int requestCount = requestCountsMap.getOrDefault(id, 0);
+            interactionCounts.put(id, chatCount + requestCount);
+        }
+        
         return all.stream()
             .sorted((a, b) -> {
-                int aInteractions = (a.getChatMessages() != null ? a.getChatMessages().size() : 0)
-                    + (a.getSongRequests() != null ? a.getSongRequests().size() : 0);
-                int bInteractions = (b.getChatMessages() != null ? b.getChatMessages().size() : 0)
-                    + (b.getSongRequests() != null ? b.getSongRequests().size() : 0);
+                // Use pre-computed counts instead of querying during sort
+                int aInteractions = interactionCounts.getOrDefault(a.getId(), 0);
+                int bInteractions = interactionCounts.getOrDefault(b.getId(), 0);
+                
                 // Desc by interactions, tie-breaker by latest actualStart/end
                 int cmp = Integer.compare(bInteractions, aInteractions);
                 if (cmp != 0) return cmp;

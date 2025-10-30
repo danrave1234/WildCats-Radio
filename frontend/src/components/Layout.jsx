@@ -38,7 +38,7 @@ const Layout = ({ children }) => {
       open={sidebarOpen} 
       onOpenChange={setSidebarOpen}
     >
-      <div className="h-screen bg-wildcats-background dark:bg-gray-900 flex overflow-hidden">
+      <div className="h-screen bg-slate-50 dark:bg-slate-900 flex overflow-hidden">
         <NewSidebar userRole={currentUser?.role} />
         <MainContent onMobileMenuToggle={toggleSidebar}>
           <Outlet />

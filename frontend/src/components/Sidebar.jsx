@@ -66,14 +66,14 @@ const navigationSections = {
           icon: <Radio className="h-5 w-5" />,
         },
         {
-          label: "Broadcast History",
-          href: "/broadcast-history",
-          icon: <HistoryIcon className="h-5 w-5" />,
-        },
-        {
           label: "Analytics",
           href: "/analytics",
           icon: <BarChart3 className="h-5 w-5" />,
+        },
+        {
+          label: "Broadcast History",
+          href: "/broadcast-history",
+          icon: <HistoryIcon className="h-5 w-5" />,
         },
         {
           label: "Schedule",
@@ -108,14 +108,14 @@ const navigationSections = {
           icon: <Users className="h-5 w-5" />,
         },
         {
-          label: "Broadcast History",
-          href: "/broadcast-history",
-          icon: <HistoryIcon className="h-5 w-5" />,
-        },
-        {
           label: "Analytics",
           href: "/analytics",
           icon: <BarChart3 className="h-5 w-5" />,
+        },
+        {
+          label: "Broadcast History",
+          href: "/broadcast-history",
+          icon: <HistoryIcon className="h-5 w-5" />,
         },
         {
           label: "Schedule",
@@ -150,14 +150,14 @@ const navigationSections = {
           icon: <Users className="h-5 w-5" />,
         },
         {
-          label: "Broadcast History",
-          href: "/broadcast-history",
-          icon: <HistoryIcon className="h-5 w-5" />,
-        },
-        {
           label: "Analytics",
           href: "/analytics",
           icon: <BarChart3 className="h-5 w-5" />,
+        },
+        {
+          label: "Broadcast History",
+          href: "/broadcast-history",
+          icon: <HistoryIcon className="h-5 w-5" />,
         },
         {
           label: "Schedule",
@@ -165,14 +165,19 @@ const navigationSections = {
           icon: <Calendar className="h-5 w-5" />,
         },
         {
-          label: "Listen",
-          href: "/dashboard",
-          icon: <Music className="h-5 w-5" />,
-        },
-        {
           label: "Announcements",
           href: "/announcements",
           icon: <Megaphone className="h-5 w-5" />,
+        },
+      ]
+    },
+    {
+      title: "LISTENING",
+      items: [
+        {
+          label: "Listen",
+          href: "/dashboard",
+          icon: <Music className="h-5 w-5" />,
         },
       ]
     },
@@ -253,7 +258,7 @@ const SectionHeader = ({ title }) => {
       >
         {/* Text that fades out when minimizing */}
         <motion.h3
-          className="text-xs font-semibold text-yellow-400 uppercase tracking-wider"
+          className="text-xs font-semibold text-gold-500 uppercase tracking-wider"
           animate={{
             opacity: open ? 1 : 0,
           }}
@@ -267,7 +272,7 @@ const SectionHeader = ({ title }) => {
 
         {/* Separator that appears when minimized */}
         <motion.div
-          className="h-1 bg-yellow-400 w-full rounded"
+          className="h-1 bg-gold-500 w-full rounded"
           animate={{
             opacity: open ? 0 : 1,
             scaleX: open ? 0 : 1,
@@ -501,7 +506,7 @@ const NewSidebar = ({ userRole }) => {
               >
                 {/* Brand Section */}
                 <div className="mb-4">
-                  <h4 className="text-yellow-400 font-semibold text-sm mb-1">
+                  <h4 className="text-gold-500 font-semibold text-sm mb-1">
                     WildCats Radio
                   </h4>
                   <p className="text-white/60 text-xs">
@@ -513,26 +518,26 @@ const NewSidebar = ({ userRole }) => {
                 <div className="space-y-2.5 mb-4">
                   <a 
                     href="/privacy-policy" 
-                    className="block text-white/70 hover:text-yellow-300 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
+                    className="block text-white/70 hover:text-gold-400 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
                   >
                     Privacy Policy
                   </a>
                   <a 
                     href="/terms-of-service" 
-                    className="block text-white/70 hover:text-yellow-300 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
+                    className="block text-white/70 hover:text-gold-400 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
                   >
                     Terms of Service
                   </a>
                   <a 
                     href="/contact" 
-                    className="block text-white/70 hover:text-yellow-300 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
+                    className="block text-white/70 hover:text-gold-400 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
                   >
                     Contact
                   </a>
                 </div>
 
                 {/* Simple Divider */}
-                <div className="w-full h-px bg-gradient-to-r from-transparent via-yellow-400/30 to-transparent mb-3"></div>
+                <div className="w-full h-px bg-gold-500/30 mb-3"></div>
 
                 {/* Tagline */}
                 <div className="text-center">
@@ -577,7 +582,7 @@ const NewSidebar = ({ userRole }) => {
               }}
             >
               <motion.div
-                className="bg-yellow-400 text-black w-full py-1 text-xs font-bold tracking-tight uppercase select-none shadow-sm hover:bg-yellow-300 hover:shadow-md transition-all duration-200 text-center"
+                className="bg-gold-500 text-maroon-900 w-full py-1 text-xs font-bold tracking-tight uppercase select-none shadow-md hover:bg-gold-600 hover:shadow-lg transition-all duration-200 text-center"
                 whileHover={{ 
                   scale: 1.02,
                   y: -1

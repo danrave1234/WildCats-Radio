@@ -1,6 +1,8 @@
 "use client"
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
+import SEO from '../components/SEO';
 import {
   CalendarDaysIcon,
   ViewColumnsIcon,
@@ -617,10 +619,17 @@ const canScheduleBroadcasts = !!currentUser && (
   }
 
   return (
-      <div className="container mx-auto px-4">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex justify-between items-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Broadcast Schedule</h1>
+      <>
+        <SEO
+          title="Broadcast Schedule"
+          description="View upcoming broadcasts and schedule your own on Wildcat Radio. Browse calendar and list views of all scheduled campus radio shows."
+          url={location.pathname}
+          keywords="broadcast schedule, radio schedule, upcoming shows, campus radio schedule, wildcat radio schedule"
+        />
+        <div className="container mx-auto px-4">
+          <div className="max-w-5xl mx-auto">
+            <div className="flex justify-between items-center mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Broadcast Schedule</h1>
 
             <div className="flex items-center space-x-4">
               <div className="inline-flex rounded-md shadow-sm" role="group">
@@ -1236,6 +1245,8 @@ const canScheduleBroadcasts = !!currentUser && (
                 onClose={() => setToast({ ...toast, visible: false })}
             />
         )}
-      </div>
+          </div>
+        </div>
+      </>
   )
 }

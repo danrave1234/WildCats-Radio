@@ -14,6 +14,7 @@ const Settings = lazy(() => import('./pages/Settings'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const BroadcastHistory = lazy(() => import('./pages/BroadcastHistory'));
 const AnalyticsDashboard = lazy(() => import('./pages/AnalyticsDashboard'));
+const DJAnalyticsDashboard = lazy(() => import('./pages/DJAnalyticsDashboard'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const TermsOfService = lazy(() => import('./pages/TermsOfService'));
 const Contact = lazy(() => import('./pages/Contact'));
@@ -49,6 +50,27 @@ const Logout = () => {
   }, [logout, navigate]);
 
   return <div className="flex justify-center items-center h-screen">Logging out...</div>;
+};
+
+// Analytics Router component - routes to appropriate analytics page based on role
+const AnalyticsRouter = () => {
+  const { currentUser } = useAuth();
+  
+  if (currentUser?.role === 'DJ') {
+    return (
+      <ProtectedRoute 
+        element={<DJAnalyticsDashboard />} 
+        allowedRoles={['DJ']} 
+      />
+    );
+  }
+  
+  return (
+    <ProtectedRoute 
+      element={<AnalyticsDashboard />} 
+      allowedRoles={['ADMIN', 'MODERATOR']} 
+    />
+  );
 };
 
 // Protected route component
@@ -228,10 +250,7 @@ const AppRoutes = () => {
 
       <Route path="/analytics" element={
         <Layout>
-          <ProtectedRoute 
-            element={<AnalyticsDashboard />} 
-            allowedRoles={['DJ', 'ADMIN', 'MODERATOR']} 
-          />
+          <AnalyticsRouter />
         </Layout>
       } />
 

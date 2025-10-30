@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "strict": true,
-    "target": "esnext",
+gn    "target": "esnext",
     "lib": [
       "esnext"
     ],

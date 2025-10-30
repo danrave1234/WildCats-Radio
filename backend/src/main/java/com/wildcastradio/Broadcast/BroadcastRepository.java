@@ -52,4 +52,12 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
     
     @Query("SELECT COUNT(b) FROM BroadcastEntity b WHERE b.status = :status AND b.schedule.scheduledStart > :date")
     long countByStatusAndScheduledStartAfter(@Param("status") BroadcastStatus status, @Param("date") LocalDateTime date);
+    
+    // Fetch broadcasts with chat messages only (for sorting by interactions)
+    @Query("SELECT DISTINCT b FROM BroadcastEntity b LEFT JOIN FETCH b.chatMessages")
+    List<BroadcastEntity> findAllWithChatMessages();
+    
+    // Fetch broadcasts by DJ with chat messages only
+    @Query("SELECT DISTINCT b FROM BroadcastEntity b LEFT JOIN FETCH b.chatMessages WHERE b.createdBy = :dj")
+    List<BroadcastEntity> findByCreatedByWithChatMessages(@Param("dj") com.wildcastradio.User.UserEntity dj);
 } 

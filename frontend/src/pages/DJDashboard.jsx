@@ -176,12 +176,16 @@ export default function DJDashboard() {
   const [isRestoringAudio, setIsRestoringAudio] = useState(false)
   const [isStoppingBroadcast, setIsStoppingBroadcast] = useState(false)
   const [confirmEndOpen, setConfirmEndOpen] = useState(false)
+  const [showSettingsDropdown, setShowSettingsDropdown] = useState(false)
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 })
   // Grace period to suppress transient unhealthy/isLive=false immediately after going live
   const [graceUntilMs, setGraceUntilMs] = useState(0)
 
   // WebSocket and MediaRecorder refs
   const websocketRef = useRef(null)
   const statusWsRef = useRef(null)
+  const settingsDropdownRef = useRef(null)
+  const settingsButtonRef = useRef(null)
 
   // Constants from prototype
   const MAX_MESSAGE_SIZE = 60000
@@ -574,6 +578,27 @@ export default function DJDashboard() {
     }
   }, [])
 
+  // Close settings dropdown when clicking outside
+  useEffect(() => {
+    if (!showSettingsDropdown) return
+
+    const handleClickOutside = (event) => {
+      const dropdownEl = document.querySelector('[data-settings-dropdown]')
+      const buttonEl = settingsButtonRef.current
+      
+      if (dropdownEl && buttonEl && 
+          !dropdownEl.contains(event.target) && 
+          !buttonEl.contains(event.target)) {
+        setShowSettingsDropdown(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showSettingsDropdown])
+
   // Fetch initial data when broadcast becomes available
   useEffect(() => {
     // Guard: Only fetch if we have a valid broadcast and are in streaming state
@@ -630,12 +655,39 @@ export default function DJDashboard() {
         logger.debug("DJ Dashboard: Loaded initial polls:", pollsResponse.data?.length || 0)
 
         if (currentBroadcast?.id === currentBroadcast?.id && !signal.aborted) {
-          setPolls(pollsResponse.data || [])
+          // Fetch results for all polls (including ended ones) to preserve vote counts
+          const pollsWithResults = await Promise.all(
+            (pollsResponse.data || []).map(async (poll) => {
+              try {
+                const resultsResponse = await pollService.getPollResults(poll.id)
+                return {
+                  ...poll,
+                  options: resultsResponse.data.options || poll.options,
+                  totalVotes: resultsResponse.data.totalVotes || 0
+                }
+              } catch (error) {
+                logger.debug("DJ Dashboard: Could not fetch results for poll:", poll.id, error)
+                return poll
+              }
+            })
+          )
+          
+          setPolls(pollsWithResults)
 
-          // Set active poll: prefer the first active poll, otherwise none
-          if (pollsResponse.data && pollsResponse.data.length > 0) {
-            const firstActive = pollsResponse.data.find(p => p.active) || null
-            setActivePoll(firstActive)
+          // Set active poll: prefer the first active poll, otherwise the most recent ended poll with votes
+          if (pollsWithResults.length > 0) {
+            const activePolls = pollsWithResults.filter((p) => p.active)
+            if (activePolls.length > 0) {
+              setActivePoll(activePolls[0])
+            } else {
+              // Show most recent ended poll with votes
+              const endedWithVotes = pollsWithResults
+                .filter((p) => !p.active && (p.totalVotes > 0))
+                .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+              if (endedWithVotes.length > 0) {
+                setActivePoll(endedWithVotes[0])
+              }
+            }
           }
         }
       } catch (error) {
@@ -802,22 +854,82 @@ export default function DJDashboard() {
             case "NEW_POLL":
               logger.debug("DJ Dashboard: Processing new poll:", pollUpdate.poll)
 
-              // Add new poll to the list
-              setPolls((prev) => {
-                const exists = prev.some((poll) => poll.id === pollUpdate.poll.id)
-                if (exists) return prev
-                return [pollUpdate.poll, ...prev]
-              })
+              // Fetch fresh results to ensure vote counts are accurate (for reposted polls)
+              pollService.getPollResults(pollUpdate.poll.id)
+                .then((resultsResponse) => {
+                  const pollWithResults = {
+                    ...pollUpdate.poll,
+                    options: resultsResponse.data.options || pollUpdate.poll.options,
+                    totalVotes: resultsResponse.data.totalVotes || 0
+                  }
+                  
+                  // Add new poll to the list (or update if exists)
+                  setPolls((prev) => {
+                    const exists = prev.some((poll) => poll.id === pollWithResults.id)
+                    if (exists) {
+                      return prev.map((poll) => poll.id === pollWithResults.id ? pollWithResults : poll)
+                    }
+                    return [pollWithResults, ...prev]
+                  })
 
-              setActivePoll(pollUpdate.poll)
+                  setActivePoll(pollWithResults)
+                })
+                .catch((error) => {
+                  logger.debug("DJ Dashboard: Could not fetch results for new poll, using poll data:", error)
+                  // Fallback: use poll data directly
+                  setPolls((prev) => {
+                    const exists = prev.some((poll) => poll.id === pollUpdate.poll.id)
+                    if (exists) return prev
+                    return [pollUpdate.poll, ...prev]
+                  })
+                  setActivePoll(pollUpdate.poll)
+                })
               break
 
             case "POLL_UPDATED":
               logger.debug("DJ Dashboard: Processing poll update:", pollUpdate.poll)
 
-              if (pollUpdate.poll && !pollUpdate.poll.active) {
-                // Poll ended
-                setActivePoll((prev) => (prev?.id === pollUpdate.poll.id ? null : prev))
+              if (pollUpdate.poll) {
+                // Fetch fresh results to ensure vote counts are accurate
+                pollService.getPollResults(pollUpdate.poll.id)
+                  .then((resultsResponse) => {
+                    const pollWithResults = {
+                      ...pollUpdate.poll,
+                      options: resultsResponse.data.options || pollUpdate.poll.options,
+                      totalVotes: resultsResponse.data.totalVotes || 0
+                    }
+                    
+                    // Update poll in list
+                    setPolls((prev) =>
+                        prev.map((poll) =>
+                            poll.id === pollWithResults.id ? pollWithResults : poll
+                        )
+                    )
+                    
+                    // If this is the active poll, update it (but don't clear if ended - keep showing results)
+                    setActivePoll((prev) => {
+                      if (prev?.id === pollWithResults.id) {
+                        return pollWithResults
+                      }
+                      return prev
+                    })
+                  })
+                  .catch((error) => {
+                    logger.debug("DJ Dashboard: Could not fetch results for updated poll, using poll data:", error)
+                    // Fallback: use poll data directly (which includes vote counts from buildPollDTO)
+                    setPolls((prev) =>
+                        prev.map((poll) =>
+                            poll.id === pollUpdate.poll.id ? pollUpdate.poll : poll
+                        )
+                    )
+                    
+                    setActivePoll((prev) => {
+                      if (prev?.id === pollUpdate.poll.id) {
+                        return pollUpdate.poll
+                      }
+                      return prev
+                    })
+                  })
               }
               break
 
@@ -1323,27 +1435,54 @@ export default function DJDashboard() {
   // --- Poll Controls ---
   const handlePostPoll = async (pollId) => {
     try {
+      // Fetch latest results before reposting to preserve votes
+      const resultsResponse = await pollService.getPollResults(pollId)
+      const latestResults = resultsResponse.data
+      
       const response = await pollService.showPoll(pollId)
       const posted = response.data
-      logger.debug("DJ Dashboard: Poll posted:", posted)
-      setPolls((prev) => prev.map((p) => (p.id === posted.id ? posted : p)))
-      setActivePoll(posted)
+      
+      // Merge latest results into posted poll data
+      const postedWithResults = {
+        ...posted,
+        options: latestResults.options || posted.options,
+        totalVotes: latestResults.totalVotes || 0
+      }
+      
+      logger.debug("DJ Dashboard: Poll posted/reposted:", postedWithResults)
+      setPolls((prev) => prev.map((p) => (p.id === postedWithResults.id ? postedWithResults : p)))
+      setActivePoll(postedWithResults)
     } catch (error) {
       logger.error("DJ Dashboard: Failed to post poll:", error)
     }
   }
 
-  const handleStopPoll = async (pollId) => {
+  const handleEndPoll = async (pollId) => {
     try {
+      // Fetch latest results before ending to preserve them
+      const resultsResponse = await pollService.getPollResults(pollId)
+      const latestResults = resultsResponse.data
+      
       const response = await pollService.endPoll(pollId)
       const ended = response.data
-      logger.debug("DJ Dashboard: Poll stopped:", ended)
-      setPolls((prev) => prev.map((p) => (p.id === ended.id ? ended : p)))
-      setActivePoll((prev) => (prev && prev.id === ended.id ? null : prev))
+      
+      // Merge latest results into ended poll data
+      const endedWithResults = {
+        ...ended,
+        options: latestResults.options || ended.options,
+        totalVotes: latestResults.totalVotes || 0
+      }
+      
+      logger.debug("DJ Dashboard: Poll ended (results preserved):", endedWithResults)
+      setPolls((prev) => prev.map((p) => (p.id === endedWithResults.id ? endedWithResults : p)))
+      // Don't clear activePoll - keep showing results even when ended
     } catch (error) {
-      logger.error("DJ Dashboard: Failed to stop poll:", error)
+      logger.error("DJ Dashboard: Failed to end poll:", error)
     }
   }
+
+  // Legacy handler - keeping for compatibility but redirects to handleEndPoll
+  const handleStopPoll = handleEndPoll
 
   const handleDeletePoll = async (pollId) => {
     try {
@@ -1431,7 +1570,7 @@ export default function DJDashboard() {
           )}
           {/* Live Streaming Status Bar - Fixed at top when live */}
           {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
-              <div className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg shadow-lg mb-6 sticky top-4 z-50">
+              <div className="bg-red-600 text-white rounded-lg shadow-lg mb-6 sticky top-4 z-50">
                 <div className="px-4 py-3">
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                     <div className="flex items-center space-x-3">
@@ -1504,8 +1643,6 @@ export default function DJDashboard() {
               </div>
           )}
 
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">DJ Dashboard</h1>
-
           {/* Recovery Notification */}
           {isRecoveringBroadcast && (
               <div className="mb-6 p-4 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 rounded-md border border-green-300 dark:border-green-800 animate-pulse">
@@ -1532,72 +1669,81 @@ export default function DJDashboard() {
               </div>
           )}
 
-          {/* Profanity Manager (separate from broadcast containers) */}
-          <ProfanityManager />
-
           {/* BUTT workflow: Audio is managed via BUTT, not browser */}
 
-          {/* Workflow Progress Indicator - Hidden when live */}
+          {/* Workflow Progress Indicator - Hidden when live, more prominent */}
           {workflowState !== WORKFLOW_STATES.STREAMING_LIVE && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden mb-6">
-                <div className="p-4">
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Broadcast Workflow</h2>
-                  <div className="flex items-center justify-between">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-6 border-2 border-gray-200 dark:border-gray-700">
+                <div className="p-6">
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6 text-center">Broadcast Workflow</h2>
+                  <div className="flex items-center justify-between max-w-3xl mx-auto">
                     {/* Step 1: Create Broadcast Content */}
-                    <div className="flex items-center">
+                    <div className="flex flex-col items-center flex-1">
                       <div
-                          className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${
+                          className={`flex items-center justify-center w-12 h-12 rounded-full border-4 mb-3 ${
                               workflowState === WORKFLOW_STATES.CREATE_BROADCAST
-                                  ? "border-blue-500 bg-blue-500 text-white"
+                                  ? "border-maroon-600 bg-maroon-600 text-white shadow-lg scale-110"
                                   : workflowState === WORKFLOW_STATES.READY_TO_STREAM ||
                                   workflowState === WORKFLOW_STATES.STREAMING_LIVE
-                                      ? "border-green-500 bg-green-500 text-white"
-                                      : "border-gray-300 text-gray-500"
+                                      ? "border-green-500 bg-green-500 text-white shadow-md"
+                                      : "border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-400"
                           }`}
                       >
-                        {workflowState === WORKFLOW_STATES.CREATE_BROADCAST ? (
-                            <PlusIcon className="h-4 w-4" />
-                        ) : (
-                            <CheckIcon className="h-4 w-4" />
-                        )}
+                        <span className="text-lg font-bold">
+                          {workflowState === WORKFLOW_STATES.CREATE_BROADCAST ? (
+                              "1"
+                          ) : (
+                              <CheckIcon className="h-6 w-6" />
+                          )}
+                        </span>
                       </div>
-                      <span className="ml-2 text-xs font-medium text-gray-900 dark:text-white">Create Broadcast</span>
+                      <span className={`text-sm font-semibold text-center ${workflowState === WORKFLOW_STATES.CREATE_BROADCAST ? "text-maroon-700 dark:text-maroon-400" : "text-gray-900 dark:text-white"}`}>
+                        Create Broadcast
+                      </span>
                     </div>
                     {/* Arrow */}
-                    <div className="flex-1 h-0.5 bg-gray-300 dark:bg-gray-600 mx-3"></div>
+                    <div className={`flex-1 h-1 mx-4 ${workflowState === WORKFLOW_STATES.READY_TO_STREAM || workflowState === WORKFLOW_STATES.STREAMING_LIVE ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`}></div>
                     {/* Step 2: Ready to Stream */}
-                    <div className="flex items-center">
+                    <div className="flex flex-col items-center flex-1">
                       <div
-                          className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${
+                          className={`flex items-center justify-center w-12 h-12 rounded-full border-4 mb-3 ${
                               workflowState === WORKFLOW_STATES.READY_TO_STREAM
-                                  ? "border-blue-500 bg-blue-500 text-white"
+                                  ? "border-maroon-600 bg-maroon-600 text-white shadow-lg scale-110"
                                   : workflowState === WORKFLOW_STATES.STREAMING_LIVE
-                                      ? "border-green-500 bg-green-500 text-white"
-                                      : "border-gray-300 text-gray-500"
+                                      ? "border-green-500 bg-green-500 text-white shadow-md"
+                                      : "border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-400"
                           }`}
                       >
-                        {workflowState === WORKFLOW_STATES.STREAMING_LIVE ? (
-                            <CheckIcon className="h-4 w-4" />
-                        ) : (
-                            <ClockIcon className="h-4 w-4" />
-                        )}
+                        <span className="text-lg font-bold">
+                          {workflowState === WORKFLOW_STATES.READY_TO_STREAM ? (
+                              "2"
+                          ) : workflowState === WORKFLOW_STATES.STREAMING_LIVE ? (
+                              <CheckIcon className="h-6 w-6" />
+                          ) : (
+                              "2"
+                          )}
+                        </span>
                       </div>
-                      <span className="ml-2 text-xs font-medium text-gray-900 dark:text-white">Ready to Stream</span>
+                      <span className={`text-sm font-semibold text-center ${workflowState === WORKFLOW_STATES.READY_TO_STREAM ? "text-maroon-700 dark:text-maroon-400" : "text-gray-900 dark:text-white"}`}>
+                        Ready to Stream
+                      </span>
                     </div>
                     {/* Arrow */}
-                    <div className="flex-1 h-0.5 bg-gray-300 dark:bg-gray-600 mx-3"></div>
+                    <div className={`flex-1 h-1 mx-4 ${workflowState === WORKFLOW_STATES.STREAMING_LIVE ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`}></div>
                     {/* Step 3: Live Streaming */}
-                    <div className="flex items-center">
+                    <div className="flex flex-col items-center flex-1">
                       <div
-                          className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${
+                          className={`flex items-center justify-center w-12 h-12 rounded-full border-4 mb-3 ${
                               workflowState === WORKFLOW_STATES.STREAMING_LIVE
-                                  ? "border-red-500 bg-red-500 text-white"
-                                  : "border-gray-300 text-gray-500"
+                                  ? "border-red-600 bg-red-600 text-white shadow-lg scale-110 animate-pulse"
+                                  : "border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-gray-400"
                           }`}
                       >
-                        <MicrophoneIcon className="h-4 w-4" />
+                        <MicrophoneIcon className="h-6 w-6" />
                       </div>
-                      <span className="ml-2 text-xs font-medium text-gray-900 dark:text-white">Live Streaming</span>
+                      <span className={`text-sm font-semibold text-center ${workflowState === WORKFLOW_STATES.STREAMING_LIVE ? "text-red-600 dark:text-red-400" : "text-gray-900 dark:text-white"}`}>
+                        Live Streaming
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1606,188 +1752,166 @@ export default function DJDashboard() {
 
           {/* Live Interactive Dashboard - When streaming live */}
           {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 xl:grid-cols-12 gap-6 mb-8">
-                {/* Main Content Area - Left Side */}
-                <div className="lg:col-span-8 min-w-0 grid grid-cols-1 md:grid-cols-2 gap-4">
-
-                  {/* Chat Section */}
-                  <div className="md:col-span-2 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-                    <div className="bg-maroon-600 text-white px-4 py-2.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <ChatBubbleLeftRightIcon className="h-4 w-4 mr-2" />
-                          <h3 className="font-semibold text-sm">Live Chat</h3>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs bg-white bg-opacity-20 px-2 py-0.5 rounded-full">
-                            {chatMessages.length} messages
-                          </span>
-                          <button
-                            onClick={handleDownloadChat}
-                            disabled={isDownloadingChat || !currentBroadcast?.id}
-                            className="inline-flex items-center text-xs px-2 py-1 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Download chat messages as Excel (available for 7 days)"
-                          >
-                            <ArrowDownTrayIcon className={`h-3.5 w-3.5 mr-1 ${isDownloadingChat ? "animate-pulse" : ""}`} />
-                            {isDownloadingChat ? "Downloading..." : "Download"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="h-[60vh] min-h-[420px] max-h-[75vh] flex flex-col">
-                      <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
-                        {chatMessages.length === 0 ? (
-                            <div className="text-center text-gray-500 dark:text-gray-400 py-8">No messages yet</div>
-                        ) : (
-                            chatMessages
-                                .slice()
-                                .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
-                                .map((msg) => {
-                                  if (!msg || !msg.sender) return null
-
-                                  // Construct name from firstname and lastname fields
-                                  const firstName = msg.sender?.firstname || ""
-                                  const lastName = msg.sender?.lastname || ""
-                                  const fullName = `${firstName} ${lastName}`.trim()
-                                  const senderName = fullName || msg.sender?.email || "Unknown User"
-
-                                  // Check if user is a DJ based on their role or name
-                                  const isDJ =
-                                      (msg.sender?.role && msg.sender.role.includes("DJ")) ||
-                                      senderName.includes("DJ") ||
-                                      firstName.includes("DJ") ||
-                                      lastName.includes("DJ")
-
-                                  const initials = (() => {
-                                    try {
-                                      return (
-                                          senderName
-                                              .split(" ")
-                                              .map((part) => part[0] || "")
-                                              .join("")
-                                              .toUpperCase()
-                                              .slice(0, 2) || "U"
-                                      )
-                                    } catch (error) {
-                                      return "U"
-                                    }
-                                  })()
-
-                                  let messageDate;
-                                  try {
-                                    messageDate = msg.createdAt ? new Date(msg.createdAt) : null;
-                                  } catch (error) {
-                                    messageDate = new Date();
-                                  }
-
-                                  // Format relative time (updated every minute due to chatTimestampTick)
-                                  const timeAgo = (() => {
-                                    try {
-                                      return messageDate && !isNaN(messageDate.getTime())
-                                          ? formatDistanceToNow(messageDate, { addSuffix: true })
-                                          : "just now"
-                                    } catch (error) {
-                                      return "just now"
-                                    }
-                                  })()
-
-                                  return (
-                                      <div key={msg.id} className="flex items-start space-x-2">
-                                        <div
-                                            className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs text-white font-medium ${
-                                                isDJ ? "bg-maroon-600" : "bg-gray-500"
-                                            }`}
-                                        >
-                                          {isDJ ? "DJ" : initials}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                          <div className="flex items-center space-x-2 mb-0.5">
-                                  <span className="text-xs font-medium text-gray-900 dark:text-white">
-                                    {senderName}
-                                  </span>
-                                            <span className="text-xs text-gray-500 dark:text-gray-400">{timeAgo}</span>
-                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
-                                                                                          <button
-                                                                                            type="button"
-                                                                                            onClick={() => handleBanUser(msg.sender.id, senderName)}
-                                                                                            className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200"
-                                                                                            title="Ban this user from chat"
-                                                                                          >
-                                                                                            Ban
-                                                                                          </button>
-                                                                                        )}
-                                          </div>
-                                          <p className="text-xs text-gray-700 dark:text-gray-300 break-words">
-                                            {msg.content || "No content"}
-                                          </p>
-                                        </div>
-                                      </div>
-                                  )
-                                })
-                                .filter(Boolean)
-                        )}
-                      </div>
-                      <div className="border-t border-gray-200 dark:border-gray-700 p-3">
-                        <form onSubmit={handleChatSubmit} className="flex space-x-2">
-                          <input
-                              type="text"
-                              value={chatMessage}
-                              onChange={(e) => setChatMessage(e.target.value)}
-                              placeholder="Type your message..."
-                              className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-maroon-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                              maxLength={1500}
-                          />
-                          <button
-                              type="submit"
-                              disabled={!chatMessage.trim()}
-                              className="px-3 py-1.5 bg-maroon-600 text-white rounded-md hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                          >
-                            <PaperAirplaneIcon className="h-4 w-4" />
-                          </button>
-                        </form>
+              <div className="space-y-6 mb-8">
+                {/* Top Section: Quick Analytics Bar */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
+                  <div className="px-6 py-4 bg-maroon-700 text-white border-b border-maroon-800 relative">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-bold text-lg flex items-center gap-2">
+                      <ChartBarIcon className="h-5 w-5" />
+                      Live Broadcast Stats
+                    </h3>
+                      {/* Settings Dropdown - Contains Profanity Dictionary */}
+                      <div className="relative" ref={settingsDropdownRef}>
+                        <button
+                          ref={settingsButtonRef}
+                          onClick={(e) => {
+                            if (settingsButtonRef.current) {
+                              const rect = settingsButtonRef.current.getBoundingClientRect()
+                              setDropdownPosition({
+                                top: rect.bottom + window.scrollY + 8,
+                                right: window.innerWidth - rect.right
+                              })
+                            }
+                            setShowSettingsDropdown(!showSettingsDropdown)
+                          }}
+                          className="text-sm font-medium bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-2"
+                        >
+                          <span>Profanity Filter</span>
+                          <svg className={`w-4 h-4 transition-transform ${showSettingsDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
                       </div>
                     </div>
                   </div>
-
-                  {/* Song Requests Section */}
-                  <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-                    <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white px-4 py-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <MusicalNoteIcon className="h-5 w-5" />
-                          <h3 className="font-semibold text-base">Song Requests</h3>
-                        </div>
-                        <span
-                          className="text-sm bg-white/25 backdrop-blur-sm px-2.5 py-0.5 rounded-full font-semibold min-w-[2rem] text-center"
-                          title="Total song requests"
-                          aria-label={`Total song requests: ${songRequests.length}`}
-                        >
-                      {songRequests.length}
-                    </span>
+                  <div className="p-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4">
+                    <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-lg p-3 border border-emerald-200 dark:border-emerald-800">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Duration</span>
+                        <ClockIcon className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      </div>
+                      <div className="text-lg font-bold text-emerald-800 dark:text-emerald-200">{getBroadcastDuration()}</div>
+                    </div>
+                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Listeners</span>
+                        <UserIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <div className="text-lg font-bold text-blue-800 dark:text-blue-200">{listenerCount}</div>
+                    </div>
+                    <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-3 border border-orange-200 dark:border-orange-800">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-orange-700 dark:text-orange-300">Peak</span>
+                        <svg className="h-4 w-4 text-orange-600 dark:text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 2L13.09 8.26L20 9.27L15 14.14L16.18 21.02L10 17.77L3.82 21.02L5 14.14L0 9.27L6.91 8.26L10 2Z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <div className="text-lg font-bold text-orange-800 dark:text-orange-200">{peakListeners}</div>
+                    </div>
+                    <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 border border-purple-200 dark:border-purple-800">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-purple-700 dark:text-purple-300">Messages</span>
+                        <ChatBubbleLeftRightIcon className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                      </div>
+                      <div className="text-lg font-bold text-purple-800 dark:text-purple-200">{chatMessages.length}</div>
+                    </div>
+                    <div className="bg-gold-50 dark:bg-gold-900/20 rounded-lg p-3 border border-gold-200 dark:border-gold-800">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-maroon-700 dark:text-gold-300">Requests</span>
+                        <MusicalNoteIcon className="h-4 w-4 text-gold-600 dark:text-gold-400" />
+                      </div>
+                      <div className="text-lg font-bold text-maroon-800 dark:text-gold-200">{totalSongRequests}</div>
+                    </div>
+                    <div className="bg-teal-50 dark:bg-teal-900/20 rounded-lg p-3 border border-teal-200 dark:border-teal-800">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-teal-700 dark:text-teal-300">Polls</span>
+                        <ChartBarIcon className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+                      </div>
+                      <div className="text-lg font-bold text-teal-800 dark:text-teal-200">{totalPolls}</div>
+                    </div>
+                    <div className="bg-rose-50 dark:bg-rose-900/20 rounded-lg p-3 border border-rose-200 dark:border-rose-800">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-rose-700 dark:text-rose-300">Interactions</span>
+                        <HeartIcon className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+                      </div>
+                      <div className="text-lg font-bold text-rose-800 dark:text-rose-200">{totalInteractions}</div>
+                    </div>
+                    <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-lg p-3 border border-indigo-200 dark:border-indigo-800">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">Engagement</span>
+                        <svg className="h-4 w-4 text-indigo-600 dark:text-indigo-400" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <div className="text-lg font-bold text-indigo-800 dark:text-indigo-200">
+                        {listenerCount > 0 ? Math.round((totalInteractions / listenerCount) * 100) : 0}%
                       </div>
                     </div>
-                    <EnhancedScrollArea className="h-[300px]">
-                      <div className="p-3 space-y-2.5">
-                        {songRequests.length === 0 ? (
+                  </div>
+                </div>
+                {/* Dropdown Portal - Rendered outside container to avoid clipping */}
+                {showSettingsDropdown && (
+                  <div 
+                    data-settings-dropdown
+                    className="fixed bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 z-[9999] p-4 w-96 max-w-[calc(100vw-3rem)] max-h-[80vh] overflow-y-auto"
+                    style={{
+                      top: `${dropdownPosition.top}px`,
+                      right: `${dropdownPosition.right}px`
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-200 dark:border-gray-700">
+                      <h4 className="font-bold text-gray-900 dark:text-white">Profanity Dictionary</h4>
+                      <button
+                        onClick={() => setShowSettingsDropdown(false)}
+                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                      >
+                        <XMarkIcon className="h-5 w-5" />
+                      </button>
+                    </div>
+                    <ProfanityManager />
+                  </div>
+                )}
+
+                {/* Main Content Area - Three Column Layout */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  {/* Left Column: Song Requests */}
+                  <div className="lg:col-span-3 space-y-4">
+                    {/* Song Requests Card */}
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                      <div className="bg-gold-500 text-maroon-900 px-4 py-3 border-b border-gold-400">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <MusicalNoteIcon className="h-5 w-5" />
+                            <h3 className="font-bold text-base">Song Requests</h3>
+                          </div>
+                          <span className="text-sm bg-maroon-900/30 px-2.5 py-1 rounded-full font-bold min-w-[2rem] text-center">
+                            {songRequests.length}
+                          </span>
+                        </div>
+                      </div>
+                      <EnhancedScrollArea className="h-[500px]">
+                        <div className="p-3 space-y-2.5">
+                          {songRequests.length === 0 ? (
                             <div className="text-center text-gray-500 dark:text-gray-400 py-12 px-4">
                               <MusicalNoteIcon className="h-12 w-12 mx-auto mb-3 opacity-30" />
                               <p className="text-sm">No song requests yet</p>
                             </div>
-                        ) : (
+                          ) : (
                             songRequests.map((request) => (
-                                <div key={request.id} className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-750 rounded-lg p-3 border border-gray-200 dark:border-gray-600 hover:shadow-md transition-shadow">
+                                <div key={request.id} className="bg-white dark:bg-gray-700 rounded-lg p-3 border border-gray-200 dark:border-gray-600 hover:shadow-md transition-shadow">
                                   <div className="flex items-start gap-3">
                                     <div className="flex-shrink-0 mt-0.5">
-                                      <div className="w-8 h-8 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-lg flex items-center justify-center shadow-sm">
+                                      <div className="w-8 h-8 bg-gold-500 rounded-lg flex items-center justify-center shadow-sm">
                                         <MusicalNoteIcon className="w-4 h-4 text-white" />
                                       </div>
                                     </div>
                                     <div className="flex-1 min-w-0">
                                       <div className="flex justify-between items-start gap-2">
                                         <div>
-                                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white leading-snug">
-                                    {request.songTitle}
-                                  </h4>
+                                          <h4 className="text-sm font-semibold text-gray-900 dark:text-white leading-snug">
+                                            {request.songTitle}
+                                          </h4>
                                           {request.artist && (
                                             <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">by {request.artist}</p>
                                           )}
@@ -1819,11 +1943,11 @@ export default function DJDashboard() {
                                         </button>
                                       </div>
                                       {request.dedication && (
-                                          <p className="text-xs text-gray-600 dark:text-gray-400 italic mt-2 pl-2 border-l-2 border-yellow-400">
+                                          <p className="text-xs text-gray-600 dark:text-gray-400 italic mt-2 pl-2 border-l-2 border-gold-400">
                                             "{request.dedication}"
                                           </p>
                                       )}
-                                      <div className="text-xs text-gray-500 dark:text-gray-500 mt-2">
+                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                                         {(() => {
                                           try {
                                             const ms = request?._sentAt ?? getSongRequestTimeMs(request, false)
@@ -1842,106 +1966,253 @@ export default function DJDashboard() {
                                   </div>
                                 </div>
                             ))
-                        )}
-                      </div>
-                    </EnhancedScrollArea>
+                          )}
+                        </div>
+                      </EnhancedScrollArea>
+                    </div>
                   </div>
 
-                  {/* Polls Results Section */}
-                  <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-                    <div className="bg-blue-600 text-white px-4 py-2.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <ChartBarIcon className="h-4 w-4 mr-2" />
-                          <h3 className="font-semibold text-sm">Polls & Results</h3>
+                  {/* Center Column: Live Chat - Main Focus */}
+                  <div className="lg:col-span-6">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden h-full flex flex-col">
+                      <div className="bg-maroon-600 text-white px-5 py-4 border-b border-maroon-700">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <ChatBubbleLeftRightIcon className="h-6 w-6" />
+                            <h3 className="font-bold text-lg">Live Chat</h3>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <span className="text-sm bg-white bg-opacity-20 px-3 py-1.5 rounded-full font-bold">
+                              {chatMessages.length} messages
+                            </span>
+                            <button
+                              onClick={handleDownloadChat}
+                              disabled={isDownloadingChat || !currentBroadcast?.id}
+                              className="inline-flex items-center text-sm px-3 py-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                              title="Download chat messages as Excel (available for 7 days)"
+                            >
+                              <ArrowDownTrayIcon className={`h-4 w-4 mr-1.5 ${isDownloadingChat ? "animate-pulse" : ""}`} />
+                              {isDownloadingChat ? "Downloading..." : "Download"}
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs bg-white bg-opacity-20 px-2 py-0.5 rounded-full">{polls.length}</span>
-                          <button
-                              onClick={() => setShowPollCreation(!showPollCreation)}
-                              className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 ${
-                                  showPollCreation
-                                      ? "bg-white text-blue-600 rotate-45"
-                                      : "bg-white bg-opacity-20 hover:bg-opacity-30 text-white"
-                              }`}
-                              title="Create new poll"
-                          >
-                            +
-                          </button>
+                      </div>
+                      <div className="flex-1 flex flex-col min-h-0">
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                          {chatMessages.length === 0 ? (
+                            <div className="text-center text-gray-500 dark:text-gray-400 py-12">
+                              <ChatBubbleLeftRightIcon className="h-16 w-16 mx-auto mb-3 opacity-30" />
+                              <p className="text-base">No messages yet</p>
+                              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Start the conversation!</p>
+                            </div>
+                          ) : (
+                            chatMessages
+                              .slice()
+                              .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+                              .map((msg) => {
+                                if (!msg || !msg.sender) return null
+
+                                const firstName = msg.sender?.firstname || ""
+                                const lastName = msg.sender?.lastname || ""
+                                const fullName = `${firstName} ${lastName}`.trim()
+                                const senderName = fullName || msg.sender?.email || "Unknown User"
+
+                                const isDJ =
+                                    (msg.sender?.role && msg.sender.role.includes("DJ")) ||
+                                    senderName.includes("DJ") ||
+                                    firstName.includes("DJ") ||
+                                    lastName.includes("DJ")
+
+                                const initials = (() => {
+                                  try {
+                                    return (
+                                        senderName
+                                            .split(" ")
+                                            .map((part) => part[0] || "")
+                                            .join("")
+                                            .toUpperCase()
+                                            .slice(0, 2) || "U"
+                                    )
+                                  } catch (error) {
+                                    return "U"
+                                  }
+                                })()
+
+                                let messageDate;
+                                try {
+                                  messageDate = msg.createdAt ? new Date(msg.createdAt) : null;
+                                } catch (error) {
+                                  messageDate = new Date();
+                                }
+
+                                const timeAgo = (() => {
+                                  try {
+                                    return messageDate && !isNaN(messageDate.getTime())
+                                        ? formatDistanceToNow(messageDate, { addSuffix: true })
+                                        : "just now"
+                                  } catch (error) {
+                                    return "just now"
+                                  }
+                                })()
+
+                                return (
+                                    <div key={msg.id} className="flex items-start space-x-3">
+                                      <div
+                                          className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-sm text-white font-bold ${
+                                              isDJ ? "bg-maroon-600" : "bg-gray-500"
+                                          }`}
+                                      >
+                                        {isDJ ? "DJ" : initials}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center space-x-2 mb-1">
+                                          <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                                            {senderName}
+                                          </span>
+                                          <span className="text-xs text-gray-500 dark:text-gray-400">{timeAgo}</span>
+                                          {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleBanUser(msg.sender.id, senderName)}
+                                              className="ml-2 text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800"
+                                              title="Ban this user from chat"
+                                            >
+                                              Ban
+                                            </button>
+                                          )}
+                                        </div>
+                                        <p className="text-sm text-gray-700 dark:text-gray-300 break-words">
+                                          {msg.content || "No content"}
+                                        </p>
+                                      </div>
+                                    </div>
+                                )
+                              })
+                              .filter(Boolean)
+                          )}
+                        </div>
+                        <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900/50">
+                          <form onSubmit={handleChatSubmit} className="flex space-x-3">
+                            <input
+                                type="text"
+                                value={chatMessage}
+                                onChange={(e) => setChatMessage(e.target.value)}
+                                placeholder="Type your message..."
+                                className="flex-1 px-4 py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                maxLength={1500}
+                            />
+                            <button
+                                type="submit"
+                                disabled={!chatMessage.trim()}
+                                className="px-5 py-2.5 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+                            >
+                              <PaperAirplaneIcon className="h-5 w-5" />
+                            </button>
+                          </form>
                         </div>
                       </div>
                     </div>
+                  </div>
 
-                    {/* Poll Creation Form - Expandable */}
-                    {showPollCreation && (
-                        <div className="border-b border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/20 p-3">
-                          <h4 className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-2">Create New Poll</h4>
-                          <form onSubmit={handlePollSubmit} className="space-y-2">
-                            <input
-                                type="text"
-                                value={newPoll.question}
-                                onChange={(e) => setNewPoll((prev) => ({ ...prev, question: e.target.value }))}
-                                placeholder="Ask your listeners a question..."
-                                className="w-full px-3 py-1.5 text-sm border border-blue-300 dark:border-blue-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                                required
-                            />
-                            <div className="space-y-2">
-                              {newPoll.options.map((option, index) => (
-                                  <div key={index} className="flex space-x-2">
-                                    <input
-                                        type="text"
-                                        value={option}
-                                        onChange={(e) => updatePollOption(index, e.target.value)}
-                                        placeholder={`Option ${index + 1}`}
-                                        className="flex-1 px-3 py-1.5 text-sm border border-blue-300 dark:border-blue-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                                    />
-                                    {newPoll.options.length > 2 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => removePollOption(index)}
-                                            className="px-2 py-1.5 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
-                                        >
-                                          <XMarkIcon className="h-4 w-4" />
-                                        </button>
-                                    )}
-                                  </div>
-                              ))}
-                            </div>
-                            <div className="flex items-center justify-between">
-                              {newPoll.options.length < 5 && (
+                  {/* Right Column: Polls */}
+                  <div className="lg:col-span-3">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                      <div className="bg-maroon-700 text-white px-4 py-3 border-b border-maroon-800">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <ChartBarIcon className="h-5 w-5" />
+                            <h3 className="font-bold text-base">Polls & Results</h3>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm bg-white bg-opacity-20 px-2.5 py-1 rounded-full font-bold">{polls.length}</span>
+                            <button
+                                onClick={() => setShowPollCreation(!showPollCreation)}
+                                className={`w-7 h-7 rounded-full flex items-center justify-center text-base font-bold transition-all duration-200 ${
+                                    showPollCreation
+                                        ? "bg-white text-maroon-700 rotate-45"
+                                        : "bg-white bg-opacity-20 hover:bg-opacity-30 text-white"
+                                }`}
+                                title="Create new poll"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Poll Creation Form - Expandable */}
+                      {showPollCreation && (
+                          <div className="border-b border-gray-200 dark:border-gray-700 bg-maroon-50 dark:bg-maroon-900/20 p-4">
+                            <h4 className="text-sm font-semibold text-maroon-900 dark:text-maroon-100 mb-3">Create New Poll</h4>
+                            <form onSubmit={handlePollSubmit} className="space-y-3">
+                              <input
+                                  type="text"
+                                  value={newPoll.question}
+                                  onChange={(e) => setNewPoll((prev) => ({ ...prev, question: e.target.value }))}
+                                  placeholder="Ask your listeners a question..."
+                                  className="w-full px-3 py-2 text-sm border-2 border-maroon-300 dark:border-maroon-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                  required
+                              />
+                              <div className="space-y-2">
+                                {newPoll.options.map((option, index) => (
+                                    <div key={index} className="flex space-x-2">
+                                      <input
+                                          type="text"
+                                          value={option}
+                                          onChange={(e) => updatePollOption(index, e.target.value)}
+                                          placeholder={`Option ${index + 1}`}
+                                          className="flex-1 px-3 py-2 text-sm border-2 border-maroon-300 dark:border-maroon-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                      />
+                                      {newPoll.options.length > 2 && (
+                                          <button
+                                              type="button"
+                                              onClick={() => removePollOption(index)}
+                                              className="px-2 py-2 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 transition-colors"
+                                          >
+                                            <XMarkIcon className="h-4 w-4" />
+                                          </button>
+                                      )}
+                                    </div>
+                                ))}
+                              </div>
+                              <div className="flex items-center justify-between pt-2">
+                                {newPoll.options.length < 5 && (
+                                    <button
+                                        type="button"
+                                        onClick={addPollOption}
+                                        className="text-sm text-maroon-700 hover:text-maroon-900 dark:text-maroon-300 dark:hover:text-maroon-100 font-medium"
+                                    >
+                                      + Add Option
+                                    </button>
+                                )}
+                                <div className="flex space-x-2 ml-auto">
                                   <button
                                       type="button"
-                                      onClick={addPollOption}
-                                      className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                                      onClick={() => setShowPollCreation(false)}
+                                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 font-medium"
                                   >
-                                    + Add Option
+                                    Cancel
                                   </button>
-                              )}
-                              <div className="flex space-x-2 ml-auto">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowPollCreation(false)}
-                                    className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    disabled={isCreatingPoll || !newPoll.question.trim()}
-                                    className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-xs"
-                                >
-                                  {isCreatingPoll ? "Creating..." : "Create Poll"}
-                                </button>
+                                  <button
+                                      type="submit"
+                                      disabled={isCreatingPoll || !newPoll.question.trim()}
+                                      className="px-4 py-2 bg-maroon-700 text-white rounded-lg hover:bg-maroon-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                                  >
+                                    {isCreatingPoll ? "Creating..." : "Create Poll"}
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          </form>
-                        </div>
-                    )}
+                            </form>
+                          </div>
+                      )}
 
-                    <EnhancedScrollArea className="h-[300px]">
-                      {polls.length === 0 ? (
-                          <div className="p-3 text-center text-gray-500 dark:text-gray-400">No polls created yet</div>
-                      ) : (
+                      <EnhancedScrollArea className="h-[500px]">
+                        {polls.length === 0 ? (
+                          <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+                            <ChartBarIcon className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                            <p className="text-sm">No polls created yet</p>
+                          </div>
+                        ) : (
                           <div className="p-3 space-y-3">
                             {polls.map((poll) => {
                               const totalVotes = (() => {
@@ -1967,10 +2238,18 @@ export default function DJDashboard() {
                                 <span className="text-xs text-gray-500 dark:text-gray-400">
                                   Total votes: {totalVotes}
                                 </span>
-                                        {activePoll?.id === poll.id && (
+                                        {poll.active ? (
                                             <span className="text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 px-2 py-0.5 rounded-full">
-                                    Active
-                                  </span>
+                                              Active
+                                            </span>
+                                        ) : totalVotes > 0 ? (
+                                            <span className="text-xs bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 px-2 py-0.5 rounded-full">
+                                              Ended
+                                            </span>
+                                        ) : (
+                                            <span className="text-xs bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300 px-2 py-0.5 rounded-full">
+                                              Draft
+                                            </span>
                                         )}
                                       </div>
                                     </div>
@@ -2003,20 +2282,21 @@ export default function DJDashboard() {
                                       })()}
                                     </div>
                                     {/* Poll Controls */}
-                                    <div className="mt-2 flex items-center space-x-2">
-                                      {!poll.active ? (
+                                    <div className="mt-2 flex items-center space-x-2 flex-wrap gap-2">
+                                      {poll.active ? (
                                         <>
                                           <button
                                             type="button"
-                                            onClick={() => handlePostPoll(poll.id)}
-                                            className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                                            onClick={() => handleEndPoll(poll.id)}
+                                            className="px-3 py-1.5 text-xs bg-gold-500 text-maroon-900 rounded-lg hover:bg-gold-600 font-medium transition-colors"
+                                            title="End poll - stops accepting votes but keeps showing results"
                                           >
-                                            Post
+                                            End
                                           </button>
                                           <button
                                             type="button"
                                             onClick={() => handleDeletePoll(poll.id)}
-                                            className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                                            className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition-colors"
                                           >
                                             Delete
                                           </button>
@@ -2025,15 +2305,16 @@ export default function DJDashboard() {
                                         <>
                                           <button
                                             type="button"
-                                            onClick={() => handleStopPoll(poll.id)}
-                                            className="px-2 py-1 text-xs bg-yellow-500 text-black rounded hover:bg-yellow-600"
+                                            onClick={() => handlePostPoll(poll.id)}
+                                            className="px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors"
+                                            title={totalVotes > 0 ? "Repost poll with existing votes" : "Post poll"}
                                           >
-                                            Stop
+                                            {totalVotes > 0 ? "Repost" : "Post"}
                                           </button>
                                           <button
                                             type="button"
                                             onClick={() => handleDeletePoll(poll.id)}
-                                            className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                                            className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition-colors"
                                           >
                                             Delete
                                           </button>
@@ -2044,114 +2325,9 @@ export default function DJDashboard() {
                               )
                             })}
                           </div>
-                      )}
-                    </EnhancedScrollArea>
-                  </div>
-                </div>
-
-                {/* Analytics Dashboard - Right Side */}
-                <div className="lg:col-span-4 min-w-0 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-                  <div className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2.5">
-                    <div className="flex items-center">
-                      <ChartBarIcon className="h-4 w-4 mr-2" />
-                      <h3 className="font-semibold text-sm">Broadcast Analytics</h3>
+                        )}
+                      </EnhancedScrollArea>
                     </div>
-                  </div>
-                  <div className="p-3 grid grid-cols-2 gap-3">
-                    {/* Broadcast Duration */}
-                    <div className="bg-gradient-to-r from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-green-700 dark:text-green-300">Duration</span>
-                        <ClockIcon className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                      </div>
-                      <div className="text-xl font-bold text-green-800 dark:text-green-200">{getBroadcastDuration()}</div>
-                    </div>
-
-                    {/* Current Listeners */}
-                    <div className="bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Live Listeners</span>
-                        <UserIcon className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                      </div>
-                      <div className="text-xl font-bold text-blue-800 dark:text-blue-200">{listenerCount}</div>
-                    </div>
-
-                    {/* Peak Listeners */}
-                    <div className="bg-gradient-to-r from-orange-50 to-orange-100 dark:from-orange-900/20 dark:to-orange-800/20 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-orange-700 dark:text-orange-300">Peak Listeners</span>
-                        <svg
-                            className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400"
-                            fill="currentColor"
-                            viewBox="0 0 20 20"
-                        >
-                          <path
-                              fillRule="evenodd"
-                              d="M10 2L13.09 8.26L20 9.27L15 14.14L16.18 21.02L10 17.77L3.82 21.02L5 14.14L0 9.27L6.91 8.26L10 2Z"
-                              clipRule="evenodd"
-                          />
-                        </svg>
-                      </div>
-                      <div className="text-xl font-bold text-orange-800 dark:text-orange-200">{peakListeners}</div>
-                    </div>
-
-                    {/* Total Messages */}
-                    <div className="bg-gradient-to-r from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-purple-700 dark:text-purple-300">Chat Messages</span>
-                        <ChatBubbleLeftRightIcon className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-                      </div>
-                      <div className="text-xl font-bold text-purple-800 dark:text-purple-200">{chatMessages.length}</div>
-                    </div>
-
-                    {/* Song Requests */}
-                    <div className="bg-gradient-to-r from-yellow-50 to-yellow-100 dark:from-yellow-900/20 dark:to-yellow-800/20 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-yellow-700 dark:text-yellow-300">Song Requests</span>
-                        <MusicalNoteIcon className="h-3.5 w-3.5 text-yellow-600 dark:text-yellow-400" />
-                      </div>
-                      <div className="text-xl font-bold text-yellow-800 dark:text-yellow-200">{totalSongRequests}</div>
-                    </div>
-
-                    {/* Polls Created */}
-                    <div className="bg-gradient-to-r from-teal-50 to-teal-100 dark:from-teal-900/20 dark:to-teal-800/20 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-teal-700 dark:text-teal-300">Polls Created</span>
-                        <ChartBarIcon className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
-                      </div>
-                      <div className="text-xl font-bold text-teal-800 dark:text-teal-200">{totalPolls}</div>
-                    </div>
-
-                    {/* Total Interactions */}
-                    <div className="col-span-2 bg-gradient-to-r from-rose-50 to-rose-100 dark:from-rose-900/20 dark:to-rose-800/20 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-rose-700 dark:text-rose-300">Total Interactions</span>
-                        <HeartIcon className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
-                      </div>
-                      <div className="text-xl font-bold text-rose-800 dark:text-rose-200">{totalInteractions}</div>
-                    </div>
-
-                    {/* Engagement Rate */}
-                    <div className="col-span-2 bg-gradient-to-r from-indigo-50 to-indigo-100 dark:from-indigo-900/20 dark:to-indigo-800/20 rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">Engagement Rate</span>
-                        <svg
-                            className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400"
-                            fill="currentColor"
-                            viewBox="0 0 20 20"
-                        >
-                          <path
-                              fillRule="evenodd"
-                              d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z"
-                              clipRule="evenodd"
-                          />
-                        </svg>
-                      </div>
-                      <div className="text-xl font-bold text-indigo-800 dark:text-indigo-200">
-                        {listenerCount > 0 ? Math.round((totalInteractions / listenerCount) * 100) : 0}%
-                      </div>
-                    </div>
-
                   </div>
                 </div>
               </div>
@@ -2159,25 +2335,43 @@ export default function DJDashboard() {
 
           {/* Step 1: Create Broadcast Content (BUTT workflow) */}
           {workflowState === WORKFLOW_STATES.CREATE_BROADCAST && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden mb-6">
-                <div className="p-4">
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
-                    Create New Broadcast
-                  </h2>
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-6 border-2 border-maroon-200 dark:border-maroon-900">
+                <div className="p-6">
+                  {/* Step Header */}
+                  <div className="mb-6">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="flex items-center justify-center w-10 h-10 rounded-full bg-maroon-600 text-white font-bold text-lg shadow-md">
+                        1
+                      </div>
+                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                        Create New Broadcast
+                      </h2>
+                    </div>
+                    <p className="text-gray-600 dark:text-gray-400 ml-14">Fill in the broadcast details below</p>
+                  </div>
                   
                   {/* BUTT Info Banner */}
-                  <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                    <p className="text-sm text-blue-800 dark:text-blue-200">
-                      <strong>📻 BUTT Streaming:</strong> Create your broadcast, then use <strong>BUTT (Broadcast Using This Tool)</strong> to stream your audio to the radio server.
-                    </p>
+                  <div className="mb-6 p-4 bg-gold-50 dark:bg-gold-900/20 rounded-lg border border-gold-300 dark:border-gold-800">
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl">📻</span>
+                      <div>
+                        <p className="text-sm font-semibold text-maroon-900 dark:text-gold-200 mb-1">
+                          Streaming with BUTT
+                        </p>
+                        <p className="text-sm text-maroon-800 dark:text-gold-300">
+                          After creating your broadcast, you'll use <strong>BUTT (Broadcast Using This Tool)</strong> to stream your audio to the radio server.
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                    {/* Left: Title and Description */}
-                    <div className="lg:col-span-7 space-y-4">
-                      <div>
-                        <label htmlFor="title" className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
-                          Broadcast Title *
+                  {/* Main Form Content */}
+                  <div className="space-y-6">
+                    {/* Title and Description */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label htmlFor="title" className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          Broadcast Title <span className="text-red-500">*</span>
                         </label>
                         <input
                             type="text"
@@ -2185,8 +2379,8 @@ export default function DJDashboard() {
                             name="title"
                             value={broadcastForm.title}
                             onChange={handleFormChange}
-                            className="form-input w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                            placeholder="Enter a title for your broadcast"
+                            className="w-full px-4 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white transition-all"
+                            placeholder="e.g., Morning Show with DJ John"
                             disabled={isCreatingBroadcast}
                         />
                         {formErrors.title && (
@@ -2194,21 +2388,21 @@ export default function DJDashboard() {
                         )}
                       </div>
 
-                      <div>
+                      <div className="space-y-2">
                         <label
                             htmlFor="description"
-                            className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1"
+                            className="block text-sm font-semibold text-gray-900 dark:text-gray-100"
                         >
-                          Description *
+                          Description <span className="text-red-500">*</span>
                         </label>
                         <textarea
                             id="description"
                             name="description"
                             value={broadcastForm.description}
                             onChange={handleFormChange}
-                            rows={4}
-                            className="form-input w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                            placeholder="Describe what your broadcast is about"
+                            rows={3}
+                            className="w-full px-4 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white transition-all resize-none"
+                            placeholder="Describe what your broadcast is about..."
                             disabled={isCreatingBroadcast}
                         />
                         {formErrors.description && (
@@ -2217,21 +2411,25 @@ export default function DJDashboard() {
                       </div>
                     </div>
 
-                    {/* Right: Station Banner */}
-                    <div className="lg:col-span-5">
-                      <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Station Banner</h3>
-                      <div className="flex flex-col gap-3 bg-gray-50 dark:bg-gray-700/40 p-3 rounded-md border border-gray-200 dark:border-gray-600">
+                    {/* Station Banner */}
+                    <div className="space-y-2">
+                      <label className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        Station Banner <span className="text-gray-500 font-normal">(Optional)</span>
+                      </label>
+                      <div className="flex flex-col gap-4 bg-gray-50 dark:bg-gray-700/40 p-4 rounded-lg border-2 border-gray-200 dark:border-gray-600">
                         <div className="w-full">
-                          <div className="rounded-md overflow-hidden border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
+                          <div className="rounded-lg overflow-hidden border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
                             {bannerUrl ? (
-                              <img src={cacheBust(bannerUrl)} alt="Current banner" className="w-full h-32 object-cover" />
+                              <img src={cacheBust(bannerUrl)} alt="Current banner" className="w-full h-40 object-cover" />
                             ) : (
-                              <div className="w-full h-32 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">No banner set</div>
+                              <div className="w-full h-40 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400 border-2 border-dashed border-gray-300 dark:border-gray-600">
+                                No banner image set
+                              </div>
                             )}
                           </div>
                         </div>
 
-                        <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+                        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
                           <label className="flex-1 inline-block">
                             <span className="sr-only">Choose banner image</span>
                             <input
@@ -2239,30 +2437,32 @@ export default function DJDashboard() {
                               accept="image/*"
                               onChange={handleBannerUpload}
                               disabled={bannerLoading}
-                              className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 focus:outline-none"
+                              className="block w-full text-sm text-gray-900 border-2 border-gray-300 rounded-lg cursor-pointer bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-maroon-500 hover:border-maroon-400 transition-colors"
                             />
                           </label>
-                          <button
-                            onClick={handleBannerDelete}
-                            disabled={bannerLoading || !bannerUrl}
-                            className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm whitespace-nowrap"
-                          >
-                            Remove
-                          </button>
+                          {bannerUrl && (
+                            <button
+                              onClick={handleBannerDelete}
+                              disabled={bannerLoading}
+                              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm whitespace-nowrap transition-colors font-medium"
+                            >
+                              Remove Banner
+                            </button>
+                          )}
                         </div>
                         {bannerLoading && <span className="text-xs text-gray-600 dark:text-gray-300">Processing…</span>}
                         {bannerError && <span className="text-xs text-red-600">{bannerError}</span>}
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Recommended: 1200x300 or similar wide aspect.</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Recommended: 1200x300 or similar wide aspect ratio.</p>
                       </div>
                     </div>
 
-                    {/* Bottom-right: Create Button */}
-                    <div className="lg:col-span-12 flex items-center justify-center">
+                    {/* Create Button */}
+                    <div className="flex items-center justify-center pt-4 border-t border-gray-200 dark:border-gray-700">
                       <button
                           type="button"
                           onClick={createBroadcast}
-                          disabled={isCreatingBroadcast}
-                          className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-base font-medium"
+                          disabled={isCreatingBroadcast || !broadcastForm.title.trim() || !broadcastForm.description.trim()}
+                          className="px-8 py-4 bg-maroon-700 text-white rounded-lg hover:bg-maroon-800 focus:outline-none focus:ring-4 focus:ring-maroon-300 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all text-lg font-semibold shadow-lg hover:shadow-xl disabled:shadow-none"
                       >
                         {isCreatingBroadcast ? (
                             <>
@@ -2270,7 +2470,10 @@ export default function DJDashboard() {
                               <span className="animate-spin">⏳</span>
                             </>
                         ) : (
-                            "Create Broadcast"
+                            <>
+                              Create Broadcast
+                              <span className="ml-2">→</span>
+                            </>
                         )}
                       </button>
                     </div>
@@ -2281,131 +2484,181 @@ export default function DJDashboard() {
 
           {/* Step 2: Ready to Stream (BUTT workflow) */}
           {workflowState === WORKFLOW_STATES.READY_TO_STREAM && currentBroadcast && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden mb-6">
-                <div className="p-4">
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">
-                    Ready to Stream with BUTT
-                  </h2>
-
-                  {/* Header: Broadcast Title/Description/Status */}
-                  <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4 mb-4">
-                    <h3 className="text-base font-semibold text-blue-900 dark:text-blue-100 mb-1">
-                      {currentBroadcast.title}
-                    </h3>
-                    <p className="text-sm text-blue-700 dark:text-blue-200 mb-2">{currentBroadcast.description}</p>
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-6 border-2 border-maroon-200 dark:border-maroon-900">
+                <div className="p-6">
+                  {/* Step Header */}
+                  <div className="mb-6">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="flex items-center justify-center w-10 h-10 rounded-full bg-maroon-600 text-white font-bold text-lg shadow-md">
+                        2
+                      </div>
+                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                        Ready to Stream
+                      </h2>
+                    </div>
+                    <p className="text-gray-600 dark:text-gray-400 ml-14">Follow the steps below to start your broadcast</p>
                   </div>
 
-                  {/* Radio Server Status and Error */}
+                  {/* Broadcast Info */}
+                  <div className="mb-6 p-4 bg-maroon-50 dark:bg-maroon-900/20 rounded-lg border border-maroon-200 dark:border-maroon-800">
+                    <h3 className="text-lg font-semibold text-maroon-900 dark:text-maroon-100 mb-1">
+                      {currentBroadcast.title}
+                    </h3>
+                    <p className="text-sm text-maroon-800 dark:text-maroon-200">{currentBroadcast.description}</p>
+                  </div>
+
+                  {/* Radio Server Error */}
                   {radioServerError && (
-                    <div className="mb-4 p-3 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-md border border-red-300 dark:border-red-800 text-sm">
+                    <div className="mb-6 p-4 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-200 rounded-lg border border-red-300 dark:border-red-800">
                       <strong>Radio Server Error:</strong> {radioServerError}
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                    {/* Column 1: Stream Preview and Station Banner */}
-                    <div className="lg:col-span-5 space-y-4 min-w-0">
-                      <div>
-                        <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Stream Preview</h3>
-                        <AudioPlayer isPreview={true} />
-                      </div>
-
-                      <div>
-                        <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Station Banner</h3>
-                        <div className="flex flex-col gap-3 bg-gray-50 dark:bg-gray-700/40 p-3 rounded-md border border-gray-200 dark:border-gray-600">
-                          <div className="w-full">
-                            <div className="rounded-md overflow-hidden border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
-                              {bannerUrl ? (
-                                <img src={cacheBust(bannerUrl)} alt="Current banner" className="w-full h-32 object-cover" />
-                              ) : (
-                                <div className="w-full h-32 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">No banner set</div>
-                              )}
-                            </div>
+                  {/* Step-by-Step Instructions */}
+                  <div className="space-y-6">
+                    {/* Step 1: Start Radio Server */}
+                    <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-lg p-5 border-2 border-emerald-300 dark:border-emerald-800">
+                      <div className="flex items-start gap-4">
+                        <div className="flex-shrink-0">
+                          <div className={`flex items-center justify-center w-12 h-12 rounded-full font-bold text-lg ${
+                            radioServerState === 'running' 
+                              ? 'bg-green-600 text-white shadow-lg' 
+                              : 'bg-gray-300 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                          }`}>
+                            1
                           </div>
-                          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
-                            <label className="flex-1 inline-block">
-                              <span className="sr-only">Choose banner image</span>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={handleBannerUpload}
-                                disabled={bannerLoading}
-                                className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 focus:outline-none"
-                              />
-                            </label>
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+                            Start Radio Server
+                          </h3>
+                          <div className="flex items-center gap-2 mb-4">
+                            <span className={`h-3 w-3 rounded-full ${radioServerState === 'running' ? 'bg-green-500 animate-pulse' : radioServerState === 'stopped' ? 'bg-gray-400' : 'bg-yellow-500'}`}></span>
+                            <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              Server Status: <span className={radioServerState === 'running' ? 'text-green-600 dark:text-green-400 font-semibold' : radioServerState === 'stopped' ? 'text-gray-600 dark:text-gray-400' : 'text-yellow-600 dark:text-yellow-400'}>
+                                {radioServerState === 'running' ? '✓ Running' : radioServerState === 'stopped' ? 'Offline' : 'Unknown'}
+                              </span>
+                            </span>
+                          </div>
+                          <div className="flex gap-3 mb-3">
                             <button
-                              onClick={handleBannerDelete}
-                              disabled={bannerLoading || !bannerUrl}
-                              className="px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm whitespace-nowrap"
+                              onClick={handleStartRadioServer}
+                              disabled={isStartingServer || radioServerState === 'running'}
+                              className="flex-1 flex items-center justify-center px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all text-base font-semibold shadow-lg hover:shadow-xl disabled:shadow-none"
                             >
-                              Remove
+                              <MicrophoneIcon className="h-5 w-5 mr-2" />
+                              {isStartingServer ? 'Starting...' : radioServerState === 'running' ? '✓ Server Running' : 'Start Radio Server'}
                             </button>
+                            {radioServerState === 'running' && (
+                              <button
+                                onClick={handleStopRadioServer}
+                                disabled={isStoppingServer}
+                                className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-300 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all text-base font-semibold"
+                              >
+                                <StopIcon className="h-5 w-5 mr-2 inline" />
+                                Stop Server
+                              </button>
+                            )}
                           </div>
-                          {bannerLoading && <span className="text-xs text-gray-600 dark:text-gray-300">Processing…</span>}
-                          {bannerError && <span className="text-xs text-red-600">{bannerError}</span>}
-                          <p className="text-xs text-gray-500 dark:text-gray-400">Recommended: 1200x300 or similar wide aspect.</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            The radio server must be running before you can stream. Once started, it will stay running until you stop it.
+                          </p>
                         </div>
                       </div>
                     </div>
 
-                    {/* Column 2: Radio Server Control + Instructions */}
-                    <div className="lg:col-span-7 space-y-4 min-w-0">
-                      {/* Radio Server Control */}
-                      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 rounded-lg p-4 border border-indigo-200 dark:border-indigo-800">
-                        <h3 className="text-base font-semibold text-indigo-900 dark:text-indigo-100 mb-2">Radio Server Control</h3>
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center space-x-2">
-                            <span className={`h-3 w-3 rounded-full ${radioServerState === 'running' ? 'bg-green-500 animate-pulse' : radioServerState === 'stopped' ? 'bg-gray-400' : 'bg-yellow-500'}`}></span>
-                            <span className="text-sm font-medium text-gray-900 dark:text-white">
-                              Server Status: <span className={radioServerState === 'running' ? 'text-green-600 dark:text-green-400' : radioServerState === 'stopped' ? 'text-gray-600 dark:text-gray-400' : 'text-yellow-600 dark:text-yellow-400'}>
-                                {radioServerState === 'running' ? 'Running' : radioServerState === 'stopped' ? 'Offline' : 'Unknown'}
-                              </span>
-                            </span>
+                    {/* Step 2: Connect BUTT */}
+                    <div className={`rounded-lg p-5 border-2 ${
+                      radioServerState === 'running'
+                        ? 'bg-gold-50 dark:bg-gold-900/20 border-gold-300 dark:border-gold-800'
+                        : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 opacity-60'
+                    }`}>
+                      <div className="flex items-start gap-4">
+                        <div className="flex-shrink-0">
+                          <div className={`flex items-center justify-center w-12 h-12 rounded-full font-bold text-lg ${
+                            radioServerState === 'running'
+                              ? 'bg-gold-500 text-maroon-900 shadow-lg'
+                              : 'bg-gray-300 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                          }`}>
+                            2
                           </div>
                         </div>
-                        
-                        <div className="flex gap-3">
-                          <button
-                            onClick={handleStartRadioServer}
-                            disabled={isStartingServer || radioServerState === 'running'}
-                            className="flex-1 flex items-center justify-center px-4 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-base font-medium"
-                          >
-                            <MicrophoneIcon className="h-5 w-5 mr-2" />
-                            {isStartingServer ? 'Starting...' : radioServerState === 'running' ? 'Server Running' : 'Start Radio Server'}
-                          </button>
-                          <button
-                            onClick={handleStopRadioServer}
-                            disabled={isStoppingServer || radioServerState === 'stopped'}
-                            className="flex-1 flex items-center justify-center px-4 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-base font-medium"
-                          >
-                            <StopIcon className="h-5 w-5 mr-2" />
-                            {isStoppingServer ? 'Stopping...' : radioServerState === 'stopped' ? 'Server Offline' : 'Stop Radio Server'}
-                          </button>
+                        <div className="flex-1">
+                          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-3">
+                            Connect BUTT (Broadcast Using This Tool)
+                          </h3>
+                          {radioServerState === 'running' ? (
+                            <ol className="text-sm text-gray-700 dark:text-gray-300 space-y-2 list-decimal list-inside mb-4">
+                              <li>Open <strong>BUTT</strong> on your computer</li>
+                              <li>Configure BUTT to connect to <strong>Icecast port 9000</strong></li>
+                              <li>Click <strong>"Play"</strong> in BUTT to start streaming</li>
+                              <li>Once audio is streaming, click <strong>"Go Live"</strong> below</li>
+                            </ol>
+                          ) : (
+                            <p className="text-sm text-gray-500 dark:text-gray-400 italic mb-4">
+                              Start the radio server first (Step 1) to see connection instructions.
+                            </p>
+                          )}
+                          {radioServerState === 'running' && (
+                            <div className="mt-4 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gold-300 dark:border-gold-700">
+                              <p className="text-xs font-semibold text-maroon-900 dark:text-gold-200 mb-1">Connection Details:</p>
+                              <p className="text-xs text-maroon-800 dark:text-gold-300">
+                                Server: <code className="bg-maroon-100 dark:bg-maroon-900/50 px-1 rounded">localhost:9000</code> | 
+                                Format: <code className="bg-maroon-100 dark:bg-maroon-900/50 px-1 rounded">MP3</code>
+                              </p>
+                            </div>
+                          )}
                         </div>
-                        <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-3">
-                          Start the server before connecting BUTT. The server can stay running for the whole day (idempotent).
-                        </p>
                       </div>
+                    </div>
 
-                      {/* BUTT Instructions */}
-                      <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 border border-yellow-200 dark:border-yellow-800">
-                        <h3 className="text-base font-semibold text-yellow-900 dark:text-yellow-100 mb-2">📻 BUTT Streaming Instructions</h3>
-                        <ol className="text-sm text-yellow-800 dark:text-yellow-200 space-y-1 list-decimal list-inside">
-                          <li>Click <strong>"Start Radio Server"</strong> above</li>
-                          <li>Open <strong>BUTT</strong> (Broadcast Using This Tool) on your computer</li>
-                          <li>Configure BUTT to connect to Icecast harbor port <strong>9000</strong></li>
-                          <li>Click <strong>"Play"</strong> in BUTT to start streaming your audio</li>
-                          <li>Monitor your broadcast from this dashboard (chat, requests, polls)</li>
-                          <li>When done, disconnect BUTT and click <strong>"Stop Radio Server"</strong></li>
-                        </ol>
+                    {/* Step 3: Go Live Button */}
+                    <div className={`rounded-lg p-5 border-2 ${
+                      radioServerState === 'running'
+                        ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800'
+                        : 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600 opacity-60'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">
+                            Go Live
+                          </h3>
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            {radioServerState === 'running' 
+                              ? 'Once BUTT is streaming, click below to go live and open the interactive dashboard'
+                              : 'Start the radio server first (Step 1) to enable this action'}
+                          </p>
+                        </div>
+                        <button
+                          onClick={startBroadcastLive}
+                          disabled={radioServerState !== 'running'}
+                          className={`ml-6 flex items-center px-8 py-4 rounded-lg font-bold text-lg transition-all shadow-lg ${
+                            radioServerState === 'running'
+                              ? 'bg-red-600 text-white hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-300 hover:shadow-xl'
+                              : 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                          }`}
+                          title={radioServerState !== 'running' ? 'Start the radio server first' : 'Go live and open the interactive dashboard'}
+                        >
+                          <MicrophoneIcon className="h-6 w-6 mr-2" />
+                          Go Live
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Additional Options */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Stream Preview */}
+                      <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Stream Preview</h3>
+                        <AudioPlayer isPreview={true} />
                       </div>
 
                       {/* Chat Slow Mode */}
                       {currentBroadcast && (
-                        <div>
-                          <h3 className="text-base font-medium text-gray-900 dark:text-white mb-2">Chat Slow Mode</h3>
-                          <div className="flex flex-wrap items-center gap-2 bg-gray-50 dark:bg-gray-700/50 rounded-md p-3 border border-gray-200 dark:border-gray-600">
-                            <label className="flex items-center mr-2 text-sm">
+                        <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Chat Slow Mode</h3>
+                          <div className="space-y-3">
+                            <label className="flex items-center text-sm">
                               <input
                                 type="checkbox"
                                 className="mr-2"
@@ -2414,49 +2667,41 @@ export default function DJDashboard() {
                               />
                               Enable slow mode
                             </label>
-                            <div className="flex items-center">
-                              <input
-                                type="number"
-                                min={0}
-                                max={3600}
-                                value={slowModeSeconds}
-                                onChange={(e) => setSlowModeSeconds(e.target.value)}
-                                className="w-24 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
-                                placeholder="seconds"
-                                title="Seconds between messages"
-                              />
-                              <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">seconds</span>
-                            </div>
+                            {slowModeEnabled && (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={3600}
+                                  value={slowModeSeconds}
+                                  onChange={(e) => setSlowModeSeconds(e.target.value)}
+                                  className="w-24 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                                  placeholder="seconds"
+                                />
+                                <span className="text-xs text-gray-500 dark:text-gray-400">seconds between messages</span>
+                              </div>
+                            )}
                             <button
                               onClick={handleSaveSlowMode}
                               disabled={isSavingSlowMode}
-                              className="ml-auto px-3 py-1.5 bg-maroon-700 text-white rounded-md hover:bg-maroon-800 disabled:opacity-50 text-sm"
+                              className="w-full px-3 py-2 bg-maroon-700 text-white rounded-md hover:bg-maroon-800 disabled:opacity-50 text-sm font-medium"
                             >
-                              {isSavingSlowMode ? 'Saving…' : 'Save'}
+                              {isSavingSlowMode ? 'Saving…' : 'Save Settings'}
                             </button>
                           </div>
                         </div>
                       )}
+                    </div>
 
-                      {/* Actions */}
-                      <div className="flex justify-center gap-3">
-                        <button
-                            onClick={startBroadcastLive}
-                            disabled={radioServerState !== 'running'}
-                            className="flex items-center px-6 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-base font-medium"
-                            title={radioServerState !== 'running' ? 'Start the radio server first' : 'Go live and open the interactive dashboard'}
-                        >
-                          <MicrophoneIcon className="h-5 w-5 mr-2" />
-                          Go Live
-                        </button>
-                        <button
-                            onClick={cancelBroadcast}
-                            className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors text-sm font-medium"
-                        >
-                          <XMarkIcon className="h-4 w-4 mr-2" />
-                          Cancel Broadcast
-                        </button>
-                      </div>
+                    {/* Cancel Option */}
+                    <div className="flex justify-end pt-4 border-t border-gray-200 dark:border-gray-700">
+                      <button
+                          onClick={cancelBroadcast}
+                          className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors text-sm font-medium"
+                      >
+                        <XMarkIcon className="h-4 w-4 mr-1 inline" />
+                        Cancel Broadcast
+                      </button>
                     </div>
                   </div>
                 </div>
