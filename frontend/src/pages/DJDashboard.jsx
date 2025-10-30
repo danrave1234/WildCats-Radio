@@ -23,7 +23,7 @@ import { broadcastService, songRequestService, pollService, authService, chatSer
 import { brandingApi } from "../services/api/brandingApi";
 import { useAuth } from "../context/AuthContext"
 import { useStreaming } from "../context/StreamingContext"
-import { formatDistanceToNow } from "date-fns"
+import { format, formatDistanceToNow } from "date-fns"
 import AudioPlayer from "../components/AudioPlayer"
 import { EnhancedScrollArea } from "../components/ui/enhanced-scroll-area"
 import { createLogger } from "../services/logger"
@@ -202,19 +202,9 @@ export default function DJDashboard() {
   const getSongRequestTimeMs = (request, isIncoming = false) => {
     try {
       const raw = request?.timestamp ?? request?.createdAt
-      let parsed = null
-      if (raw) {
-        if (typeof raw === 'string') {
-          const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)
-          // If backend provided UTC without zone, assume UTC by appending 'Z'
-          parsed = new Date(hasZone ? raw : `${raw}Z`)
-        } else {
-          parsed = new Date(raw)
-        }
-      }
+      const parsed = raw ? new Date(raw) : null
       const parsedMs = parsed && !isNaN(parsed.getTime()) ? parsed.getTime() : NaN
       if (isIncoming) {
-        // If the parsed time is clearly off, trust the receive time
         if (!parsedMs || Math.abs(Date.now() - parsedMs) > 1000 * 60 * 60 * 4) {
           return Date.now()
         }
@@ -1752,36 +1742,148 @@ export default function DJDashboard() {
 
           {/* Live Interactive Dashboard - When streaming live */}
           {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
-              <div className="space-y-6 mb-8">
-                {/* Top Section: Quick Analytics Bar */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
-                  <div className="px-6 py-4 bg-maroon-700 text-white border-b border-maroon-800 relative">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-bold text-lg flex items-center gap-2">
-                      <ChartBarIcon className="h-5 w-5" />
-                      Live Broadcast Stats
-                    </h3>
-                      {/* Settings Dropdown - Contains Profanity Dictionary */}
-                      <div className="relative" ref={settingsDropdownRef}>
-                        <button
-                          ref={settingsButtonRef}
-                          onClick={(e) => {
-                            if (settingsButtonRef.current) {
-                              const rect = settingsButtonRef.current.getBoundingClientRect()
-                              setDropdownPosition({
-                                top: rect.bottom + window.scrollY + 8,
-                                right: window.innerWidth - rect.right
-                              })
-                            }
-                            setShowSettingsDropdown(!showSettingsDropdown)
-                          }}
-                          className="text-sm font-medium bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-2"
-                        >
-                          <span>Profanity Filter</span>
-                          <svg className={`w-4 h-4 transition-transform ${showSettingsDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </button>
+              <div className="grid grid-cols-1 lg:grid-cols-12 xl:grid-cols-12 gap-6 mb-8">
+                {/* Main Content Area - Left Side */}
+                <div className="lg:col-span-8 min-w-0 grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                  {/* Chat Section */}
+                  <div className="md:col-span-2 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+                    <div className="bg-maroon-600 text-white px-4 py-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          <ChatBubbleLeftRightIcon className="h-4 w-4 mr-2" />
+                          <h3 className="font-semibold text-sm">Live Chat</h3>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs bg-white bg-opacity-20 px-2 py-0.5 rounded-full">
+                            {chatMessages.length} messages
+                          </span>
+                          <button
+                            onClick={handleDownloadChat}
+                            disabled={isDownloadingChat || !currentBroadcast?.id}
+                            className="inline-flex items-center text-xs px-2 py-1 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Download chat messages as Excel (available for 7 days)"
+                          >
+                            <ArrowDownTrayIcon className={`h-3.5 w-3.5 mr-1 ${isDownloadingChat ? "animate-pulse" : ""}`} />
+                            {isDownloadingChat ? "Downloading..." : "Download"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="h-[60vh] min-h-[420px] max-h-[75vh] flex flex-col">
+                      <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
+                        {chatMessages.length === 0 ? (
+                            <div className="text-center text-gray-500 dark:text-gray-400 py-8">No messages yet</div>
+                        ) : (
+                            chatMessages
+                                .slice()
+                                .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+                                .map((msg) => {
+                                  if (!msg || !msg.sender) return null
+
+                                  // Construct name from firstname and lastname fields
+                                  const firstName = msg.sender?.firstname || ""
+                                  const lastName = msg.sender?.lastname || ""
+                                  const fullName = `${firstName} ${lastName}`.trim()
+                                  const senderName = fullName || msg.sender?.email || "Unknown User"
+
+                                  // Check if user is a DJ based on their role or name
+                                  const isDJ =
+                                      (msg.sender?.role && msg.sender.role.includes("DJ")) ||
+                                      senderName.includes("DJ") ||
+                                      firstName.includes("DJ") ||
+                                      lastName.includes("DJ")
+
+                                  const initials = (() => {
+                                    try {
+                                      return (
+                                          senderName
+                                              .split(" ")
+                                              .map((part) => part[0] || "")
+                                              .join("")
+                                              .toUpperCase()
+                                              .slice(0, 2) || "U"
+                                      )
+                                    } catch (error) {
+                                      return "U"
+                                    }
+                                  })()
+
+                                  let messageDate;
+                                  try {
+                                    const ts = msg.createdAt || msg.timestamp || msg.sentAt || msg.time || msg.date;
+                                    messageDate = ts ? new Date(ts) : null;
+                                  } catch (error) {
+                                    messageDate = new Date();
+                                  }
+
+                                  // Show absolute local time
+                                  const timeText = (() => {
+                                    try {
+                                      return messageDate && !isNaN(messageDate.getTime())
+                                        ? format(messageDate, 'hh:mm a')
+                                        : ''
+                                    } catch (error) {
+                                      return ''
+                                    }
+                                  })()
+
+                                  return (
+                                      <div key={msg.id} className="flex items-start space-x-2">
+                                        <div
+                                            className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs text-white font-medium ${
+                                                isDJ ? "bg-maroon-600" : "bg-gray-500"
+                                            }`}
+                                        >
+                                          {isDJ ? "DJ" : initials}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center space-x-2 mb-0.5">
+                                  <span className="text-xs font-medium text-gray-900 dark:text-white">
+                                    {senderName}
+                                  </span>
+                                            {timeText && (
+                                              <span className="text-xs text-gray-500 dark:text-gray-400">{timeText}</span>
+                                            )}
+                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
+                                                                                          <button
+                                                                                            type="button"
+                                                                                            onClick={() => handleBanUser(msg.sender.id, senderName)}
+                                                                                            className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200"
+                                                                                            title="Ban this user from chat"
+                                                                                          >
+                                                                                            Ban
+                                                                                          </button>
+                                                                                        )}
+                                          </div>
+                                          <p className="text-xs text-gray-700 dark:text-gray-300 break-words">
+                                            {msg.content || "No content"}
+                                          </p>
+                                        </div>
+                                      </div>
+                                  )
+                                })
+                                .filter(Boolean)
+                        )}
+                      </div>
+                      <div className="border-t border-gray-200 dark:border-gray-700 p-3">
+                        <form onSubmit={handleChatSubmit} className="flex space-x-2">
+                          <input
+                              type="text"
+                              value={chatMessage}
+                              onChange={(e) => setChatMessage(e.target.value)}
+                              placeholder="Type your message..."
+                              className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-maroon-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                              maxLength={1500}
+                          />
+                          <button
+                              type="submit"
+                              disabled={!chatMessage.trim()}
+                              className="px-3 py-1.5 bg-maroon-600 text-white rounded-md hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <PaperAirplaneIcon className="h-4 w-4" />
+                          </button>
+                        </form>
                       </div>
                     </div>
                   </div>
