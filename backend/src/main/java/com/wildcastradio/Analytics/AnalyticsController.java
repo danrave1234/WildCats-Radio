@@ -145,10 +145,10 @@ public class AnalyticsController {
             Map<String, Object> stats = analyticsService.getEngagementStats(filterUserId);
             logger.info("Successfully retrieved engagement stats");
             
-            return ResponseEntity.ok()
-                .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-                .header("Pragma", "no-cache")
-                .header("Expires", "0")
+        return ResponseEntity.ok()
+            .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            .header("Pragma", "no-cache")
+            .header("Expires", "0")
                 .body(stats);
         } catch (Exception e) {
             logger.error("Error getting engagement stats: ", e);
@@ -216,11 +216,11 @@ public class AnalyticsController {
             List<BroadcastDTO> broadcastDTOs = analyticsService.getPopularBroadcasts(5, filterUserId);
             logger.info("Successfully retrieved {} popular broadcasts", broadcastDTOs.size());
             
-            return ResponseEntity.ok()
-                .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-                .header("Pragma", "no-cache")
-                .header("Expires", "0")
-                .body(broadcastDTOs);
+        return ResponseEntity.ok()
+            .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            .header("Pragma", "no-cache")
+            .header("Expires", "0")
+            .body(broadcastDTOs);
         } catch (Exception e) {
             logger.error("Error getting popular broadcasts: ", e);
             return ResponseEntity.internalServerError().build();

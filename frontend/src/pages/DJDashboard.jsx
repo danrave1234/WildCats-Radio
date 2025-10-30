@@ -877,12 +877,12 @@ export default function DJDashboard() {
                 .catch((error) => {
                   logger.debug("DJ Dashboard: Could not fetch results for new poll, using poll data:", error)
                   // Fallback: use poll data directly
-                  setPolls((prev) => {
-                    const exists = prev.some((poll) => poll.id === pollUpdate.poll.id)
-                    if (exists) return prev
-                    return [pollUpdate.poll, ...prev]
-                  })
-                  setActivePoll(pollUpdate.poll)
+              setPolls((prev) => {
+                const exists = prev.some((poll) => poll.id === pollUpdate.poll.id)
+                if (exists) return prev
+                return [pollUpdate.poll, ...prev]
+              })
+              setActivePoll(pollUpdate.poll)
                 })
               break
 
@@ -1690,11 +1690,11 @@ export default function DJDashboard() {
                           }`}
                       >
                         <span className="text-lg font-bold">
-                          {workflowState === WORKFLOW_STATES.CREATE_BROADCAST ? (
+                        {workflowState === WORKFLOW_STATES.CREATE_BROADCAST ? (
                               "1"
-                          ) : (
+                        ) : (
                               <CheckIcon className="h-6 w-6" />
-                          )}
+                        )}
                         </span>
                       </div>
                       <span className={`text-sm font-semibold text-center ${workflowState === WORKFLOW_STATES.CREATE_BROADCAST ? "text-maroon-700 dark:text-maroon-400" : "text-gray-900 dark:text-white"}`}>
@@ -1719,9 +1719,9 @@ export default function DJDashboard() {
                               "2"
                           ) : workflowState === WORKFLOW_STATES.STREAMING_LIVE ? (
                               <CheckIcon className="h-6 w-6" />
-                          ) : (
+                        ) : (
                               "2"
-                          )}
+                        )}
                         </span>
                       </div>
                       <span className={`text-sm font-semibold text-center ${workflowState === WORKFLOW_STATES.READY_TO_STREAM ? "text-maroon-700 dark:text-maroon-400" : "text-gray-900 dark:text-white"}`}>
@@ -1880,11 +1880,11 @@ export default function DJDashboard() {
                     {/* Song Requests Card */}
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                       <div className="bg-gold-500 text-maroon-900 px-4 py-3 border-b border-gold-400">
-                        <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <MusicalNoteIcon className="h-5 w-5" />
                             <h3 className="font-bold text-base">Song Requests</h3>
-                          </div>
+                        </div>
                           <span className="text-sm bg-maroon-900/30 px-2.5 py-1 rounded-full font-bold min-w-[2rem] text-center">
                             {songRequests.length}
                           </span>
@@ -1983,132 +1983,132 @@ export default function DJDashboard() {
                           </div>
                           <div className="flex items-center space-x-3">
                             <span className="text-sm bg-white bg-opacity-20 px-3 py-1.5 rounded-full font-bold">
-                              {chatMessages.length} messages
-                            </span>
-                            <button
-                              onClick={handleDownloadChat}
-                              disabled={isDownloadingChat || !currentBroadcast?.id}
+                            {chatMessages.length} messages
+                          </span>
+                          <button
+                            onClick={handleDownloadChat}
+                            disabled={isDownloadingChat || !currentBroadcast?.id}
                               className="inline-flex items-center text-sm px-3 py-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
-                              title="Download chat messages as Excel (available for 7 days)"
-                            >
+                            title="Download chat messages as Excel (available for 7 days)"
+                          >
                               <ArrowDownTrayIcon className={`h-4 w-4 mr-1.5 ${isDownloadingChat ? "animate-pulse" : ""}`} />
-                              {isDownloadingChat ? "Downloading..." : "Download"}
-                            </button>
-                          </div>
+                            {isDownloadingChat ? "Downloading..." : "Download"}
+                          </button>
                         </div>
                       </div>
+                    </div>
                       <div className="flex-1 flex flex-col min-h-0">
                         <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-                          {chatMessages.length === 0 ? (
+                        {chatMessages.length === 0 ? (
                             <div className="text-center text-gray-500 dark:text-gray-400 py-12">
                               <ChatBubbleLeftRightIcon className="h-16 w-16 mx-auto mb-3 opacity-30" />
                               <p className="text-base">No messages yet</p>
                               <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Start the conversation!</p>
                             </div>
-                          ) : (
+                        ) : (
                             chatMessages
-                              .slice()
-                              .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
-                              .map((msg) => {
-                                if (!msg || !msg.sender) return null
+                                .slice()
+                                .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+                                .map((msg) => {
+                                  if (!msg || !msg.sender) return null
 
-                                const firstName = msg.sender?.firstname || ""
-                                const lastName = msg.sender?.lastname || ""
-                                const fullName = `${firstName} ${lastName}`.trim()
-                                const senderName = fullName || msg.sender?.email || "Unknown User"
+                                  const firstName = msg.sender?.firstname || ""
+                                  const lastName = msg.sender?.lastname || ""
+                                  const fullName = `${firstName} ${lastName}`.trim()
+                                  const senderName = fullName || msg.sender?.email || "Unknown User"
 
-                                const isDJ =
-                                    (msg.sender?.role && msg.sender.role.includes("DJ")) ||
-                                    senderName.includes("DJ") ||
-                                    firstName.includes("DJ") ||
-                                    lastName.includes("DJ")
+                                  const isDJ =
+                                      (msg.sender?.role && msg.sender.role.includes("DJ")) ||
+                                      senderName.includes("DJ") ||
+                                      firstName.includes("DJ") ||
+                                      lastName.includes("DJ")
 
-                                const initials = (() => {
+                                  const initials = (() => {
+                                    try {
+                                      return (
+                                          senderName
+                                              .split(" ")
+                                              .map((part) => part[0] || "")
+                                              .join("")
+                                              .toUpperCase()
+                                              .slice(0, 2) || "U"
+                                      )
+                                    } catch (error) {
+                                      return "U"
+                                    }
+                                  })()
+
+                                  let messageDate;
                                   try {
-                                    return (
-                                        senderName
-                                            .split(" ")
-                                            .map((part) => part[0] || "")
-                                            .join("")
-                                            .toUpperCase()
-                                            .slice(0, 2) || "U"
-                                    )
+                                    messageDate = msg.createdAt ? new Date(msg.createdAt) : null;
                                   } catch (error) {
-                                    return "U"
+                                    messageDate = new Date();
                                   }
-                                })()
 
-                                let messageDate;
-                                try {
-                                  messageDate = msg.createdAt ? new Date(msg.createdAt) : null;
-                                } catch (error) {
-                                  messageDate = new Date();
-                                }
+                                  const timeAgo = (() => {
+                                    try {
+                                      return messageDate && !isNaN(messageDate.getTime())
+                                          ? formatDistanceToNow(messageDate, { addSuffix: true })
+                                          : "just now"
+                                    } catch (error) {
+                                      return "just now"
+                                    }
+                                  })()
 
-                                const timeAgo = (() => {
-                                  try {
-                                    return messageDate && !isNaN(messageDate.getTime())
-                                        ? formatDistanceToNow(messageDate, { addSuffix: true })
-                                        : "just now"
-                                  } catch (error) {
-                                    return "just now"
-                                  }
-                                })()
-
-                                return (
+                                  return (
                                     <div key={msg.id} className="flex items-start space-x-3">
-                                      <div
+                                        <div
                                           className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-sm text-white font-bold ${
-                                              isDJ ? "bg-maroon-600" : "bg-gray-500"
-                                          }`}
-                                      >
-                                        {isDJ ? "DJ" : initials}
-                                      </div>
-                                      <div className="flex-1 min-w-0">
+                                                isDJ ? "bg-maroon-600" : "bg-gray-500"
+                                            }`}
+                                        >
+                                          {isDJ ? "DJ" : initials}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
                                         <div className="flex items-center space-x-2 mb-1">
                                           <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                                            {senderName}
-                                          </span>
-                                          <span className="text-xs text-gray-500 dark:text-gray-400">{timeAgo}</span>
-                                          {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleBanUser(msg.sender.id, senderName)}
+                                    {senderName}
+                                  </span>
+                                            <span className="text-xs text-gray-500 dark:text-gray-400">{timeAgo}</span>
+                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
+                                                                                          <button
+                                                                                            type="button"
+                                                                                            onClick={() => handleBanUser(msg.sender.id, senderName)}
                                               className="ml-2 text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800"
-                                              title="Ban this user from chat"
-                                            >
-                                              Ban
-                                            </button>
-                                          )}
-                                        </div>
+                                                                                            title="Ban this user from chat"
+                                                                                          >
+                                                                                            Ban
+                                                                                          </button>
+                                                                                        )}
+                                          </div>
                                         <p className="text-sm text-gray-700 dark:text-gray-300 break-words">
-                                          {msg.content || "No content"}
-                                        </p>
+                                            {msg.content || "No content"}
+                                          </p>
+                                        </div>
                                       </div>
-                                    </div>
-                                )
-                              })
-                              .filter(Boolean)
-                          )}
-                        </div>
+                                  )
+                                })
+                                .filter(Boolean)
+                        )}
+                      </div>
                         <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900/50">
                           <form onSubmit={handleChatSubmit} className="flex space-x-3">
-                            <input
-                                type="text"
-                                value={chatMessage}
-                                onChange={(e) => setChatMessage(e.target.value)}
-                                placeholder="Type your message..."
+                          <input
+                              type="text"
+                              value={chatMessage}
+                              onChange={(e) => setChatMessage(e.target.value)}
+                              placeholder="Type your message..."
                                 className="flex-1 px-4 py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                                maxLength={1500}
-                            />
-                            <button
-                                type="submit"
-                                disabled={!chatMessage.trim()}
+                              maxLength={1500}
+                          />
+                          <button
+                              type="submit"
+                              disabled={!chatMessage.trim()}
                                 className="px-5 py-2.5 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
-                            >
+                          >
                               <PaperAirplaneIcon className="h-5 w-5" />
-                            </button>
-                          </form>
+                          </button>
+                        </form>
                         </div>
                       </div>
                     </div>
@@ -2118,101 +2118,101 @@ export default function DJDashboard() {
                   <div className="lg:col-span-3">
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                       <div className="bg-maroon-700 text-white px-4 py-3 border-b border-maroon-800">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
                             <ChartBarIcon className="h-5 w-5" />
                             <h3 className="font-bold text-base">Polls & Results</h3>
-                          </div>
-                          <div className="flex items-center space-x-2">
+                        </div>
+                        <div className="flex items-center space-x-2">
                             <span className="text-sm bg-white bg-opacity-20 px-2.5 py-1 rounded-full font-bold">{polls.length}</span>
-                            <button
-                                onClick={() => setShowPollCreation(!showPollCreation)}
+                          <button
+                              onClick={() => setShowPollCreation(!showPollCreation)}
                                 className={`w-7 h-7 rounded-full flex items-center justify-center text-base font-bold transition-all duration-200 ${
-                                    showPollCreation
+                                  showPollCreation
                                         ? "bg-white text-maroon-700 rotate-45"
-                                        : "bg-white bg-opacity-20 hover:bg-opacity-30 text-white"
-                                }`}
-                                title="Create new poll"
-                            >
-                              +
-                            </button>
-                          </div>
+                                      : "bg-white bg-opacity-20 hover:bg-opacity-30 text-white"
+                              }`}
+                              title="Create new poll"
+                          >
+                            +
+                          </button>
                         </div>
                       </div>
+                    </div>
 
-                      {/* Poll Creation Form - Expandable */}
-                      {showPollCreation && (
+                    {/* Poll Creation Form - Expandable */}
+                    {showPollCreation && (
                           <div className="border-b border-gray-200 dark:border-gray-700 bg-maroon-50 dark:bg-maroon-900/20 p-4">
                             <h4 className="text-sm font-semibold text-maroon-900 dark:text-maroon-100 mb-3">Create New Poll</h4>
                             <form onSubmit={handlePollSubmit} className="space-y-3">
-                              <input
-                                  type="text"
-                                  value={newPoll.question}
-                                  onChange={(e) => setNewPoll((prev) => ({ ...prev, question: e.target.value }))}
-                                  placeholder="Ask your listeners a question..."
+                            <input
+                                type="text"
+                                value={newPoll.question}
+                                onChange={(e) => setNewPoll((prev) => ({ ...prev, question: e.target.value }))}
+                                placeholder="Ask your listeners a question..."
                                   className="w-full px-3 py-2 text-sm border-2 border-maroon-300 dark:border-maroon-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                                  required
-                              />
-                              <div className="space-y-2">
-                                {newPoll.options.map((option, index) => (
-                                    <div key={index} className="flex space-x-2">
-                                      <input
-                                          type="text"
-                                          value={option}
-                                          onChange={(e) => updatePollOption(index, e.target.value)}
-                                          placeholder={`Option ${index + 1}`}
+                                required
+                            />
+                            <div className="space-y-2">
+                              {newPoll.options.map((option, index) => (
+                                  <div key={index} className="flex space-x-2">
+                                    <input
+                                        type="text"
+                                        value={option}
+                                        onChange={(e) => updatePollOption(index, e.target.value)}
+                                        placeholder={`Option ${index + 1}`}
                                           className="flex-1 px-3 py-2 text-sm border-2 border-maroon-300 dark:border-maroon-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                                      />
-                                      {newPoll.options.length > 2 && (
-                                          <button
-                                              type="button"
-                                              onClick={() => removePollOption(index)}
+                                    />
+                                    {newPoll.options.length > 2 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removePollOption(index)}
                                               className="px-2 py-2 text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 transition-colors"
-                                          >
-                                            <XMarkIcon className="h-4 w-4" />
-                                          </button>
-                                      )}
-                                    </div>
-                                ))}
-                              </div>
+                                        >
+                                          <XMarkIcon className="h-4 w-4" />
+                                        </button>
+                                    )}
+                                  </div>
+                              ))}
+                            </div>
                               <div className="flex items-center justify-between pt-2">
-                                {newPoll.options.length < 5 && (
-                                    <button
-                                        type="button"
-                                        onClick={addPollOption}
-                                        className="text-sm text-maroon-700 hover:text-maroon-900 dark:text-maroon-300 dark:hover:text-maroon-100 font-medium"
-                                    >
-                                      + Add Option
-                                    </button>
-                                )}
-                                <div className="flex space-x-2 ml-auto">
+                              {newPoll.options.length < 5 && (
                                   <button
                                       type="button"
-                                      onClick={() => setShowPollCreation(false)}
+                                      onClick={addPollOption}
+                                        className="text-sm text-maroon-700 hover:text-maroon-900 dark:text-maroon-300 dark:hover:text-maroon-100 font-medium"
+                                  >
+                                    + Add Option
+                                  </button>
+                              )}
+                              <div className="flex space-x-2 ml-auto">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPollCreation(false)}
                                       className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 font-medium"
-                                  >
-                                    Cancel
-                                  </button>
-                                  <button
-                                      type="submit"
-                                      disabled={isCreatingPoll || !newPoll.question.trim()}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isCreatingPoll || !newPoll.question.trim()}
                                       className="px-4 py-2 bg-maroon-700 text-white rounded-lg hover:bg-maroon-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm font-medium"
-                                  >
-                                    {isCreatingPoll ? "Creating..." : "Create Poll"}
-                                  </button>
-                                </div>
+                                >
+                                  {isCreatingPoll ? "Creating..." : "Create Poll"}
+                                </button>
                               </div>
-                            </form>
-                          </div>
-                      )}
+                            </div>
+                          </form>
+                        </div>
+                    )}
 
                       <EnhancedScrollArea className="h-[500px]">
-                        {polls.length === 0 ? (
+                      {polls.length === 0 ? (
                           <div className="p-4 text-center text-gray-500 dark:text-gray-400">
                             <ChartBarIcon className="h-12 w-12 mx-auto mb-3 opacity-30" />
                             <p className="text-sm">No polls created yet</p>
                           </div>
-                        ) : (
+                      ) : (
                           <div className="p-3 space-y-3">
                             {polls.map((poll) => {
                               const totalVotes = (() => {
@@ -2240,8 +2240,8 @@ export default function DJDashboard() {
                                 </span>
                                         {poll.active ? (
                                             <span className="text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 px-2 py-0.5 rounded-full">
-                                              Active
-                                            </span>
+                                    Active
+                                  </span>
                                         ) : totalVotes > 0 ? (
                                             <span className="text-xs bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 px-2 py-0.5 rounded-full">
                                               Ended
@@ -2325,9 +2325,9 @@ export default function DJDashboard() {
                               )
                             })}
                           </div>
-                        )}
-                      </EnhancedScrollArea>
-                    </div>
+                      )}
+                    </EnhancedScrollArea>
+                  </div>
                   </div>
                 </div>
               </div>
@@ -2344,8 +2344,8 @@ export default function DJDashboard() {
                         1
                       </div>
                       <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                        Create New Broadcast
-                      </h2>
+                    Create New Broadcast
+                  </h2>
                     </div>
                     <p className="text-gray-600 dark:text-gray-400 ml-14">Fill in the broadcast details below</p>
                   </div>
@@ -2360,7 +2360,7 @@ export default function DJDashboard() {
                         </p>
                         <p className="text-sm text-maroon-800 dark:text-gold-300">
                           After creating your broadcast, you'll use <strong>BUTT (Broadcast Using This Tool)</strong> to stream your audio to the radio server.
-                        </p>
+                    </p>
                       </div>
                     </div>
                   </div>
@@ -2441,13 +2441,13 @@ export default function DJDashboard() {
                             />
                           </label>
                           {bannerUrl && (
-                            <button
-                              onClick={handleBannerDelete}
+                          <button
+                            onClick={handleBannerDelete}
                               disabled={bannerLoading}
                               className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm whitespace-nowrap transition-colors font-medium"
-                            >
+                          >
                               Remove Banner
-                            </button>
+                          </button>
                           )}
                         </div>
                         {bannerLoading && <span className="text-xs text-gray-600 dark:text-gray-300">Processing…</span>}
@@ -2494,7 +2494,7 @@ export default function DJDashboard() {
                       </div>
                       <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
                         Ready to Stream
-                      </h2>
+                  </h2>
                     </div>
                     <p className="text-gray-600 dark:text-gray-400 ml-14">Follow the steps below to start your broadcast</p>
                   </div>
@@ -2526,8 +2526,8 @@ export default function DJDashboard() {
                               : 'bg-gray-300 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                           }`}>
                             1
-                          </div>
-                        </div>
+                      </div>
+                            </div>
                         <div className="flex-1">
                           <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
                             Start Radio Server
@@ -2541,31 +2541,31 @@ export default function DJDashboard() {
                             </span>
                           </div>
                           <div className="flex gap-3 mb-3">
-                            <button
-                              onClick={handleStartRadioServer}
-                              disabled={isStartingServer || radioServerState === 'running'}
+                          <button
+                            onClick={handleStartRadioServer}
+                            disabled={isStartingServer || radioServerState === 'running'}
                               className="flex-1 flex items-center justify-center px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all text-base font-semibold shadow-lg hover:shadow-xl disabled:shadow-none"
-                            >
-                              <MicrophoneIcon className="h-5 w-5 mr-2" />
+                          >
+                            <MicrophoneIcon className="h-5 w-5 mr-2" />
                               {isStartingServer ? 'Starting...' : radioServerState === 'running' ? '✓ Server Running' : 'Start Radio Server'}
-                            </button>
+                          </button>
                             {radioServerState === 'running' && (
-                              <button
-                                onClick={handleStopRadioServer}
+                          <button
+                            onClick={handleStopRadioServer}
                                 disabled={isStoppingServer}
                                 className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-300 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all text-base font-semibold"
-                              >
+                          >
                                 <StopIcon className="h-5 w-5 mr-2 inline" />
                                 Stop Server
-                              </button>
+                          </button>
                             )}
-                          </div>
+                        </div>
                           <p className="text-sm text-gray-600 dark:text-gray-400">
                             The radio server must be running before you can stream. Once started, it will stay running until you stop it.
-                          </p>
+                        </p>
                         </div>
                       </div>
-                    </div>
+                      </div>
 
                     {/* Step 2: Connect BUTT */}
                     <div className={`rounded-lg p-5 border-2 ${
@@ -2593,7 +2593,7 @@ export default function DJDashboard() {
                               <li>Configure BUTT to connect to <strong>Icecast port 9000</strong></li>
                               <li>Click <strong>"Play"</strong> in BUTT to start streaming</li>
                               <li>Once audio is streaming, click <strong>"Go Live"</strong> below</li>
-                            </ol>
+                        </ol>
                           ) : (
                             <p className="text-sm text-gray-500 dark:text-gray-400 italic mb-4">
                               Start the radio server first (Step 1) to see connection instructions.
@@ -2669,17 +2669,17 @@ export default function DJDashboard() {
                             </label>
                             {slowModeEnabled && (
                               <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={3600}
-                                  value={slowModeSeconds}
-                                  onChange={(e) => setSlowModeSeconds(e.target.value)}
-                                  className="w-24 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
-                                  placeholder="seconds"
-                                />
+                              <input
+                                type="number"
+                                min={0}
+                                max={3600}
+                                value={slowModeSeconds}
+                                onChange={(e) => setSlowModeSeconds(e.target.value)}
+                                className="w-24 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                                placeholder="seconds"
+                              />
                                 <span className="text-xs text-gray-500 dark:text-gray-400">seconds between messages</span>
-                              </div>
+                            </div>
                             )}
                             <button
                               onClick={handleSaveSlowMode}
@@ -2695,13 +2695,13 @@ export default function DJDashboard() {
 
                     {/* Cancel Option */}
                     <div className="flex justify-end pt-4 border-t border-gray-200 dark:border-gray-700">
-                      <button
-                          onClick={cancelBroadcast}
+                        <button
+                            onClick={cancelBroadcast}
                           className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors text-sm font-medium"
-                      >
+                        >
                         <XMarkIcon className="h-4 w-4 mr-1 inline" />
-                        Cancel Broadcast
-                      </button>
+                          Cancel Broadcast
+                        </button>
                     </div>
                   </div>
                 </div>

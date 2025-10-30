@@ -131,13 +131,13 @@ public class AnalyticsService {
             }
         } else {
             // Overall stats (for Admin/Moderator)
-            stats.put("totalBroadcasts", broadcastService.getTotalBroadcastCount());
-            stats.put("liveBroadcasts", broadcastService.getLiveBroadcastCount());
-            stats.put("upcomingBroadcasts", broadcastService.getUpcomingBroadcastCount());
-            stats.put("completedBroadcasts", broadcastService.getCompletedBroadcastCount());
-            stats.put("averageDuration", broadcastService.getAverageBroadcastDuration());
-            stats.put("currentListeners", listenerTrackingService.getCurrentListenerCount());
-            stats.put("streamLive", listenerTrackingService.isStreamLive());
+        stats.put("totalBroadcasts", broadcastService.getTotalBroadcastCount());
+        stats.put("liveBroadcasts", broadcastService.getLiveBroadcastCount());
+        stats.put("upcomingBroadcasts", broadcastService.getUpcomingBroadcastCount());
+        stats.put("completedBroadcasts", broadcastService.getCompletedBroadcastCount());
+        stats.put("averageDuration", broadcastService.getAverageBroadcastDuration());
+        stats.put("currentListeners", listenerTrackingService.getCurrentListenerCount());
+        stats.put("streamLive", listenerTrackingService.isStreamLive());
         }
         
         return stats;
@@ -220,22 +220,22 @@ public class AnalyticsService {
             }
         } else {
             // Overall stats (for Admin/Moderator)
-            stats.put("totalChatMessages", chatMessageService.getTotalMessageCount());
-            stats.put("totalSongRequests", songRequestService.getTotalSongRequestCount());
-            stats.put("averageMessagesPerBroadcast", chatMessageService.getAverageMessagesPerBroadcast());
-            stats.put("averageRequestsPerBroadcast", songRequestService.getAverageRequestsPerBroadcast());
+        stats.put("totalChatMessages", chatMessageService.getTotalMessageCount());
+        stats.put("totalSongRequests", songRequestService.getTotalSongRequestCount());
+        stats.put("averageMessagesPerBroadcast", chatMessageService.getAverageMessagesPerBroadcast());
+        stats.put("averageRequestsPerBroadcast", songRequestService.getAverageRequestsPerBroadcast());
 
-            try {
-                long todayMessages = chatMessageService.getRepository().countByCreatedAtBetween(todayStart, todayEnd);
-                long weekMessages = chatMessageService.getRepository().countByCreatedAtBetween(weekStart, todayEnd);
-                long monthMessages = chatMessageService.getRepository().countByCreatedAtBetween(monthStart, todayEnd);
-                Map<String, Object> chatBreakdown = new HashMap<>();
-                chatBreakdown.put("today", todayMessages);
-                chatBreakdown.put("week", weekMessages);
-                chatBreakdown.put("month", monthMessages);
-                stats.put("chatBreakdown", chatBreakdown);
-            } catch (Exception ignored) {
-                // Repository accessor not available; keep totals only
+        try {
+            long todayMessages = chatMessageService.getRepository().countByCreatedAtBetween(todayStart, todayEnd);
+            long weekMessages = chatMessageService.getRepository().countByCreatedAtBetween(weekStart, todayEnd);
+            long monthMessages = chatMessageService.getRepository().countByCreatedAtBetween(monthStart, todayEnd);
+            Map<String, Object> chatBreakdown = new HashMap<>();
+            chatBreakdown.put("today", todayMessages);
+            chatBreakdown.put("week", weekMessages);
+            chatBreakdown.put("month", monthMessages);
+            stats.put("chatBreakdown", chatBreakdown);
+        } catch (Exception ignored) {
+            // Repository accessor not available; keep totals only
             }
         }
 
@@ -326,10 +326,10 @@ public class AnalyticsService {
             }
         } else {
             // Overall stats (for Admin/Moderator)
-            stats.put("todayActivities", activityLogService.getTodayActivityCount());
-            stats.put("weekActivities", activityLogService.getWeekActivityCount());
-            stats.put("monthActivities", activityLogService.getMonthActivityCount());
-            stats.put("recentActivities", activityLogService.getRecentActivities(10));
+        stats.put("todayActivities", activityLogService.getTodayActivityCount());
+        stats.put("weekActivities", activityLogService.getWeekActivityCount());
+        stats.put("monthActivities", activityLogService.getMonthActivityCount());
+        stats.put("recentActivities", activityLogService.getRecentActivities(10));
         }
         
         return stats;
