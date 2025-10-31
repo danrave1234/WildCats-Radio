@@ -11,12 +11,20 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "schedules")
+@Table(name = "schedules", indexes = {
+    @Index(name = "idx_schedule_created_by", columnList = "created_by_id"),
+    @Index(name = "idx_schedule_status", columnList = "status"),
+    @Index(name = "idx_schedule_scheduled_start", columnList = "scheduled_start"),
+    @Index(name = "idx_schedule_scheduled_end", columnList = "scheduled_end"),
+    @Index(name = "idx_schedule_status_start", columnList = "status, scheduled_start"),
+    @Index(name = "idx_schedule_start_end", columnList = "scheduled_start, scheduled_end")
+})
 public class ScheduleEntity {
 
     @Id

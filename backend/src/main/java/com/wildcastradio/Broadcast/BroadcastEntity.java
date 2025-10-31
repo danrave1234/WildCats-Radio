@@ -28,7 +28,11 @@ import jakarta.persistence.Table;
 @Table(name = "broadcasts", indexes = {
     @Index(name = "idx_broadcast_status", columnList = "status"),
     @Index(name = "idx_broadcast_created_by", columnList = "created_by_id"),
-    @Index(name = "idx_broadcast_schedule", columnList = "schedule_id")
+    @Index(name = "idx_broadcast_schedule", columnList = "schedule_id"),
+    @Index(name = "idx_broadcast_actual_start", columnList = "actual_start"),
+    @Index(name = "idx_broadcast_actual_end", columnList = "actual_end"),
+    @Index(name = "idx_broadcast_status_start", columnList = "status, actual_start"),
+    @Index(name = "idx_broadcast_started_by", columnList = "started_by_id")
 })
 public class BroadcastEntity {
 

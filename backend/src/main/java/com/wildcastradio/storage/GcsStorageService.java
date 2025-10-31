@@ -8,6 +8,8 @@ import java.util.Base64;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -25,6 +27,8 @@ import com.google.cloud.storage.StorageOptions;
 
 @Service
 public class GcsStorageService {
+
+    private static final Logger logger = LoggerFactory.getLogger(GcsStorageService.class);
 
     private final Storage storage;
     private final String bucketName;
@@ -47,12 +51,12 @@ public class GcsStorageService {
 
     private Storage initStorage(String base64Credentials, String jsonCredentials) {
         try {
-            System.out.println("GCS Storage initialization - base64Credentials present: " + StringUtils.hasText(base64Credentials));
-            System.out.println("GCS Storage initialization - jsonCredentials present: " + StringUtils.hasText(jsonCredentials));
+            logger.debug("GCS Storage initialization - base64Credentials present: {}", StringUtils.hasText(base64Credentials));
+            logger.debug("GCS Storage initialization - jsonCredentials present: {}", StringUtils.hasText(jsonCredentials));
             
             // Try Base64-encoded credentials first
             if (StringUtils.hasText(base64Credentials)) {
-                System.out.println("Using Base64 credentials");
+                logger.debug("Using Base64 credentials");
                 byte[] json = Base64.getDecoder().decode(base64Credentials.getBytes(StandardCharsets.UTF_8));
                 Credentials creds = ServiceAccountCredentials.fromStream(new ByteArrayInputStream(json));
                 return StorageOptions.newBuilder().setCredentials(creds).build().getService();
@@ -60,7 +64,7 @@ public class GcsStorageService {
             
             // Try direct JSON credentials
             if (StringUtils.hasText(jsonCredentials)) {
-                System.out.println("Using direct JSON credentials");
+                logger.debug("Using direct JSON credentials");
                 try {
                     // Clean and validate JSON - handle single quotes from environment variables
                     String cleanedJson = jsonCredentials.trim();
@@ -70,26 +74,24 @@ public class GcsStorageService {
                         cleanedJson = cleanedJson.substring(1, cleanedJson.length() - 1);
                     }
                     
-                    System.out.println("JSON length: " + cleanedJson.length());
-                    System.out.println("JSON starts with: " + cleanedJson.substring(0, Math.min(50, cleanedJson.length())));
+                    logger.debug("JSON length: {}, starts with: {}", cleanedJson.length(), 
+                        cleanedJson.substring(0, Math.min(50, cleanedJson.length())));
                     
                     byte[] json = cleanedJson.getBytes(StandardCharsets.UTF_8);
                     Credentials creds = ServiceAccountCredentials.fromStream(new ByteArrayInputStream(json));
                     return StorageOptions.newBuilder().setCredentials(creds).build().getService();
                 } catch (Exception jsonError) {
-                    System.err.println("JSON parsing error: " + jsonError.getMessage());
-                    jsonError.printStackTrace();
+                    logger.error("JSON parsing error: {}", jsonError.getMessage(), jsonError);
                     // Fall through to default credentials
                 }
             }
             
-            System.out.println("No credentials provided, using default credentials");
+            logger.debug("No credentials provided, using default credentials");
             // Fallback to default credentials (GOOGLE_APPLICATION_CREDENTIALS, GCE metadata, etc.)
             GoogleCredentials defaultCreds = GoogleCredentials.getApplicationDefault();
             return StorageOptions.newBuilder().setCredentials(defaultCreds).build().getService();
         } catch (Exception e) {
-            System.err.println("Error initializing GCS Storage: " + e.getMessage());
-            e.printStackTrace();
+            logger.error("Error initializing GCS Storage: {}", e.getMessage(), e);
             // As a last resort, try default instance which will throw on first use if misconfigured
             return StorageOptions.getDefaultInstance().getService();
         }

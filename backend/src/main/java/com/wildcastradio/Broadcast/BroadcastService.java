@@ -173,7 +173,7 @@ public class BroadcastService {
         logger.info("Updating broadcast: {}", id);
 
         BroadcastEntity broadcast = broadcastRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
         // Update broadcast details
         broadcast.setTitle(request.getTitle());
@@ -194,7 +194,7 @@ public class BroadcastService {
     public BroadcastDTO updateSlowMode(Long id, Boolean enabled, Integer seconds) {
         logger.info("Updating slow mode for broadcast {}: enabled={}, seconds={}", id, enabled, seconds);
         BroadcastEntity broadcast = broadcastRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
         boolean isEnabled = enabled != null && enabled;
         int secs = seconds != null ? Math.max(0, Math.min(seconds, 3600)) : 0; // clamp to [0, 3600]
         broadcast.setSlowModeEnabled(isEnabled);
@@ -243,7 +243,7 @@ public class BroadcastService {
 
     private BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj, boolean testMode) {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
         // Activate the schedule when starting the broadcast
         if (broadcast.getSchedule() != null) {
@@ -332,7 +332,7 @@ public class BroadcastService {
 
     public BroadcastEntity endBroadcast(Long broadcastId, UserEntity dj) {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
         // Complete the schedule when ending the broadcast
         if (broadcast.getSchedule() != null) {
@@ -374,7 +374,7 @@ public class BroadcastService {
      */
     public BroadcastEntity endBroadcast(Long broadcastId) {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
         // Complete the schedule when ending the broadcast
         if (broadcast.getSchedule() != null) {

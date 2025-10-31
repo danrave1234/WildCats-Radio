@@ -10,9 +10,21 @@ export const generateOrganizationData = (siteUrl = 'https://wildcats-radio.live'
   '@context': 'https://schema.org',
   '@type': 'Organization',
   'name': 'Wildcat Radio',
+  'alternateName': ['CIT Radio', 'CITU Radio', 'CIT University Radio', 'Wildcats Radio Live'],
   'url': siteUrl,
   'logo': `${siteUrl}/wildcat_logo.png`,
-  'description': 'Live campus radio streaming platform for school community',
+  'description': 'Official live campus radio of Cebu Institute of Technology University (CITU) - Wildcat Radio streams live campus broadcasts, music, and community content',
+  'foundingDate': '2024',
+  'parentOrganization': {
+    '@type': 'EducationalOrganization',
+    'name': 'Cebu Institute of Technology University',
+    'alternateName': ['CITU', 'CIT'],
+    'address': {
+      '@type': 'PostalAddress',
+      'addressLocality': 'Cebu',
+      'addressCountry': 'PH'
+    }
+  },
   'sameAs': [
     // Add social media links if available
     // 'https://facebook.com/wildcatradio',
@@ -27,8 +39,9 @@ export const generateWebSiteData = (siteUrl = 'https://wildcats-radio.live') => 
   '@context': 'https://schema.org',
   '@type': 'WebSite',
   'name': 'Wildcat Radio',
+  'alternateName': ['CIT Radio', 'CITU Radio', 'CIT University Radio', 'Wildcats Radio Live'],
   'url': siteUrl,
-  'description': 'Live campus radio streaming platform',
+  'description': 'Official live campus radio streaming platform of Cebu Institute of Technology University (CITU)',
   'potentialAction': {
     '@type': 'SearchAction',
     'target': {
@@ -77,10 +90,16 @@ export const generateRadioStationData = (siteUrl = 'https://wildcats-radio.live'
   '@context': 'https://schema.org',
   '@type': 'RadioStation',
   'name': 'Wildcat Radio',
+  'alternateName': ['CIT Radio', 'CITU Radio', 'CIT University Radio', 'Wildcats Radio Live'],
   'url': siteUrl,
-  'description': 'Live campus radio station streaming online',
+  'description': 'Official live campus radio station of Cebu Institute of Technology University (CITU) streaming online',
   'broadcastFrequency': 'Online',
-  'broadcastTimezone': 'America/Los_Angeles' // Update with actual timezone
+  'broadcastTimezone': 'Asia/Manila',
+  'parentOrganization': {
+    '@type': 'EducationalOrganization',
+    'name': 'Cebu Institute of Technology University',
+    'alternateName': ['CITU', 'CIT']
+  }
 });
 
 /**

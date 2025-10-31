@@ -79,7 +79,7 @@ public class ChatMessageService {
 
         // Fetch the broadcast entity
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-            .orElseThrow(() -> new IllegalArgumentException("Broadcast not found with ID: " + broadcastId));
+            .orElseThrow(() -> new IllegalArgumentException("Broadcast not found: " + broadcastId));
 
 		// Sanitize content for profanity before saving/broadcasting (local + optional external API)
 		String sanitized = profanityService.sanitizeContent(content);
@@ -94,9 +94,8 @@ public class ChatMessageService {
         ChatMessageDTO messageDTO = ChatMessageDTO.fromEntity(savedMessage);
 
         // Notify all clients about the new chat message
-        System.out.println("Broadcasting chat message to /topic/broadcast/" + broadcastId + "/chat");
-        System.out.println("Message content: " + messageDTO.getContent());
-        System.out.println("Sender: " + (messageDTO.getSender() != null ? messageDTO.getSender().getEmail() : "null"));
+        logger.debug("Broadcasting chat message to /topic/broadcast/{}/chat", broadcastId);
+        logger.debug("Message sender: {}", messageDTO.getSender() != null ? messageDTO.getSender().getEmail() : "null");
         
         messagingTemplate.convertAndSend(
                 "/topic/broadcast/" + broadcastId + "/chat",
@@ -184,7 +183,7 @@ public class ChatMessageService {
     public byte[] exportMessagesToExcel(Long broadcastId) throws IOException {
         // Validate broadcast exists
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-            .orElseThrow(() -> new IllegalArgumentException("Broadcast not found with ID: " + broadcastId));
+            .orElseThrow(() -> new IllegalArgumentException("Broadcast not found: " + broadcastId));
 
         // Get messages for the broadcast
         List<ChatMessageEntity> messages = chatMessageRepository.findByBroadcast_IdOrderByCreatedAtAsc(broadcastId);

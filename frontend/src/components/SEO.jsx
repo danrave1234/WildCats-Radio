@@ -15,8 +15,8 @@ import { useEffect } from 'react';
  */
 const SEO = ({
   title = 'Wildcat Radio | Live Campus Radio',
-  description = 'Wildcat Radio streams live campus radio. Listen live, chat with the community, and explore broadcast history and schedules.',
-  keywords = 'wildcat radio, campus radio, live streaming, online radio, school radio, student radio, broadcast',
+  description = 'Wildcat Radio - Official live campus radio of Cebu Institute of Technology University (CITU). Stream live broadcasts, join the community chat, and explore schedules.',
+  keywords = 'wildcat radio, wildcats radio, CIT radio, CITU radio, Cebu Institute of Technology radio, CIT University radio, campus radio, live radio streaming, online radio, school radio, student radio, broadcast, radio station, live music, campus broadcasting, wildcat radio live, CITU campus radio, Cebu radio station, Philippines campus radio, educational radio',
   image = '/wildcat_logo.png',
   url = '',
   type = 'website',

@@ -17,9 +17,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.wildcastradio.Announcement.DTO.AnnouncementDTO;
 import com.wildcastradio.Announcement.DTO.CreateAnnouncementRequest;
-import com.wildcastradio.Announcement.DTO.ScheduleAnnouncementRequest;
-import com.wildcastradio.Announcement.DTO.RejectAnnouncementRequest;
 import com.wildcastradio.Announcement.DTO.PublicAnnouncementDTO;
+import com.wildcastradio.Announcement.DTO.RejectAnnouncementRequest;
+import com.wildcastradio.Announcement.DTO.ScheduleAnnouncementRequest;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
 
@@ -54,7 +54,7 @@ public class AnnouncementController {
      * Get announcements by status (Moderators/Admins only)
      */
     @GetMapping("/by-status/{status}")
-    @PreAuthorize("hasAnyRole('MODERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<Page<AnnouncementDTO>> getAnnouncementsByStatus(
             @PathVariable String status,
             @RequestParam(defaultValue = "0") int page,
@@ -73,7 +73,7 @@ public class AnnouncementController {
      * Get user's own announcements (for DJs to see their drafts)
      */
     @GetMapping("/my-announcements")
-    @PreAuthorize("hasAnyRole('DJ', 'MODERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<Page<AnnouncementDTO>> getMyAnnouncements(
             Authentication authentication,
             @RequestParam(defaultValue = "0") int page,
@@ -108,7 +108,7 @@ public class AnnouncementController {
      * DJs create drafts, Moderators/Admins create published
      */
     @PostMapping
-    @PreAuthorize("hasAnyRole('DJ', 'MODERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<AnnouncementDTO> createAnnouncement(
             @Valid @RequestBody CreateAnnouncementRequest request,
             Authentication authentication) {
@@ -124,7 +124,7 @@ public class AnnouncementController {
      * Update an announcement
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('DJ', 'MODERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<?> updateAnnouncement(
             @PathVariable Long id,
             @Valid @RequestBody CreateAnnouncementRequest request,
@@ -145,7 +145,7 @@ public class AnnouncementController {
      * Publish a draft announcement (Moderators/Admins only)
      */
     @PostMapping("/{id}/publish")
-    @PreAuthorize("hasAnyRole('MODERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<?> publishAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {
@@ -165,7 +165,7 @@ public class AnnouncementController {
      * Schedule an announcement for future publication (Moderators/Admins only)
      */
     @PostMapping("/{id}/schedule")
-    @PreAuthorize("hasAnyRole('MODERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<?> scheduleAnnouncement(
             @PathVariable Long id,
             @Valid @RequestBody ScheduleAnnouncementRequest request,
@@ -186,7 +186,7 @@ public class AnnouncementController {
      * Pin an announcement (Moderators/Admins only)
      */
     @PostMapping("/{id}/pin")
-    @PreAuthorize("hasAnyRole('MODERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<?> pinAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {
@@ -206,7 +206,7 @@ public class AnnouncementController {
      * Unpin an announcement (Moderators/Admins only)
      */
     @PostMapping("/{id}/unpin")
-    @PreAuthorize("hasAnyRole('MODERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<?> unpinAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {
@@ -226,7 +226,7 @@ public class AnnouncementController {
      * Archive an announcement (Moderators/Admins only)
      */
     @PostMapping("/{id}/archive")
-    @PreAuthorize("hasAnyRole('MODERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<?> archiveAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {
@@ -246,7 +246,7 @@ public class AnnouncementController {
      * Unarchive an announcement (Moderators/Admins only)
      */
     @PostMapping("/{id}/unarchive")
-    @PreAuthorize("hasAnyRole('MODERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<?> unarchiveAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {
@@ -266,7 +266,7 @@ public class AnnouncementController {
      * Reject an announcement (Moderators/Admins only)
      */
     @PostMapping("/{id}/reject")
-    @PreAuthorize("hasAnyRole('MODERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<?> rejectAnnouncement(
             @PathVariable Long id,
             @Valid @RequestBody RejectAnnouncementRequest request,
@@ -291,7 +291,7 @@ public class AnnouncementController {
      * Resubmit a rejected announcement (DJ only)
      */
     @PostMapping("/{id}/resubmit")
-    @PreAuthorize("hasAnyRole('DJ', 'MODERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<?> resubmitAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {
@@ -311,7 +311,7 @@ public class AnnouncementController {
      * Delete an announcement
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('DJ', 'MODERATOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<?> deleteAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {

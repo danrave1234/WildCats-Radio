@@ -25,9 +25,13 @@ import com.wildcastradio.User.DTO.UserDTO;
 import com.wildcastradio.config.JwtUtil;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class UserService implements UserDetailsService {
+
+    private static final Logger logger = LoggerFactory.getLogger(UserService.class);
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -153,11 +157,10 @@ public class UserService implements UserDetailsService {
         } catch (Exception e) {
             // Log the error but don't fail the operation
             // This allows development to continue even if email sending fails
-            System.err.println("Failed to send verification email: " + e.getMessage());
-            e.printStackTrace();
+            logger.error("Failed to send verification email: {}", e.getMessage(), e);
 
-            // For development, still print the code to console
-            System.out.println("Verification code for " + normalizedEmail + ": " + verificationCode);
+            // For development, still log the code (use debug level so it doesn't clutter production logs)
+            logger.debug("Verification code for {}: {}", normalizedEmail, verificationCode);
         }
 
         return verificationCode;
@@ -188,21 +191,12 @@ public class UserService implements UserDetailsService {
         );
 
         // Log the email details for development purposes
-        System.out.println("==== SIMULATED EMAIL ====");
-        System.out.println("To: " + email);
-        System.out.println("Subject: " + emailSubject);
-        System.out.println("Body: \n" + emailBody);
-        System.out.println("=========================");
-
-        // TODO: In production, uncomment and configure the following code:
-        /*
-        JavaMailSender mailSender = // get from Spring context
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setTo(email);
-        message.setSubject(emailSubject);
-        message.setText(emailBody);
-        mailSender.send(message);
-        */
+        // TODO: In production, integrate with JavaMailSender to send actual emails
+        logger.info("==== SIMULATED EMAIL ====");
+        logger.info("To: {}", email);
+        logger.info("Subject: {}", emailSubject);
+        logger.info("Body:\n{}", emailBody);
+        logger.info("=========================");
     }
 
     public boolean verifyCode(String email, String code) {

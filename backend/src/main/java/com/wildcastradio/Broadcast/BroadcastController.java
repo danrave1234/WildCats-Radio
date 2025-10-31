@@ -60,7 +60,7 @@ public class BroadcastController {
         }
 
         UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         BroadcastDTO broadcast = broadcastService.createBroadcast(request, user);
         return new ResponseEntity<>(broadcast, HttpStatus.CREATED);
@@ -108,7 +108,7 @@ public class BroadcastController {
         }
 
         UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         // Create the schedule first
         ScheduleEntity schedule = scheduleService.createSchedule(
@@ -128,7 +128,7 @@ public class BroadcastController {
     }
 
     @PostMapping("/{id}/start")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN') or hasRole('LISTENER')") // Temporarily allow LISTENER role for development
+    @PreAuthorize("hasAnyRole('DJ','ADMIN')") // LISTENER access removed - use proper DJ/ADMIN roles
     public ResponseEntity<BroadcastDTO> startBroadcast(
             @PathVariable Long id,
             Authentication authentication) {
@@ -138,7 +138,7 @@ public class BroadcastController {
         }
 
         UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         BroadcastEntity broadcast = broadcastService.startBroadcast(id, user);
         return ResponseEntity.ok(BroadcastDTO.fromEntity(broadcast));
@@ -155,7 +155,7 @@ public class BroadcastController {
         }
 
         UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         BroadcastEntity broadcast = broadcastService.endBroadcast(id, user);
         return ResponseEntity.ok(BroadcastDTO.fromEntity(broadcast));
@@ -250,7 +250,7 @@ public class BroadcastController {
         }
 
         UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         BroadcastEntity broadcast = broadcastService.startBroadcastTestMode(id, user);
         return ResponseEntity.ok(BroadcastDTO.fromEntity(broadcast));
@@ -292,7 +292,7 @@ public class BroadcastController {
     }
 
     @PutMapping("/{id}/slowmode")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN')")
     public ResponseEntity<BroadcastDTO> updateSlowMode(
             @PathVariable Long id,
             @RequestBody SlowModeRequest request) {

@@ -19,11 +19,20 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "users")
+@Table(name = "users", indexes = {
+    @Index(name = "idx_user_email", columnList = "email"),
+    @Index(name = "idx_user_role", columnList = "role"),
+    @Index(name = "idx_user_banned", columnList = "banned"),
+    @Index(name = "idx_user_active", columnList = "is_active"),
+    @Index(name = "idx_user_created_at", columnList = "created_at"),
+    @Index(name = "idx_user_banned_until", columnList = "banned_until"),
+    @Index(name = "idx_user_verified", columnList = "verified")
+})
 public class UserEntity {
 
     @Id

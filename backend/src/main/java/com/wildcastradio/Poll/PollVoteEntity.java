@@ -9,15 +9,23 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 
 @Entity
-@Table(name = "poll_votes", uniqueConstraints = {
-    @UniqueConstraint(columnNames = {"user_id", "poll_id"})
-})
+@Table(name = "poll_votes", 
+    indexes = {
+        @Index(name = "idx_poll_vote_user", columnList = "user_id"),
+        @Index(name = "idx_poll_vote_poll", columnList = "poll_id"),
+        @Index(name = "idx_poll_vote_option", columnList = "option_id"),
+        @Index(name = "idx_poll_vote_timestamp", columnList = "timestamp")
+    },
+    uniqueConstraints = {
+        @UniqueConstraint(columnNames = {"user_id", "poll_id"})
+    })
 public class PollVoteEntity {
 
     @Id

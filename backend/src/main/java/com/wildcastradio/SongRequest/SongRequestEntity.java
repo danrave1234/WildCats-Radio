@@ -10,12 +10,18 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "song_requests")
+@Table(name = "song_requests", indexes = {
+    @Index(name = "idx_song_request_broadcast", columnList = "broadcast_id"),
+    @Index(name = "idx_song_request_user", columnList = "requested_by_id"),
+    @Index(name = "idx_song_request_timestamp", columnList = "timestamp"),
+    @Index(name = "idx_song_request_broadcast_timestamp", columnList = "broadcast_id, timestamp")
+})
 public class SongRequestEntity {
 
     @Id

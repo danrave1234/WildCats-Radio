@@ -35,6 +35,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import SEO from '../components/SEO';
 
 const Announcements = () => {
   const navigate = useNavigate();
@@ -387,10 +388,16 @@ const Announcements = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-950 py-8">
-      <div className="max-w-6xl mx-auto px-4">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700">
+    <>
+      <SEO
+        title="Announcements"
+        description="Latest announcements and news from Wildcat Radio - Cebu Institute of Technology University (CITU). Stay updated with campus events and broadcast schedules."
+        keywords="wildcat radio announcements, CITU news, campus radio news, CIT radio updates, university announcements, campus events"
+      />
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-950 py-8">
+        <div className="max-w-6xl mx-auto px-4">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-gradient-to-br from-maroon-600 to-maroon-700 rounded-xl shadow-md">
               <Megaphone className="w-8 h-8 text-white" />
@@ -1006,8 +1013,9 @@ const Announcements = () => {
             </div>
           </div>
         )}
+        </div>
       </div>
-    </div>
+    </>
   );
 };
 

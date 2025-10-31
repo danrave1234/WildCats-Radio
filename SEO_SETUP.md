@@ -1,7 +1,7 @@
 # SEO Setup Complete for WildCats Radio
 
 ## Overview
-Your WildCats Radio project has been fully configured for Google Search and SEO optimization. The domain **wildcats-radio.live** has been integrated throughout all SEO files.
+Your WildCats Radio project has been fully configured for Google Search and SEO optimization. The domain **wildcats-radio.live** has been integrated throughout all SEO files with comprehensive institution-specific keywords for Cebu Institute of Technology University (CITU).
 
 ## What Was Implemented
 
@@ -123,6 +123,30 @@ When testing locally, the SEO component will automatically detect localhost and 
 **Status**: ✅ Ready for Production  
 **Last Updated**: January 2024  
 **Domain**: wildcats-radio.live
+
+## Institution-Specific SEO Keywords
+
+The site is now optimized for these search terms:
+- "wildcat radio"
+- "wildcats radio" 
+- "CIT radio"
+- "CITU radio"
+- "Cebu Institute of Technology radio"
+- "CIT University radio"
+- "wildcat radio live"
+- "CITU campus radio"
+- "Cebu radio station"
+- "Philippines campus radio"
+- "educational radio"
+
+## Structured Data Enhancements
+
+All structured data now includes:
+- `alternateName` fields with institution variations
+- `parentOrganization` linking to Cebu Institute of Technology University
+- Educational organization schema with Cebu location
+- Timezone set to Asia/Manila for Philippines context
+
 
 
 

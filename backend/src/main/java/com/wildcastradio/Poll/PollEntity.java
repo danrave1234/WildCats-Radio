@@ -13,13 +13,20 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "polls")
+@Table(name = "polls", indexes = {
+    @Index(name = "idx_poll_broadcast", columnList = "broadcast_id"),
+    @Index(name = "idx_poll_created_by", columnList = "created_by_id"),
+    @Index(name = "idx_poll_active", columnList = "active"),
+    @Index(name = "idx_poll_created_at", columnList = "created_at"),
+    @Index(name = "idx_poll_broadcast_active", columnList = "broadcast_id, active")
+})
 public class PollEntity {
 
     @Id

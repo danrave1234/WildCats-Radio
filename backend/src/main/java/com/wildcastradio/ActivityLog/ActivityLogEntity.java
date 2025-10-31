@@ -11,12 +11,19 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "activity_logs")
+@Table(name = "activity_logs", indexes = {
+    @Index(name = "idx_activity_log_user", columnList = "user_id"),
+    @Index(name = "idx_activity_log_timestamp", columnList = "timestamp"),
+    @Index(name = "idx_activity_log_activity_type", columnList = "activity_type"),
+    @Index(name = "idx_activity_log_user_timestamp", columnList = "user_id, timestamp"),
+    @Index(name = "idx_activity_log_user_type", columnList = "user_id, activity_type")
+})
 public class ActivityLogEntity {
 
     @Id
