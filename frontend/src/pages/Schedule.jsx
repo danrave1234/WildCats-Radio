@@ -41,6 +41,7 @@ const formatTimeTo12h = (timeString) => {
 
 export default function Schedule() {
   const [viewType, setViewType] = useState("calendar") // 'calendar' or 'list'
+  const location = useLocation()
   const [showScheduleForm, setShowScheduleForm] = useState(false)
   const [selectedBroadcast, setSelectedBroadcast] = useState(null)
   const [showBroadcastDetails, setShowBroadcastDetails] = useState(false)
@@ -619,7 +620,7 @@ const canScheduleBroadcasts = !!currentUser && (
   }
 
   return (
-      <>
+      <React.Fragment>
         <SEO
           title="Broadcast Schedule"
           description="View upcoming broadcasts and schedule your own on Wildcat Radio. Browse calendar and list views of all scheduled campus radio shows."
@@ -671,7 +672,6 @@ const canScheduleBroadcasts = !!currentUser && (
               )}
             </div>
           </div>
-
 
           {/* DJ/Admin Broadcast Scheduling Form */}
           {canScheduleBroadcasts && showScheduleForm && (
@@ -1235,18 +1235,16 @@ const canScheduleBroadcasts = !!currentUser && (
                 )}
               </div>
           )}
-        </div>
-
-        {/* Toast notification */}
-        {toast.visible && (
-            <Toast
-                message={toast.message}
-                type={toast.type}
-                onClose={() => setToast({ ...toast, visible: false })}
-            />
-        )}
           </div>
+          {/* Toast notification */}
+          {toast.visible && (
+              <Toast
+                  message={toast.message}
+                  type={toast.type}
+                  onClose={() => setToast({ ...toast, visible: false })}
+              />
+          )}
         </div>
-      </>
+      </React.Fragment>
   )
 }
