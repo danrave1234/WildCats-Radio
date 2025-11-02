@@ -53,25 +53,25 @@ public class BroadcastEntity {
     @Column
     private String description;
 
-    @Column
+    @Column(name = "actual_start")
     private LocalDateTime actualStart;
 
-    @Column
+    @Column(name = "actual_end")
     private LocalDateTime actualEnd;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private BroadcastStatus status;
 
-    @Column
+    @Column(name = "stream_url")
     private String streamUrl;
 
 
     // Analytics fields that could be cached
-    @Column
+    @Column(name = "peak_listeners")
     private Integer peakListeners = 0; // Historical peak
 
-    @Column
+    @Column(name = "total_interactions")
     private Integer totalInteractions = 0; // Cached count
 
     // Relationships

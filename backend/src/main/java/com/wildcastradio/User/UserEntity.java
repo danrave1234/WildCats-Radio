@@ -60,13 +60,13 @@ public class UserEntity {
     private String verificationCode;
 
 
-    @Column
+    @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt; // Track user activity
 
-    @Column
+    @Column(name = "is_active")
     private boolean isActive = true; // Soft delete capability
 
-    @Column
+    @Column(name = "created_at")
     private LocalDateTime createdAt; // User registration date
 
     @Column

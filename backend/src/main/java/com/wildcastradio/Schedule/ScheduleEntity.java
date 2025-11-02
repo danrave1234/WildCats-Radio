@@ -31,20 +31,20 @@ public class ScheduleEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(name = "scheduled_start", nullable = false)
     private LocalDateTime scheduledStart;
 
-    @Column(nullable = false)
+    @Column(name = "scheduled_end", nullable = false)
     private LocalDateTime scheduledEnd;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ScheduleStatus status = ScheduleStatus.SCHEDULED;
 
-    @Column
+    @Column(name = "created_at")
     private LocalDateTime createdAt;
 
-    @Column
+    @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
     // Relationships

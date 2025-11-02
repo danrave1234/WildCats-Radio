@@ -31,7 +31,7 @@ public class ActivityLogEntity {
     private Long id;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(name = "activity_type", nullable = false)
     private ActivityType activityType;
 
     @Column(nullable = false)

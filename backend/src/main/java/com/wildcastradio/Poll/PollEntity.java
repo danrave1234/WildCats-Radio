@@ -36,10 +36,10 @@ public class PollEntity {
     @Column(nullable = false)
     private String question;
 
-    @Column(nullable = false)
+    @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    @Column
+    @Column(name = "ended_at")
     private LocalDateTime endedAt;
 
     @Column(nullable = false)
