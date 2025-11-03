@@ -163,10 +163,9 @@ public class BroadcastController {
 
     @GetMapping("/upcoming")
     public ResponseEntity<List<com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO>> getUpcomingBroadcasts() {
-        List<BroadcastEntity> upcomingBroadcasts = broadcastService.getUpcomingBroadcasts();
-        List<com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO> broadcasts = upcomingBroadcasts.stream()
-                .map(com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO::fromEntity)
-                .collect(java.util.stream.Collectors.toList());
+        // Use optimized DTO projection query - eliminates N+1 queries
+        // Returns only SCHEDULED broadcasts (excludes COMPLETED, CANCELLED)
+        List<com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO> broadcasts = broadcastService.getUpcomingBroadcastsDTO();
         return ResponseEntity.ok(broadcasts);
     }
 

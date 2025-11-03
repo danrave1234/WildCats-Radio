@@ -194,8 +194,32 @@ export default function Schedule() {
     return endTime > startTime
   }
 
-  // Allowed scheduling window: 06:00 - 22:00
-  const ALLOWED_START = "06:00"
+  // Helper to get minimum end time (1 hour after start time if start time is set)
+  const getMinEndTimeForStartTime = () => {
+    if (!broadcastDetails.startTime) {
+      // If no start time, use same logic as start time min
+      return broadcastDetails.date && !isSelectedDateInPast() ? getMinStartTimeForSelectedDate() : undefined
+    }
+    
+    // Calculate 1 hour after start time
+    const [startHour, startMinute] = broadcastDetails.startTime.split(':').map(Number)
+    let newHour = startHour + 1
+    const newMinute = startMinute
+    
+    if (newHour >= 24) return ALLOWED_END // Can't exceed 24 hours, use max allowed
+    
+    const oneHourAfter = `${String(newHour).padStart(2, '0')}:${String(newMinute).padStart(2, '0')}`
+    
+    // If 1 hour after exceeds allowed end, use allowed end
+    if (compareTimes(oneHourAfter, ALLOWED_END) > 0) {
+      return ALLOWED_END
+    }
+    
+    return oneHourAfter
+  }
+
+  // Allowed scheduling window: 07:00 - 22:00 (server-enforced)
+  const ALLOWED_START = "07:00"
   const ALLOWED_END = "22:00"
 
   const compareTimes = (a, b) => {
@@ -438,39 +462,34 @@ const canScheduleBroadcasts = !!currentUser && (
         sentEnd: broadcastData.scheduledEnd
       })
 
-      let response
-      let successMessage
-
       if (isEditMode) {
-        // Update existing broadcast
-        response = await broadcastService.update(broadcastDetails.id, broadcastData)
-        successMessage = "Broadcast updated successfully!"
+        await broadcastService.update(broadcastDetails.id, broadcastData)
       } else {
-        // Create new scheduled broadcast (this creates both schedule and broadcast entities)
-        response = await broadcastService.schedule(broadcastData)
-        successMessage = "Broadcast scheduled successfully!"
+        await broadcastService.schedule(broadcastData)
       }
 
-      // Transform the API response data to match our local format
-      const updatedBroadcast = {
-        id: response.data.id,
-        title: response.data.title,
-        description: response.data.description,
-        date: date, // Use the original date directly
-        startTime: formatTimeTo12h(broadcastDetails.startTime),
-        endTime: formatTimeTo12h(broadcastDetails.endTime),
-        dj: response.data.createdBy?.name || (currentUser?.role === "DJ" ? "You (DJ)" : "Admin"),
-        details: broadcastDetails.details,
-      }
-
-      // Update the broadcasts list accordingly
-      if (isEditMode) {
-        setUpcomingBroadcasts(upcomingBroadcasts.map(broadcast =>
-            broadcast.id === updatedBroadcast.id ? updatedBroadcast : broadcast
-        ))
-      } else {
-        setUpcomingBroadcasts([...upcomingBroadcasts, updatedBroadcast])
-      }
+      // Refresh upcoming broadcasts from server to avoid stale data
+      try {
+        const refreshed = await broadcastService.getUpcoming()
+        const broadcasts = refreshed.data.map(b => {
+          const startDateTime = parseBackendTimestamp(b.scheduledStart)
+          const endDateTime = parseBackendTimestamp(b.scheduledEnd)
+          const dateStr = b.scheduledStart.split('T')[0]
+          const startTime = startDateTime ? formatInTimeZone(startDateTime, 'Asia/Manila', 'hh:mm a') : ''
+          const endTime = endDateTime ? formatInTimeZone(endDateTime, 'Asia/Manila', 'hh:mm a') : ''
+          return {
+            id: b.id,
+            title: b.title,
+            description: b.description,
+            date: dateStr,
+            startTime,
+            endTime,
+            dj: (b.createdByName || '').trim() || 'Unknown DJ',
+            details: b.details || ''
+          }
+        })
+        setUpcomingBroadcasts(broadcasts)
+      } catch (_) {}
 
       // Reset the form
       resetToCreateMode()
@@ -479,7 +498,7 @@ const canScheduleBroadcasts = !!currentUser && (
       setShowScheduleForm(false)
 
       // Show success toast
-      showToast(successMessage)
+      showToast(isEditMode ? "Broadcast updated successfully!" : "Broadcast scheduled successfully!")
     } catch (error) {
       logger.error(`Error ${isEditMode ? "updating" : "scheduling"} broadcast:`, error)
       // Show error toast
@@ -853,8 +872,22 @@ const canScheduleBroadcasts = !!currentUser && (
                             <p className="mt-1 text-sm text-red-600">Start time cannot be in the past</p>
                           )}
                           {broadcastDetails.startTime && compareTimes(broadcastDetails.startTime, ALLOWED_START) < 0 && (
-                            <p className="mt-1 text-sm text-red-600">Start time must be at or after 6:00 AM</p>
+                            <p className="mt-1 text-sm text-red-600">Start time must be at or after 7:00 AM</p>
                           )}
+                          {/* Note: When scheduling for today after 7am, only future times are shown */}
+                          {broadcastDetails.date === getMinDate() && !isSelectedDateInPast() && (() => {
+                            const now = new Date();
+                            const currentTime = now.toTimeString().slice(0, 5); // HH:MM format
+                            // Show note if current time is past 7am
+                            if (compareTimes(currentTime, ALLOWED_START) > 0) {
+                              return (
+                                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 italic">
+                                  Note: Since today is selected and the current time is past 7:00 AM, only future times are shown.
+                                </p>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                         <div>
                           <TimeSelector
@@ -863,7 +896,7 @@ const canScheduleBroadcasts = !!currentUser && (
                               label="End Time"
                               id="endTime"
                               required={true}
-                              min={broadcastDetails.startTime || (broadcastDetails.date && !isSelectedDateInPast() ? getMinStartTimeForSelectedDate() : undefined)}
+                              min={getMinEndTimeForStartTime()}
                               max={ALLOWED_END}
                               disabled={isSelectedDateInPast()}
                           />
@@ -878,6 +911,12 @@ const canScheduleBroadcasts = !!currentUser && (
                           )}
                           {broadcastDetails.endTime && compareTimes(broadcastDetails.endTime, ALLOWED_END) > 0 && (
                             <p className="mt-1 text-sm text-red-600">End time must be at or before 10:00 PM</p>
+                          )}
+                          {/* Note: End time must be at least 1 hour after start time */}
+                          {broadcastDetails.startTime && (
+                            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 italic">
+                              Note: End time must be at least 1 hour after start time ({formatTimeTo12h(broadcastDetails.startTime)}).
+                            </p>
                           )}
                         </div>
                         <div className="sm:col-span-2">

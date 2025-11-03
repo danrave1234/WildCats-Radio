@@ -433,6 +433,23 @@ public class BroadcastService {
         );
     }
 
+    /**
+     * Optimized method to get upcoming broadcasts using DTO projection.
+     * Eliminates N+1 queries by fetching only needed columns in a single query.
+     * Returns only SCHEDULED broadcasts (excludes COMPLETED, CANCELLED).
+     * 
+     * @return List of UpcomingBroadcastDTO sorted by scheduled start time
+     */
+    public List<com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO> getUpcomingBroadcastsDTO() {
+        // Limit to a reasonable number to keep payload small
+        Pageable pageable = PageRequest.of(0, 100);
+        return broadcastRepository.findUpcomingFromScheduleDTO(
+            BroadcastEntity.BroadcastStatus.SCHEDULED,
+            LocalDateTime.now(),
+            pageable
+        );
+    }
+
     public List<BroadcastEntity> getEndedBroadcastsSince(LocalDateTime since) {
         return broadcastRepository.findEndedSince(since);
     }
