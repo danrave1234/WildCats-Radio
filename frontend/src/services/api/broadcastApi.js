@@ -9,7 +9,6 @@ export const broadcastApi = {
   getAll: () => api.get('/api/broadcasts'),
   getById: (id) => api.get(`/api/broadcasts/${id}`),
   create: (broadcastData) => api.post('/api/broadcasts', broadcastData),
-  schedule: (broadcastData) => api.post('/api/broadcasts/schedule', broadcastData),
   update: (id, broadcastData) => api.put(`/api/broadcasts/${id}`, broadcastData),
   delete: (id) => api.delete(`/api/broadcasts/${id}`),
   

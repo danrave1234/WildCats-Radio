@@ -377,6 +377,25 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
                 });
             } catch (Exception ignored) { /* keep status resilient */ }
 
+            // Include health status data for real-time health monitoring (replaces polling)
+            try {
+                Map<String, Object> healthStatus = broadcastService.getLiveStreamHealthStatus();
+                if (healthStatus != null && !healthStatus.isEmpty()) {
+                    // Include essential health fields in the WebSocket message
+                    Map<String, Object> healthData = new HashMap<>();
+                    healthData.put("healthy", healthStatus.getOrDefault("healthy", false));
+                    healthData.put("recovering", healthStatus.getOrDefault("recovering", false));
+                    healthData.put("broadcastLive", healthStatus.getOrDefault("broadcastLive", false));
+                    Object bitrateObj = healthStatus.get("bitrate");
+                    healthData.put("bitrate", bitrateObj instanceof Number ? ((Number) bitrateObj).intValue() : 0);
+                    Object errorMsg = healthStatus.get("errorMessage");
+                    if (errorMsg != null) {
+                        healthData.put("errorMessage", errorMsg);
+                    }
+                    message.put("health", healthData);
+                }
+            } catch (Exception ignored) { /* keep status resilient - health is optional */ }
+
             String jsonMessage = objectMapper.writeValueAsString(message);
 
             // Send to all connected listener sessions and clean up any closed or error sessions
@@ -449,6 +468,25 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
                     message.put("broadcastId", b.getId());
                 });
             } catch (Exception ignored) { }
+
+            // Include health status data for real-time health monitoring (replaces polling)
+            try {
+                Map<String, Object> healthStatus = broadcastService.getLiveStreamHealthStatus();
+                if (healthStatus != null && !healthStatus.isEmpty()) {
+                    // Include essential health fields in the WebSocket message
+                    Map<String, Object> healthData = new HashMap<>();
+                    healthData.put("healthy", healthStatus.getOrDefault("healthy", false));
+                    healthData.put("recovering", healthStatus.getOrDefault("recovering", false));
+                    healthData.put("broadcastLive", healthStatus.getOrDefault("broadcastLive", false));
+                    Object bitrateObj = healthStatus.get("bitrate");
+                    healthData.put("bitrate", bitrateObj instanceof Number ? ((Number) bitrateObj).intValue() : 0);
+                    Object errorMsg = healthStatus.get("errorMessage");
+                    if (errorMsg != null) {
+                        healthData.put("errorMessage", errorMsg);
+                    }
+                    message.put("health", healthData);
+                }
+            } catch (Exception ignored) { /* keep status resilient - health is optional */ }
 
             String jsonMessage = objectMapper.writeValueAsString(message);
 

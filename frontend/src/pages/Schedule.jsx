@@ -39,6 +39,30 @@ const formatTimeTo12h = (timeString) => {
   return format(dateObj, 'hh:mm a');
 };
 
+// Parse 12-hour format (e.g., "09:30 AM") back to 24-hour format (e.g., "09:30")
+const parse12hTo24h = (time12h) => {
+  if (!time12h) return '';
+
+  // If already in 24-hour format (HH:mm), return as-is
+  if (/^(\d{2}):(\d{2})$/.test(time12h)) return time12h;
+
+  // If in 12-hour format (hh:mm a), convert to 24-hour
+  if (/^(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)$/i.test(time12h)) {
+    const [time, period] = time12h.split(/\s+/);
+    let [hours, minutes] = time.split(':').map(Number);
+
+    if (period.toUpperCase() === 'PM' && hours !== 12) {
+      hours += 12;
+    } else if (period.toUpperCase() === 'AM' && hours === 12) {
+      hours = 0;
+    }
+
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }
+
+  return time12h; // Return as-is if format not recognized
+};
+
 export default function Schedule() {
   const [viewType, setViewType] = useState("calendar") // 'calendar' or 'list'
   const location = useLocation()
@@ -71,13 +95,14 @@ export default function Schedule() {
   // Function to enter edit mode with a selected broadcast
   const handleEditBroadcast = (broadcast) => {
     // Populate form with the broadcast details
+    // Convert 12-hour display format back to 24-hour form format
     setBroadcastDetails({
       id: broadcast.id,
       title: broadcast.title,
       description: broadcast.description,
       date: broadcast.date,
-      startTime: broadcast.startTime.length === 7 ? broadcast.startTime.substring(0, 5) : broadcast.startTime,
-      endTime: broadcast.endTime.length === 7 ? broadcast.endTime.substring(0, 5) : broadcast.endTime,
+      startTime: parse12hTo24h(broadcast.startTime),
+      endTime: parse12hTo24h(broadcast.endTime),
       details: broadcast.details || '',
     })
 
@@ -465,7 +490,7 @@ const canScheduleBroadcasts = !!currentUser && (
       if (isEditMode) {
         await broadcastService.update(broadcastDetails.id, broadcastData)
       } else {
-        await broadcastService.schedule(broadcastData)
+        await broadcastService.create(broadcastData)
       }
 
       // Refresh upcoming broadcasts from server to avoid stale data
@@ -501,8 +526,10 @@ const canScheduleBroadcasts = !!currentUser && (
       showToast(isEditMode ? "Broadcast updated successfully!" : "Broadcast scheduled successfully!")
     } catch (error) {
       logger.error(`Error ${isEditMode ? "updating" : "scheduling"} broadcast:`, error)
-      // Show error toast
-      showToast(`Failed to ${isEditMode ? "update" : "schedule"} broadcast. Please try again.`, "error")
+      // Show error toast with backend message if available
+      const errorMessage = error.response?.data?.message ||
+                          `Failed to ${isEditMode ? "update" : "schedule"} broadcast. Please try again.`
+      showToast(errorMessage, "error")
     } finally {
       setIsLoading(false)
     }

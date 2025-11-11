@@ -22,6 +22,8 @@ import org.springframework.web.bind.annotation.*;
 import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.Broadcast.BroadcastService;
 import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
+import com.wildcastradio.ChatMessage.ChatMessageRepository;
+import com.wildcastradio.SongRequest.SongRequestRepository;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
 
@@ -45,6 +47,12 @@ public class AnalyticsController {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private ChatMessageRepository chatMessageRepository;
+
+    @Autowired
+    private SongRequestRepository songRequestRepository;
 
     /**
      * Helper method to get current authenticated user
@@ -260,7 +268,36 @@ public class AnalyticsController {
         Map<String, Object> topicAnalytics = new HashMap<>();
 
         try {
+            // Get broadcasts without collections to avoid N+1 queries
             List<com.wildcastradio.Broadcast.BroadcastEntity> broadcasts = broadcastService.getAllBroadcasts();
+
+            // Create broadcast ID to interaction count mapping to avoid N+1 queries
+            Map<Long, Integer> chatMessageCounts = new HashMap<>();
+            Map<Long, Integer> songRequestCounts = new HashMap<>();
+
+            // Initialize all broadcasts with 0 counts
+            for (BroadcastEntity broadcast : broadcasts) {
+                chatMessageCounts.put(broadcast.getId(), 0);
+                songRequestCounts.put(broadcast.getId(), 0);
+            }
+
+            // Batch query for all chat messages across all broadcasts
+            List<Object[]> chatCounts = chatMessageRepository.countMessagesByBroadcastIds(
+                broadcasts.stream().map(BroadcastEntity::getId).collect(java.util.stream.Collectors.toList()));
+            for (Object[] result : chatCounts) {
+                Long broadcastId = ((Number) result[0]).longValue();
+                Long count = ((Number) result[1]).longValue();
+                chatMessageCounts.put(broadcastId, count.intValue());
+            }
+
+            // Batch query for all song requests across all broadcasts
+            List<Object[]> requestCounts = songRequestRepository.countSongRequestsByBroadcastIds(
+                broadcasts.stream().map(BroadcastEntity::getId).collect(java.util.stream.Collectors.toList()));
+            for (Object[] result : requestCounts) {
+                Long broadcastId = ((Number) result[0]).longValue();
+                Long count = ((Number) result[1]).longValue();
+                songRequestCounts.put(broadcastId, count.intValue());
+            }
 
             // Map to store topic performance data
             Map<String, Map<String, Object>> topicPerformance = new HashMap<>();
@@ -274,8 +311,8 @@ public class AnalyticsController {
                 // Extract topic keywords (simple approach - could be enhanced with NLP)
                 String[] keywords = extractKeywords(title);
 
-                int chatMessages = broadcast.getChatMessages() != null ? broadcast.getChatMessages().size() : 0;
-                int songRequests = broadcast.getSongRequests() != null ? broadcast.getSongRequests().size() : 0;
+                int chatMessages = chatMessageCounts.getOrDefault(broadcast.getId(), 0);
+                int songRequests = songRequestCounts.getOrDefault(broadcast.getId(), 0);
                 int totalInteractions = chatMessages + songRequests;
 
                 // Calculate duration for engagement rate

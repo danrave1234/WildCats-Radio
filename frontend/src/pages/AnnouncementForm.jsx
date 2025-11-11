@@ -10,7 +10,7 @@ import {
 } from '../services/announcementService';
 import { requestAnnouncementImageUploadUrl, putToSignedUrl, MAX_IMAGE_BYTES, ALLOWED_IMAGE_TYPES } from '../services/gcsUpload';
 import { maybeDownscaleAndEncode } from '../utils/imageUtils';
-import { ArrowLeft, Save, Send, Calendar as CalendarIcon, Image as ImageIcon, FileText, CheckCircle, XCircle, Upload as UploadIcon, Trash2 } from 'lucide-react';
+import { ArrowLeft, Save, Send, Calendar as CalendarIcon, Image as ImageIcon, FileText, CheckCircle, XCircle, Upload as UploadIcon, Trash2, Pencil } from 'lucide-react';
 
 const AnnouncementForm = () => {
   const navigate = useNavigate();
@@ -252,7 +252,10 @@ const AnnouncementForm = () => {
                   i
                 </div>
                 <div className="text-sm text-blue-900 dark:text-blue-200">
-                  <p className="font-bold mb-1">✏️ Draft Submission</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Pencil className="w-4 h-4" />
+                    <p className="font-bold">Draft Submission</p>
+                  </div>
                   <p>Your announcement will be saved as a <strong>DRAFT</strong> and sent to moderators for approval before it becomes visible to everyone.</p>
                 </div>
               </div>

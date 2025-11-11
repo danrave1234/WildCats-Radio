@@ -24,8 +24,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 import com.wildcastradio.Broadcast.DTO.CreateBroadcastRequest;
-import com.wildcastradio.Schedule.ScheduleEntity;
-import com.wildcastradio.Schedule.ScheduleService;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
 
@@ -40,9 +38,6 @@ public class BroadcastController {
     private BroadcastService broadcastService;
 
     @Autowired
-    private ScheduleService scheduleService;
-
-    @Autowired
     private UserService userService;
 
     @Autowired
@@ -50,7 +45,7 @@ public class BroadcastController {
 
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')") // DJ role can create broadcasts
     public ResponseEntity<BroadcastDTO> createBroadcast(
             @Valid @RequestBody CreateBroadcastRequest request,
             Authentication authentication) {
@@ -97,35 +92,6 @@ public class BroadcastController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/schedule")
-    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
-    public ResponseEntity<BroadcastDTO> scheduleBroadcast(
-            @Valid @RequestBody CreateBroadcastRequest request,
-            Authentication authentication) {
-
-        if (authentication == null) {
-            return ResponseEntity.status(401).build();
-        }
-
-        UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
-
-        // Create the schedule first
-        ScheduleEntity schedule = scheduleService.createSchedule(
-            request.getScheduledStart(),
-            request.getScheduledEnd(),
-            user
-        );
-
-        // Create the broadcast with the schedule
-        BroadcastEntity broadcast = new BroadcastEntity();
-        broadcast.setTitle(request.getTitle());
-        broadcast.setDescription(request.getDescription());
-        broadcast.setSchedule(schedule);
-
-        BroadcastEntity scheduled = broadcastService.scheduleBroadcast(broadcast, user);
-        return ResponseEntity.ok(BroadcastDTO.fromEntity(scheduled));
-    }
 
     @PostMapping("/{id}/start")
     @PreAuthorize("hasAnyRole('DJ','ADMIN')") // LISTENER access removed - use proper DJ/ADMIN roles

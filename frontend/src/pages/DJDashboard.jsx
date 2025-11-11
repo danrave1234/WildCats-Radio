@@ -18,16 +18,18 @@ import {
   UserIcon,
   HeartIcon,
   ArrowDownTrayIcon,
+  SpeakerWaveIcon,
 } from "@heroicons/react/24/outline"
 import { broadcastService, songRequestService, pollService, authService, chatService, radioService } from "../services/api/index.js"
-import { brandingApi } from "../services/api/brandingApi";
 import { useAuth } from "../context/AuthContext"
 import { useStreaming } from "../context/StreamingContext"
 import { format, formatDistanceToNow } from "date-fns"
 import AudioPlayer from "../components/AudioPlayer"
 import { EnhancedScrollArea } from "../components/ui/enhanced-scroll-area"
 import { createLogger } from "../services/logger"
-import { profanityService } from "../services/api";
+import { profanityService } from "../services/api"
+import EnhancedScheduleForm from "../components/EnhancedScheduleForm"
+import { CalendarIcon } from "@heroicons/react/24/outline"
 
 const logger = createLogger("DJDashboard")
 
@@ -163,10 +165,14 @@ export default function DJDashboard() {
   const [workflowState, setWorkflowState] = useState(WORKFLOW_STATES.CREATE_BROADCAST)
   const [currentBroadcast, setCurrentBroadcast] = useState(null)
 
-  // Broadcast creation form state (simplified - no scheduling)
+  // Broadcast creation form state
   const [broadcastForm, setBroadcastForm] = useState({
     title: "",
     description: "",
+    isScheduled: false,
+    scheduledDate: "",
+    scheduledStartTime: "",
+    scheduledEndTime: "",
   })
   const [formErrors, setFormErrors] = useState({})
   const [isCreatingBroadcast, setIsCreatingBroadcast] = useState(false)
@@ -254,60 +260,6 @@ export default function DJDashboard() {
   const [peakListeners, setPeakListeners] = useState(0)
   const [totalSongRequests, setTotalSongRequests] = useState(0)
   const [totalPolls, setTotalPolls] = useState(0)
-
-  // Branding (Station Banner) State
-  const [bannerUrl, setBannerUrl] = useState(null)
-  const [bannerLoading, setBannerLoading] = useState(false)
-  const [bannerError, setBannerError] = useState(null)
-
-  const cacheBust = (url) => (url ? `${url}${url.includes('?') ? '&' : '?'}_=${Date.now()}` : url)
-
-  const loadBanner = async () => {
-    try {
-      setBannerError(null)
-      setBannerLoading(true)
-      const res = await brandingApi.getBanner()
-      const url = res?.data?.url || null
-      setBannerUrl(url)
-    } catch (e) {
-      setBannerUrl(null)
-      setBannerError('Failed to load banner')
-    } finally {
-      setBannerLoading(false)
-    }
-  }
-
-  useEffect(() => { loadBanner() }, [])
-
-  const handleBannerUpload = async (e) => {
-    const file = e?.target?.files?.[0]
-    if (!file) return
-    try {
-      setBannerError(null)
-      setBannerLoading(true)
-      await brandingApi.uploadBanner(file)
-      await loadBanner()
-    } catch (err) {
-      setBannerError(err?.response?.data?.error || 'Upload failed')
-    } finally {
-      setBannerLoading(false)
-      // clear file input value so same file can be re-selected if needed
-      try { e.target.value = '' } catch {}
-    }
-  }
-
-  const handleBannerDelete = async () => {
-    try {
-      setBannerError(null)
-      setBannerLoading(true)
-      await brandingApi.deleteBanner()
-      await loadBanner()
-    } catch (err) {
-      setBannerError(err?.response?.data?.error || 'Delete failed')
-    } finally {
-      setBannerLoading(false)
-    }
-  }
 
   const [durationTick, setDurationTick] = useState(0)
 
@@ -482,7 +434,32 @@ export default function DJDashboard() {
             setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
           }
         } else {
-          logger.debug("DJ Dashboard: No active broadcast found, staying on CREATE_BROADCAST")
+          // Check for scheduled broadcasts matching current time
+          try {
+            const upcomingResponse = await broadcastService.getUpcoming()
+            const upcomingBroadcasts = upcomingResponse.data || []
+            
+            const now = new Date()
+            const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000)
+            
+            const matchingBroadcast = upcomingBroadcasts.find(broadcast => {
+              if (!broadcast.scheduledStart) return false
+              const scheduledStart = new Date(broadcast.scheduledStart)
+              // Check if scheduled start is between now and 5 minutes from now
+              return scheduledStart >= now && scheduledStart <= fiveMinutesFromNow
+            })
+            
+            if (matchingBroadcast) {
+              logger.info("DJ Dashboard: Found scheduled broadcast matching current time, using it:", matchingBroadcast)
+              setCurrentBroadcast(matchingBroadcast)
+              setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
+            } else {
+              logger.debug("DJ Dashboard: No active or matching scheduled broadcast found, staying on CREATE_BROADCAST")
+            }
+          } catch (error) {
+            logger.debug("DJ Dashboard: Error checking for scheduled broadcasts:", error)
+            logger.debug("DJ Dashboard: No active broadcast found, staying on CREATE_BROADCAST")
+          }
         }
       } catch (error) {
         logger.error("DJ Dashboard: Error checking for active broadcast and server state:", error)
@@ -1042,6 +1019,66 @@ export default function DJDashboard() {
       errors.description = "Description is required"
     }
 
+    // Validate scheduled fields if scheduling is enabled
+    if (broadcastForm.isScheduled) {
+      if (!broadcastForm.scheduledDate) {
+        errors.scheduledDate = "Date is required for scheduled broadcasts"
+      }
+      if (!broadcastForm.scheduledStartTime) {
+        errors.scheduledStartTime = "Start time is required"
+      }
+      if (!broadcastForm.scheduledEndTime) {
+        errors.scheduledEndTime = "End time is required"
+      }
+      
+      // Validate that scheduled date is not in the past
+      if (broadcastForm.scheduledDate) {
+        const [year, month, day] = broadcastForm.scheduledDate.split('-').map(Number)
+        const scheduledDate = new Date(year, month - 1, day)
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        scheduledDate.setHours(0, 0, 0, 0)
+        
+        if (scheduledDate < today) {
+          errors.scheduledDate = "Cannot schedule broadcasts in the past"
+        }
+      }
+      
+      // Validate that scheduled start time is not in the past
+      if (broadcastForm.scheduledDate && broadcastForm.scheduledStartTime) {
+        const [year, month, day] = broadcastForm.scheduledDate.split('-').map(Number)
+        const [startHour, startMinute] = broadcastForm.scheduledStartTime.split(':').map(Number)
+        const scheduledStart = new Date(year, month - 1, day, startHour, startMinute, 0)
+        const now = new Date()
+        
+        if (scheduledStart <= now) {
+          errors.scheduledStartTime = "Start time cannot be in the past"
+        }
+      }
+      
+      // Validate that scheduled end time is not in the past and is after start time
+      if (broadcastForm.scheduledDate && broadcastForm.scheduledEndTime) {
+        const [year, month, day] = broadcastForm.scheduledDate.split('-').map(Number)
+        const [endHour, endMinute] = broadcastForm.scheduledEndTime.split(':').map(Number)
+        const scheduledEnd = new Date(year, month - 1, day, endHour, endMinute, 0)
+        const now = new Date()
+        
+        if (scheduledEnd <= now) {
+          errors.scheduledEndTime = "End time cannot be in the past"
+        }
+        
+        // Validate that end time is after start time
+        if (broadcastForm.scheduledStartTime) {
+          const [startHour, startMinute] = broadcastForm.scheduledStartTime.split(':').map(Number)
+          const scheduledStart = new Date(year, month - 1, day, startHour, startMinute, 0)
+          
+          if (scheduledEnd <= scheduledStart) {
+            errors.scheduledEndTime = "End time must be after start time"
+          }
+        }
+      }
+    }
+
     setFormErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -1074,28 +1111,89 @@ export default function DJDashboard() {
     setStreamError(null)
 
     try {
-      // Create broadcast content only (no scheduling)
-      // Use current time + buffer as scheduled times for the API compatibility
-      const now = new Date()
+      // Check for existing scheduled broadcast matching current time (if creating immediate broadcast)
+      if (!broadcastForm.isScheduled) {
+        try {
+          const upcomingResponse = await broadcastService.getUpcoming()
+          const upcomingBroadcasts = upcomingResponse.data || []
+          
+          // Check if there's a scheduled broadcast starting within the next 5 minutes
+          const now = new Date()
+          const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000)
+          
+          const matchingBroadcast = upcomingBroadcasts.find(broadcast => {
+            if (!broadcast.scheduledStart) return false
+            const scheduledStart = new Date(broadcast.scheduledStart)
+            // Check if scheduled start is between now and 5 minutes from now
+            return scheduledStart >= now && scheduledStart <= fiveMinutesFromNow
+          })
+          
+          if (matchingBroadcast) {
+            logger.info("DJ Dashboard: Found scheduled broadcast matching current time, using it:", matchingBroadcast)
+            setCurrentBroadcast(matchingBroadcast)
+            setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
+            
+            // Reset form
+            setBroadcastForm({
+              title: "",
+              description: "",
+              isScheduled: false,
+              scheduledDate: "",
+              scheduledStartTime: "",
+              scheduledEndTime: "",
+            })
+            return
+          }
+        } catch (error) {
+          logger.debug("Error checking for scheduled broadcasts:", error)
+          // Continue with creating new broadcast if check fails
+        }
+      }
 
-      // Add 30 seconds buffer to account for network latency and processing time
-      const bufferedStart = new Date(now.getTime() + 30 * 1000)
-      const endTime = new Date(bufferedStart.getTime() + 2 * 60 * 60 * 1000) // Default 2 hours duration
-
-      // Send times in local timezone (Philippines time) directly
+      // Prepare broadcast data
       const broadcastData = {
         title: broadcastForm.title.trim(),
         description: broadcastForm.description.trim(),
-        scheduledStart: formatLocalTimeAsISO(bufferedStart),
-        scheduledEnd: formatLocalTimeAsISO(endTime),
       }
 
-      logger.debug("DJ Dashboard: Creating broadcast with Philippines local time:", {
-        currentTime: now.toLocaleString("en-PH"),
-        localStart: bufferedStart.toLocaleString("en-PH"),
-        localEnd: endTime.toLocaleString("en-PH"),
-        sentStart: broadcastData.scheduledStart,
-        sentEnd: broadcastData.scheduledEnd,
+      // Add scheduled times if scheduling is enabled
+      if (broadcastForm.isScheduled && broadcastForm.scheduledDate && broadcastForm.scheduledStartTime && broadcastForm.scheduledEndTime) {
+        const [year, month, day] = broadcastForm.scheduledDate.split('-').map(Number)
+        const [startHour, startMinute] = broadcastForm.scheduledStartTime.split(':').map(Number)
+        const [endHour, endMinute] = broadcastForm.scheduledEndTime.split(':').map(Number)
+
+        const startDateTime = new Date(year, month - 1, day, startHour, startMinute, 0)
+        const endDateTime = new Date(year, month - 1, day, endHour, endMinute, 0)
+        const now = new Date()
+
+        // Final validation: ensure times are not in the past
+        if (startDateTime <= now) {
+          setFormErrors({ scheduledStartTime: "Start time cannot be in the past" })
+          setIsCreatingBroadcast(false)
+          return
+        }
+        
+        if (endDateTime <= now) {
+          setFormErrors({ scheduledEndTime: "End time cannot be in the past" })
+          setIsCreatingBroadcast(false)
+          return
+        }
+        
+        if (endDateTime <= startDateTime) {
+          setFormErrors({ scheduledEndTime: "End time must be after start time" })
+          setIsCreatingBroadcast(false)
+          return
+        }
+
+        broadcastData.scheduledStart = formatLocalTimeAsISO(startDateTime)
+        broadcastData.scheduledEnd = formatLocalTimeAsISO(endDateTime)
+      }
+
+      logger.debug("DJ Dashboard: Creating broadcast:", {
+        title: broadcastData.title,
+        description: broadcastData.description,
+        isScheduled: broadcastForm.isScheduled,
+        scheduledStart: broadcastData.scheduledStart,
       })
 
       const response = await broadcastService.create(broadcastData)
@@ -1108,6 +1206,10 @@ export default function DJDashboard() {
       setBroadcastForm({
         title: "",
         description: "",
+        isScheduled: false,
+        scheduledDate: "",
+        scheduledStartTime: "",
+        scheduledEndTime: "",
       })
 
       logger.debug("Broadcast created successfully:", createdBroadcast)
@@ -1742,152 +1844,33 @@ export default function DJDashboard() {
 
           {/* Live Interactive Dashboard - When streaming live */}
           {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 xl:grid-cols-12 gap-6 mb-8">
-                {/* Main Content Area - Left Side */}
-                <div className="lg:col-span-8 min-w-0 grid grid-cols-1 md:grid-cols-2 gap-4">
-
-                  {/* Chat Section */}
-                  <div className="md:col-span-2 bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-                    <div className="bg-maroon-600 text-white px-4 py-2.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <ChatBubbleLeftRightIcon className="h-4 w-4 mr-2" />
-                          <h3 className="font-semibold text-sm">Live Chat</h3>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs bg-white bg-opacity-20 px-2 py-0.5 rounded-full">
-                            {chatMessages.length} messages
-                          </span>
-                          <button
-                            onClick={handleDownloadChat}
-                            disabled={isDownloadingChat || !currentBroadcast?.id}
-                            className="inline-flex items-center text-xs px-2 py-1 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Download chat messages as Excel (available for 7 days)"
-                          >
-                            <ArrowDownTrayIcon className={`h-3.5 w-3.5 mr-1 ${isDownloadingChat ? "animate-pulse" : ""}`} />
-                            {isDownloadingChat ? "Downloading..." : "Download"}
-                          </button>
-                        </div>
-                      </div>
+                <>
+                {/* Dropdown Portal - Rendered outside container to avoid clipping */}
+                {showSettingsDropdown && (
+                  <div 
+                    data-settings-dropdown
+                    className="fixed bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 z-[9999] p-4 w-96 max-w-[calc(100vw-3rem)] max-h-[80vh] overflow-y-auto"
+                    style={{
+                      top: `${dropdownPosition.top}px`,
+                      right: `${dropdownPosition.right}px`
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-200 dark:border-gray-700">
+                      <h4 className="font-bold text-gray-900 dark:text-white">Profanity Dictionary</h4>
+                      <button
+                        onClick={() => setShowSettingsDropdown(false)}
+                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                      >
+                        <XMarkIcon className="h-5 w-5" />
+                      </button>
                     </div>
-                    <div className="h-[60vh] min-h-[420px] max-h-[75vh] flex flex-col">
-                      <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
-                        {chatMessages.length === 0 ? (
-                            <div className="text-center text-gray-500 dark:text-gray-400 py-8">No messages yet</div>
-                        ) : (
-                            chatMessages
-                                .slice()
-                                .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
-                                .map((msg) => {
-                                  if (!msg || !msg.sender) return null
-
-                                  // Construct name from firstname and lastname fields
-                                  const firstName = msg.sender?.firstname || ""
-                                  const lastName = msg.sender?.lastname || ""
-                                  const fullName = `${firstName} ${lastName}`.trim()
-                                  const senderName = fullName || msg.sender?.email || "Unknown User"
-
-                                  // Check if user is a DJ based on their role or name
-                                  const isDJ =
-                                      (msg.sender?.role && msg.sender.role.includes("DJ")) ||
-                                      senderName.includes("DJ") ||
-                                      firstName.includes("DJ") ||
-                                      lastName.includes("DJ")
-
-                                  const initials = (() => {
-                                    try {
-                                      return (
-                                          senderName
-                                              .split(" ")
-                                              .map((part) => part[0] || "")
-                                              .join("")
-                                              .toUpperCase()
-                                              .slice(0, 2) || "U"
-                                      )
-                                    } catch (error) {
-                                      return "U"
-                                    }
-                                  })()
-
-                                  let messageDate;
-                                  try {
-                                    const ts = msg.createdAt || msg.timestamp || msg.sentAt || msg.time || msg.date;
-                                    messageDate = ts ? new Date(ts) : null;
-                                  } catch (error) {
-                                    messageDate = new Date();
-                                  }
-
-                                  // Show absolute local time
-                                  const timeText = (() => {
-                                    try {
-                                      return messageDate && !isNaN(messageDate.getTime())
-                                        ? format(messageDate, 'hh:mm a')
-                                        : ''
-                                    } catch (error) {
-                                      return ''
-                                    }
-                                  })()
-
-                                  return (
-                                      <div key={msg.id} className="flex items-start space-x-2">
-                                        <div
-                                            className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs text-white font-medium ${
-                                                isDJ ? "bg-maroon-600" : "bg-gray-500"
-                                            }`}
-                                        >
-                                          {isDJ ? "DJ" : initials}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                          <div className="flex items-center space-x-2 mb-0.5">
-                                  <span className="text-xs font-medium text-gray-900 dark:text-white">
-                                    {senderName}
-                                  </span>
-                                            {timeText && (
-                                              <span className="text-xs text-gray-500 dark:text-gray-400">{timeText}</span>
-                                            )}
-                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
-                                                                                          <button
-                                                                                            type="button"
-                                                                                            onClick={() => handleBanUser(msg.sender.id, senderName)}
-                                                                                            className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200"
-                                                                                            title="Ban this user from chat"
-                                                                                          >
-                                                                                            Ban
-                                                                                          </button>
-                                                                                        )}
-                                          </div>
-                                          <p className="text-xs text-gray-700 dark:text-gray-300 break-words">
-                                            {msg.content || "No content"}
-                                          </p>
-                                        </div>
-                                      </div>
-                                  )
-                                })
-                                .filter(Boolean)
-                        )}
-                      </div>
-                      <div className="border-t border-gray-200 dark:border-gray-700 p-3">
-                        <form onSubmit={handleChatSubmit} className="flex space-x-2">
-                          <input
-                              type="text"
-                              value={chatMessage}
-                              onChange={(e) => setChatMessage(e.target.value)}
-                              placeholder="Type your message..."
-                              className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-maroon-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                              maxLength={1500}
-                          />
-                          <button
-                              type="submit"
-                              disabled={!chatMessage.trim()}
-                              className="px-3 py-1.5 bg-maroon-600 text-white rounded-md hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                          >
-                            <PaperAirplaneIcon className="h-4 w-4" />
-                          </button>
-                        </form>
-                      </div>
-                    </div>
+                    <ProfanityManager />
                   </div>
-                  <div className="p-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4">
+                )}
+
+                {/* Analytics Dashboard - Key Metrics */}
+                <div className="mb-6 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4">
                     <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-lg p-3 border border-emerald-200 dark:border-emerald-800">
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Duration</span>
@@ -1952,28 +1935,6 @@ export default function DJDashboard() {
                     </div>
                   </div>
                 </div>
-                {/* Dropdown Portal - Rendered outside container to avoid clipping */}
-                {showSettingsDropdown && (
-                  <div 
-                    data-settings-dropdown
-                    className="fixed bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 z-[9999] p-4 w-96 max-w-[calc(100vw-3rem)] max-h-[80vh] overflow-y-auto"
-                    style={{
-                      top: `${dropdownPosition.top}px`,
-                      right: `${dropdownPosition.right}px`
-                    }}
-                  >
-                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-200 dark:border-gray-700">
-                      <h4 className="font-bold text-gray-900 dark:text-white">Profanity Dictionary</h4>
-                      <button
-                        onClick={() => setShowSettingsDropdown(false)}
-                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                      >
-                        <XMarkIcon className="h-5 w-5" />
-                      </button>
-                    </div>
-                    <ProfanityManager />
-                  </div>
-                )}
 
                 {/* Main Content Area - Three Column Layout */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -2432,13 +2393,13 @@ export default function DJDashboard() {
                   </div>
                   </div>
                 </div>
-              </div>
+                </>
           )}
 
           {/* Step 1: Create Broadcast Content (BUTT workflow) */}
           {workflowState === WORKFLOW_STATES.CREATE_BROADCAST && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-6 border-2 border-maroon-200 dark:border-maroon-900">
-                <div className="p-6">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-visible mb-6 border-2 border-maroon-200 dark:border-maroon-900">
+                <div className="p-6 relative z-0">
                   {/* Step Header */}
                   <div className="mb-6">
                     <div className="flex items-center gap-3 mb-2">
@@ -2455,7 +2416,7 @@ export default function DJDashboard() {
                   {/* BUTT Info Banner */}
                   <div className="mb-6 p-4 bg-gold-50 dark:bg-gold-900/20 rounded-lg border border-gold-300 dark:border-gold-800">
                     <div className="flex items-start gap-3">
-                      <span className="text-2xl">📻</span>
+                      <SpeakerWaveIcon className="w-6 h-6 text-gold-600 dark:text-gold-400 flex-shrink-0 mt-0.5" />
                       <div>
                         <p className="text-sm font-semibold text-maroon-900 dark:text-gold-200 mb-1">
                           Streaming with BUTT
@@ -2513,70 +2474,122 @@ export default function DJDashboard() {
                       </div>
                     </div>
 
-                    {/* Station Banner */}
-                    <div className="space-y-2">
-                      <label className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
-                        Station Banner <span className="text-gray-500 font-normal">(Optional)</span>
-                      </label>
-                      <div className="flex flex-col gap-4 bg-gray-50 dark:bg-gray-700/40 p-4 rounded-lg border-2 border-gray-200 dark:border-gray-600">
-                        <div className="w-full">
-                          <div className="rounded-lg overflow-hidden border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800">
-                            {bannerUrl ? (
-                              <img src={cacheBust(bannerUrl)} alt="Current banner" className="w-full h-40 object-cover" />
-                            ) : (
-                              <div className="w-full h-40 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400 border-2 border-dashed border-gray-300 dark:border-gray-600">
-                                No banner image set
-                              </div>
-                            )}
+                    {/* Enhanced Scheduling Toggle */}
+                    <div className="space-y-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newScheduled = !broadcastForm.isScheduled
+                          setBroadcastForm(prev => ({
+                            ...prev,
+                            isScheduled: newScheduled,
+                            scheduledDate: newScheduled ? prev.scheduledDate : "",
+                            scheduledStartTime: newScheduled ? prev.scheduledStartTime : "",
+                            scheduledEndTime: newScheduled ? prev.scheduledEndTime : "",
+                          }))
+                          clearFormError("scheduledDate")
+                          clearFormError("scheduledStartTime")
+                          clearFormError("scheduledEndTime")
+                        }}
+                        disabled={isCreatingBroadcast}
+                        className={`w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all duration-300 ${
+                          broadcastForm.isScheduled
+                            ? "bg-gradient-to-r from-maroon-50 to-purple-50 dark:from-maroon-900/30 dark:to-purple-900/30 border-maroon-300 dark:border-maroon-700 shadow-lg"
+                            : "bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 hover:border-maroon-300 dark:hover:border-maroon-700"
+                        } ${isCreatingBroadcast ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-lg ${broadcastForm.isScheduled ? "bg-maroon-100 dark:bg-maroon-900/50" : "bg-gray-200 dark:bg-gray-700"}`}>
+                            <CalendarIcon className={`w-5 h-5 ${broadcastForm.isScheduled ? "text-maroon-600 dark:text-maroon-400" : "text-gray-500 dark:text-gray-400"}`} />
+                          </div>
+                          <div className="text-left">
+                            <p className={`text-sm font-semibold ${broadcastForm.isScheduled ? "text-maroon-900 dark:text-maroon-200" : "text-gray-700 dark:text-gray-300"}`}>
+                              {broadcastForm.isScheduled ? "Scheduled Broadcast" : "Schedule for Later"}
+                            </p>
+                            <p className={`text-xs ${broadcastForm.isScheduled ? "text-maroon-600 dark:text-maroon-400" : "text-gray-500 dark:text-gray-400"}`}>
+                              {broadcastForm.isScheduled ? "Set your broadcast date and time" : "Click to schedule this broadcast"}
+                            </p>
                           </div>
                         </div>
-
-                        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                          <label className="flex-1 inline-block">
-                            <span className="sr-only">Choose banner image</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={handleBannerUpload}
-                              disabled={bannerLoading}
-                              className="block w-full text-sm text-gray-900 border-2 border-gray-300 rounded-lg cursor-pointer bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-maroon-500 hover:border-maroon-400 transition-colors"
-                            />
-                          </label>
-                          {bannerUrl && (
-                          <button
-                            onClick={handleBannerDelete}
-                              disabled={bannerLoading}
-                              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm whitespace-nowrap transition-colors font-medium"
-                          >
-                              Remove Banner
-                          </button>
-                          )}
+                        <div className={`relative w-12 h-6 rounded-full transition-colors duration-300 ${broadcastForm.isScheduled ? "bg-maroon-600" : "bg-gray-300 dark:bg-gray-600"}`}>
+                          <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 ${broadcastForm.isScheduled ? "translate-x-6" : "translate-x-0"}`} />
                         </div>
-                        {bannerLoading && <span className="text-xs text-gray-600 dark:text-gray-300">Processing…</span>}
-                        {bannerError && <span className="text-xs text-red-600">{bannerError}</span>}
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Recommended: 1200x300 or similar wide aspect ratio.</p>
-                      </div>
+                      </button>
+
+                      {broadcastForm.isScheduled && (
+                        <EnhancedScheduleForm
+                          scheduledDate={broadcastForm.scheduledDate}
+                          scheduledStartTime={broadcastForm.scheduledStartTime}
+                          scheduledEndTime={broadcastForm.scheduledEndTime}
+                          onDateChange={(date) => {
+                            setBroadcastForm(prev => {
+                              const newForm = { ...prev, scheduledDate: date }
+                              
+                              // Clear times if they become invalid after date change
+                              if (date && prev.scheduledStartTime) {
+                                const [year, month, day] = date.split("-").map(Number)
+                                const [hours, minutes] = prev.scheduledStartTime.split(":").map(Number)
+                                const selectedDateTime = new Date(year, month - 1, day, hours, minutes)
+                                const now = new Date()
+                                
+                                // If the selected date+time is in the past, clear the times
+                                if (selectedDateTime <= now) {
+                                  newForm.scheduledStartTime = ""
+                                  newForm.scheduledEndTime = ""
+                                }
+                              }
+                              
+                              return newForm
+                            })
+                            clearFormError("scheduledDate")
+                            clearFormError("scheduledStartTime")
+                            clearFormError("scheduledEndTime")
+                          }}
+                          onStartTimeChange={(time) => {
+                            setBroadcastForm(prev => ({ ...prev, scheduledStartTime: time }))
+                            clearFormError("scheduledStartTime")
+                          }}
+                          onEndTimeChange={(time) => {
+                            setBroadcastForm(prev => ({ ...prev, scheduledEndTime: time }))
+                            clearFormError("scheduledEndTime")
+                          }}
+                          formErrors={formErrors}
+                          disabled={isCreatingBroadcast}
+                        />
+                      )}
                     </div>
 
-                    {/* Create Button */}
-                    <div className="flex items-center justify-center pt-4 border-t border-gray-200 dark:border-gray-700">
+                    {/* Enhanced Create Button */}
+                    <div className="flex items-center justify-center pt-6 border-t border-gray-200 dark:border-gray-700">
                       <button
                           type="button"
                           onClick={createBroadcast}
-                          disabled={isCreatingBroadcast || !broadcastForm.title.trim() || !broadcastForm.description.trim()}
-                          className="px-8 py-4 bg-maroon-700 text-white rounded-lg hover:bg-maroon-800 focus:outline-none focus:ring-4 focus:ring-maroon-300 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all text-lg font-semibold shadow-lg hover:shadow-xl disabled:shadow-none"
+                          disabled={isCreatingBroadcast || !broadcastForm.title.trim() || !broadcastForm.description.trim() || (broadcastForm.isScheduled && (!broadcastForm.scheduledDate || !broadcastForm.scheduledStartTime || !broadcastForm.scheduledEndTime))}
+                          className="group relative px-10 py-4 bg-gradient-to-r from-maroon-600 to-maroon-700 text-white rounded-xl hover:from-maroon-700 hover:to-maroon-800 focus:outline-none focus:ring-4 focus:ring-maroon-300 focus:ring-offset-2 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed transition-all duration-300 text-lg font-semibold shadow-lg hover:shadow-2xl disabled:shadow-none transform hover:scale-105 disabled:transform-none overflow-hidden"
                       >
-                        {isCreatingBroadcast ? (
+                        {/* Shine effect */}
+                        <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+                        
+                        {/* Button content */}
+                        <span className="relative flex items-center justify-center gap-2">
+                          {isCreatingBroadcast ? (
                             <>
-                              <span className="mr-2">Creating...</span>
-                              <span className="animate-spin">⏳</span>
+                              <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              <span>Creating Broadcast...</span>
                             </>
-                        ) : (
+                          ) : (
                             <>
-                              Create Broadcast
-                              <span className="ml-2">→</span>
+                              <PlusIcon className="w-5 h-5" />
+                              <span>Create Broadcast</span>
+                              <svg className="w-5 h-5 transform group-hover:translate-x-1 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                              </svg>
                             </>
-                        )}
+                          )}
+                        </span>
                       </button>
                     </div>
                   </div>

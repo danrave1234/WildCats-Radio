@@ -27,50 +27,48 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
     
     List<BroadcastEntity> findByCreatedByAndStatus(UserEntity dj, BroadcastStatus status);
     
-    // Query methods that work with the schedule relationship
-    @Query("SELECT b FROM BroadcastEntity b WHERE b.schedule.scheduledStart > :date")
+    // Query methods that work with embedded schedule fields
+    @Query("SELECT b FROM BroadcastEntity b WHERE b.scheduledStart > :date")
     List<BroadcastEntity> findByScheduledStartAfter(@Param("date") LocalDateTime date);
-    
-    @Query("SELECT b FROM BroadcastEntity b WHERE b.schedule.scheduledStart BETWEEN :start AND :end")
+
+    @Query("SELECT b FROM BroadcastEntity b WHERE b.scheduledStart BETWEEN :start AND :end")
     List<BroadcastEntity> findByScheduledStartBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
-    
-    @Query("SELECT b FROM BroadcastEntity b WHERE b.status = :status AND b.schedule.scheduledStart > :date")
+
+    @Query("SELECT b FROM BroadcastEntity b WHERE b.status = :status AND b.scheduledStart > :date")
     List<BroadcastEntity> findByStatusAndScheduledStartAfter(@Param("status") BroadcastStatus status, @Param("date") LocalDateTime date);
 
     // Optimized DTO projection query - eliminates N+1 queries by selecting only needed columns
     // Returns only SCHEDULED broadcasts (excludes COMPLETED, CANCELLED)
-    // Uses single query with JOIN instead of lazy loading, ~15-25x faster
+    // Uses single query with embedded schedule fields, ~15-25x faster
     @Query("SELECT new com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO(" +
            "b.id, b.title, b.description, " +
-           "s.scheduledStart, s.scheduledEnd, " +
+           "b.scheduledStart, b.scheduledEnd, " +
            "CONCAT(COALESCE(u.firstname, ''), ' ', COALESCE(u.lastname, '')) " +
            ") FROM BroadcastEntity b " +
-           "JOIN b.schedule s " +
            "JOIN b.createdBy u " +
-           "WHERE b.status = :status AND s.scheduledStart > :date " +
-           "ORDER BY s.scheduledStart ASC")
+           "WHERE b.status = :status AND b.scheduledStart > :date " +
+           "ORDER BY b.scheduledStart ASC")
     List<com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO> findUpcomingBroadcastsDTO(
-        @Param("status") BroadcastStatus status, 
+        @Param("status") BroadcastStatus status,
         @Param("date") LocalDateTime date
     );
 
-    // Optimized projection starting from ScheduleEntity to maximize use of schedule indexes
+    // Optimized projection using embedded schedule fields
     @Query("SELECT new com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO(" +
            "b.id, b.title, b.description, " +
-           "s.scheduledStart, s.scheduledEnd, " +
+           "b.scheduledStart, b.scheduledEnd, " +
            "CONCAT(COALESCE(u.firstname, ''), ' ', COALESCE(u.lastname, '')) " +
-           ") FROM ScheduleEntity s " +
-           "JOIN BroadcastEntity b ON b.schedule = s " +
+           ") FROM BroadcastEntity b " +
            "JOIN b.createdBy u " +
-           "WHERE b.status = :status AND s.scheduledStart > :date " +
-           "ORDER BY s.scheduledStart ASC")
+           "WHERE b.status = :status AND b.scheduledStart > :date " +
+           "ORDER BY b.scheduledStart ASC")
     List<com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO> findUpcomingFromScheduleDTO(
         @Param("status") BroadcastStatus status,
         @Param("date") LocalDateTime date,
         Pageable pageable
     );
 
-    @Query("SELECT b FROM BroadcastEntity b WHERE b.status = :status AND b.schedule.scheduledStart BETWEEN :start AND :end")
+    @Query("SELECT b FROM BroadcastEntity b WHERE b.status = :status AND b.scheduledStart BETWEEN :start AND :end")
     List<BroadcastEntity> findByStatusAndScheduledStartBetween(@Param("status") BroadcastStatus status, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 
     // History helpers
@@ -83,7 +81,7 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
     // Analytics count methods
     long countByStatus(BroadcastStatus status);
     
-    @Query("SELECT COUNT(b) FROM BroadcastEntity b WHERE b.status = :status AND b.schedule.scheduledStart > :date")
+    @Query("SELECT COUNT(b) FROM BroadcastEntity b WHERE b.status = :status AND b.scheduledStart > :date")
     long countByStatusAndScheduledStartAfter(@Param("status") BroadcastStatus status, @Param("date") LocalDateTime date);
     
     // Fetch broadcasts with chat messages only (for sorting by interactions)

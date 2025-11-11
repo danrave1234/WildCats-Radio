@@ -47,7 +47,7 @@ const detectEnvironment = () => {
     if (typeof window !== 'undefined' && window.location && window.location.hostname) {
       const host = window.location.hostname;
       if (host === 'localhost' || host === '127.0.0.1') {
-        return 'local';
+        return 'local'; // Force local mode for localhost
       }
     }
   } catch (_e) { /* noop for SSR */ }
@@ -169,7 +169,7 @@ export const configUtils = {
   logConfig: () => {
     // Only log configuration if debug logs are enabled
     if (config.enableDebugLogs) {
-      console.group('🔧 WildCats Radio Configuration');
+      console.group('[CONFIG] WildCats Radio Configuration');
       console.log('Environment:', config.environment);
       console.log('API Base URL:', config.apiBaseUrl);
       console.log('WebSocket Base URL:', config.wsBaseUrl);

@@ -83,9 +83,48 @@ export function StreamingProvider({ children }) {
   const [streamHealth, setStreamHealth] = useState({ healthy: false, recovering: false, broadcastLive: false, listenerCount: 0, bitrate: 0, lastCheckedAt: null, errorMessage: null });
   const prevRecoveringRef = useRef(false);
 
+  // Health check polling - FALLBACK ONLY when WebSocket is unavailable
+  // Primary health updates come via WebSocket (STREAM_STATUS messages with health data)
   useEffect(() => {
     let cancelled = false;
     let intervalId;
+    
+    // Check if WebSocket is connected - if so, use it as primary source (no polling needed)
+    // Use the state variable that tracks listener status WebSocket connection
+    const isWebSocketConnected = globalWebSocketService.isListenerStatusWebSocketConnected();
+    
+    // Only poll if WebSocket is not available (fallback mode)
+    if (isWebSocketConnected) {
+      // WebSocket is connected - health updates come via WebSocket, no polling needed
+      // Do an initial fetch to get current state, then rely on WebSocket
+      const fetchInitialHealth = async () => {
+        try {
+          const res = await broadcastService.getLiveHealth();
+          const data = res?.data || {};
+          const healthy = !!data.healthy;
+          const recovering = !!data.recovering;
+          const broadcastLive = !!data.broadcastLive;
+          const listenerCount = typeof data.listenerCount === 'number' ? data.listenerCount : streamHealth.listenerCount;
+          const bitrate = typeof data.bitrate === 'number' ? data.bitrate : streamHealth.bitrate;
+          const lastCheckedAt = data.lastCheckedAt || null;
+          const errorMessage = data.errorMessage || null;
+
+          if (!cancelled) {
+            setStreamHealth({ healthy, recovering, broadcastLive, listenerCount, bitrate, lastCheckedAt, errorMessage });
+            if (typeof listenerCount === 'number') {
+              setListenerCount(listenerCount);
+            }
+          }
+        } catch (e) {
+          // Silent fail for initial fetch
+        }
+      };
+      
+      fetchInitialHealth();
+      return () => { cancelled = true; };
+    }
+    
+    // Fallback: WebSocket not available, use HTTP polling (but less frequently)
     const fetchHealth = async () => {
       try {
         const res = await broadcastService.getLiveHealth();
@@ -115,10 +154,17 @@ export function StreamingProvider({ children }) {
       }
     };
 
+    // When WebSocket is unavailable, poll less frequently (60s) as fallback
+    const pollInterval = 60000; // 60 seconds fallback polling
+
     fetchHealth();
-    intervalId = setInterval(fetchHealth, 15000);
-    return () => { cancelled = true; if (intervalId) clearInterval(intervalId); };
-  }, [serverConfig?.streamUrl]);
+    intervalId = setInterval(fetchHealth, pollInterval);
+    
+    return () => { 
+      cancelled = true; 
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [serverConfig?.streamUrl, isLive, isListening, streamHealth.broadcastLive, streamHealth.recovering, websocketConnected]);
 
   // Load persisted state on startup
   useEffect(() => {
@@ -378,7 +424,7 @@ export function StreamingProvider({ children }) {
       // Use diagnostic approach to identify and fix silent microphone issues
       return await getDiagnosticMicrophoneAudioStream();
     } catch (error) {
-      console.error('❌ Error getting microphone audio stream:', error);
+      console.error('[ERROR] Error getting microphone audio stream:', error);
       logger.error('Error getting microphone audio stream:', error);
       throw error;
     }
@@ -400,7 +446,7 @@ export function StreamingProvider({ children }) {
         }
       });
 
-      console.log('✅ Diagnostic microphone stream obtained');
+      console.log('[SUCCESS] Diagnostic microphone stream obtained');
 
       // Step 2: Test audio levels directly from raw stream
       const testContext = new AudioContext({ sampleRate: 48000 });
@@ -443,19 +489,19 @@ export function StreamingProvider({ children }) {
 
       // Step 4: Evaluate results
       if (maxLevel < 1) {
-        console.warn('⚠️ Raw microphone levels extremely low, trying fallback capture method');
+        console.warn('[WARNING] Raw microphone levels extremely low, trying fallback capture method');
         micStream.getTracks().forEach(track => track.stop());
         return await getFallbackMicrophoneAudioStream();
       }
 
-      console.log(`✅ Raw microphone working (max level: ${maxLevel.toFixed(2)}), proceeding with processing`);
+      console.log(`[SUCCESS] Raw microphone working (max level: ${maxLevel.toFixed(2)}), proceeding with processing`);
 
       // Step 5: Try direct stream first (no processing) to test Chrome WebRTC issues
-      console.log('🔧 Testing direct stream approach first...');
+      console.log('[INFO] Testing direct stream approach first...');
       try {
         // Test: return the raw stream directly without any processing
         // This will help identify if the issue is in the processing pipeline
-        console.log('⚠️ Using DIRECT STREAM mode (no processing) for testing');
+        console.log('[WARNING] Using DIRECT STREAM mode (no processing) for testing');
 
         // Set up basic references for audio level monitoring
         const testContext = new AudioContext({ sampleRate: 48000 });
@@ -468,11 +514,11 @@ export function StreamingProvider({ children }) {
         // Start basic monitoring
         startAudioLevelMonitoring();
 
-        console.log('✅ Direct stream mode active - no audio processing applied');
+        console.log('[SUCCESS] Direct stream mode active - no audio processing applied');
         return micStream; // Return raw stream directly
 
       } catch (directError) {
-        console.warn('⚠️ Direct stream failed, falling back to processing pipeline:', directError);
+        console.warn('[WARNING] Direct stream failed, falling back to processing pipeline:', directError);
 
         // Step 5b: Use direct stream as fallback
         console.log('Using direct microphone stream as fallback');
@@ -480,16 +526,16 @@ export function StreamingProvider({ children }) {
 
         // DON'T stop original stream immediately - let processed stream establish first
         setTimeout(() => {
-          console.log('🔧 Stopping original microphone stream after processed stream established');
+          console.log('[INFO] Stopping original microphone stream after processed stream established');
           micStream.getTracks().forEach(track => track.stop());
         }, 1000);
 
-        console.log('✅ Diagnostic microphone pipeline complete');
+        console.log('[SUCCESS] Diagnostic microphone pipeline complete');
         return processedStream;
       }
 
     } catch (error) {
-      console.error('❌ Error in diagnostic microphone capture:', error);
+      console.error('[ERROR] Error in diagnostic microphone capture:', error);
       throw error;
     }
   };
@@ -497,7 +543,7 @@ export function StreamingProvider({ children }) {
   // Fallback microphone audio stream with minimal processing
   const getFallbackMicrophoneAudioStream = async () => {
     try {
-      console.log('🔄 Attempting fallback microphone capture...');
+      console.log('[INFO] Attempting fallback microphone capture...');
 
       // Try different audio constraints
       const constraints = [
@@ -530,7 +576,7 @@ export function StreamingProvider({ children }) {
 
       for (let i = 0; i < constraints.length; i++) {
         try {
-          console.log(`🔄 Trying fallback constraint ${i + 1}:`, constraints[i]);
+          console.log(`[INFO] Trying fallback constraint ${i + 1}:`, constraints[i]);
 
           const stream = await navigator.mediaDevices.getUserMedia(constraints[i]);
 
@@ -553,10 +599,10 @@ export function StreamingProvider({ children }) {
 
           testCtx.close();
 
-          console.log(`🔄 Fallback constraint ${i + 1} average level: ${avgLevel.toFixed(2)}`);
+          console.log(`[INFO] Fallback constraint ${i + 1} average level: ${avgLevel.toFixed(2)}`);
 
           if (avgLevel > 0.5 || i === constraints.length - 1) { // Accept if any audio or last attempt
-            console.log(`✅ Fallback constraint ${i + 1} accepted, using direct stream`);
+            console.log(`[SUCCESS] Fallback constraint ${i + 1} accepted, using direct stream`);
 
             // Return the stream directly without complex processing
             return stream;
@@ -565,13 +611,13 @@ export function StreamingProvider({ children }) {
           }
 
         } catch (error) {
-          console.warn(`⚠️ Fallback constraint ${i + 1} failed:`, error.message);
+          console.warn(`[WARNING] Fallback constraint ${i + 1} failed:`, error.message);
         }
       }
 
       throw new Error('All fallback microphone capture methods failed');
     } catch (error) {
-      console.error('❌ Error in fallback microphone capture:', error);
+      console.error('[ERROR] Error in fallback microphone capture:', error);
       throw error;
     }
   };
@@ -1031,7 +1077,7 @@ export function StreamingProvider({ children }) {
 
             // Log timing info every 10th chunk to track regularity
             if (chunkCount % 10 === 0) {
-              console.log(`🎵 Audio chunk #${chunkCount}: ${event.data.size} bytes, ${timeSinceLastChunk}ms since last chunk`);
+              console.log(`[AUDIO] Audio chunk #${chunkCount}: ${event.data.size} bytes, ${timeSinceLastChunk}ms since last chunk`);
             }
 
             lastChunkTime = currentTime;
@@ -1343,6 +1389,33 @@ export function StreamingProvider({ children }) {
           if (data.isLive !== undefined) {
             setIsLive(data.isLive);
           }
+          
+          // Update health status from WebSocket (replaces polling when available)
+          if (data.health) {
+            const health = data.health;
+            const healthy = !!health.healthy;
+            const recovering = !!health.recovering;
+            const broadcastLive = !!health.broadcastLive;
+            const bitrate = typeof health.bitrate === 'number' ? health.bitrate : streamHealth.bitrate;
+            const errorMessage = health.errorMessage || null;
+            
+            setStreamHealth(prev => ({
+              ...prev,
+              healthy,
+              recovering,
+              broadcastLive,
+              bitrate,
+              errorMessage,
+              lastCheckedAt: data.timestamp ? new Date(data.timestamp).toISOString() : null
+            }));
+            
+            // Auto-resume playback when recovering -> healthy
+            if (prevRecoveringRef.current && healthy && audioRef.current) {
+              audioRef.current.play().catch(() => {});
+            }
+            prevRecoveringRef.current = recovering && broadcastLive;
+          }
+          
           // Expose last stream status globally for other components (read-only usage)
           try {
             window.__wildcats_stream_state__ = {
@@ -1478,7 +1551,7 @@ export function StreamingProvider({ children }) {
 
               // Log timing info every 10th chunk to track regularity
               if (chunkCount % 10 === 0) {
-                console.log(`🎵 Audio chunk #${chunkCount}: ${event.data.size} bytes, ${timeSinceLastChunk}ms since last chunk`);
+                console.log(`[AUDIO] Audio chunk #${chunkCount}: ${event.data.size} bytes, ${timeSinceLastChunk}ms since last chunk`);
               }
 
               lastChunkTime = currentTime;
@@ -1936,7 +2009,7 @@ export function StreamingProvider({ children }) {
 
     const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
 
-    console.log('🎵 Starting audio level monitoring for status display');
+    console.log('[AUDIO] Starting audio level monitoring for status display');
 
     audioLevelIntervalRef.current = setInterval(() => {
       if (!analyserRef.current) return;
@@ -1956,7 +2029,7 @@ export function StreamingProvider({ children }) {
 
       // Less frequent logging to reduce console noise
       if (Date.now() % 2000 < 100) {
-        console.log('🎵 Audio levels (status display):', {
+        console.log('[AUDIO] Audio levels (status display):', {
           rms: rms.toFixed(2),
           dB: dB.toFixed(1)
         });

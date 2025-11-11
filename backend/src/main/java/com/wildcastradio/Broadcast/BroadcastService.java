@@ -20,14 +20,12 @@ import com.wildcastradio.ActivityLog.ActivityLogService;
 import com.wildcastradio.Analytics.ListenerTrackingService;
 import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 import com.wildcastradio.Broadcast.DTO.CreateBroadcastRequest;
+import com.wildcastradio.ChatMessage.ChatMessageRepository;
 import com.wildcastradio.Notification.NotificationService;
 import com.wildcastradio.Notification.NotificationType;
-import com.wildcastradio.Schedule.ScheduleEntity;
-import com.wildcastradio.Schedule.ScheduleService;
+import com.wildcastradio.SongRequest.SongRequestRepository;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserRepository;
-import com.wildcastradio.ChatMessage.ChatMessageRepository;
-import com.wildcastradio.SongRequest.SongRequestRepository;
 import com.wildcastradio.icecast.IcecastService;
 
 @Service
@@ -37,8 +35,6 @@ public class BroadcastService {
     @Autowired
     private BroadcastRepository broadcastRepository;
 
-    @Autowired
-    private ScheduleService scheduleService;
 
     @Autowired
     private IcecastService icecastService;
@@ -89,65 +85,47 @@ public class BroadcastService {
     private volatile java.util.Map<String, Object> lastHealthSnapshot = new java.util.HashMap<>();
     private volatile LocalDateTime lastHealthCheckTime = null;
 
-    public BroadcastDTO createBroadcast(CreateBroadcastRequest request) {
-        logger.info("Creating broadcast: {}", request.getTitle());
 
-        // Get current user from security context (this will be handled by the controller)
-        // For now, we'll assume the user is passed separately or we'll update this later
-
-        // First create the schedule
-        ScheduleEntity schedule = scheduleService.createSchedule(
-            request.getScheduledStart(), 
-            request.getScheduledEnd(), 
-            getCurrentUser() // This will need to be passed from controller
-        );
-
-        // Then create the broadcast with the schedule
-        BroadcastEntity broadcast = new BroadcastEntity();
-        broadcast.setTitle(request.getTitle());
-        broadcast.setDescription(request.getDescription());
-        broadcast.setSchedule(schedule);
-        broadcast.setCreatedBy(getCurrentUser()); // This will need to be passed from controller
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
-
-        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
-
-        // Log the activity
-        activityLogService.logActivity(
-            getCurrentUser(), // This will need to be passed from controller
-            ActivityLogEntity.ActivityType.BROADCAST_START,
-            "Broadcast created: " + savedBroadcast.getTitle()
-        );
-
-        // Only send a schedule notification if this broadcast is not being immediately started
-        if (savedBroadcast.getScheduledStart() != null &&
-            savedBroadcast.getScheduledStart().isAfter(LocalDateTime.now().plusMinutes(1))) {
-            String notificationMessage = "New broadcast scheduled: " + savedBroadcast.getTitle() +
-                                        " at " + savedBroadcast.getScheduledStart();
-            sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_SCHEDULED);
-        }
-
-        return BroadcastDTO.fromEntity(savedBroadcast);
-    }
-
-    // Overloaded method that accepts user parameter
+    // Unified method that handles both scheduled and immediate broadcasts
     public BroadcastDTO createBroadcast(CreateBroadcastRequest request, UserEntity user) {
         logger.info("Creating broadcast: {} for user: {}", request.getTitle(), user.getEmail());
 
-        // First create the schedule
-        ScheduleEntity schedule = scheduleService.createSchedule(
-            request.getScheduledStart(), 
-            request.getScheduledEnd(), 
-            user
-        );
+        LocalDateTime now = LocalDateTime.now();
 
-        // Then create the broadcast with the schedule
+        // Validate that if scheduledStart is provided, scheduledEnd must also be provided
+        if (request.getScheduledStart() != null && request.getScheduledEnd() == null) {
+            throw new IllegalArgumentException("Scheduled end time is required when scheduled start time is provided.");
+        }
+        if (request.getScheduledStart() == null && request.getScheduledEnd() != null) {
+            throw new IllegalArgumentException("Scheduled start time is required when scheduled end time is provided.");
+        }
+
+        // Validate that scheduled broadcasts cannot be in the past
+        if (request.getScheduledStart() != null && request.getScheduledStart().isBefore(now.plusSeconds(30))) {
+            throw new IllegalArgumentException("Cannot schedule broadcasts in the past. Scheduled start time must be at least 30 seconds from now.");
+        }
+
+        // Create broadcast with embedded schedule fields
         BroadcastEntity broadcast = new BroadcastEntity();
         broadcast.setTitle(request.getTitle());
         broadcast.setDescription(request.getDescription());
-        broadcast.setSchedule(schedule);
         broadcast.setCreatedBy(user);
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
+
+        // Determine if this is a scheduled broadcast or immediate broadcast
+        boolean isScheduledForFuture = request.getScheduledStart() != null &&
+                                      request.getScheduledStart().isAfter(now.plusMinutes(1));
+
+        if (isScheduledForFuture) {
+            // This is a scheduled broadcast - use provided times
+            broadcast.setScheduledStart(request.getScheduledStart());
+            broadcast.setScheduledEnd(request.getScheduledEnd());
+            broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
+        } else {
+            // This is an immediate broadcast - set past times to avoid "starting soon" notifications
+            broadcast.setScheduledStart(now.minusMinutes(1)); // Set to past so no notifications
+            broadcast.setScheduledEnd(now.plusHours(2)); // Default 2 hours
+            broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
+        }
 
         BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
 
@@ -158,9 +136,8 @@ public class BroadcastService {
             "Broadcast created: " + savedBroadcast.getTitle()
         );
 
-        // Only send a schedule notification if this broadcast is not being immediately started
-        if (savedBroadcast.getScheduledStart() != null &&
-            savedBroadcast.getScheduledStart().isAfter(LocalDateTime.now().plusMinutes(1))) {
+        // Only send a schedule notification if this broadcast is scheduled for the future
+        if (isScheduledForFuture) {
             String notificationMessage = "New broadcast scheduled: " + savedBroadcast.getTitle() +
                                         " at " + savedBroadcast.getScheduledStart();
             sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_SCHEDULED);
@@ -172,6 +149,21 @@ public class BroadcastService {
     public BroadcastDTO updateBroadcast(Long id, CreateBroadcastRequest request) {
         logger.info("Updating broadcast: {}", id);
 
+        LocalDateTime now = LocalDateTime.now();
+
+        // Validate that if scheduledStart is provided, scheduledEnd must also be provided
+        if (request.getScheduledStart() != null && request.getScheduledEnd() == null) {
+            throw new IllegalArgumentException("Scheduled end time is required when scheduled start time is provided.");
+        }
+        if (request.getScheduledStart() == null && request.getScheduledEnd() != null) {
+            throw new IllegalArgumentException("Scheduled start time is required when scheduled end time is provided.");
+        }
+
+        // Validate that scheduled broadcasts cannot be updated to past times
+        if (request.getScheduledStart() != null && request.getScheduledStart().isBefore(now.plusSeconds(30))) {
+            throw new IllegalArgumentException("Cannot schedule broadcasts in the past. Scheduled start time must be at least 30 seconds from now.");
+        }
+
         BroadcastEntity broadcast = broadcastRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
@@ -179,13 +171,9 @@ public class BroadcastService {
         broadcast.setTitle(request.getTitle());
         broadcast.setDescription(request.getDescription());
 
-        // Update the associated schedule
-        scheduleService.updateSchedule(
-            broadcast.getSchedule().getId(),
-            request.getScheduledStart(),
-            request.getScheduledEnd(),
-            broadcast.getCreatedBy()
-        );
+        // Update embedded schedule fields directly
+        broadcast.setScheduledStart(request.getScheduledStart());
+        broadcast.setScheduledEnd(request.getScheduledEnd());
 
         BroadcastEntity updatedBroadcast = broadcastRepository.save(broadcast);
         return BroadcastDTO.fromEntity(updatedBroadcast);
@@ -203,27 +191,6 @@ public class BroadcastService {
         return BroadcastDTO.fromEntity(saved);
     }
 
-    // Keep the existing scheduleBroadcast method for backward compatibility
-    public BroadcastEntity scheduleBroadcast(BroadcastEntity broadcast, UserEntity dj) {
-        broadcast.setCreatedBy(dj);
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
-        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
-
-        // Log the activity
-        activityLogService.logActivity(
-            dj,
-            ActivityLogEntity.ActivityType.SCHEDULE_CREATE,
-            "Broadcast scheduled: " + savedBroadcast.getTitle() + " from " + 
-            savedBroadcast.getScheduledStart() + " to " + savedBroadcast.getScheduledEnd()
-        );
-
-        // Send notification to all users about the new broadcast schedule
-        String notificationMessage = "New broadcast scheduled: " + savedBroadcast.getTitle() + 
-                                    " on " + savedBroadcast.getScheduledStart();
-        sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_SCHEDULED);
-
-        return savedBroadcast;
-    }
 
     // Helper method to send notifications to all users
     private void sendNotificationToAllUsers(String message, NotificationType type) {
@@ -245,10 +212,7 @@ public class BroadcastService {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
-        // Activate the schedule when starting the broadcast
-        if (broadcast.getSchedule() != null) {
-            scheduleService.activateSchedule(broadcast.getSchedule().getId());
-        }
+        // Schedule is now embedded in broadcast entity, no separate activation needed
 
         // Allow any DJ to start a broadcast, not just the creator
         // This enables site-wide broadcast control
@@ -334,10 +298,7 @@ public class BroadcastService {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
-        // Complete the schedule when ending the broadcast
-        if (broadcast.getSchedule() != null) {
-            scheduleService.completeSchedule(broadcast.getSchedule().getId());
-        }
+        // Schedule is now embedded in broadcast entity, no separate completion needed
 
         // Allow any DJ to end a broadcast, not just the creator
         // This enables site-wide broadcast control
@@ -376,10 +337,7 @@ public class BroadcastService {
         BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
                 .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
-        // Complete the schedule when ending the broadcast
-        if (broadcast.getSchedule() != null) {
-            scheduleService.completeSchedule(broadcast.getSchedule().getId());
-        }
+        // Schedule is now embedded in broadcast entity, no separate completion needed
 
         // End the stream
         broadcast.setActualEnd(LocalDateTime.now());
@@ -478,19 +436,14 @@ public class BroadcastService {
         logger.info("Deleting broadcast with ID: {}", id);
 
         // Check if the broadcast exists
-        BroadcastEntity broadcast = broadcastRepository.findById(id)
+        broadcastRepository.findById(id)
                 .orElseThrow(() -> {
                     logger.error("Failed to delete broadcast: Broadcast not found with ID: {}", id);
                     return new RuntimeException("Broadcast not found with id: " + id);
                 });
 
         try {
-            // Cancel the associated schedule if it exists
-            if (broadcast.getSchedule() != null) {
-                scheduleService.cancelSchedule(broadcast.getSchedule().getId(), broadcast.getCreatedBy());
-            }
-
-            // Delete the broadcast
+            // Delete the broadcast (schedule is now embedded, no separate entity to cancel)
             broadcastRepository.deleteById(id);
             logger.info("Broadcast with ID: {} deleted successfully", id);
         } catch (Exception e) {
@@ -512,7 +465,7 @@ public class BroadcastService {
 
         // Find broadcasts that are scheduled to start in the next 15 minutes
         List<BroadcastEntity> upcomingBroadcasts = broadcastRepository.findByScheduledStartBetween(
-            now,
+            now.plusMinutes(1), // Start from 1 minute in the future to avoid immediate broadcasts
             fifteenMinutesFromNow
         );
 
@@ -536,12 +489,6 @@ public class BroadcastService {
         }
     }
 
-    // Temporary method to get current user - this will be replaced with proper authentication
-    private UserEntity getCurrentUser() {
-        // This is a placeholder - in a real implementation, you'd get this from SecurityContext
-        // For now, we'll throw an exception to indicate this needs to be handled by the controller
-        throw new RuntimeException("User must be passed explicitly to this method");
-    }
 
     /**
      * Record a listener joining a broadcast

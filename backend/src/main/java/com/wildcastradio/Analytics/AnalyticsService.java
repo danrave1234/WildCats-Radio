@@ -440,66 +440,13 @@ public class AnalyticsService {
      * Get demographic analytics including age group breakdowns
      */
     public Map<String, Object> getDemographicAnalytics() {
+        // Demographic analytics disabled for privacy/security reasons
         Map<String, Object> demographics = new HashMap<>();
-        try {
-            // Use counts and avoid fetching all users to reduce risk and load
-            List<UserEntity> users = Collections.emptyList();
-            int teens = 0, youngAdults = 0, adults = 0, middleAged = 0, seniors = 0, unknownAge = 0;
-            int male = 0, female = 0, other = 0, unknownGender = 0;
-            LocalDate today = LocalDate.now();
-            for (UserEntity user : users) {
-                // Age grouping
-                if (user.getBirthdate() != null) {
-                    int age = Period.between(user.getBirthdate(), today).getYears();
-                    if (age >= 13 && age <= 19) {
-                        teens++;
-                    } else if (age >= 20 && age <= 29) {
-                        youngAdults++;
-                    } else if (age >= 30 && age <= 49) {
-                        adults++;
-                    } else if (age >= 50 && age <= 64) {
-                        middleAged++;
-                    } else if (age >= 65) {
-                        seniors++;
-                    }
-                } else {
-                    unknownAge++;
-                }
-                // Gender grouping
-                if (user.getGender() == null) {
-                    unknownGender++;
-                } else {
-                    switch (user.getGender()) {
-                        case MALE -> male++;
-                        case FEMALE -> female++;
-                        case OTHER -> other++;
-                        default -> unknownGender++;
-                    }
-                }
-            }
-            Map<String, Object> ageGroups = new HashMap<>();
-            ageGroups.put("teens", teens);
-            ageGroups.put("youngAdults", youngAdults);
-            ageGroups.put("adults", adults);
-            ageGroups.put("middleAged", middleAged);
-            ageGroups.put("seniors", seniors);
-            ageGroups.put("unknown", unknownAge);
-
-            Map<String, Object> genderGroups = new HashMap<>();
-            genderGroups.put("male", male);
-            genderGroups.put("female", female);
-            genderGroups.put("other", other);
-            genderGroups.put("unknown", unknownGender);
-
-            demographics.put("ageGroups", ageGroups);
-            demographics.put("gender", genderGroups);
-            demographics.put("totalUsers", users.size());
-            demographics.put("usersWithBirthdate", users.size() - unknownAge);
-            demographics.put("usersWithGender", users.size() - unknownGender);
-            demographics.put("lastUpdated", System.currentTimeMillis());
-        } catch (Exception e) {
-            logger.error("Error getting demographic analytics", e);
-        }
+        demographics.put("ageGroups", new HashMap<>());
+        demographics.put("gender", new HashMap<>());
+        demographics.put("totalUsers", userService.getTotalUserCount());
+        demographics.put("note", "Demographic analytics disabled for user privacy");
+        demographics.put("lastUpdated", System.currentTimeMillis());
         return demographics;
     }
 

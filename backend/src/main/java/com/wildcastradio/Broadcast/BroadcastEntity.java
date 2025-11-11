@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.wildcastradio.ChatMessage.ChatMessageEntity;
-import com.wildcastradio.Schedule.ScheduleEntity;
 import com.wildcastradio.SongRequest.SongRequestEntity;
 import com.wildcastradio.User.UserEntity;
 
@@ -21,14 +20,14 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
-import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "broadcasts", indexes = {
     @Index(name = "idx_broadcast_status", columnList = "status"),
     @Index(name = "idx_broadcast_created_by", columnList = "created_by_id"),
-    @Index(name = "idx_broadcast_schedule", columnList = "schedule_id"),
+    @Index(name = "idx_broadcast_scheduled_start", columnList = "scheduled_start"),
+    @Index(name = "idx_broadcast_scheduled_end", columnList = "scheduled_end"),
     @Index(name = "idx_broadcast_actual_start", columnList = "actual_start"),
     @Index(name = "idx_broadcast_actual_end", columnList = "actual_end"),
     @Index(name = "idx_broadcast_status_start", columnList = "status, actual_start"),
@@ -66,6 +65,12 @@ public class BroadcastEntity {
     @Column(name = "stream_url")
     private String streamUrl;
 
+    // Schedule fields embedded directly in broadcast
+    @Column(name = "scheduled_start")
+    private LocalDateTime scheduledStart;
+
+    @Column(name = "scheduled_end")
+    private LocalDateTime scheduledEnd;
 
     // Analytics fields that could be cached
     @Column(name = "peak_listeners")
@@ -83,9 +88,6 @@ public class BroadcastEntity {
     @JoinColumn(name = "started_by_id")
     private UserEntity startedBy;
 
-    @OneToOne
-    @JoinColumn(name = "schedule_id", nullable = false)
-    private ScheduleEntity schedule;
 
     @OneToMany(mappedBy = "broadcast", cascade = CascadeType.ALL)
     private List<ChatMessageEntity> chatMessages = new ArrayList<>();
@@ -105,8 +107,9 @@ public class BroadcastEntity {
     // All args constructor
     public BroadcastEntity(Long id, String title, String description, LocalDateTime actualStart,
                           LocalDateTime actualEnd, BroadcastStatus status, String streamUrl,
+                          LocalDateTime scheduledStart, LocalDateTime scheduledEnd,
                           Integer peakListeners, Integer totalInteractions,
-                          UserEntity createdBy, UserEntity startedBy, ScheduleEntity schedule,
+                          UserEntity createdBy, UserEntity startedBy,
                           List<ChatMessageEntity> chatMessages, List<SongRequestEntity> songRequests) {
         this.id = id;
         this.title = title;
@@ -115,11 +118,12 @@ public class BroadcastEntity {
         this.actualEnd = actualEnd;
         this.status = status;
         this.streamUrl = streamUrl;
+        this.scheduledStart = scheduledStart;
+        this.scheduledEnd = scheduledEnd;
         this.peakListeners = peakListeners != null ? peakListeners : 0;
         this.totalInteractions = totalInteractions != null ? totalInteractions : 0;
         this.createdBy = createdBy;
         this.startedBy = startedBy;
-        this.schedule = schedule;
         this.chatMessages = chatMessages;
         this.songRequests = songRequests;
     }
@@ -181,6 +185,22 @@ public class BroadcastEntity {
         this.streamUrl = streamUrl;
     }
 
+    public LocalDateTime getScheduledStart() {
+        return scheduledStart;
+    }
+
+    public void setScheduledStart(LocalDateTime scheduledStart) {
+        this.scheduledStart = scheduledStart;
+    }
+
+    public LocalDateTime getScheduledEnd() {
+        return scheduledEnd;
+    }
+
+    public void setScheduledEnd(LocalDateTime scheduledEnd) {
+        this.scheduledEnd = scheduledEnd;
+    }
+
     public UserEntity getCreatedBy() {
         return createdBy;
     }
@@ -195,14 +215,6 @@ public class BroadcastEntity {
 
     public void setStartedBy(UserEntity startedBy) {
         this.startedBy = startedBy;
-    }
-
-    public ScheduleEntity getSchedule() {
-        return schedule;
-    }
-
-    public void setSchedule(ScheduleEntity schedule) {
-        this.schedule = schedule;
     }
 
     public List<ChatMessageEntity> getChatMessages() {
@@ -221,14 +233,6 @@ public class BroadcastEntity {
         this.songRequests = songRequests;
     }
 
-    // Helper methods to access schedule information
-    public LocalDateTime getScheduledStart() {
-        return schedule != null ? schedule.getScheduledStart() : null;
-    }
-
-    public LocalDateTime getScheduledEnd() {
-        return schedule != null ? schedule.getScheduledEnd() : null;
-    }
 
 
     public Integer getPeakListeners() {

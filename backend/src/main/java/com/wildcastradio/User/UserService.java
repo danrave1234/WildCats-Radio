@@ -7,6 +7,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -23,10 +27,6 @@ import com.wildcastradio.User.DTO.LoginResponse;
 import com.wildcastradio.User.DTO.RegisterRequest;
 import com.wildcastradio.User.DTO.UserDTO;
 import com.wildcastradio.config.JwtUtil;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 @Service
 public class UserService implements UserDetailsService {
@@ -89,7 +89,7 @@ public class UserService implements UserDetailsService {
                 // Ignore invalid values; keep null to avoid bad data
             }
         }
-        user.setRole(UserEntity.UserRole.LISTENER); // Default role
+        user.setRole(UserEntity.UserRole.DJ); // Default role - allows creating broadcasts
         user.setVerified(false);
         user.setVerificationCode(generateVerificationCode());
 

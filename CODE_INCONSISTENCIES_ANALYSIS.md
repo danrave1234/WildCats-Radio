@@ -198,3 +198,5 @@ Some endpoints rely solely on `@PreAuthorize("isAuthenticated()")` without expli
 **Last Updated:** After initial cleanup phase
 **Status:** Identified inconsistencies; partial fixes applied
 
+
+
