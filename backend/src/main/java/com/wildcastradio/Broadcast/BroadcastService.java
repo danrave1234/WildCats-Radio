@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -59,6 +60,9 @@ public class BroadcastService {
 
     @Autowired(required = false)
     private com.wildcastradio.radio.RadioAgentClient radioAgentClient;
+
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
 
     // Live stream health check configuration
     @Value("${broadcast.healthCheck.enabled:true}")
@@ -283,6 +287,12 @@ public class BroadcastService {
             String notificationMessage = "Broadcast started: " + savedBroadcast.getTitle();
             sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_STARTED);
 
+            // Send WebSocket message for immediate UI updates
+            Map<String, Object> broadcastStartedMessage = new java.util.HashMap<>();
+            broadcastStartedMessage.put("type", "BROADCAST_STARTED");
+            broadcastStartedMessage.put("broadcast", BroadcastDTO.fromEntity(savedBroadcast));
+            messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastStartedMessage);
+
             // Clear transient key used for "starting soon" notifications for this broadcast
             if (savedBroadcast.getId() != null) {
                 notificationService.clearTransientKey("starting-soon:" + savedBroadcast.getId());
@@ -323,6 +333,12 @@ public class BroadcastService {
         // Send notification to all users that the broadcast has ended
         String notificationMessage = "Broadcast ended: " + savedBroadcast.getTitle();
         sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_ENDED);
+
+        // Send WebSocket message for immediate UI updates
+        Map<String, Object> broadcastEndedMessage = new java.util.HashMap<>();
+        broadcastEndedMessage.put("type", "BROADCAST_ENDED");
+        broadcastEndedMessage.put("broadcast", BroadcastDTO.fromEntity(savedBroadcast));
+        messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastEndedMessage);
 
         // WebSocket status updates are handled by the broadcast WebSocket controller
 

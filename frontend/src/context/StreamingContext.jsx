@@ -48,6 +48,13 @@ export function StreamingProvider({ children }) {
     return saved === 'true';
   });
 
+  // Live stream sync state
+  const [isStreamSyncing, setIsStreamSyncing] = useState(false);
+
+  // Pause tracking for live stream sync
+  const lastPauseTimeRef = useRef(null);
+  const PAUSE_THRESHOLD_MS = 10000; // 10 seconds - refresh stream if paused longer
+
   // Server Config
   const [serverConfig, setServerConfig] = useState(null);
 
@@ -200,13 +207,16 @@ export function StreamingProvider({ children }) {
       }
       // Authenticated users also receive status updates
       connectListenerStatusWebSocket();
+      // Connect to global broadcast status updates
+      connectBroadcastStatusWebSocket();
       // Also refresh status once immediately
       refreshStreamStatus();
     } else {
       // When unauthenticated, disconnect any DJ or poll connections,
-      // but still connect to listener status WS and refresh status so guests can see live state
+      // but still connect to listener status WS and broadcast status WS so guests can see live state
       disconnectAll();
       connectListenerStatusWebSocket();
+      connectBroadcastStatusWebSocket();
       refreshStreamStatus();
     }
 
@@ -237,10 +247,35 @@ export function StreamingProvider({ children }) {
         setAudioPlaying(parsed.audioPlaying || false);
       }
 
-      // Load current broadcast
+      // Load current broadcast - but only if it's recent (within last 5 minutes)
+      // This prevents loading stale broadcast data after broadcasts have ended
       const broadcast = localStorage.getItem(STORAGE_KEYS.CURRENT_BROADCAST);
       if (broadcast && !currentBroadcast) {
-        setCurrentBroadcast(JSON.parse(broadcast));
+        try {
+          const parsed = JSON.parse(broadcast);
+          // Check if broadcast data is recent (has actualStart and within reasonable time)
+          if (parsed.actualStart) {
+            const startTime = new Date(parsed.actualStart);
+            const now = new Date();
+            const minutesSinceStart = (now - startTime) / (1000 * 60);
+
+            // Only load if broadcast started within last 5 minutes
+            // This prevents loading stale data after broadcast has ended
+            if (minutesSinceStart < 5) {
+              setCurrentBroadcast(parsed);
+              logger.info('Loaded recent broadcast from localStorage:', parsed.title);
+            } else {
+              logger.info('Ignoring stale broadcast data from localStorage (started', Math.round(minutesSinceStart), 'minutes ago)');
+              localStorage.removeItem(STORAGE_KEYS.CURRENT_BROADCAST);
+            }
+          } else {
+            // No actualStart means broadcast never actually started, safe to load
+            setCurrentBroadcast(parsed);
+          }
+        } catch (e) {
+          logger.error('Error parsing stored broadcast:', e);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_BROADCAST);
+        }
       }
     } catch (error) {
       logger.error('Error loading persisted state:', error);
@@ -1189,54 +1224,15 @@ export function StreamingProvider({ children }) {
     }
   };
 
-  // Restore audio playback
+  // Restore audio playback - simplified since toggleAudio handles creation
   const restoreAudioPlayback = () => {
-    if (!audioRef.current && serverConfig?.streamUrl) {
-      audioRef.current = new Audio();
-      attachAudioEventHandlers();
-
-      // Improve URL handling and add fallback formats
-      let streamUrl = serverConfig.streamUrl;
-
-      // Ensure proper protocol (force HTTPS for listener stream)
-      if (!/^https?:\/\//i.test(streamUrl)) {
-        streamUrl = `https://${streamUrl}`;
-      }
-
-      // Set CORS mode for external streams
-      audioRef.current.crossOrigin = 'anonymous';
-      audioRef.current.preload = 'none';
-      audioRef.current.src = streamUrl;
-      audioRef.current.volume = isMuted ? 0 : volume / 100;
-
-      // Add error handling for format issues
-      audioRef.current.addEventListener('error', (e) => {
-        console.error('Audio restore error:', e);
-        const error = audioRef.current.error;
-        if (error && error.code === error.MEDIA_ERR_SRC_NOT_SUPPORTED && streamUrl.includes('.ogg')) {
-          console.log('OGG format not supported during restore, trying fallback...');
-          const fallbackUrl = streamUrl.replace('.ogg', '');
-          audioRef.current.src = fallbackUrl;
-          audioRef.current.load();
-        }
-      });
-
-      audioRef.current.play().then(() => {
-        setAudioPlaying(true);
-        console.log('Audio playback restored successfully');
-      }).catch(error => {
-        console.log('Could not auto-restore audio playback (user interaction required):', error);
-        setAudioPlaying(false);
-
-        // Try fallback format if it's a format issue
-        if (error.name === 'NotSupportedError' && streamUrl.includes('.ogg')) {
-          console.log('Trying fallback format for restoration...');
-          const fallbackUrl = streamUrl.replace('.ogg', '');
-          audioRef.current.src = fallbackUrl;
-          audioRef.current.load();
-        }
-      });
+    if (!audioRef.current) {
+      logger.warn('restoreAudioPlayback called but no audio element exists');
+      return;
     }
+
+    // Just ensure volume is set correctly
+    audioRef.current.volume = isMuted ? 0 : volume / 100;
   };
 
   // Connect DJ WebSocket for streaming
@@ -1444,6 +1440,44 @@ export function StreamingProvider({ children }) {
     globalWebSocketService.onListenerStatusOpen(() => {
       console.log('Listener/Status WebSocket connected successfully');
       setIsListening(true);
+    });
+  }, []);
+
+  // Connect broadcast status WebSocket
+  const connectBroadcastStatusWebSocket = useCallback(() => {
+    broadcastService.subscribeToGlobalBroadcastStatus((message) => {
+      logger.info('Broadcast status message received in StreamingContext:', message);
+
+      switch (message.type) {
+        case 'BROADCAST_STARTED':
+          logger.info('Broadcast started via StreamingContext WebSocket');
+          // Update current broadcast if provided
+          if (message.broadcast) {
+            setCurrentBroadcast(message.broadcast);
+            setIsLive(true);
+          }
+          break;
+
+        case 'BROADCAST_ENDED':
+          logger.info('Broadcast ended via StreamingContext WebSocket');
+          // Clear broadcast state for DJs immediately
+          setCurrentBroadcast(null);
+          setIsLive(false);
+          setWebsocketConnected(false);
+          // Clear ALL persisted state to prevent any stale data
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_BROADCAST);
+          localStorage.removeItem(STORAGE_KEYS.DJ_BROADCASTING_STATE);
+          localStorage.removeItem(STORAGE_KEYS.LISTENER_STATE);
+          // Also clear any streaming-related persisted data
+          localStorage.removeItem('wildcats_volume');
+          localStorage.removeItem('wildcats_muted');
+          break;
+
+        default:
+          logger.debug('Unhandled broadcast message type:', message.type);
+      }
+    }).catch(error => {
+      logger.error('Failed to connect broadcast status WebSocket:', error);
     });
   }, []);
 
@@ -1731,6 +1765,33 @@ export function StreamingProvider({ children }) {
     }
   }, [isListening, audioPlaying, serverConfig?.streamUrl, streamHealth.broadcastLive, streamHealth.recovering]);
 
+  // Refresh audio stream when broadcast goes live
+  useEffect(() => {
+    if (streamHealth.broadcastLive && audioRef.current) {
+      logger.info('Broadcast went live, refreshing audio stream...');
+      const baseUrl = serverConfig?.streamUrl || config.icecastUrl;
+      if (baseUrl) {
+        const streamUrl = `${baseUrl}?_=${Date.now()}`;
+        const wasPlaying = !audioRef.current.paused && !audioRef.current.ended;
+
+        audioRef.current.src = streamUrl;
+
+        // If user was already trying to listen, resume playback
+        if (wasPlaying || (isListening && audioPlaying)) {
+          audioRef.current.play().catch(e => logger.error('Error refreshing live stream:', e));
+        }
+      }
+    }
+  }, [streamHealth.broadcastLive]);
+
+  // Notify user when stream syncing occurs
+  useEffect(() => {
+    if (isStreamSyncing) {
+      logger.info('Stream sync started - jumping to live position');
+      // Could add toast notification here if desired
+    }
+  }, [isStreamSyncing]);
+
   const attachAudioEventHandlers = () => {
     if (!audioRef.current || audioHandlersAttachedRef.current) return;
     const a = audioRef.current;
@@ -1811,15 +1872,43 @@ export function StreamingProvider({ children }) {
   // Toggle audio playback for listeners
   const toggleAudio = async () => {
     try {
-      // If there's no audio element or no src yet, initialize listening first
-      if (!audioRef.current || !audioRef.current.src) {
-        await startListening();
-        return;
+      logger.info('Toggle audio called. Current state:', {
+        hasAudioElement: !!audioRef.current,
+        hasSrc: audioRef.current?.src,
+        audioPlaying,
+        isListening,
+        streamHealth: streamHealth.broadcastLive
+      });
+
+      // Ensure audio element exists and has a source
+      if (!audioRef.current) {
+        logger.info('No audio element, creating one...');
+        audioRef.current = new Audio();
+        audioRef.current.crossOrigin = 'anonymous';
+        audioRef.current.preload = 'auto';
+        attachAudioEventHandlers();
+      }
+
+      if (!audioRef.current.src) {
+        logger.info('No audio src, setting stream URL...');
+        const baseUrl = serverConfig?.streamUrl || config.icecastUrl;
+        if (baseUrl) {
+          const streamUrl = `${baseUrl}?_=${Date.now()}`;
+          audioRef.current.src = streamUrl;
+          audioRef.current.load(); // Load the audio
+          logger.info('Set audio src to:', streamUrl);
+        } else {
+          logger.error('No stream URL available');
+          return;
+        }
       }
 
       if (audioPlaying) {
+        logger.info('Pausing audio playback');
         if (audioRef.current) {
           audioRef.current.pause();
+          // Track pause time for live stream sync
+          lastPauseTimeRef.current = Date.now();
         }
         // Clear any pending recovery since user paused intentionally
         clearRecoveryTimer();
@@ -1833,8 +1922,61 @@ export function StreamingProvider({ children }) {
           );
         }
       } else {
+        logger.info('Starting audio playback');
+
+        // Check if we need to refresh stream due to long pause (live stream sync)
+        const shouldRefreshStream = lastPauseTimeRef.current &&
+          (Date.now() - lastPauseTimeRef.current) > PAUSE_THRESHOLD_MS &&
+          streamHealth.broadcastLive; // Only sync for live broadcasts
+
+        if (shouldRefreshStream) {
+          const pauseDuration = Date.now() - lastPauseTimeRef.current;
+          logger.info(`Long pause detected (${Math.round(pauseDuration/1000)}s), refreshing live stream to sync with current broadcast`);
+          setIsStreamSyncing(true);
+
+          const baseUrl = serverConfig?.streamUrl || config.icecastUrl;
+          if (baseUrl && audioRef.current) {
+            const freshStreamUrl = `${baseUrl}?_=${Date.now()}`;
+            audioRef.current.src = freshStreamUrl;
+            audioRef.current.load();
+            // Reset pause time since we're refreshing
+            lastPauseTimeRef.current = null;
+            // Small delay to ensure fresh stream is loaded
+            await new Promise(resolve => setTimeout(resolve, 300));
+            setIsStreamSyncing(false);
+          } else {
+            setIsStreamSyncing(false);
+          }
+        } else {
+          // Clear pause time for fresh plays (not resumes)
+          lastPauseTimeRef.current = null;
+          setIsStreamSyncing(false);
+        }
+
         if (audioRef.current) {
-          await audioRef.current.play().catch(e => logger.error('Error resuming playback:', e));
+          // Small delay to ensure audio is loaded
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          try {
+            await audioRef.current.play();
+            logger.info('Audio play() succeeded');
+            setIsListening(true); // Mark as actively listening
+          } catch (e) {
+            logger.error('Error starting playback:', e);
+            // If autoplay fails, try to refresh the stream
+            if (e.name === 'NotAllowedError' && streamHealth.broadcastLive) {
+              logger.info('Autoplay blocked, but broadcast is live - refreshing stream');
+              const baseUrl = serverConfig?.streamUrl || config.icecastUrl;
+              if (baseUrl) {
+                const streamUrl = `${baseUrl}?_=${Date.now()}`;
+                audioRef.current.src = streamUrl;
+                audioRef.current.load();
+                setTimeout(() => {
+                  audioRef.current.play().catch(e2 => logger.error('Retry play failed:', e2));
+                }, 200);
+              }
+            }
+          }
         }
         setAudioPlaying(true);
         if (globalWebSocketService.isListenerStatusWebSocketConnected()) {
@@ -2068,6 +2210,7 @@ export function StreamingProvider({ children }) {
     recovering: streamHealth.recovering,
     healthBroadcastLive: streamHealth.broadcastLive,
     isStreamRecovering,
+    isStreamSyncing,
 
     // DJ Functions
     startBroadcast,
@@ -2075,13 +2218,14 @@ export function StreamingProvider({ children }) {
     connectDJWebSocket,
     restoreDJStreaming,
 
-    // Listener Functions  
+    // Listener Functions
     startListening,
     stopListening,
     toggleAudio,
     updateVolume,
     toggleMute,
     connectListenerStatusWebSocket,
+    connectBroadcastStatusWebSocket,
 
     // Audio Source Functions
     setAudioSource,

@@ -355,11 +355,16 @@ export default function DJDashboard() {
 
   // Sync local state with streaming context
   useEffect(() => {
-    if (streamingBroadcast) {
+    if (streamingBroadcast && isLive) {
+      // Only go to live mode if both broadcast exists AND system reports live
+      // This prevents auto-reverting to live mode after broadcasts end
       setCurrentBroadcast(streamingBroadcast)
       setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
+    } else if (!streamingBroadcast && workflowState === WORKFLOW_STATES.STREAMING_LIVE) {
+      // If no broadcast but we're still in live mode, go back to ready state
+      setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
     }
-  }, [streamingBroadcast])
+  }, [streamingBroadcast, isLive])
 
   // Sync slow mode state from current broadcast
   useEffect(() => {

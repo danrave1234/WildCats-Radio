@@ -1,6 +1,5 @@
 package com.wildcastradio.icecast;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -377,24 +376,23 @@ public class ListenerStatusHandler extends TextWebSocketHandler {
                 });
             } catch (Exception ignored) { /* keep status resilient */ }
 
-            // Include health status data for real-time health monitoring (replaces polling)
+            // Include health data for real-time radio server status updates
             try {
                 Map<String, Object> healthStatus = broadcastService.getLiveStreamHealthStatus();
-                if (healthStatus != null && !healthStatus.isEmpty()) {
-                    // Include essential health fields in the WebSocket message
-                    Map<String, Object> healthData = new HashMap<>();
-                    healthData.put("healthy", healthStatus.getOrDefault("healthy", false));
-                    healthData.put("recovering", healthStatus.getOrDefault("recovering", false));
-                    healthData.put("broadcastLive", healthStatus.getOrDefault("broadcastLive", false));
-                    Object bitrateObj = healthStatus.get("bitrate");
-                    healthData.put("bitrate", bitrateObj instanceof Number ? ((Number) bitrateObj).intValue() : 0);
-                    Object errorMsg = healthStatus.get("errorMessage");
-                    if (errorMsg != null) {
-                        healthData.put("errorMessage", errorMsg);
-                    }
-                    message.put("health", healthData);
+                if (healthStatus != null) {
+                    // Include key health indicators for real-time UI updates
+                    message.put("health", Map.of(
+                        "healthy", healthStatus.getOrDefault("healthy", false),
+                        "recovering", healthStatus.getOrDefault("recovering", false),
+                        "broadcastLive", healthStatus.getOrDefault("broadcastLive", false),
+                        "serverReachable", healthStatus.getOrDefault("serverReachable", false),
+                        "radioServerState", broadcastService.isRadioServerRunning() ? "running" : "stopped"
+                    ));
                 }
-            } catch (Exception ignored) { /* keep status resilient - health is optional */ }
+            } catch (Exception e) {
+                logger.debug("Could not include health data in status message: {}", e.getMessage());
+                // Still send message without health data - keep it resilient
+            }
 
             String jsonMessage = objectMapper.writeValueAsString(message);
 

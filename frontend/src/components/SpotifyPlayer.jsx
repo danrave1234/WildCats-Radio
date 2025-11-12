@@ -18,6 +18,7 @@ const SpotifyPlayer = () => {
     volume,
     isMuted,
     listenerCount,
+    isStreamSyncing,
     toggleAudio,
     updateVolume,
     toggleMute,
@@ -168,10 +169,14 @@ const SpotifyPlayer = () => {
               <MusicalNoteIcon className="h-8 w-8 text-gold-500" />
               <button
                 onClick={handlePlayPause}
-                disabled={isLoading}
+                disabled={isLoading || isStreamSyncing}
                 className="absolute inset-0 bg-black/40 hover:bg-black/50 flex items-center justify-center transition-all duration-200 opacity-0 hover:opacity-100"
               >
-                {audioPlaying ? (
+                {isStreamSyncing ? (
+                  <div className="flex items-center justify-center">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  </div>
+                ) : audioPlaying ? (
                   <PauseIcon className="h-5 w-5 text-white" />
                 ) : (
                   <PlayIcon className="h-5 w-5 text-white ml-0.5" />
@@ -200,10 +205,12 @@ const SpotifyPlayer = () => {
             <div className="flex items-center space-x-3">
               <button
                 onClick={handlePlayPause}
-                disabled={isLoading}
+                disabled={isLoading || isStreamSyncing}
                 className="w-12 h-12 bg-gold-500 hover:bg-gold-600 rounded-full flex items-center justify-center transition-all duration-200 disabled:opacity-50 shadow-lg hover:shadow-xl hover:scale-105 border-2 border-gold-400"
               >
-                {isLoading ? (
+                {isStreamSyncing ? (
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-maroon-900 border-t-transparent"></div>
+                ) : isLoading ? (
                   <div className="animate-spin rounded-full h-5 w-5 border-2 border-maroon-900 border-t-transparent"></div>
                 ) : audioPlaying ? (
                   <PauseIcon className="h-6 w-6 text-maroon-900" />

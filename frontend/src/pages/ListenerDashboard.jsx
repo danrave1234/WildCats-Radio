@@ -153,45 +153,58 @@ export default function ListenerDashboard() {
   const [listenerWsConnected, setListenerWsConnected] = useState(false);
   const lastIsLiveRef = useRef(null);
   const lastStreamUrlRef = useRef(null);
+  const broadcastEndedRef = useRef(false); // Track if broadcast was explicitly ended
 
   // Add this with other state declarations
   const [broadcastSession, setBroadcastSession] = useState(0);
 
   // Radio server state (Liquidsoap status)
-  const [radioServerState, setRadioServerState] = useState("unknown"); // "running" | "stopped" | "unknown"
+  const [radioServerState, setRadioServerState] = useState("running"); // "running" | "stopped" | "unknown" - assume running initially
   const radioStatusPollRef = useRef(null);
+  const isFetchingRadioStatusRef = useRef(false); // Prevent concurrent API calls
+  const isFetchingBroadcastInfoRef = useRef(false); // Prevent concurrent broadcast API calls
 
   // Compute actual "isLive" state: requires BOTH broadcast to be live AND radio server to be running
   // This prevents showing "live" UI when Liquidsoap is stopped
-  const isLive = streamContextIsLive && radioServerState === 'running';
+  // Allow 'unknown' state to be treated as potentially live (don't block on uncertainty)
+  const isLive = streamContextIsLive && radioServerState !== 'stopped';
 
-  // Radio Server Status Check
+  // Radio Server Status Check (fallback only - WebSocket provides real-time updates)
   const fetchRadioStatus = async () => {
+    // Prevent concurrent API calls to avoid spamming
+    if (isFetchingRadioStatusRef.current) {
+      logger.debug('Radio status fetch already in progress, skipping');
+      return;
+    }
+
+    isFetchingRadioStatusRef.current = true;
     try {
       const response = await radioService.status();
       const data = response?.data || {};
       const state = data.state || "unknown";
-      
-      logger.debug('Radio status fetched (Listener Dashboard):', { 
-        state, 
+
+      logger.debug('Radio status fetched (Listener Dashboard fallback):', {
+        state,
         fullResponse: data,
         timestamp: new Date().toISOString()
       });
-      
+
       setRadioServerState(state);
     } catch (error) {
-      logger.error('Failed to fetch radio server status (Listener Dashboard):', error);
+      logger.error('Failed to fetch radio server status (Listener Dashboard fallback):', error);
       setRadioServerState("unknown");
+    } finally {
+      isFetchingRadioStatusRef.current = false;
     }
   };
 
-  // Poll radio server status every 10 seconds
+  // Minimal fallback polling - only if WebSocket fails (every 5 minutes instead of 10 seconds)
   useEffect(() => {
-    // Initial check
-    fetchRadioStatus();
+    // Initial check immediately to avoid delays - WebSocket will override this if available
+    fetchRadioStatus(); // Check immediately on mount
 
-    // Set up polling interval
-    radioStatusPollRef.current = setInterval(fetchRadioStatus, 10000);
+    // Set up minimal polling interval as ultimate fallback
+    radioStatusPollRef.current = setInterval(fetchRadioStatus, 300000); // 5 minutes
 
     return () => {
       if (radioStatusPollRef.current) {
@@ -336,34 +349,10 @@ export default function ListenerDashboard() {
 
     const resolvedUrl = serverConfig?.streamUrl || config.icecastUrl;
 
-    // Create audio element once
+    // Audio element is managed by StreamingContext - just ensure URL is set
     if (!audioRef.current) {
-      logger.debug('Creating shared audio element');
-      audioRef.current = new Audio();
-      audioRef.current.preload = 'none';
-      audioRef.current.volume = isMuted ? 0 : volume / 100;
-
-      // Only set initial src if we have a URL and not already playing
-      if (resolvedUrl) {
-        audioRef.current.src = resolvedUrl;
-        lastStreamUrlRef.current = resolvedUrl;
-        logger.debug('Initialized audio source to:', resolvedUrl);
-      }
-
-      // Attach diagnostic listeners once
-      audioRef.current.onloadstart = () => logger.debug('Audio loading started');
-      audioRef.current.oncanplay = () => logger.debug('Audio can start playing');
-      audioRef.current.onplay = () => logger.debug('Audio play event fired');
-      audioRef.current.onpause = () => logger.debug('Audio pause event fired');
-      audioRef.current.onerror = (e) => {
-        const isEmptySrcError = e.target?.error?.code === 4 && e.target?.error?.message?.includes('Empty src attribute');
-        if (isEmptySrcError || e.target?.error?.message?.includes('MEDIA_ELEMENT_ERROR')) {
-          logger.debug('Ignoring expected audio error:', e.target?.error?.message);
-          return;
-        }
-        logger.error('Audio error:', e);
-      };
-      return; // element created; do not proceed further in this tick
+      logger.debug('Audio element not yet created by StreamingContext');
+      return; // Wait for StreamingContext to create the element
     }
 
     // If URL changed, only update src when not actively playing to avoid cutting audio
@@ -384,16 +373,7 @@ export default function ListenerDashboard() {
 
   // Removed periodic HTTP status checks; rely entirely on WebSocket updates
 
-  // Handle volume changes (non-disruptive)
-  useEffect(() => {
-    if (audioRef.current) {
-      const newVolume = isMuted ? 0 : volume / 100;
-      if (audioRef.current.volume !== newVolume) {
-        audioRef.current.volume = newVolume;
-        logger.debug('Volume updated to:', newVolume);
-      }
-    }
-  }, [volume, isMuted]);
+  // Volume is managed by StreamingContext
 
   // Add this helper function at the top of the component
   const isAtBottom = (container) => {
@@ -739,6 +719,7 @@ export default function ListenerDashboard() {
 
             case 'BROADCAST_ENDED':
               logger.debug('Stream ended via WebSocket');
+              broadcastEndedRef.current = true; // Mark broadcast as explicitly ended
               // Fresh clear
               resetForNewBroadcast(null);
               break;
@@ -1029,6 +1010,13 @@ export default function ListenerDashboard() {
 
   // Helper function to fetch current broadcast info
   const fetchCurrentBroadcastInfo = async () => {
+    // Prevent concurrent API calls to avoid spamming
+    if (isFetchingBroadcastInfoRef.current) {
+      logger.debug('Broadcast info fetch already in progress, skipping');
+      return;
+    }
+
+    isFetchingBroadcastInfoRef.current = true;
     setBroadcastLoading(true);
     try {
       // Fetch live broadcasts from API
@@ -1049,6 +1037,7 @@ export default function ListenerDashboard() {
       logger.error("Error fetching current broadcast info:", error);
     } finally {
       setBroadcastLoading(false);
+      isFetchingBroadcastInfoRef.current = false;
     }
   };
 
@@ -1124,15 +1113,14 @@ export default function ListenerDashboard() {
         logger.debug('Setting up global broadcast status WebSocket...');
 
         // Subscribe to global broadcast status updates (no specific broadcast ID)
-        const connection = await broadcastService.subscribeToBroadcastUpdates(null, (message) => {
+        const connection = await broadcastService.subscribeToGlobalBroadcastStatus((message) => {
           logger.debug('Global broadcast update received:', message);
 
           switch (message.type) {
             case 'BROADCAST_STARTED':
               logger.debug('New broadcast started via global WebSocket');
-              // CRITICAL FIX: Immediately fetch complete broadcast information
-              // This is essential for audio source switching scenarios where the DJ
-              // reconnects and creates a new broadcast session
+              broadcastEndedRef.current = false; // Reset ended flag for new broadcast
+              // Update state but don't fetch broadcast info - let listener WS handle this
               if (message.broadcast) {
                 logger.debug('Updating to new broadcast from global WebSocket:', message.broadcast);
                 logger.debug('Updating broadcast ID from', currentBroadcastId, 'to', message.broadcast.id, 'via global WebSocket');
@@ -1140,15 +1128,13 @@ export default function ListenerDashboard() {
                 setCurrentBroadcastId(message.broadcast.id);
                 // This will immediately trigger WebSocket setup for chat and song requests
                 logger.debug('Broadcast ID updated, WebSocket connections will be established immediately');
+                setBroadcastSession((s) => s + 1); // <--- increment session when broadcast starts
               }
-              // Always fetch complete details to ensure UI is up-to-date
-              logger.debug('Fetching complete broadcast information via global WebSocket after BROADCAST_STARTED');
-              fetchCurrentBroadcastInfo();
-              setBroadcastSession((s) => s + 1); // <--- increment session when broadcast starts
               break;
 
             case 'BROADCAST_ENDED':
               logger.debug('Broadcast ended via global WebSocket');
+              broadcastEndedRef.current = true; // Mark broadcast as explicitly ended
               // Only clear state if it matches the current broadcast
               if (!message.broadcast || message.broadcast.id === currentBroadcastId) {
                 setCurrentBroadcast(null);
@@ -1167,9 +1153,6 @@ export default function ListenerDashboard() {
                 setCurrentBroadcastId(message.broadcast.id);
                 // This will immediately trigger WebSocket setup for chat and song requests
                 logger.debug('Broadcast went live, WebSocket connections will be established immediately');
-                // Fetch complete details for the new live broadcast
-                logger.debug('Fetching complete broadcast information for newly live broadcast');
-                fetchCurrentBroadcastInfo();
                 setBroadcastSession((s) => s + 1); // <--- increment session when broadcast goes live
               } else if (message.broadcast && message.broadcast.status !== 'LIVE') {
                 // If this was the current broadcast and it's no longer live
@@ -1316,202 +1299,7 @@ export default function ListenerDashboard() {
     loadInitialPoll();
   }, [currentBroadcastId, broadcastSession, currentUser]);
 
-  // Toggle play/pause with enhanced logic from ListenerDashboard2.jsx
-  const togglePlay = async () => {
-    logger.debug('Toggle play called, current state:', { 
-      localAudioPlaying, 
-      wsReadyState: listenerWsConnected,
-      audioRefExists: !!audioRef.current,
-      serverConfigExists: !!serverConfig,
-      streamUrl: serverConfig?.streamUrl
-    })
-
-    if (!audioRef.current || !serverConfig) {
-      logger.error('Audio player not ready:', {
-        audioRefCurrent: !!audioRef.current,
-        serverConfig: !!serverConfig,
-        serverConfigStreamUrl: serverConfig?.streamUrl
-      });
-      setFilteredStreamError("Audio player not ready. Please wait...")
-      return
-    }
-
-    try {
-      if (localAudioPlaying) {
-        logger.debug('Pausing playback')
-        audioRef.current.pause()
-        setLocalAudioPlaying(false); // Update local state
-        logger.debug('Stream paused')
-
-        // Notify server that listener stopped playing
-        if (listenerWsConnected) {
-          const message = {
-            type: 'LISTENER_STATUS',
-            action: 'STOP_LISTENING',
-            broadcastId: currentBroadcastId,
-            userId: currentUser?.id || null,
-            userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
-            timestamp: Date.now()
-          };
-          globalWebSocketService.sendListenerStatusMessage(JSON.stringify(message));
-          logger.debug('Sent listener stop message to server:', message);
-        }
-      } else {
-        logger.debug('Starting playback');
-
-        // Clear any previous errors
-        setFilteredStreamError(null);
-
-        // Improved URL handling with format fallbacks
-        let streamUrl = serverConfig.streamUrl;
-
-        // Ensure proper protocol (force HTTPS for listener stream)
-        if (!/^https?:\/\//i.test(streamUrl)) {
-          streamUrl = `https://${streamUrl}`;
-        }
-
-        logger.debug('Primary stream URL:', streamUrl);
-
-        // Create array of fallback URLs for better browser compatibility
-        const streamUrls = [
-          streamUrl, // Original URL (likely .ogg)
-          streamUrl.replace('.ogg', ''), // Without extension
-          streamUrl.replace('.ogg', '.mp3'), // MP3 fallback
-          streamUrl.replace('.ogg', '.aac'), // AAC fallback
-        ];
-
-        // Remove duplicates
-        const uniqueUrls = [...new Set(streamUrls)];
-        logger.debug('Trying stream URLs in order:', uniqueUrls);
-
-        // Try URLs sequentially
-        const tryStreamUrl = async (urls, index = 0) => {
-          if (index >= urls.length) {
-            throw new Error('All stream formats failed to load');
-          }
-
-          const currentUrl = urls[index];
-          logger.debug(`Trying stream URL ${index + 1}/${urls.length}:`, currentUrl);
-
-          return new Promise((resolve, reject) => {
-            // Set up audio element for this attempt
-            audioRef.current.src = currentUrl;
-            audioRef.current.load();
-
-            // Set up event listeners for this attempt
-            const handleCanPlay = () => {
-              logger.debug('Audio can play with URL:', currentUrl);
-              cleanup();
-              resolve(currentUrl);
-            };
-
-            const handleError = (e) => {
-              logger.debug(`URL ${currentUrl} failed:`, e);
-              cleanup();
-              tryStreamUrl(urls, index + 1).then(resolve).catch(reject);
-            };
-
-            const handleLoadStart = () => {
-              logger.debug('Loading started for:', currentUrl);
-            };
-
-            const cleanup = () => {
-              audioRef.current.removeEventListener('canplay', handleCanPlay);
-              audioRef.current.removeEventListener('error', handleError);
-              audioRef.current.removeEventListener('loadstart', handleLoadStart);
-            };
-
-            // Add event listeners
-            audioRef.current.addEventListener('canplay', handleCanPlay, { once: true });
-            audioRef.current.addEventListener('error', handleError, { once: true });
-            audioRef.current.addEventListener('loadstart', handleLoadStart, { once: true });
-
-            // Set a timeout to try next URL if this one takes too long
-            setTimeout(() => {
-              if (audioRef.current.readyState === 0) { // HAVE_NOTHING
-                logger.debug('URL taking too long, trying next:', currentUrl);
-                cleanup();
-                tryStreamUrl(urls, index + 1).then(resolve).catch(reject);
-              }
-            }, 5000); // 5 second timeout
-          });
-        };
-
-        try {
-          const workingUrl = await tryStreamUrl(uniqueUrls);
-          logger.debug('Found working stream URL:', workingUrl);
-
-          // Set final configuration
-          audioRef.current.volume = isMuted ? 0 : volume / 100;
-          audioRef.current.crossOrigin = 'anonymous';
-
-          // Attempt to play
-          const playPromise = audioRef.current.play();
-
-          if (playPromise !== undefined) {
-            playPromise
-              .then(() => {
-                logger.debug('Playback started successfully');
-                setLocalAudioPlaying(true);
-                setFilteredStreamError(null);
-
-                // Notify server that listener started playing
-                if (listenerWsConnected) {
-                  const message = {
-                    type: 'LISTENER_STATUS',
-                    action: 'START_LISTENING',
-                    broadcastId: currentBroadcastId,
-                    userId: currentUser?.id || null,
-                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
-                    timestamp: Date.now()
-                  };
-                  globalWebSocketService.sendListenerStatusMessage(JSON.stringify(message));
-                  logger.debug('Sent listener start message to server:', message);
-                }
-              })
-              .catch(error => {
-                logger.error("Playback failed:", error);
-
-                if (error.name === 'NotAllowedError') {
-                  setFilteredStreamError("Browser blocked autoplay. Please click play again to start listening.");
-                } else if (error.name === 'NotSupportedError') {
-                  setFilteredStreamError("Your browser doesn't support this audio format. Please try a different browser or check if the stream is live.");
-                } else if (error.name === 'AbortError') {
-                  setFilteredStreamError("Playback was interrupted. Please try again.");
-                } else {
-                  setFilteredStreamError(`Playback failed: ${error.message}. Please check if the stream is live.`);
-                }
-                setLocalAudioPlaying(false);
-                logger.debug('Stream paused due to error');
-
-                // Notify server that listener stopped playing due to error
-                if (listenerWsConnected) {
-                  const message = {
-                    type: 'LISTENER_STATUS',
-                    action: 'STOP_LISTENING',
-                    broadcastId: currentBroadcastId,
-                    userId: currentUser?.id || null,
-                    userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
-                    timestamp: Date.now()
-                  };
-                  globalWebSocketService.sendListenerStatusMessage(JSON.stringify(message));
-                  logger.debug('Sent listener stop message to server (due to error):', message);
-                }
-              });
-          } else {
-            logger.warn('Play promise is undefined, cannot track playback status');
-          }
-        } catch (error) {
-          logger.error('All stream URLs failed:', error);
-          setFilteredStreamError('Unable to load audio stream. The broadcast may not be live or your browser may not support the stream format.');
-          setLocalAudioPlaying(false);
-        }
-      }
-    } catch (error) {
-      logger.error("Error toggling playback:", error);
-      setFilteredStreamError(`Playback error: ${error.message}. Please try again.`);
-    }
-  }
+  // Audio playback is managed by StreamingContext
 
   // Handle song request submission
   const handleSongRequest = async () => {
@@ -1916,6 +1704,33 @@ export default function ListenerDashboard() {
             setLocalListenerCount(data.listenerCount);
           }
 
+          // CRITICAL: Update radio server state immediately from WebSocket health data
+          // This eliminates the 30-second delay by replacing HTTP polling
+          if (data.health) {
+            const health = data.health;
+            logger.debug('ListenerDashboard: Updating radio server state from WebSocket health:', health);
+
+            // Determine server state from health data
+            let serverState = 'unknown';
+            if (health.radioServerState) {
+              // Use the direct radioServerState if provided
+              serverState = health.radioServerState;
+            } else if (health.broadcastLive === true) {
+              if (health.healthy === true) {
+                serverState = 'running'; // Server is healthy and broadcasting
+              } else if (health.recovering === true) {
+                serverState = 'running'; // Server is recovering but still broadcasting
+              } else {
+                serverState = 'stopped'; // Server is broadcasting but unhealthy
+              }
+            } else {
+              serverState = 'stopped'; // No broadcast active
+            }
+
+            logger.debug('ListenerDashboard: Computed server state from WebSocket:', serverState);
+            setRadioServerState(serverState);
+          }
+
           // Detect live status transitions and react immediately
           if (typeof data.isLive === 'boolean') {
             const prev = lastIsLiveRef.current;
@@ -1923,7 +1738,8 @@ export default function ListenerDashboard() {
 
             // When stream just went live, immediately fetch current broadcast and refresh session
             if (data.isLive && prev !== true) {
-              logger.debug('ListenerDashboard: Detected live transition');
+              logger.debug('ListenerDashboard: Detected live transition via WebSocket');
+              broadcastEndedRef.current = false; // Reset ended flag for new live broadcast
               // Fresh start: clear all and re-subscribe with the new ID
               if (data.broadcastId) {
                 logger.debug('ListenerDashboard: Using broadcastId from WS:', data.broadcastId);
@@ -1936,9 +1752,9 @@ export default function ListenerDashboard() {
               fetchCurrentBroadcastInfo().catch((e) => logger.error('Error fetching current broadcast after live transition:', e));
             }
 
-            // When stream ended, clear current broadcast
-            if (!data.isLive && prev !== false) {
-              logger.debug('ListenerDashboard: Detected end of stream, clearing current broadcast');
+            // When stream ended, clear current broadcast (but only if broadcast wasn't explicitly ended)
+            if (!data.isLive && prev !== false && !broadcastEndedRef.current) {
+              logger.debug('ListenerDashboard: Detected end of stream via WebSocket, clearing current broadcast');
               resetForNewBroadcast(null);
             }
           }
