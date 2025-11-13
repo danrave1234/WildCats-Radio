@@ -161,6 +161,12 @@ export function StreamingProvider({ children }) {
       }
     };
 
+    // Only poll when the listener/status WebSocket is NOT connected.
+    // When `websocketConnected` is true, ListenerStatusHandler provides real-time health data.
+    if (websocketConnected) {
+      return () => {};
+    }
+
     // When WebSocket is unavailable, poll less frequently (60s) as fallback
     const pollInterval = 60000; // 60 seconds fallback polling
 

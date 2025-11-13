@@ -1,5 +1,6 @@
 
 import { createLogger } from './logger';
+import WebSocketReconnectManager from '../utils/WebSocketReconnectManager';
 
 const logger = createLogger('GlobalWebSocketService');
 
@@ -19,6 +20,25 @@ class GlobalWebSocketService {
     this.djReconnectTimer = null;
     this.listenerStatusReconnectTimer = null;
     this.pollReconnectTimer = null;
+
+    // Exponential backoff reconnection managers
+    this.djReconnectManager = new WebSocketReconnectManager({
+      baseDelay: 1000,
+      maxDelay: 30000,
+      maxAttempts: 20, // More attempts for DJ WebSocket (critical)
+      onMaxAttemptsReached: (error) => {
+        logger.error('DJ WebSocket max reconnection attempts reached', error);
+      }
+    });
+    
+    this.listenerStatusReconnectManager = new WebSocketReconnectManager({
+      baseDelay: 1000,
+      maxDelay: 30000,
+      maxAttempts: 10,
+      onMaxAttemptsReached: (error) => {
+        logger.error('Listener/Status WebSocket max reconnection attempts reached', error);
+      }
+    });
 
     // Connection health monitoring
     this.djLastPongTime = null;
@@ -63,8 +83,8 @@ class GlobalWebSocketService {
 
   _handleNetworkReconnection() {
     // Reset reconnection attempts when network comes back online
-    this.djReconnectAttempts = 0;
-    this.listenerStatusReconnectAttempts = 0;
+    this.djReconnectManager.reset();
+    this.listenerStatusReconnectManager.reset();
 
     // Attempt to reconnect if we have stored URLs and connections are down
     if (this.lastDJUrl && !this.isDJWebSocketConnected()) {
@@ -78,32 +98,34 @@ class GlobalWebSocketService {
     }
   }
 
-  // --- Helper for Reconnection Logic ---
+  // --- Helper for Reconnection Logic (Legacy - kept for backward compatibility) ---
   _scheduleReconnect(type, connectFunction, attemptsProperty, timerProperty) {
-    // Use different max attempts for DJ websocket (more critical)
-    const maxAttempts = type === 'DJ' ? this.DJ_MAX_RECONNECT_ATTEMPTS : this.MAX_RECONNECT_ATTEMPTS;
+    // Use exponential backoff manager for reconnection
+    const reconnectManager = type === 'DJ' ? this.djReconnectManager : this.listenerStatusReconnectManager;
 
-    if (this[attemptsProperty] < maxAttempts) {
-      this[attemptsProperty]++;
-
-      // Don't attempt reconnection if network is offline
-      if (!this.networkStatusOnline) {
-        logger.warn(`Network is offline, delaying ${type} WebSocket reconnection attempt ${this[attemptsProperty]}/${maxAttempts}`);
-        this[timerProperty] = setTimeout(() => {
-          this._scheduleReconnect(type, connectFunction, attemptsProperty, timerProperty);
-        }, 5000); // Check again in 5 seconds
-        return;
-      }
-
-      const delay = Math.min(this.BASE_RECONNECT_DELAY * Math.pow(2, this[attemptsProperty] - 1) + Math.floor(Math.random() * 1000), 30000); // Max 30s
-      logger.warn(`Scheduling ${type} WebSocket reconnection attempt ${this[attemptsProperty]}/${maxAttempts} in ${delay}ms`);
+    // Don't attempt reconnection if network is offline
+    if (!this.networkStatusOnline) {
+      logger.warn(`Network is offline, delaying ${type} WebSocket reconnection`);
       this[timerProperty] = setTimeout(() => {
-        connectFunction();
-      }, delay);
-    } else {
-      logger.error(`Max ${type} WebSocket reconnection attempts (${maxAttempts}) reached, giving up.`);
-      // Optionally, notify UI or trigger a more severe error state
+        this._scheduleReconnect(type, connectFunction, attemptsProperty, timerProperty);
+      }, 5000); // Check again in 5 seconds
+      return;
     }
+
+    // Use exponential backoff manager
+    reconnectManager.reconnect(() => {
+      return new Promise((resolve, reject) => {
+        try {
+          connectFunction();
+          // Assume success if no immediate error
+          setTimeout(resolve, 100);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    }).catch((error) => {
+      logger.error(`${type} WebSocket reconnection failed after max attempts:`, error);
+    });
   }
 
   _clearReconnectTimer(timerProperty) {
@@ -130,7 +152,8 @@ class GlobalWebSocketService {
 
       this.djWebSocket.onopen = () => {
         logger.info('DJ WebSocket connected successfully.');
-        this.djReconnectAttempts = 0; // Reset attempts on success
+        this.djReconnectAttempts = 0; // Reset attempts on success (legacy)
+        this.djReconnectManager.reset(); // Reset exponential backoff manager
         this.djLastPongTime = Date.now(); // Initialize pong time
         this.djOpenCallbacks.forEach(cb => cb());
         this._startDJPing();
@@ -278,7 +301,8 @@ class GlobalWebSocketService {
 
       this.listenerStatusWebSocket.onopen = () => {
         logger.info('Listener/Status WebSocket connected successfully.');
-        this.listenerStatusReconnectAttempts = 0; // Reset attempts on success
+        this.listenerStatusReconnectAttempts = 0; // Reset attempts on success (legacy)
+        this.listenerStatusReconnectManager.reset(); // Reset exponential backoff manager
         this.listenerStatusOpenCallbacks.forEach(cb => cb());
         this._startListenerStatusPing();
       };

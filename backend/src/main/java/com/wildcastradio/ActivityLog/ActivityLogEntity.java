@@ -42,8 +42,21 @@ public class ActivityLogEntity {
 
     // Relationships
     @ManyToOne
-    @JoinColumn(name = "user_id", nullable = false)
+    @JoinColumn(name = "user_id", nullable = true) // Nullable for system-level audit logs
     private UserEntity user;
+
+    // Audit metadata fields for enhanced tracking
+    @Column(name = "broadcast_id")
+    private Long broadcastId;
+
+    @Column(name = "metadata", length = 1000) // JSON string for additional context
+    private String metadata; // Stores JSON: {oldStatus, newStatus, idempotencyKey, etc.}
+
+    @Column(name = "ip_address", length = 45) // IPv6 max length
+    private String ipAddress;
+
+    @Column(name = "is_system_event")
+    private Boolean isSystemEvent = false; // True for system-level events (recovery, health checks, etc.)
 
     // Constructors
     public ActivityLogEntity() {
@@ -62,6 +75,27 @@ public class ActivityLogEntity {
         this.description = description;
         this.user = user;
         this.timestamp = LocalDateTime.now();
+        this.isSystemEvent = (user == null);
+    }
+
+    // Constructor for system-level audit logs (no user)
+    public ActivityLogEntity(ActivityType activityType, String description) {
+        this.activityType = activityType;
+        this.description = description;
+        this.user = null;
+        this.timestamp = LocalDateTime.now();
+        this.isSystemEvent = true;
+    }
+
+    // Constructor with metadata
+    public ActivityLogEntity(ActivityType activityType, String description, UserEntity user, Long broadcastId, String metadata) {
+        this.activityType = activityType;
+        this.description = description;
+        this.user = user;
+        this.broadcastId = broadcastId;
+        this.metadata = metadata;
+        this.timestamp = LocalDateTime.now();
+        this.isSystemEvent = (user == null);
     }
 
     // Getters and Setters
@@ -105,10 +139,64 @@ public class ActivityLogEntity {
         this.user = user;
     }
 
+    public Long getBroadcastId() {
+        return broadcastId;
+    }
+
+    public void setBroadcastId(Long broadcastId) {
+        this.broadcastId = broadcastId;
+    }
+
+    public String getMetadata() {
+        return metadata;
+    }
+
+    public void setMetadata(String metadata) {
+        this.metadata = metadata;
+    }
+
+    public String getIpAddress() {
+        return ipAddress;
+    }
+
+    public void setIpAddress(String ipAddress) {
+        this.ipAddress = ipAddress;
+    }
+
+    public Boolean getIsSystemEvent() {
+        return isSystemEvent != null ? isSystemEvent : false;
+    }
+
+    public void setIsSystemEvent(Boolean isSystemEvent) {
+        this.isSystemEvent = isSystemEvent;
+    }
+
     // Activity type enum
     public enum ActivityType {
-        LOGIN, LOGOUT, BROADCAST_START, BROADCAST_END, PROFILE_UPDATE, SONG_REQUEST,
+        // User activities
+        LOGIN, LOGOUT, PROFILE_UPDATE, SONG_REQUEST,
         USER_REGISTER, USER_ROLE_CHANGE, USER_CREATE, SCHEDULE_CREATE, EMAIL_VERIFY,
-        SERVER_START, SERVER_STOP
+        
+        // Broadcast lifecycle
+        BROADCAST_START, BROADCAST_END, BROADCAST_CREATE, BROADCAST_UPDATE, BROADCAST_CANCEL,
+        
+        // Broadcast state transitions (audit)
+        BROADCAST_STATE_TRANSITION, // SCHEDULED -> LIVE, LIVE -> ENDED, etc.
+        
+        // System events
+        SERVER_START, SERVER_STOP,
+        
+        // Recovery and health events (audit)
+        BROADCAST_RECOVERY, // Auto-recovery on startup
+        BROADCAST_AUTO_END, // Auto-end stale broadcast
+        BROADCAST_CHECKPOINT, // Periodic checkpointing
+        BROADCAST_HEALTH_CHECK_FAILED, // Health check failures
+        BROADCAST_HEALTH_CHECK_RECOVERED, // Health recovery
+        
+        // Circuit breaker events (audit)
+        CIRCUIT_BREAKER_OPEN, CIRCUIT_BREAKER_CLOSED, CIRCUIT_BREAKER_HALF_OPEN,
+        
+        // Idempotency events (audit)
+        IDEMPOTENT_OPERATION_DETECTED // Duplicate operation prevented
     }
 } 

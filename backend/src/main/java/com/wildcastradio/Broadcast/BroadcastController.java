@@ -97,6 +97,7 @@ public class BroadcastController {
     @PreAuthorize("hasAnyRole('DJ','ADMIN')") // LISTENER access removed - use proper DJ/ADMIN roles
     public ResponseEntity<BroadcastDTO> startBroadcast(
             @PathVariable Long id,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication) {
 
         if (authentication == null) {
@@ -106,7 +107,7 @@ public class BroadcastController {
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        BroadcastEntity broadcast = broadcastService.startBroadcast(id, user);
+        BroadcastEntity broadcast = broadcastService.startBroadcast(id, user, idempotencyKey);
         return ResponseEntity.ok(BroadcastDTO.fromEntity(broadcast));
     }
 
@@ -114,6 +115,7 @@ public class BroadcastController {
     @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<BroadcastDTO> endBroadcast(
             @PathVariable Long id,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication) {
 
         if (authentication == null) {
@@ -123,7 +125,7 @@ public class BroadcastController {
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        BroadcastEntity broadcast = broadcastService.endBroadcast(id, user);
+        BroadcastEntity broadcast = broadcastService.endBroadcast(id, user, idempotencyKey);
         return ResponseEntity.ok(BroadcastDTO.fromEntity(broadcast));
     }
 

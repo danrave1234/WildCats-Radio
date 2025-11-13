@@ -198,10 +198,20 @@ export default function ListenerDashboard() {
     }
   };
 
-  // Minimal fallback polling - only if WebSocket fails (every 5 minutes instead of 10 seconds)
+  // Minimal fallback polling - only if listener WebSocket is NOT connected
+  // WebSocket (ListenerStatusHandler) already provides real-time updates for radio server status.
   useEffect(() => {
-    // Initial check immediately to avoid delays - WebSocket will override this if available
-    fetchRadioStatus(); // Check immediately on mount
+    // If listener WebSocket is connected, rely entirely on WebSocket data (no HTTP polling)
+    if (listenerWsConnected) {
+      if (radioStatusPollRef.current) {
+        clearInterval(radioStatusPollRef.current);
+        radioStatusPollRef.current = null;
+      }
+      return;
+    }
+
+    // Initial check immediately to avoid delays when WebSocket is unavailable
+    fetchRadioStatus();
 
     // Set up minimal polling interval as ultimate fallback
     radioStatusPollRef.current = setInterval(fetchRadioStatus, 300000); // 5 minutes
@@ -209,9 +219,10 @@ export default function ListenerDashboard() {
     return () => {
       if (radioStatusPollRef.current) {
         clearInterval(radioStatusPollRef.current);
+        radioStatusPollRef.current = null;
       }
     };
-  }, []);
+  }, [listenerWsConnected]);
 
   // Sync slow mode config from the current broadcast for display
   useEffect(() => {
@@ -1041,7 +1052,7 @@ export default function ListenerDashboard() {
     }
   };
 
-  // Check if a broadcast is live
+  // Check if a broadcast is live (one-time HTTP bootstrap, then rely on WebSockets)
   useEffect(() => {
     const checkBroadcastStatus = async () => {
       // Skip polling if WebSocket is connected and handling broadcast updates
@@ -1090,14 +1101,11 @@ export default function ListenerDashboard() {
       }
     }
 
-    // Initial check
+    // Single bootstrap check; afterwards, rely on WebSocket updates
     checkBroadcastStatus();
 
-    // Very minimal polling since WebSocket handles all real-time broadcast updates
-    // Only check occasionally for fallback scenarios or initial setup
-    const interval = setInterval(checkBroadcastStatus, 600000); // Check every 10 minutes instead of 5 minutes
-
-    return () => clearInterval(interval);
+    // No recurring polling here; WebSockets handle real-time updates.
+    return () => {};
   }, [targetBroadcastId]); // Add targetBroadcastId as dependency
 
   // Global broadcast status WebSocket for real-time broadcast detection

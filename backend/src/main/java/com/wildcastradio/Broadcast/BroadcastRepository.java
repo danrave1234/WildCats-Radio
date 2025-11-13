@@ -2,6 +2,7 @@ package com.wildcastradio.Broadcast;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -91,4 +92,9 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
     // Fetch broadcasts by DJ with chat messages only
     @Query("SELECT DISTINCT b FROM BroadcastEntity b LEFT JOIN FETCH b.chatMessages WHERE b.createdBy = :dj")
     List<BroadcastEntity> findByCreatedByWithChatMessages(@Param("dj") com.wildcastradio.User.UserEntity dj);
+    
+    // Idempotency key lookups
+    Optional<BroadcastEntity> findByStartIdempotencyKey(String startIdempotencyKey);
+    
+    Optional<BroadcastEntity> findByEndIdempotencyKey(String endIdempotencyKey);
 } 

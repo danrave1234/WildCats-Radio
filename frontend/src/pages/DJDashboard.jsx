@@ -524,15 +524,24 @@ export default function DJDashboard() {
     return () => clearInterval(interval)
   }, [])
 
-  // Radio Server Status Polling (every 10 seconds)
+  // Radio Server Status Polling (fallback only - WebSocket provides real-time updates via StreamingContext)
   useEffect(() => {
-    // Fetch initial status
+    // If global streaming WebSocket is connected, rely on that for radio status
+    if (websocketConnected) {
+      if (radioStatusPollRef.current) {
+        clearInterval(radioStatusPollRef.current)
+        radioStatusPollRef.current = null
+      }
+      return
+    }
+
+    // Fetch initial status when WebSocket is not connected
     fetchRadioStatus()
 
-    // Set up polling interval
+    // Set up less aggressive polling interval as ultimate fallback
     radioStatusPollRef.current = setInterval(() => {
       fetchRadioStatus()
-    }, 10000) // Poll every 10 seconds
+    }, 60000) // Poll every 60 seconds instead of 10 seconds
 
     return () => {
       if (radioStatusPollRef.current) {
@@ -540,7 +549,7 @@ export default function DJDashboard() {
         radioStatusPollRef.current = null
       }
     }
-  }, [])
+  }, [websocketConnected])
 
   // Replace the connectStatusWebSocket useEffect with a simpler version that doesn't create its own WebSocket
   useEffect(() => {

@@ -1,4 +1,5 @@
-import { api, createWebSocketConnection, getCookie, logger, constructUrl } from './apiBase';
+import { api, getCookie, logger, constructUrl } from './apiBase';
+import stompClientManager from '../stompClientManager';
 
 /**
  * Notifications API
@@ -18,65 +19,63 @@ export const notificationApi = {
   updateUserPreferences: (prefs) => api.put('/api/auth/me/preferences', prefs),
 
   subscribeToNotifications: (callback) => {
-    const stompClient = createWebSocketConnection('/ws-radio');
-    let isConnected = false;
-    let pollingInterval = null;
-
-    const token = getCookie('token');
-    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-
     return new Promise((resolve) => {
-      stompClient.connect(headers, (frame) => {
-        logger.debug('Connected to WebSocket:', frame);
-        isConnected = true;
+      const token = getCookie('token');
+      const subscriptions = [];
 
-        // Only subscribe to user notifications if authenticated
-        if (token) {
-          stompClient.subscribe('/user/queue/notifications', (message) => {
-            try {
-              const notification = JSON.parse(message.body);
-              callback(notification);
-            } catch (error) {
-              logger.error('Error parsing notification:', error);
-            }
-          });
-        }
+      // Helper to resolve with unified disconnect/isConnected
+      const resolveWithSubscriptions = () => {
+        resolve({
+          disconnect: () => {
+            subscriptions.forEach((sub) => sub.unsubscribe && sub.unsubscribe());
+            subscriptions.length = 0;
+          },
+          isConnected: () => stompClientManager.isConnected(),
+        });
+      };
 
-        // Subscribe to public announcements for all users (authenticated and anonymous)
-        stompClient.subscribe('/topic/announcements/public', (message) => {
+      // Public announcements (everyone)
+      stompClientManager
+        .subscribe('/topic/announcements/public', (message) => {
           try {
             const payload = JSON.parse(message.body);
             callback(payload);
           } catch (error) {
             logger.error('Error parsing public announcement:', error);
           }
-        });
+        })
+        .then((sub) => {
+          subscriptions.push(sub);
 
-        resolve({
-          disconnect: () => {
-            if (stompClient && stompClient.connected) {
-              stompClient.disconnect();
-            }
-            if (pollingInterval) {
-              clearInterval(pollingInterval);
-              pollingInterval = null;
-            }
-            isConnected = false;
-          },
-          isConnected: () => isConnected
-        });
-      }, (error) => {
-        logger.error('WebSocket connection error:', error);
-        isConnected = false;
+          // User-specific notifications only when authenticated
+          if (token) {
+            return stompClientManager
+              .subscribe('/user/queue/notifications', (message) => {
+                try {
+                  const notification = JSON.parse(message.body);
+                  callback(notification);
+                } catch (error) {
+                  logger.error('Error parsing notification:', error);
+                }
+              })
+              .then((userSub) => {
+                subscriptions.push(userSub);
+                resolveWithSubscriptions();
+              });
+          }
 
-        // Do not start additional polling here; NotificationContext handles periodic refresh.
-        resolve({
-          disconnect: () => {
-            // no-op since no WS or polling were started
-          },
-          isConnected: () => false
+          // If not authenticated, resolve with only public subscription
+          resolveWithSubscriptions();
+          return null;
+        })
+        .catch((error) => {
+          logger.error('WebSocket connection error (notifications):', error);
+          // Do not start additional polling here; NotificationContext handles periodic refresh.
+          resolve({
+            disconnect: () => {},
+            isConnected: () => false,
+          });
         });
-      });
     });
   },
 
@@ -121,40 +120,30 @@ export const songRequestApi = {
 
   // Subscribe to real-time song request updates for a specific broadcast
   subscribeToSongRequests: (broadcastId, callback) => {
-    const stompClient = createWebSocketConnection('/ws-radio');
-
-    const token = getCookie('token');
-    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-
     return new Promise((resolve, reject) => {
-      stompClient.connect(headers, () => {
-        logger.debug('Connected to Song Requests WebSocket for broadcast:', broadcastId);
-
-        // Subscribe to broadcast-specific song request updates
-        const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/song-requests`, (message) => {
+      stompClientManager
+        .subscribe(`/topic/broadcast/${broadcastId}/song-requests`, (message) => {
           try {
             const songRequestData = JSON.parse(message.body);
             callback(songRequestData);
           } catch (error) {
             logger.error('Error parsing song request data:', error);
           }
+        })
+        .then((subscription) => {
+          resolve({
+            disconnect: () => {
+              if (subscription) {
+                subscription.unsubscribe();
+              }
+            },
+            isConnected: () => stompClientManager.isConnected(),
+          });
+        })
+        .catch((error) => {
+          logger.error('Song Requests WebSocket connection error:', error);
+          reject(error);
         });
-
-        resolve({
-          disconnect: () => {
-            if (subscription) {
-              subscription.unsubscribe();
-            }
-            if (stompClient && stompClient.connected) {
-              stompClient.disconnect();
-            }
-          },
-          isConnected: () => stompClient.connected
-        });
-      }, (error) => {
-        logger.error('Song Requests WebSocket connection error:', error);
-        reject(error);
-      });
     });
   },
 };
@@ -179,39 +168,29 @@ export const pollApi = {
   // WebSocket subscription for polls
   subscribeToPolls: (broadcastId, callback) => {
     return new Promise((resolve, reject) => {
-      const stompClient = createWebSocketConnection('/ws-radio');
-
-      const token = getCookie('token');
-      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-
-      stompClient.connect(headers, () => {
-        logger.debug('Connected to Polls WebSocket for broadcast:', broadcastId);
-
-        // Subscribe to broadcast-specific poll updates
-        const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/polls`, (message) => {
+      stompClientManager
+        .subscribe(`/topic/broadcast/${broadcastId}/polls`, (message) => {
           try {
             const pollData = JSON.parse(message.body);
             callback(pollData);
           } catch (error) {
             logger.error('Error parsing poll data:', error);
           }
+        })
+        .then((subscription) => {
+          resolve({
+            disconnect: () => {
+              if (subscription) {
+                subscription.unsubscribe();
+              }
+            },
+            isConnected: () => stompClientManager.isConnected(),
+          });
+        })
+        .catch((error) => {
+          logger.error('Polls WebSocket connection error:', error);
+          reject(error);
         });
-
-        resolve({
-          disconnect: () => {
-            if (subscription) {
-              subscription.unsubscribe();
-            }
-            if (stompClient && stompClient.connected) {
-              stompClient.disconnect();
-            }
-          },
-          isConnected: () => stompClient.connected
-        });
-      }, (error) => {
-        logger.error('Polls WebSocket connection error:', error);
-        reject(error);
-      });
     });
   }
 };

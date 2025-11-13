@@ -1,11 +1,15 @@
 package com.wildcastradio.ActivityLog;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wildcastradio.ActivityLog.DTO.ActivityLogDTO;
 import com.wildcastradio.User.UserEntity;
 
@@ -13,14 +17,108 @@ import com.wildcastradio.User.UserEntity;
 public class ActivityLogService {
 
     private final ActivityLogRepository activityLogRepository;
+    private final ObjectMapper objectMapper;
 
     public ActivityLogService(ActivityLogRepository activityLogRepository) {
         this.activityLogRepository = activityLogRepository;
+        this.objectMapper = new ObjectMapper();
     }
 
     public ActivityLogEntity logActivity(UserEntity user, ActivityLogEntity.ActivityType activityType, String description) {
         ActivityLogEntity activityLog = new ActivityLogEntity(activityType, description, user);
         return activityLogRepository.save(activityLog);
+    }
+
+    /**
+     * Log system-level audit event (no user required)
+     */
+    public ActivityLogEntity logSystemAudit(ActivityLogEntity.ActivityType activityType, String description) {
+        ActivityLogEntity activityLog = new ActivityLogEntity(activityType, description);
+        return activityLogRepository.save(activityLog);
+    }
+
+    /**
+     * Log audit event with metadata (for enhanced tracking)
+     */
+    public ActivityLogEntity logAuditWithMetadata(
+            UserEntity user,
+            ActivityLogEntity.ActivityType activityType,
+            String description,
+            Long broadcastId,
+            Map<String, Object> metadata) {
+        try {
+            String metadataJson = metadata != null && !metadata.isEmpty() 
+                ? objectMapper.writeValueAsString(metadata) 
+                : null;
+            
+            ActivityLogEntity activityLog = new ActivityLogEntity(
+                activityType, 
+                description, 
+                user, 
+                broadcastId, 
+                metadataJson
+            );
+            return activityLogRepository.save(activityLog);
+        } catch (JsonProcessingException e) {
+            // Fallback to simple logging if JSON serialization fails
+            ActivityLogEntity activityLog = new ActivityLogEntity(activityType, description, user);
+            activityLog.setBroadcastId(broadcastId);
+            return activityLogRepository.save(activityLog);
+        }
+    }
+
+    /**
+     * Log system audit event with metadata (no user)
+     */
+    public ActivityLogEntity logSystemAuditWithMetadata(
+            ActivityLogEntity.ActivityType activityType,
+            String description,
+            Long broadcastId,
+            Map<String, Object> metadata) {
+        try {
+            String metadataJson = metadata != null && !metadata.isEmpty() 
+                ? objectMapper.writeValueAsString(metadata) 
+                : null;
+            
+            ActivityLogEntity activityLog = new ActivityLogEntity(activityType, description);
+            activityLog.setBroadcastId(broadcastId);
+            activityLog.setMetadata(metadataJson);
+            return activityLogRepository.save(activityLog);
+        } catch (JsonProcessingException e) {
+            // Fallback to simple logging if JSON serialization fails
+            ActivityLogEntity activityLog = new ActivityLogEntity(activityType, description);
+            activityLog.setBroadcastId(broadcastId);
+            return activityLogRepository.save(activityLog);
+        }
+    }
+
+    /**
+     * Log broadcast state transition for audit trail
+     */
+    public ActivityLogEntity logBroadcastStateTransition(
+            UserEntity user,
+            Long broadcastId,
+            String broadcastTitle,
+            String oldStatus,
+            String newStatus,
+            String reason) {
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("oldStatus", oldStatus);
+        metadata.put("newStatus", newStatus);
+        if (reason != null) {
+            metadata.put("reason", reason);
+        }
+        
+        String description = String.format("Broadcast state transition: %s -> %s (%s)", 
+            oldStatus, newStatus, broadcastTitle);
+        
+        return logAuditWithMetadata(
+            user,
+            ActivityLogEntity.ActivityType.BROADCAST_STATE_TRANSITION,
+            description,
+            broadcastId,
+            metadata
+        );
     }
 
     public List<ActivityLogDTO> getActivityLogsForUser(UserEntity user) {

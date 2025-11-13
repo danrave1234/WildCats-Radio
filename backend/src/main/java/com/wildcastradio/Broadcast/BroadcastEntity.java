@@ -95,9 +95,37 @@ public class BroadcastEntity {
     @OneToMany(mappedBy = "broadcast", cascade = CascadeType.ALL)
     private List<SongRequestEntity> songRequests = new ArrayList<>();
 
-    // Broadcast status enum
+    // Idempotency keys for preventing duplicate operations
+    @Column(name = "start_idempotency_key", unique = true)
+    private String startIdempotencyKey;
+
+    @Column(name = "end_idempotency_key", unique = true)
+    private String endIdempotencyKey;
+
+    // Checkpoint fields for state persistence
+    @Column(name = "last_checkpoint_time")
+    private LocalDateTime lastCheckpointTime;
+
+    @Column(name = "current_duration_seconds")
+    private Long currentDurationSeconds;
+
+    // Broadcast status enum with state machine validation
     public enum BroadcastStatus {
-        SCHEDULED, LIVE, ENDED, TESTING
+        SCHEDULED, LIVE, ENDED, TESTING, CANCELLED;
+
+        /**
+         * Validates if transition from current status to new status is allowed
+         * @param newStatus The target status
+         * @return true if transition is allowed, false otherwise
+         */
+        public boolean canTransitionTo(BroadcastStatus newStatus) {
+            return switch (this) {
+                case SCHEDULED -> newStatus == LIVE || newStatus == CANCELLED || newStatus == TESTING;
+                case LIVE -> newStatus == ENDED;
+                case TESTING -> newStatus == LIVE || newStatus == ENDED;
+                case ENDED, CANCELLED -> false; // Terminal states
+            };
+        }
     }
 
     // Default constructor
@@ -265,5 +293,37 @@ public class BroadcastEntity {
 
     public void setSlowModeSeconds(Integer slowModeSeconds) {
         this.slowModeSeconds = slowModeSeconds != null ? slowModeSeconds : 0;
+    }
+
+    public String getStartIdempotencyKey() {
+        return startIdempotencyKey;
+    }
+
+    public void setStartIdempotencyKey(String startIdempotencyKey) {
+        this.startIdempotencyKey = startIdempotencyKey;
+    }
+
+    public String getEndIdempotencyKey() {
+        return endIdempotencyKey;
+    }
+
+    public void setEndIdempotencyKey(String endIdempotencyKey) {
+        this.endIdempotencyKey = endIdempotencyKey;
+    }
+
+    public LocalDateTime getLastCheckpointTime() {
+        return lastCheckpointTime;
+    }
+
+    public void setLastCheckpointTime(LocalDateTime lastCheckpointTime) {
+        this.lastCheckpointTime = lastCheckpointTime;
+    }
+
+    public Long getCurrentDurationSeconds() {
+        return currentDurationSeconds;
+    }
+
+    public void setCurrentDurationSeconds(Long currentDurationSeconds) {
+        this.currentDurationSeconds = currentDurationSeconds;
     }
 }

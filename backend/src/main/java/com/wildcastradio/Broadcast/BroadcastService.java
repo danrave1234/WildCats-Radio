@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +16,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.wildcastradio.ActivityLog.ActivityLogEntity;
 import com.wildcastradio.ActivityLog.ActivityLogService;
@@ -63,6 +65,9 @@ public class BroadcastService {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired(required = false)
+    private BroadcastCircuitBreaker circuitBreaker;
 
     // Live stream health check configuration
     @Value("${broadcast.healthCheck.enabled:true}")
@@ -205,169 +210,378 @@ public class BroadcastService {
     }
 
     public BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj) {
-        return startBroadcast(broadcastId, dj, false);
+        return startBroadcast(broadcastId, dj, false, null);
+    }
+
+    public BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj, String idempotencyKey) {
+        return startBroadcast(broadcastId, dj, false, idempotencyKey);
     }
 
     public BroadcastEntity startBroadcastTestMode(Long broadcastId, UserEntity dj) {
-        return startBroadcast(broadcastId, dj, true);
+        return startBroadcast(broadcastId, dj, true, null);
     }
 
-    private BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj, boolean testMode) {
-        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
+    @Transactional
+    private BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj, boolean testMode, String idempotencyKey) {
+        // Check circuit breaker
+        if (circuitBreaker != null && !circuitBreaker.allowRequest()) {
+            logger.warn("Circuit breaker is OPEN - blocking broadcast start request");
+            throw new IllegalStateException("Service temporarily unavailable. Please try again later.");
+        }
 
-        // Schedule is now embedded in broadcast entity, no separate activation needed
+        try {
+            // Check idempotency if key provided
+            if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
+                Optional<BroadcastEntity> existing = broadcastRepository.findByStartIdempotencyKey(idempotencyKey);
+                if (existing.isPresent()) {
+                    logger.info("Duplicate start request detected with idempotency key: {}. Returning existing broadcast.", idempotencyKey);
+                    circuitBreaker.recordSuccess();
+                    return existing.get();
+                }
+            }
+            BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
-        // Allow any DJ to start a broadcast, not just the creator
-        // This enables site-wide broadcast control
+            // State machine validation
+            BroadcastEntity.BroadcastStatus currentStatus = broadcast.getStatus();
+            if (!currentStatus.canTransitionTo(BroadcastEntity.BroadcastStatus.LIVE)) {
+                String errorMsg = String.format("Cannot start broadcast in state: %s. Valid transitions: SCHEDULED->LIVE, TESTING->LIVE", currentStatus);
+                logger.warn(errorMsg);
+                circuitBreaker.recordFailure();
+                throw new IllegalStateException(errorMsg);
+            }
 
-        if (testMode) {
-            // Test mode - bypass server checks
-            logger.info("Starting broadcast in TEST MODE (Google Cloud Icecast integration bypassed)");
-            // Generate a test stream URL
-            broadcast.setStreamUrl(icecastService.getStreamUrl() + "?test=true");
-        } else {
-            // Check if the Google Cloud Icecast server is accessible
-            boolean icecastServerAccessible = icecastService.checkIcecastServer();
+            // Schedule is now embedded in broadcast entity, no separate activation needed
+            // Allow any DJ to start a broadcast, not just the creator
+            // This enables site-wide broadcast control
 
-            // If the Google Cloud Icecast server is accessible, we can proceed
-            if (icecastServerAccessible) {
-                logger.info("Google Cloud Icecast server is available, proceeding with broadcast");
-
-                // Set the stream URL from Google Cloud Icecast service
-                broadcast.setStreamUrl(icecastService.getStreamUrl());
+            if (testMode) {
+                // Test mode - bypass server checks
+                logger.info("Starting broadcast in TEST MODE (Google Cloud Icecast integration bypassed)");
+                // Generate a test stream URL
+                broadcast.setStreamUrl(icecastService.getStreamUrl() + "?test=true");
             } else {
-                // If the Google Cloud Icecast server is not accessible, decide based on configuration
-                if (icecastService.isDegradedStartAllowed()) {
-                    logger.warn("Icecast server not accessible. Proceeding with broadcast in DEGRADED MODE using fallback stream URL");
-                    String fallbackUrl = icecastService.getFallbackStreamUrl();
-                    // Tag URL so clients can be aware (optional)
-                    if (fallbackUrl != null && !fallbackUrl.isEmpty()) {
+                // Check if the Google Cloud Icecast server is accessible
+                boolean icecastServerAccessible = icecastService.checkIcecastServer();
+
+                // If the Google Cloud Icecast server is accessible, we can proceed
+                if (icecastServerAccessible) {
+                    logger.info("Google Cloud Icecast server is available, proceeding with broadcast");
+
+                    // Set the stream URL from Google Cloud Icecast service
+                    broadcast.setStreamUrl(icecastService.getStreamUrl());
+                } else {
+                    // If the Google Cloud Icecast server is not accessible, decide based on configuration
+                    if (icecastService.isDegradedStartAllowed()) {
+                        logger.warn("Icecast server not accessible. Proceeding with broadcast in DEGRADED MODE using fallback stream URL");
+                        String fallbackUrl = icecastService.getFallbackStreamUrl();
+                        // Tag URL so clients can be aware (optional)
+                        if (fallbackUrl != null && !fallbackUrl.isEmpty()) {
+                            if (!fallbackUrl.contains("?")) {
+                                fallbackUrl = fallbackUrl + "?degraded=true";
+                            } else {
+                                fallbackUrl = fallbackUrl + "&degraded=true";
+                            }
+                        }
+                        broadcast.setStreamUrl(fallbackUrl != null ? fallbackUrl : icecastService.getStreamUrl());
+                    } else {
+                        // Force degraded start to avoid hard failure in dev/local environments
+                        logger.error("Failed to reach Icecast. Proceeding with broadcast in FORCED DEGRADED MODE");
+                        String fallbackUrl = icecastService.getFallbackStreamUrl();
+                        if (fallbackUrl == null || fallbackUrl.isEmpty()) {
+                            fallbackUrl = icecastService.getStreamUrl();
+                        }
+                        // Tag URL so clients can handle UI accordingly
                         if (!fallbackUrl.contains("?")) {
                             fallbackUrl = fallbackUrl + "?degraded=true";
                         } else {
                             fallbackUrl = fallbackUrl + "&degraded=true";
                         }
+                        broadcast.setStreamUrl(fallbackUrl);
                     }
-                    broadcast.setStreamUrl(fallbackUrl != null ? fallbackUrl : icecastService.getStreamUrl());
-                } else {
-                    // Force degraded start to avoid hard failure in dev/local environments
-                    logger.error("Failed to reach Icecast. Proceeding with broadcast in FORCED DEGRADED MODE");
-                    String fallbackUrl = icecastService.getFallbackStreamUrl();
-                    if (fallbackUrl == null || fallbackUrl.isEmpty()) {
-                        fallbackUrl = icecastService.getStreamUrl();
-                    }
-                    // Tag URL so clients can handle UI accordingly
-                    if (!fallbackUrl.contains("?")) {
-                        fallbackUrl = fallbackUrl + "?degraded=true";
-                    } else {
-                        fallbackUrl = fallbackUrl + "&degraded=true";
-                    }
-                    broadcast.setStreamUrl(fallbackUrl);
                 }
             }
-        }
 
-        broadcast.setActualStart(LocalDateTime.now());
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
-        broadcast.setStartedBy(dj);
+            // Capture old status for audit logging
+            BroadcastEntity.BroadcastStatus oldStatus = broadcast.getStatus();
 
-        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
-
-        // Log the activity
-        activityLogService.logActivity(
-            dj,
-            ActivityLogEntity.ActivityType.BROADCAST_START,
-            (testMode ? "TEST MODE: " : "") + "Broadcast started: " + savedBroadcast.getTitle()
-        );
-
-        // Only send notifications if not in test mode
-        if (!testMode) {
-            // Send notification to all users that the broadcast has started
-            String notificationMessage = "Broadcast started: " + savedBroadcast.getTitle();
-            sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_STARTED);
-
-            // Send WebSocket message for immediate UI updates
-            Map<String, Object> broadcastStartedMessage = new java.util.HashMap<>();
-            broadcastStartedMessage.put("type", "BROADCAST_STARTED");
-            broadcastStartedMessage.put("broadcast", BroadcastDTO.fromEntity(savedBroadcast));
-            messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastStartedMessage);
-
-            // Clear transient key used for "starting soon" notifications for this broadcast
-            if (savedBroadcast.getId() != null) {
-                notificationService.clearTransientKey("starting-soon:" + savedBroadcast.getId());
+            // Atomic update
+            broadcast.setActualStart(LocalDateTime.now());
+            broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
+            broadcast.setStartedBy(dj);
+            if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
+                broadcast.setStartIdempotencyKey(idempotencyKey);
             }
 
-            // WebSocket status updates are handled by the broadcast WebSocket controller
-        }
+            BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
 
-        return savedBroadcast;
+            // Log state transition for audit trail
+            Map<String, Object> metadata = new java.util.HashMap<>();
+            metadata.put("testMode", testMode);
+            if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
+                metadata.put("idempotencyKey", idempotencyKey);
+            }
+            
+            activityLogService.logBroadcastStateTransition(
+                dj,
+                savedBroadcast.getId(),
+                savedBroadcast.getTitle(),
+                oldStatus.toString(),
+                BroadcastEntity.BroadcastStatus.LIVE.toString(),
+                testMode ? "TEST MODE" : "Normal start"
+            );
+
+            // Log the activity (legacy support)
+            activityLogService.logActivity(
+                dj,
+                ActivityLogEntity.ActivityType.BROADCAST_START,
+                (testMode ? "TEST MODE: " : "") + "Broadcast started: " + savedBroadcast.getTitle()
+            );
+
+            // Record success in circuit breaker
+            if (circuitBreaker != null) {
+                circuitBreaker.recordSuccess();
+            }
+
+            // Send notifications asynchronously (non-blocking)
+            if (!testMode) {
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        // Send notification to all users that the broadcast has started
+                        String notificationMessage = "Broadcast started: " + savedBroadcast.getTitle();
+                        sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_STARTED);
+
+                        // Send WebSocket message for immediate UI updates
+                        Map<String, Object> broadcastStartedMessage = new java.util.HashMap<>();
+                        broadcastStartedMessage.put("type", "BROADCAST_STARTED");
+                        broadcastStartedMessage.put("broadcast", BroadcastDTO.fromEntity(savedBroadcast));
+                        messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastStartedMessage);
+
+                        // Clear transient key used for "starting soon" notifications for this broadcast
+                        if (savedBroadcast.getId() != null) {
+                            notificationService.clearTransientKey("starting-soon:" + savedBroadcast.getId());
+                        }
+                    } catch (Exception e) {
+                        logger.error("Error sending broadcast start notifications", e);
+                    }
+                });
+            }
+
+            return savedBroadcast;
+        } catch (IllegalStateException e) {
+            // Re-throw state machine validation errors
+            throw e;
+        } catch (Exception e) {
+            // Record failure in circuit breaker
+            if (circuitBreaker != null) {
+                circuitBreaker.recordFailure();
+            }
+            logger.error("Error starting broadcast", e);
+            throw e;
+        }
     }
 
     public BroadcastEntity endBroadcast(Long broadcastId, UserEntity dj) {
-        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
+        return endBroadcast(broadcastId, dj, null);
+    }
 
-        // Schedule is now embedded in broadcast entity, no separate completion needed
+    @Transactional
+    public BroadcastEntity endBroadcast(Long broadcastId, UserEntity dj, String idempotencyKey) {
+        // Check circuit breaker
+        if (circuitBreaker != null && !circuitBreaker.allowRequest()) {
+            logger.warn("Circuit breaker is OPEN - blocking broadcast end request");
+            throw new IllegalStateException("Service temporarily unavailable. Please try again later.");
+        }
 
-        // Allow any DJ to end a broadcast, not just the creator
-        // This enables site-wide broadcast control
+        try {
+            // Check idempotency if key provided
+            if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
+                Optional<BroadcastEntity> existing = broadcastRepository.findByEndIdempotencyKey(idempotencyKey);
+                if (existing.isPresent()) {
+                    logger.info("Duplicate end request detected with idempotency key: {}. Returning existing broadcast.", idempotencyKey);
+                    
+                    // Audit log: Idempotent operation detected
+                    Map<String, Object> metadata = new java.util.HashMap<>();
+                    metadata.put("idempotencyKey", idempotencyKey);
+                    metadata.put("existingBroadcastId", existing.get().getId());
+                    activityLogService.logAuditWithMetadata(
+                        dj,
+                        ActivityLogEntity.ActivityType.IDEMPOTENT_OPERATION_DETECTED,
+                        String.format("Duplicate broadcast end prevented (idempotency key: %s)", idempotencyKey),
+                        existing.get().getId(),
+                        metadata
+                    );
+                    
+                    circuitBreaker.recordSuccess();
+                    return existing.get();
+                }
+            }
 
-        // End the stream
-        broadcast.setActualEnd(LocalDateTime.now());
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
+            BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
-        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+            // State machine validation
+            BroadcastEntity.BroadcastStatus currentStatus = broadcast.getStatus();
+            if (!currentStatus.canTransitionTo(BroadcastEntity.BroadcastStatus.ENDED)) {
+                String errorMsg = String.format("Cannot end broadcast in state: %s. Valid transitions: LIVE->ENDED, TESTING->ENDED", currentStatus);
+                logger.warn(errorMsg);
+                circuitBreaker.recordFailure();
+                throw new IllegalStateException(errorMsg);
+            }
 
-        // CRITICAL FIX: Clear all active broadcasts from IcecastService to ensure stream status is updated
-        // This fixes the issue where the stream still shows as live after ending
-        icecastService.clearAllActiveBroadcasts();
+            // Allow any DJ to end a broadcast, not just the creator
+            // This enables site-wide broadcast control
 
-        // Log the activity
-        activityLogService.logActivity(
-            dj,
-            ActivityLogEntity.ActivityType.BROADCAST_END,
-            "Broadcast ended: " + savedBroadcast.getTitle()
-        );
+            // Capture old status for audit logging
+            BroadcastEntity.BroadcastStatus oldStatus = broadcast.getStatus();
 
-        // Send notification to all users that the broadcast has ended
-        String notificationMessage = "Broadcast ended: " + savedBroadcast.getTitle();
-        sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_ENDED);
+            // Atomic update
+            broadcast.setActualEnd(LocalDateTime.now());
+            broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
+            if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
+                broadcast.setEndIdempotencyKey(idempotencyKey);
+            }
 
-        // Send WebSocket message for immediate UI updates
-        Map<String, Object> broadcastEndedMessage = new java.util.HashMap<>();
-        broadcastEndedMessage.put("type", "BROADCAST_ENDED");
-        broadcastEndedMessage.put("broadcast", BroadcastDTO.fromEntity(savedBroadcast));
-        messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastEndedMessage);
+            BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
 
-        // WebSocket status updates are handled by the broadcast WebSocket controller
+            // CRITICAL FIX: Clear all active broadcasts from IcecastService to ensure stream status is updated
+            // This fixes the issue where the stream still shows as live after ending
+            icecastService.clearAllActiveBroadcasts();
 
-        return savedBroadcast;
+            // Log state transition for audit trail
+            Map<String, Object> metadata = new java.util.HashMap<>();
+            if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
+                metadata.put("idempotencyKey", idempotencyKey);
+            }
+            
+            activityLogService.logBroadcastStateTransition(
+                dj,
+                savedBroadcast.getId(),
+                savedBroadcast.getTitle(),
+                oldStatus.toString(),
+                BroadcastEntity.BroadcastStatus.ENDED.toString(),
+                "Manual end by DJ"
+            );
+
+            // Log the activity (legacy support)
+            activityLogService.logActivity(
+                dj,
+                ActivityLogEntity.ActivityType.BROADCAST_END,
+                "Broadcast ended: " + savedBroadcast.getTitle()
+            );
+
+            // Record success in circuit breaker
+            if (circuitBreaker != null) {
+                circuitBreaker.recordSuccess();
+            }
+
+            // Send notifications asynchronously (non-blocking)
+            CompletableFuture.runAsync(() -> {
+                try {
+                    // Send notification to all users that the broadcast has ended
+                    String notificationMessage = "Broadcast ended: " + savedBroadcast.getTitle();
+                    sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_ENDED);
+
+                    // Send WebSocket message for immediate UI updates
+                    Map<String, Object> broadcastEndedMessage = new java.util.HashMap<>();
+                    broadcastEndedMessage.put("type", "BROADCAST_ENDED");
+                    broadcastEndedMessage.put("broadcast", BroadcastDTO.fromEntity(savedBroadcast));
+                    messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastEndedMessage);
+                } catch (Exception e) {
+                    logger.error("Error sending broadcast end notifications", e);
+                }
+            });
+
+            return savedBroadcast;
+        } catch (IllegalStateException e) {
+            // Re-throw state machine validation errors
+            throw e;
+        } catch (Exception e) {
+            // Record failure in circuit breaker
+            if (circuitBreaker != null) {
+                circuitBreaker.recordFailure();
+            }
+            logger.error("Error ending broadcast", e);
+            throw e;
+        }
     }
 
     /**
      * Simplified version of endBroadcast that doesn't require a user parameter
-     * This is used for API calls that don't have user authentication
+     * This is used for API calls that don't have user authentication (e.g., auto-end on health check failure)
      */
+    @Transactional
     public BroadcastEntity endBroadcast(Long broadcastId) {
-        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
+        // Check circuit breaker
+        if (circuitBreaker != null && !circuitBreaker.allowRequest()) {
+            logger.warn("Circuit breaker is OPEN - blocking broadcast end request");
+            throw new IllegalStateException("Service temporarily unavailable. Please try again later.");
+        }
 
-        // Schedule is now embedded in broadcast entity, no separate completion needed
+        try {
+            BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
-        // End the stream
-        broadcast.setActualEnd(LocalDateTime.now());
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
+            // State machine validation
+            BroadcastEntity.BroadcastStatus currentStatus = broadcast.getStatus();
+            if (!currentStatus.canTransitionTo(BroadcastEntity.BroadcastStatus.ENDED)) {
+                String errorMsg = String.format("Cannot end broadcast in state: %s. Valid transitions: LIVE->ENDED, TESTING->ENDED", currentStatus);
+                logger.warn(errorMsg);
+                circuitBreaker.recordFailure();
+                throw new IllegalStateException(errorMsg);
+            }
 
-        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+            // Capture old status for audit logging
+            BroadcastEntity.BroadcastStatus oldStatus = broadcast.getStatus();
 
-        // CRITICAL FIX: Clear all active broadcasts from IcecastService to ensure stream status is updated
-        // This fixes the issue where the stream still shows as live after ending
-        icecastService.clearAllActiveBroadcasts();
+            // Atomic update
+            broadcast.setActualEnd(LocalDateTime.now());
+            broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
 
-        logger.info("Broadcast ended without user info: {}", savedBroadcast.getTitle());
+            BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
 
-        return savedBroadcast;
+            // CRITICAL FIX: Clear all active broadcasts from IcecastService to ensure stream status is updated
+            icecastService.clearAllActiveBroadcasts();
+
+            // Log state transition for audit trail (system-level, no user)
+            activityLogService.logBroadcastStateTransition(
+                null, // System event
+                savedBroadcast.getId(),
+                savedBroadcast.getTitle(),
+                oldStatus.toString(),
+                BroadcastEntity.BroadcastStatus.ENDED.toString(),
+                "Auto-end (no user context)"
+            );
+
+            // Record success in circuit breaker
+            if (circuitBreaker != null) {
+                circuitBreaker.recordSuccess();
+            }
+
+            logger.info("Broadcast ended without user info: {}", savedBroadcast.getTitle());
+
+            // Send WebSocket notification asynchronously
+            CompletableFuture.runAsync(() -> {
+                try {
+                    Map<String, Object> broadcastEndedMessage = new java.util.HashMap<>();
+                    broadcastEndedMessage.put("type", "BROADCAST_ENDED");
+                    broadcastEndedMessage.put("broadcast", BroadcastDTO.fromEntity(savedBroadcast));
+                    messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastEndedMessage);
+                } catch (Exception e) {
+                    logger.error("Error sending broadcast end notification", e);
+                }
+            });
+
+            return savedBroadcast;
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            if (circuitBreaker != null) {
+                circuitBreaker.recordFailure();
+            }
+            logger.error("Error ending broadcast", e);
+            throw e;
+        }
     }
 
     public BroadcastEntity testBroadcast(Long broadcastId, UserEntity dj) {
@@ -735,8 +949,23 @@ public class BroadcastService {
             boolean healthy = serverReachable && mountExists && hasSource && bitrate > 0;
 
             if (healthy) {
-                if (consecutiveUnhealthyChecks > 0 || recovering) {
+                boolean wasRecovering = recovering || consecutiveUnhealthyChecks > 0;
+                if (wasRecovering) {
                     logger.info("Live stream recovered health for broadcast id={}; resetting recovering state", id);
+                    
+                    // Audit log: Health check recovered
+                    Map<String, Object> metadata = new java.util.HashMap<>();
+                    metadata.put("previousConsecutiveUnhealthyChecks", consecutiveUnhealthyChecks);
+                    metadata.put("serverReachable", serverReachable);
+                    metadata.put("mountExists", mountExists);
+                    metadata.put("hasSource", hasSource);
+                    metadata.put("bitrate", bitrate);
+                    activityLogService.logSystemAuditWithMetadata(
+                        ActivityLogEntity.ActivityType.BROADCAST_HEALTH_CHECK_RECOVERED,
+                        String.format("Broadcast health recovered: %s", live.getTitle()),
+                        id,
+                        metadata
+                    );
                 }
                 consecutiveUnhealthyChecks = 0;
                 recovering = false;
@@ -752,6 +981,25 @@ public class BroadcastService {
             }
 
             consecutiveUnhealthyChecks++;
+            
+            // Audit log: Health check failed (only log when threshold is reached to avoid spam)
+            if (consecutiveUnhealthyChecks == unhealthyConsecutiveThreshold) {
+                Map<String, Object> metadata = new java.util.HashMap<>();
+                metadata.put("consecutiveUnhealthyChecks", consecutiveUnhealthyChecks);
+                metadata.put("threshold", unhealthyConsecutiveThreshold);
+                metadata.put("serverReachable", serverReachable);
+                metadata.put("mountExists", mountExists);
+                metadata.put("hasSource", hasSource);
+                metadata.put("bitrate", bitrate);
+                metadata.put("autoEndEnabled", autoEndOnUnhealthy);
+                activityLogService.logSystemAuditWithMetadata(
+                    ActivityLogEntity.ActivityType.BROADCAST_HEALTH_CHECK_FAILED,
+                    String.format("Broadcast health check failed (consecutive: %d/%d): %s", 
+                        consecutiveUnhealthyChecks, unhealthyConsecutiveThreshold, live.getTitle()),
+                    id,
+                    metadata
+                );
+            }
             // Update snapshot for unhealthy state
             lastHealthSnapshot = new java.util.HashMap<>(status);
             lastHealthSnapshot.put("healthy", false);
@@ -764,6 +1012,23 @@ public class BroadcastService {
             if (consecutiveUnhealthyChecks >= unhealthyConsecutiveThreshold) {
                 if (autoEndOnUnhealthy) {
                     logger.warn("Auto-ending broadcast id={} due to sustained unhealthy stream (serverReachable={}, mountExists={}, hasSource={}, bitrate={})", id, serverReachable, mountExists, hasSource, bitrate);
+                    
+                    // Audit log: Auto-end due to health check failure
+                    Map<String, Object> metadata = new java.util.HashMap<>();
+                    metadata.put("reason", "Health check failure threshold exceeded");
+                    metadata.put("consecutiveUnhealthyChecks", consecutiveUnhealthyChecks);
+                    metadata.put("threshold", unhealthyConsecutiveThreshold);
+                    metadata.put("serverReachable", serverReachable);
+                    metadata.put("mountExists", mountExists);
+                    metadata.put("hasSource", hasSource);
+                    metadata.put("bitrate", bitrate);
+                    activityLogService.logSystemAuditWithMetadata(
+                        ActivityLogEntity.ActivityType.BROADCAST_AUTO_END,
+                        String.format("Auto-ended broadcast due to health check failure: %s", live.getTitle()),
+                        id,
+                        metadata
+                    );
+                    
                     try {
                         // Use simplified end that doesn't require a user context
                         endBroadcast(id);
@@ -851,6 +1116,128 @@ public class BroadcastService {
             logger.error("Failed to check radio server status: {}", e.getMessage());
             // Graceful degradation - on error, assume running to avoid breaking existing functionality
             return true;
+        }
+    }
+
+    /**
+     * Periodic checkpointing for live broadcasts to enable recovery from server crashes.
+     * Runs every 60 seconds and updates checkpoint time and current duration.
+     */
+    @Scheduled(fixedRate = 60000) // Every minute
+    public void checkpointLiveBroadcasts() {
+        try {
+            List<BroadcastEntity> liveBroadcasts = getLiveBroadcasts();
+            
+            if (liveBroadcasts.isEmpty()) {
+                return; // No live broadcasts to checkpoint
+            }
+            
+            logger.debug("Checkpointing {} live broadcast(s)", liveBroadcasts.size());
+            
+            for (BroadcastEntity broadcast : liveBroadcasts) {
+                try {
+                    // Update last checkpoint time
+                    broadcast.setLastCheckpointTime(LocalDateTime.now());
+                    
+                    // Calculate and store current duration
+                    if (broadcast.getActualStart() != null) {
+                        java.time.Duration duration = java.time.Duration.between(
+                            broadcast.getActualStart(), 
+                            LocalDateTime.now()
+                        );
+                        broadcast.setCurrentDurationSeconds(duration.getSeconds());
+                    }
+                    
+                    broadcastRepository.save(broadcast);
+                    logger.debug("Checkpointed broadcast {}: duration={}s", broadcast.getId(), broadcast.getCurrentDurationSeconds());
+                    
+                    // Audit log: Periodic checkpoint (only log every 10th checkpoint to avoid log spam)
+                    if (broadcast.getCurrentDurationSeconds() != null && broadcast.getCurrentDurationSeconds() % 600 == 0) {
+                        Map<String, Object> metadata = new java.util.HashMap<>();
+                        metadata.put("durationSeconds", broadcast.getCurrentDurationSeconds());
+                        metadata.put("checkpointTime", broadcast.getLastCheckpointTime().toString());
+                        activityLogService.logSystemAuditWithMetadata(
+                            ActivityLogEntity.ActivityType.BROADCAST_CHECKPOINT,
+                            String.format("Checkpoint saved for broadcast: %s (duration: %ds)", broadcast.getTitle(), broadcast.getCurrentDurationSeconds()),
+                            broadcast.getId(),
+                            metadata
+                        );
+                    }
+                } catch (Exception e) {
+                    logger.error("Error checkpointing broadcast {}: {}", broadcast.getId(), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error during broadcast checkpointing: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Recover live broadcasts on server startup.
+     * Checks if broadcasts marked as LIVE are actually still streaming and handles stale broadcasts.
+     */
+    @jakarta.annotation.PostConstruct
+    public void recoverLiveBroadcasts() {
+        try {
+            List<BroadcastEntity> liveBroadcasts = getLiveBroadcasts();
+            
+            if (liveBroadcasts.isEmpty()) {
+                logger.info("No live broadcasts to recover on startup");
+                return;
+            }
+            
+            logger.info("Recovering {} live broadcast(s) on startup", liveBroadcasts.size());
+            
+            for (BroadcastEntity broadcast : liveBroadcasts) {
+                try {
+                    // Check if broadcast is actually still live by checking stream status
+                    Map<String, Object> streamStatus = icecastService.getStreamStatus(false);
+                    boolean actuallyLive = Boolean.TRUE.equals(streamStatus.get("live")) || Boolean.TRUE.equals(streamStatus.get("isLive"));
+                    
+                    if (!actuallyLive) {
+                        // Auto-end stale broadcasts
+                        logger.warn("Auto-ending stale broadcast {} on startup: {}", broadcast.getId(), broadcast.getTitle());
+                        
+                        // Audit log: Auto-end stale broadcast
+                        Map<String, Object> metadata = new java.util.HashMap<>();
+                        metadata.put("reason", "Stale broadcast detected on startup");
+                        metadata.put("lastCheckpointTime", broadcast.getLastCheckpointTime() != null ? broadcast.getLastCheckpointTime().toString() : "null");
+                        activityLogService.logSystemAuditWithMetadata(
+                            ActivityLogEntity.ActivityType.BROADCAST_AUTO_END,
+                            String.format("Auto-ended stale broadcast on startup: %s", broadcast.getTitle()),
+                            broadcast.getId(),
+                            metadata
+                        );
+                        
+                        endBroadcast(broadcast.getId());
+                    } else {
+                        // Verify health and restore state
+                        logger.info("Recovering live broadcast {}: {}", broadcast.getId(), broadcast.getTitle());
+                        
+                        // Audit log: Broadcast recovery
+                        Map<String, Object> metadata = new java.util.HashMap<>();
+                        metadata.put("reason", "Server startup recovery");
+                        metadata.put("lastCheckpointTime", broadcast.getLastCheckpointTime() != null ? broadcast.getLastCheckpointTime().toString() : "null");
+                        metadata.put("currentDurationSeconds", broadcast.getCurrentDurationSeconds());
+                        activityLogService.logSystemAuditWithMetadata(
+                            ActivityLogEntity.ActivityType.BROADCAST_RECOVERY,
+                            String.format("Recovered live broadcast on startup: %s", broadcast.getTitle()),
+                            broadcast.getId(),
+                            metadata
+                        );
+                        
+                        // Send recovery notification to clients
+                        Map<String, Object> recoveryMessage = new java.util.HashMap<>();
+                        recoveryMessage.put("type", "BROADCAST_RECOVERED");
+                        recoveryMessage.put("broadcast", BroadcastDTO.fromEntity(broadcast));
+                        messagingTemplate.convertAndSend("/topic/broadcast/status", recoveryMessage);
+                    }
+                } catch (Exception e) {
+                    logger.error("Error recovering broadcast {}: {}", broadcast.getId(), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error during broadcast recovery on startup: {}", e.getMessage());
         }
     }
 } 
