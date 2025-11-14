@@ -1,4 +1,5 @@
 import ENV from '../config/environment';
+import { generatePrefixedIdempotencyKey } from './idempotencyUtils';
 
 const API_BASE_URL = ENV.API_BASE_URL; // Automatically switches between dev/prod
 // Manual override (uncomment if needed):
@@ -697,6 +698,58 @@ export const updateNotificationPreferences = async (preferences: NotificationPre
     return data as UserData;
   } catch (error) {
     console.error('UpdateNotificationPreferences API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// +++ Broadcast Control API Functions +++
+
+export const startBroadcast = async (broadcastId: number, token: string): Promise<Broadcast | { error: string }> => {
+  try {
+    const idempotencyKey = generatePrefixedIdempotencyKey('broadcast-start');
+
+    const response = await fetch(`${API_BASE_URL}/broadcasts/${broadcastId}/start`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'Idempotency-Key': idempotencyKey,
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to start broadcast. Status: ${response.status}` };
+    }
+    return data as Broadcast;
+  } catch (error) {
+    console.error('StartBroadcast API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const endBroadcast = async (broadcastId: number, token: string): Promise<Broadcast | { error: string }> => {
+  try {
+    const idempotencyKey = generatePrefixedIdempotencyKey('broadcast-end');
+
+    const response = await fetch(`${API_BASE_URL}/broadcasts/${broadcastId}/end`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'Idempotency-Key': idempotencyKey,
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to end broadcast. Status: ${response.status}` };
+    }
+    return data as Broadcast;
+  } catch (error) {
+    console.error('EndBroadcast API error:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
     return { error: errorMessage };
   }

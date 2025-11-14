@@ -1,5 +1,6 @@
 import { api, getCookie, logger } from './apiBase';
 import stompClientManager from '../stompClientManager';
+import { generatePrefixedIdempotencyKey } from '../../utils/idempotencyUtils';
 
 /**
  * Broadcast Management API
@@ -14,9 +15,23 @@ export const broadcastApi = {
   delete: (id) => api.delete(`/api/broadcasts/${id}`),
   
   // Broadcast control operations
-  start: (id) => api.post(`/api/broadcasts/${id}/start`),
+  start: (id) => {
+    const idempotencyKey = generatePrefixedIdempotencyKey('broadcast-start');
+    return api.post(`/api/broadcasts/${id}/start`, {}, {
+      headers: {
+        'Idempotency-Key': idempotencyKey
+      }
+    });
+  },
   startTest: (id) => api.post(`/api/broadcasts/${id}/start-test`),
-  end: (id) => api.post(`/api/broadcasts/${id}/end`),
+  end: (id) => {
+    const idempotencyKey = generatePrefixedIdempotencyKey('broadcast-end');
+    return api.post(`/api/broadcasts/${id}/end`, {}, {
+      headers: {
+        'Idempotency-Key': idempotencyKey
+      }
+    });
+  },
   test: (id) => api.post(`/api/broadcasts/${id}/test`),
   
   // Slow mode settings
