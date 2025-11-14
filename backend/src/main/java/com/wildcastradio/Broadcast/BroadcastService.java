@@ -73,6 +73,9 @@ public class BroadcastService {
     @Autowired(required = false)
     private BroadcastCircuitBreaker circuitBreaker;
 
+    @Autowired(required = false)
+    private SourceStateClassifier sourceStateClassifier;
+
     // Live stream health check configuration
     @Value("${broadcast.healthCheck.enabled:true}")
     private boolean healthCheckEnabled;
@@ -1148,6 +1151,17 @@ public class BroadcastService {
 
             consecutiveUnhealthyChecks++;
             
+            // Classify source disconnection type if classifier is available
+            SourceDisconnectionType disconnectionType = SourceDisconnectionType.UNKNOWN;
+            if (sourceStateClassifier != null) {
+                try {
+                    disconnectionType = sourceStateClassifier.classify(status);
+                    logger.debug("Classified disconnection type for broadcast {}: {}", id, disconnectionType);
+                } catch (Exception e) {
+                    logger.warn("Failed to classify source disconnection type: {}", e.getMessage());
+                }
+            }
+            
             // Audit log: Health check failed (only log when threshold is reached to avoid spam)
             if (consecutiveUnhealthyChecks == unhealthyConsecutiveThreshold) {
                 Map<String, Object> metadata = new java.util.HashMap<>();
@@ -1158,14 +1172,18 @@ public class BroadcastService {
                 metadata.put("hasSource", hasSource);
                 metadata.put("bitrate", bitrate);
                 metadata.put("autoEndEnabled", autoEndOnUnhealthy);
+                metadata.put("disconnectionType", disconnectionType.toString());
+                metadata.put("supportsAutomaticRecovery", disconnectionType.supportsAutomaticRecovery());
+                metadata.put("requiresAdminIntervention", disconnectionType.requiresAdminIntervention());
                 activityLogService.logSystemAuditWithMetadata(
                     ActivityLogEntity.ActivityType.BROADCAST_HEALTH_CHECK_FAILED,
-                    String.format("Broadcast health check failed (consecutive: %d/%d): %s", 
-                        consecutiveUnhealthyChecks, unhealthyConsecutiveThreshold, live.getTitle()),
+                    String.format("Broadcast health check failed (consecutive: %d/%d, type: %s): %s", 
+                        consecutiveUnhealthyChecks, unhealthyConsecutiveThreshold, disconnectionType, live.getTitle()),
                     id,
                     metadata
                 );
             }
+            
             // Update snapshot for unhealthy state
             lastHealthSnapshot = new java.util.HashMap<>(status);
             lastHealthSnapshot.put("healthy", false);
@@ -1173,6 +1191,9 @@ public class BroadcastService {
             lastHealthSnapshot.put("consecutiveUnhealthyChecks", consecutiveUnhealthyChecks);
             lastHealthSnapshot.put("broadcastId", id);
             lastHealthSnapshot.put("broadcastLive", true);
+            lastHealthSnapshot.put("disconnectionType", disconnectionType.toString());
+            lastHealthSnapshot.put("supportsAutomaticRecovery", disconnectionType.supportsAutomaticRecovery());
+            lastHealthSnapshot.put("requiresAdminIntervention", disconnectionType.requiresAdminIntervention());
             lastHealthCheckTime = LocalDateTime.now();
 
             if (consecutiveUnhealthyChecks >= unhealthyConsecutiveThreshold) {
@@ -1209,7 +1230,7 @@ public class BroadcastService {
                 } else {
                     // Keep broadcast LIVE and mark recovering
                     recovering = true;
-                    logger.warn("Stream unhealthy for broadcast id={}, keeping LIVE (autoEndOnUnhealthy=false). Waiting for source reconnection. (serverReachable={}, mountExists={}, hasSource={}, bitrate={})", id, serverReachable, mountExists, hasSource, bitrate);
+                    logger.warn("Stream unhealthy for broadcast id={}, keeping LIVE (autoEndOnUnhealthy=false). Disconnection type: {}. Waiting for source reconnection. (serverReachable={}, mountExists={}, hasSource={}, bitrate={})", id, disconnectionType, serverReachable, mountExists, hasSource, bitrate);
                     // Cap the counter to avoid overflow/log spam
                     if (consecutiveUnhealthyChecks > unhealthyConsecutiveThreshold) {
                         consecutiveUnhealthyChecks = unhealthyConsecutiveThreshold;
@@ -1256,7 +1277,38 @@ public class BroadcastService {
         snapshot.put("lastCheckedAt", lastHealthCheckTime != null ? lastHealthCheckTime.toString() : null);
         snapshot.put("autoEndOnUnhealthy", autoEndOnUnhealthy);
         snapshot.put("healthCheckEnabled", healthCheckEnabled);
+        
+        // Include disconnection type if available (for recovery system)
+        if (snapshot.containsKey("disconnectionType")) {
+            snapshot.put("disconnectionType", snapshot.get("disconnectionType"));
+            snapshot.put("supportsAutomaticRecovery", snapshot.get("supportsAutomaticRecovery"));
+            snapshot.put("requiresAdminIntervention", snapshot.get("requiresAdminIntervention"));
+        }
+        
         return snapshot;
+    }
+    
+    /**
+     * Get the classified disconnection type for the current live broadcast.
+     * Returns UNKNOWN if no live broadcast or classification unavailable.
+     * 
+     * @return SourceDisconnectionType for current live broadcast
+     */
+    public SourceDisconnectionType getCurrentDisconnectionType() {
+        if (sourceStateClassifier == null || lastHealthSnapshot == null || lastHealthSnapshot.isEmpty()) {
+            return SourceDisconnectionType.UNKNOWN;
+        }
+        
+        try {
+            String typeStr = (String) lastHealthSnapshot.get("disconnectionType");
+            if (typeStr != null) {
+                return SourceDisconnectionType.valueOf(typeStr);
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to parse disconnection type from snapshot: {}", e.getMessage());
+        }
+        
+        return SourceDisconnectionType.UNKNOWN;
     }
 
     /**

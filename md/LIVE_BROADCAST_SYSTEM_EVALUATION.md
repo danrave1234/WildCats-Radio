@@ -97,29 +97,37 @@ This evaluation assesses the current live broadcast implementation against indus
 - Checks for active broadcasts on mount
 - Restores state from `/api/broadcasts/live`
 - Validates radio server status
+- ✅ **UPDATED:** WebSocket reconnection with exponential backoff (implemented)
 
 **Listener Dashboard Recovery:**
-- WebSocket reconnection with 3-second delay
+- ✅ **UPDATED:** WebSocket reconnection with exponential backoff (implemented)
 - Fallback polling if WebSocket fails
 - State reset on broadcast end
 
 **Mobile Recovery:**
-- WebSocket reconnection attempts (max 3 attempts)
-- 3-second delay between attempts
+- ✅ **UPDATED:** WebSocket reconnection with exponential backoff (implemented)
+- Max 10 attempts with exponential backoff
+
+**Stream Source Recovery:**
+- Health monitoring detects source disconnections
+- ⚠️ **PARTIAL:** Manual DJ intervention required for source reconnection
+- ❌ **MISSING:** Automatic stream source reconnection
+- ❌ **MISSING:** Fallback to AutoDJ when source fails
 
 #### Strengths
 ✅ DJ dashboard state recovery on page refresh  
-✅ WebSocket reconnection logic exists  
+✅ WebSocket reconnection with exponential backoff implemented  
 ✅ State cleanup on broadcast end
+✅ Health monitoring detects source disconnections
+✅ Radio Agent available for source control
 
 #### Weaknesses
-❌ **Fixed reconnection delay** (3 seconds) - no exponential backoff  
-❌ **No circuit breaker pattern** - continues attempting failed connections  
-❌ **No connection state persistence** - loses state on browser close  
-❌ **Limited retry logic** - mobile has max 3 attempts, web has no limit  
-❌ **No jitter** in reconnection timing (thundering herd problem)
+⚠️ **Stream source recovery requires manual intervention** - DJ must manually restart streaming when source disconnects  
+❌ **No automatic fallback mechanism** - Dead air when DJ source fails  
+❌ **No source state classification** - Cannot distinguish between DJ disconnect vs. server issue  
+❌ **No automatic reconnection attempts** - System detects issue but doesn't attempt recovery
 
-**Industry Standard Gap:** Missing exponential backoff, circuit breaker, and connection state persistence
+**Industry Standard Gap:** Missing automatic stream source reconnection and fallback mechanisms. See `md/STREAM_SOURCE_RECOVERY_IMPLEMENTATION.md` for detailed implementation plan.
 
 ---
 
@@ -166,21 +174,21 @@ icecastService.clearAllActiveBroadcasts();
 
 | Feature | Industry Standard | WildCats Radio | Gap |
 |---------|-------------------|----------------|-----|
-| **Connection Management** | Single WebSocket with multiplexing | Multiple WebSockets (5-6) | ❌ High |
-| **Reconnection Strategy** | Exponential backoff with jitter | Fixed 3s delay | ❌ High |
-| **State Persistence** | Checkpoint every 30-60s | No checkpointing | ❌ Critical |
-| **Health Monitoring** | Adaptive intervals (5s→30s→60s) | Fixed 15s interval | ⚠️ Medium |
-| **Atomic Operations** | Distributed transactions | No transactions | ❌ Critical |
-| **Idempotency** | Idempotency keys required | No idempotency | ❌ High |
-| **Circuit Breaker** | Circuit breaker pattern | No circuit breaker | ❌ High |
-| **API Efficiency** | < 1 request/min per client | Multiple polls (10s-10min) | ⚠️ Medium |
+| **Connection Management** | Single WebSocket with multiplexing | ✅ Single STOMP client (shared) | ✅ Resolved |
+| **Reconnection Strategy** | Exponential backoff with jitter | ✅ Exponential backoff implemented | ✅ Resolved |
+| **State Persistence** | Checkpoint every 30-60s | ✅ Checkpoint every 60s | ✅ Resolved |
+| **Health Monitoring** | Adaptive intervals (5s→30s→60s) | ✅ Adaptive intervals (5s→60s) | ✅ Resolved |
+| **Atomic Operations** | Distributed transactions | ✅ ACID transactions implemented | ✅ Resolved |
+| **Idempotency** | Idempotency keys required | ✅ Idempotency keys implemented | ✅ Resolved |
+| **Circuit Breaker** | Circuit breaker pattern | ✅ Circuit breaker implemented | ✅ Resolved |
+| **API Efficiency** | < 1 request/min per client | ✅ <30 requests/hour (fallback-only) | ✅ Resolved |
 
 ### 2.2 Radio Broadcasting Systems (Icecast, Shoutcast)
 
 | Feature | Industry Standard | WildCats Radio | Gap |
 |---------|-------------------|----------------|-----|
 | **Stream Health** | Continuous monitoring | 15s scheduled checks | ✅ Good |
-| **Recovery** | Auto-reconnect source | Manual DJ intervention | ⚠️ Medium |
+| **Recovery** | Auto-reconnect source + fallback | Manual DJ intervention, no fallback | ⚠️ Medium |
 | **State Sync** | Real-time sync with source | WebSocket notifications | ✅ Good |
 | **Listener Tracking** | Real-time count updates | WebSocket updates | ✅ Good |
 | **Grace Periods** | Startup grace for source | 60s grace implemented | ✅ Good |
@@ -1097,4 +1105,12 @@ The WildCats Radio live broadcast system has a solid foundation with WebSocket-b
 - ⏳ Alerting system (pending)
 - ⏳ Distributed tracing (pending)
 - ⏳ Performance dashboard (pending)
+
+### Phase 5: Stream Source Recovery ⏳ **PLANNED**
+- ⏳ Automatic stream source reconnection (see `md/STREAM_SOURCE_RECOVERY_IMPLEMENTATION.md`)
+- ⏳ Fallback to AutoDJ mechanism (see `md/STREAM_SOURCE_RECOVERY_IMPLEMENTATION.md`)
+- ⏳ Source state classification system (see `md/STREAM_SOURCE_RECOVERY_IMPLEMENTATION.md`)
+- ⏳ Recovery orchestrator implementation (see `md/STREAM_SOURCE_RECOVERY_IMPLEMENTATION.md`)
+
+**Status:** Comprehensive implementation plan created. Ready for development.
 
