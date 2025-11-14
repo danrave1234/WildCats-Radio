@@ -76,6 +76,9 @@ public class BroadcastService {
     @Autowired(required = false)
     private SourceStateClassifier sourceStateClassifier;
 
+    @Autowired(required = false)
+    private ReconnectionManager reconnectionManager;
+
     // Live stream health check configuration
     @Value("${broadcast.healthCheck.enabled:true}")
     private boolean healthCheckEnabled;
@@ -511,6 +514,11 @@ public class BroadcastService {
                 circuitBreaker.recordSuccess();
             }
 
+            // Cancel any ongoing reconnection attempts when broadcast ends
+            if (reconnectionManager != null) {
+                reconnectionManager.cancelReconnection(broadcastId);
+            }
+
             // Send notifications asynchronously (non-blocking)
             CompletableFuture.runAsync(() -> {
                 try {
@@ -595,6 +603,11 @@ public class BroadcastService {
             }
 
             logger.info("Broadcast ended without user info: {}", savedBroadcast.getTitle());
+
+            // Cancel any ongoing reconnection attempts when broadcast ends
+            if (reconnectionManager != null) {
+                reconnectionManager.cancelReconnection(broadcastId);
+            }
 
             // Send WebSocket notification asynchronously
             CompletableFuture.runAsync(() -> {
@@ -1122,6 +1135,15 @@ public class BroadcastService {
                 if (wasRecovering) {
                     logger.info("Live stream recovered health for broadcast id={}; resetting recovering state", id);
                     
+                    // Cancel any ongoing reconnection attempts (source restored)
+                    if (reconnectionManager != null && reconnectionManager.isReconnecting(id)) {
+                        ReconnectionAttempt attempt = reconnectionManager.getReconnectionAttempt(id);
+                        if (attempt != null) {
+                            logger.info("Source restored for broadcast {}, cancelling reconnection attempts", id);
+                            reconnectionManager.cancelReconnection(id);
+                        }
+                    }
+                    
                     // Audit log: Health check recovered
                     Map<String, Object> metadata = new java.util.HashMap<>();
                     metadata.put("previousConsecutiveUnhealthyChecks", consecutiveUnhealthyChecks);
@@ -1200,6 +1222,11 @@ public class BroadcastService {
                 if (autoEndOnUnhealthy) {
                     logger.warn("Auto-ending broadcast id={} due to sustained unhealthy stream (serverReachable={}, mountExists={}, hasSource={}, bitrate={})", id, serverReachable, mountExists, hasSource, bitrate);
                     
+                    // Cancel any ongoing reconnection attempts
+                    if (reconnectionManager != null) {
+                        reconnectionManager.cancelReconnection(id);
+                    }
+                    
                     // Audit log: Auto-end due to health check failure
                     Map<String, Object> metadata = new java.util.HashMap<>();
                     metadata.put("reason", "Health check failure threshold exceeded");
@@ -1209,6 +1236,7 @@ public class BroadcastService {
                     metadata.put("mountExists", mountExists);
                     metadata.put("hasSource", hasSource);
                     metadata.put("bitrate", bitrate);
+                    metadata.put("disconnectionType", disconnectionType.toString());
                     activityLogService.logSystemAuditWithMetadata(
                         ActivityLogEntity.ActivityType.BROADCAST_AUTO_END,
                         String.format("Auto-ended broadcast due to health check failure: %s", live.getTitle()),
@@ -1231,6 +1259,15 @@ public class BroadcastService {
                     // Keep broadcast LIVE and mark recovering
                     recovering = true;
                     logger.warn("Stream unhealthy for broadcast id={}, keeping LIVE (autoEndOnUnhealthy=false). Disconnection type: {}. Waiting for source reconnection. (serverReachable={}, mountExists={}, hasSource={}, bitrate={})", id, disconnectionType, serverReachable, mountExists, hasSource, bitrate);
+                    
+                    // Trigger automatic reconnection if supported and not already attempting
+                    if (reconnectionManager != null && disconnectionType.supportsAutomaticRecovery()) {
+                        if (!reconnectionManager.isReconnecting(id)) {
+                            logger.info("Triggering automatic reconnection for broadcast {} (disconnection type: {})", id, disconnectionType);
+                            reconnectionManager.attemptReconnection(id, disconnectionType);
+                        }
+                    }
+                    
                     // Cap the counter to avoid overflow/log spam
                     if (consecutiveUnhealthyChecks > unhealthyConsecutiveThreshold) {
                         consecutiveUnhealthyChecks = unhealthyConsecutiveThreshold;

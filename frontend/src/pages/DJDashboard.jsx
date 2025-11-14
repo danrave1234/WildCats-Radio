@@ -21,6 +21,7 @@ import {
   SpeakerWaveIcon,
 } from "@heroicons/react/24/outline"
 import { broadcastService, songRequestService, pollService, authService, chatService, radioService } from "../services/api/index.js"
+import stompClientManager from "../services/stompClientManager"
 import { useAuth } from "../context/AuthContext"
 import { useStreaming } from "../context/StreamingContext"
 import { format, formatDistanceToNow } from "date-fns"
@@ -253,6 +254,8 @@ export default function DJDashboard() {
   const [radioServerError, setRadioServerError] = useState(null)
   const radioStatusPollRef = useRef(null)
   const [isRecoveringBroadcast, setIsRecoveringBroadcast] = useState(false)
+  const [reconnectionStatus, setReconnectionStatus] = useState(null) // { status, attemptNumber, maxAttempts, nextDelayMs, disconnectionType }
+  const reconnectionWsRef = useRef(null)
 
   // Analytics State
   const [broadcastStartTime, setBroadcastStartTime] = useState(null)
@@ -954,10 +957,74 @@ export default function DJDashboard() {
       }
     }
 
+    // Setup Reconnection Status WebSocket
+    const setupReconnectionWebSocket = async () => {
+      try {
+        // Clean up any existing connection first
+        if (reconnectionWsRef.current) {
+          logger.debug("DJ Dashboard: Cleaning up existing reconnection WebSocket")
+          reconnectionWsRef.current.disconnect()
+          reconnectionWsRef.current = null
+        }
+
+        logger.debug("DJ Dashboard: Setting up reconnection WebSocket for broadcast:", currentBroadcast.id)
+
+        // Subscribe to broadcast-specific reconnection topic
+        const connection = await broadcastService.subscribeToBroadcastUpdates(currentBroadcast.id, (message) => {
+          if (message.type === "RECONNECTION_STATUS") {
+            logger.debug("DJ Dashboard: Received reconnection status:", message)
+            setReconnectionStatus({
+              status: message.status, // STARTED, ATTEMPTING, SUCCESS, FAILED
+              attemptNumber: message.attemptNumber || 0,
+              maxAttempts: message.maxAttempts || 5,
+              nextDelayMs: message.nextDelayMs || 0,
+              disconnectionType: message.disconnectionType || "UNKNOWN",
+              timestamp: message.timestamp
+            })
+
+            // Clear status after success or failure
+            if (message.status === "SUCCESS" || message.status === "FAILED") {
+              setTimeout(() => {
+                setReconnectionStatus(null)
+              }, 5000) // Clear after 5 seconds
+            }
+          }
+        })
+
+        // Also subscribe to global broadcast status topic for reconnection updates
+        const globalConnection = await stompClientManager.subscribe("/topic/broadcast/status", (message) => {
+          const data = JSON.parse(message.body)
+          if (data.type === "RECONNECTION_STATUS" && data.broadcastId === currentBroadcast.id) {
+            logger.debug("DJ Dashboard: Received reconnection status from global topic:", data)
+            setReconnectionStatus({
+              status: data.status,
+              attemptNumber: data.attemptNumber || 0,
+              maxAttempts: data.maxAttempts || 5,
+              nextDelayMs: data.nextDelayMs || 0,
+              disconnectionType: data.disconnectionType || "UNKNOWN",
+              timestamp: data.timestamp
+            })
+
+            if (data.status === "SUCCESS" || data.status === "FAILED") {
+              setTimeout(() => {
+                setReconnectionStatus(null)
+              }, 5000)
+            }
+          }
+        })
+
+        reconnectionWsRef.current = { connection, globalConnection }
+        logger.debug("DJ Dashboard: Reconnection WebSocket connected successfully")
+      } catch (error) {
+        logger.error("DJ Dashboard: Failed to connect reconnection WebSocket:", error)
+      }
+    }
+
     // Setup WebSockets immediately - no delay needed with proper guards
     setupChatWebSocket()
     setupSongRequestWebSocket()
     setupPollWebSocket()
+    setupReconnectionWebSocket()
 
     return () => {
       logger.debug("DJ Dashboard: Cleaning up WebSocket connections for broadcast:", currentBroadcast.id)
@@ -975,6 +1042,16 @@ export default function DJDashboard() {
       if (pollWsRef.current) {
         pollWsRef.current.disconnect()
         pollWsRef.current = null
+      }
+
+      if (reconnectionWsRef.current) {
+        if (reconnectionWsRef.current.connection) {
+          reconnectionWsRef.current.connection.disconnect()
+        }
+        if (reconnectionWsRef.current.globalConnection) {
+          reconnectionWsRef.current.globalConnection.disconnect()
+        }
+        reconnectionWsRef.current = null
       }
     }
   }, [workflowState, currentBroadcast?.id]) // Removed unnecessary dependencies to prevent re-runs
@@ -1757,6 +1834,53 @@ export default function DJDashboard() {
                   <div className="flex-1">
                     <h3 className="font-semibold text-green-900 dark:text-green-100 mb-1">🔴 Live Broadcast Recovered</h3>
                     <p className="text-sm">Your live broadcast has been restored. You can continue streaming!</p>
+                  </div>
+                </div>
+              </div>
+          )}
+
+          {/* Reconnection Status Notification */}
+          {reconnectionStatus && (
+              <div className={`mb-6 p-4 rounded-md border ${
+                reconnectionStatus.status === "SUCCESS" 
+                  ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 border-green-300 dark:border-green-800"
+                  : reconnectionStatus.status === "FAILED"
+                  ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200 border-red-300 dark:border-red-800"
+                  : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 border-yellow-300 dark:border-yellow-800"
+              }`}>
+                <div className="flex items-start space-x-3">
+                  {reconnectionStatus.status === "SUCCESS" ? (
+                    <CheckIcon className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                  ) : reconnectionStatus.status === "FAILED" ? (
+                    <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                  ) : (
+                    <ClockIcon className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0 animate-spin" />
+                  )}
+                  <div className="flex-1">
+                    <h3 className="font-semibold mb-1">
+                      {reconnectionStatus.status === "SUCCESS" 
+                        ? "✅ Stream Reconnected Successfully"
+                        : reconnectionStatus.status === "FAILED"
+                        ? "❌ Reconnection Failed"
+                        : "🔄 Reconnecting Stream..."}
+                    </h3>
+                    <p className="text-sm mb-2">
+                      {reconnectionStatus.status === "SUCCESS" 
+                        ? "Your audio stream has been successfully reconnected. Broadcasting is now active."
+                        : reconnectionStatus.status === "FAILED"
+                        ? `Failed to reconnect after ${reconnectionStatus.attemptNumber} attempts. Please check your audio source and try again manually.`
+                        : `Attempt ${reconnectionStatus.attemptNumber} of ${reconnectionStatus.maxAttempts}...`}
+                    </p>
+                    {reconnectionStatus.status === "ATTEMPTING" && reconnectionStatus.nextDelayMs > 0 && (
+                      <p className="text-xs opacity-75">
+                        Next attempt in {Math.ceil(reconnectionStatus.nextDelayMs / 1000)} seconds
+                      </p>
+                    )}
+                    {reconnectionStatus.disconnectionType && (
+                      <p className="text-xs opacity-75 mt-1">
+                        Issue type: {reconnectionStatus.disconnectionType.replace(/_/g, " ")}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
