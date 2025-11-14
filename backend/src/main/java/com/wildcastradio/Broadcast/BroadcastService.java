@@ -5,6 +5,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,13 +78,38 @@ public class BroadcastService {
     private boolean healthCheckEnabled;
 
     @Value("${broadcast.healthCheck.intervalMs:15000}")
-    private long healthCheckIntervalMs;
+    private long healthCheckIntervalMs; // Base interval (used as fallback)
 
     @Value("${broadcast.healthCheck.unhealthyConsecutiveThreshold:3}")
     private int unhealthyConsecutiveThreshold;
 
     @Value("${broadcast.healthCheck.startupGraceMs:60000}")
     private long healthCheckStartupGraceMs;
+
+    @Value("${broadcast.healthCheck.adaptive.enabled:true}")
+    private boolean adaptiveIntervalsEnabled;
+
+    @Value("${broadcast.healthCheck.adaptive.minIntervalMs:5000}")
+    private long adaptiveMinIntervalMs; // 5 seconds for new/unhealthy broadcasts
+
+    @Value("${broadcast.healthCheck.adaptive.maxIntervalMs:60000}")
+    private long adaptiveMaxIntervalMs; // 60 seconds for stable long-running broadcasts
+
+    @Value("${broadcast.healthCheck.adaptive.stableThresholdMinutes:60}")
+    private long adaptiveStableThresholdMinutes; // After 60 minutes, use max interval
+
+    // Broadcast cleanup configuration (stale LIVE broadcasts)
+    @Value("${broadcast.cleanup.enabled:true}")
+    private boolean cleanupEnabled;
+
+    @Value("${broadcast.cleanup.maxLiveDurationHours:24}")
+    private long cleanupMaxLiveDurationHours; // Auto-end broadcasts older than this
+
+    @Value("${broadcast.cleanup.staleThresholdMinutes:30}")
+    private long cleanupStaleThresholdMinutes; // Auto-end broadcasts with no recent checkpoint
+
+    @Value("${broadcast.cleanup.intervalMinutes:30}")
+    private long cleanupIntervalMinutes; // How often to run cleanup check
 
     // In-memory tracking for consecutive unhealthy checks
     private int consecutiveUnhealthyChecks = 0;
@@ -93,6 +122,10 @@ public class BroadcastService {
     private volatile boolean recovering = false;
     private volatile java.util.Map<String, Object> lastHealthSnapshot = new java.util.HashMap<>();
     private volatile LocalDateTime lastHealthCheckTime = null;
+
+    // Adaptive scheduling
+    private ScheduledExecutorService healthCheckScheduler;
+    private ScheduledFuture<?> healthCheckFuture;
 
 
     // Unified method that handles both scheduled and immediate broadcasts
@@ -871,12 +904,145 @@ public class BroadcastService {
     }
 
     /**
+     * Initialize adaptive health check scheduler on startup
+     */
+    @jakarta.annotation.PostConstruct
+    public void initAdaptiveHealthCheck() {
+        if (adaptiveIntervalsEnabled && healthCheckEnabled) {
+            healthCheckScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "BroadcastHealthCheck-Adaptive");
+                t.setDaemon(true);
+                return t;
+            });
+            // Start the adaptive health check loop
+            scheduleNextHealthCheck();
+            logger.info("Adaptive health check scheduler initialized (min: {}ms, max: {}ms, stable threshold: {}min)",
+                adaptiveMinIntervalMs, adaptiveMaxIntervalMs, adaptiveStableThresholdMinutes);
+        }
+    }
+
+    /**
+     * Shutdown scheduler on destroy
+     */
+    @jakarta.annotation.PreDestroy
+    public void shutdownAdaptiveHealthCheck() {
+        if (healthCheckScheduler != null) {
+            if (healthCheckFuture != null) {
+                healthCheckFuture.cancel(false);
+            }
+            healthCheckScheduler.shutdown();
+            try {
+                if (!healthCheckScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                    healthCheckScheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                healthCheckScheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+            logger.info("Adaptive health check scheduler shut down");
+        }
+    }
+
+    /**
+     * Calculate adaptive health check interval based on broadcast age and health status
+     */
+    private long calculateAdaptiveInterval(BroadcastEntity broadcast, boolean isHealthy) {
+        if (!adaptiveIntervalsEnabled) {
+            return healthCheckIntervalMs; // Fallback to fixed interval
+        }
+
+        // If unhealthy or recovering, use minimum interval for faster detection
+        if (!isHealthy || recovering || consecutiveUnhealthyChecks > 0) {
+            return adaptiveMinIntervalMs;
+        }
+
+        // Calculate broadcast age
+        if (broadcast.getActualStart() == null) {
+            return adaptiveMinIntervalMs; // New broadcast, use min interval
+        }
+
+        long broadcastAgeMinutes = java.time.Duration.between(
+            broadcast.getActualStart(),
+            LocalDateTime.now()
+        ).toMinutes();
+
+        // For new broadcasts (< 5 minutes), use minimum interval
+        if (broadcastAgeMinutes < 5) {
+            return adaptiveMinIntervalMs;
+        }
+        // For stable broadcasts (> threshold), use maximum interval
+        else if (broadcastAgeMinutes >= adaptiveStableThresholdMinutes) {
+            return adaptiveMaxIntervalMs;
+        }
+        // For medium-age broadcasts, interpolate between min and max
+        else {
+            // Linear interpolation: min + (max - min) * (age / threshold)
+            double progress = (double) broadcastAgeMinutes / adaptiveStableThresholdMinutes;
+            long interval = (long) (adaptiveMinIntervalMs + 
+                (adaptiveMaxIntervalMs - adaptiveMinIntervalMs) * progress);
+            return Math.max(adaptiveMinIntervalMs, Math.min(adaptiveMaxIntervalMs, interval));
+        }
+    }
+
+    /**
+     * Schedule the next health check with adaptive interval
+     */
+    private void scheduleNextHealthCheck() {
+        if (healthCheckScheduler == null || !healthCheckEnabled) {
+            return;
+        }
+
+        try {
+            Optional<BroadcastEntity> liveOpt = getCurrentLiveBroadcast();
+            boolean isHealthy = lastHealthSnapshot.getOrDefault("healthy", false).equals(true);
+            
+            long nextInterval;
+            if (liveOpt.isPresent()) {
+                nextInterval = calculateAdaptiveInterval(liveOpt.get(), isHealthy);
+            } else {
+                // No live broadcast: use max interval to reduce load
+                nextInterval = adaptiveMaxIntervalMs;
+            }
+
+            healthCheckFuture = healthCheckScheduler.schedule(() -> {
+                monitorLiveStreamHealthInternal();
+                scheduleNextHealthCheck(); // Reschedule for next check
+            }, nextInterval, TimeUnit.MILLISECONDS);
+
+            logger.debug("Next health check scheduled in {}ms (adaptive: {})", 
+                nextInterval, adaptiveIntervalsEnabled);
+        } catch (Exception e) {
+            logger.error("Error scheduling adaptive health check: {}", e.getMessage());
+            // Fallback: reschedule with base interval
+            healthCheckFuture = healthCheckScheduler.schedule(() -> {
+                monitorLiveStreamHealthInternal();
+                scheduleNextHealthCheck();
+            }, healthCheckIntervalMs, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /**
      * Periodically verify live stream health and auto-end broadcast if stalled.
      * Healthy criteria: Icecast server reachable, mount exists, active source present, bitrate > 0.
      * Uses consecutive unhealthy checks to avoid false positives during brief network hiccups.
+     * 
+     * Note: When adaptive intervals are enabled, this method is called by the adaptive scheduler.
+     * Otherwise, it uses the fixed @Scheduled annotation.
      */
     @Scheduled(fixedDelayString = "${broadcast.healthCheck.intervalMs:15000}")
     public void monitorLiveStreamHealth() {
+        // Skip if adaptive scheduling is enabled (it will call this method directly)
+        if (adaptiveIntervalsEnabled && healthCheckScheduler != null) {
+            return;
+        }
+        
+        monitorLiveStreamHealthInternal();
+    }
+
+    /**
+     * Internal health check implementation (called by both fixed and adaptive schedulers)
+     */
+    private void monitorLiveStreamHealthInternal() {
         if (!healthCheckEnabled) {
             return;
         }
@@ -1169,6 +1335,117 @@ public class BroadcastService {
             }
         } catch (Exception e) {
             logger.error("Error during broadcast checkpointing: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Periodic cleanup of stale LIVE broadcasts.
+     * Cleans up broadcasts that were terminated ungracefully and left in LIVE status.
+     * This prevents the database from being clogged with stale LIVE broadcast statuses.
+     */
+    @Scheduled(fixedRateString = "#{${broadcast.cleanup.intervalMinutes:30} * 60 * 1000}") // Convert minutes to milliseconds
+    public void cleanupStaleLiveBroadcasts() {
+        if (!cleanupEnabled) {
+            return;
+        }
+
+        try {
+            logger.info("Starting cleanup of stale LIVE broadcasts");
+
+            List<BroadcastEntity> liveBroadcasts = getLiveBroadcasts();
+            if (liveBroadcasts.isEmpty()) {
+                logger.debug("No live broadcasts to clean up");
+                return;
+            }
+
+            int cleanedUp = 0;
+            LocalDateTime now = LocalDateTime.now();
+
+            for (BroadcastEntity broadcast : liveBroadcasts) {
+                try {
+                    boolean shouldCleanup = false;
+                    String cleanupReason = "";
+
+                    // Check 1: Broadcast running too long (> 24 hours by default)
+                    if (broadcast.getActualStart() != null) {
+                        long hoursRunning = java.time.Duration.between(
+                            broadcast.getActualStart(),
+                            now
+                        ).toHours();
+
+                        if (hoursRunning > cleanupMaxLiveDurationHours) {
+                            shouldCleanup = true;
+                            cleanupReason = String.format("Broadcast running too long (%d hours > %d max)",
+                                hoursRunning, cleanupMaxLiveDurationHours);
+                        }
+                    }
+
+                    // Check 2: No recent checkpoint (stale, possibly crashed server)
+                    if (!shouldCleanup && broadcast.getLastCheckpointTime() != null) {
+                        long minutesSinceCheckpoint = java.time.Duration.between(
+                            broadcast.getLastCheckpointTime(),
+                            now
+                        ).toMinutes();
+
+                        if (minutesSinceCheckpoint > cleanupStaleThresholdMinutes) {
+                            shouldCleanup = true;
+                            cleanupReason = String.format("No checkpoint for %d minutes (> %d threshold)",
+                                minutesSinceCheckpoint, cleanupStaleThresholdMinutes);
+                        }
+                    }
+
+                    // Check 3: No checkpoint at all and running for extended period (> 2 hours)
+                    if (!shouldCleanup && broadcast.getLastCheckpointTime() == null &&
+                        broadcast.getActualStart() != null) {
+                        long hoursRunning = java.time.Duration.between(
+                            broadcast.getActualStart(),
+                            now
+                        ).toHours();
+
+                        if (hoursRunning > 2) { // 2 hours without any checkpoint is suspicious
+                            shouldCleanup = true;
+                            cleanupReason = String.format("No checkpoint for %d hours (suspicious)", hoursRunning);
+                        }
+                    }
+
+                    if (shouldCleanup) {
+                        logger.warn("Auto-cleaning up stale LIVE broadcast {}: {}", broadcast.getId(), cleanupReason);
+
+                        // Audit log: Cleanup of stale broadcast
+                        Map<String, Object> metadata = new java.util.HashMap<>();
+                        metadata.put("reason", cleanupReason);
+                        metadata.put("hoursRunning", broadcast.getActualStart() != null ?
+                            java.time.Duration.between(broadcast.getActualStart(), now).toHours() : null);
+                        metadata.put("lastCheckpointTime", broadcast.getLastCheckpointTime() != null ?
+                            broadcast.getLastCheckpointTime().toString() : "null");
+                        metadata.put("currentDurationSeconds", broadcast.getCurrentDurationSeconds());
+                        metadata.put("cleanupMaxLiveDurationHours", cleanupMaxLiveDurationHours);
+                        metadata.put("cleanupStaleThresholdMinutes", cleanupStaleThresholdMinutes);
+                        activityLogService.logSystemAuditWithMetadata(
+                            ActivityLogEntity.ActivityType.BROADCAST_AUTO_END,
+                            String.format("Auto-cleaned up stale LIVE broadcast: %s", broadcast.getTitle()),
+                            broadcast.getId(),
+                            metadata
+                        );
+
+                        // Auto-end the stale broadcast
+                        endBroadcast(broadcast.getId());
+                        cleanedUp++;
+
+                        logger.info("Cleaned up stale broadcast {}: {}", broadcast.getId(), broadcast.getTitle());
+                    }
+                } catch (Exception e) {
+                    logger.error("Error cleaning up broadcast {}: {}", broadcast.getId(), e.getMessage());
+                }
+            }
+
+            if (cleanedUp > 0) {
+                logger.info("Cleanup completed: auto-ended {} stale LIVE broadcasts", cleanedUp);
+            } else {
+                logger.debug("Cleanup completed: no stale broadcasts found");
+            }
+        } catch (Exception e) {
+            logger.error("Error during stale broadcast cleanup: {}", e.getMessage());
         }
     }
 

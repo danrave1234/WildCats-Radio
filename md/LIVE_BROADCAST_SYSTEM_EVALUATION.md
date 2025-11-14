@@ -685,10 +685,21 @@ public void sendHeartbeat() {
      - Mobile: `StompClientManager` configured with 20-second STOMP heartbeats matching backend. Listener WebSocket maintains separate ping/pong for stream status.
    - Together, these provide standardized heartbeat and health semantics across web and mobile clients.
 
-4. ⚠️ Partially Completed – Optimize health check (adaptive intervals)
-   - Server-side `monitorLiveStreamHealth()` still uses a fixed 15-second interval (auto-end / health snapshot).
+4. ✅ **COMPLETED** – Optimize health check (adaptive intervals)
+   - **Server-side adaptive health check intervals implemented:**
+     - Uses `ScheduledExecutorService` with self-rescheduling for dynamic intervals
+     - **New broadcasts (< 5 minutes):** 5-second intervals for rapid detection
+     - **Unhealthy/recovering broadcasts:** 5-second intervals for faster recovery detection
+     - **Medium-age broadcasts (5-60 minutes):** Linear interpolation from 5s → 60s based on age
+     - **Stable broadcasts (> 60 minutes):** 60-second intervals to reduce backend load
+     - **No live broadcast:** 60-second intervals (reduced load when idle)
+   - **Configuration properties:**
+     - `broadcast.healthCheck.adaptive.enabled=true` (default: enabled)
+     - `broadcast.healthCheck.adaptive.minIntervalMs=5000` (5 seconds)
+     - `broadcast.healthCheck.adaptive.maxIntervalMs=60000` (60 seconds)
+     - `broadcast.healthCheck.adaptive.stableThresholdMinutes=60` (1 hour)
+   - Falls back to fixed interval (`broadcast.healthCheck.intervalMs`) if adaptive is disabled
    - Client-side health polling (web) is now **only used as a fallback** and runs at 60-second or 5-minute intervals.
-   - Full adaptive server-side intervals (5s → 60s based on broadcast age) remain a future enhancement.
 
 **Impact (Web & Mobile):**
 - Substantial reduction in WebSocket connection count per client (all STOMP features share a single connection).
@@ -709,6 +720,8 @@ public void sendHeartbeat() {
 - **Mobile:**
   - `mobile/services/websocketService.ts` (updated with `StompClientManager`)
   - `mobile/app/(tabs)/broadcast.tsx` (all polling made fallback-only: broadcast status, radio status)
+- **Backend:**
+  - `backend/src/main/java/com/wildcastradio/Broadcast/BroadcastService.java` (adaptive health check intervals)
 
 #### Phase 2 Testing Reference: WebSocket Features Affected
 
@@ -778,13 +791,23 @@ public void sendHeartbeat() {
      - State changes (CLOSED → OPEN → HALF_OPEN → CLOSED)
      - Failure counts and thresholds
      - Recovery events
+   - **Stale broadcast cleanup mechanism:**
+     - Scheduled task runs every 30 minutes (configurable)
+     - Detects broadcasts that are still LIVE but were terminated ungracefully
+     - Auto-ends broadcasts running > 24 hours (configurable)
+     - Auto-ends broadcasts with no checkpoint for > 30 minutes (configurable)
+     - Auto-ends broadcasts with no checkpoint at all after > 2 hours
+     - Prevents database from being clogged with stale LIVE statuses
+     - Configurable via `broadcast.cleanup.*` properties
 
-**Impact:** 
+**Impact:**
 - ✅ Complete audit trail for all broadcast lifecycle events
 - ✅ System-level events logged without requiring user context
 - ✅ Enhanced metadata tracking (JSON) for detailed analysis
 - ✅ Automatic recovery from crashes with full audit trail
 - ✅ Accurate tracking of broadcast duration even after crashes
+- ✅ **Database cleanup:** Prevents accumulation of stale LIVE broadcasts from ungraceful terminations
+- ✅ **Maintenance-free:** Automated cleanup runs every 30 minutes without manual intervention
 
 **Files Modified:**
 - `backend/src/main/java/com/wildcastradio/ActivityLog/ActivityLogEntity.java`
@@ -896,44 +919,71 @@ class OptimizedBroadcastWebSocket {
 }
 ```
 
-### 6.3 Adaptive Health Check
+### 6.3 Adaptive Health Check ✅ **IMPLEMENTED**
 
 ```java
-@Scheduled(fixedDelayString = "${broadcast.healthCheck.baseIntervalMs:15000}")
-public void monitorLiveStreamHealth() {
-    if (!healthCheckEnabled) return;
-    
-    Optional<BroadcastEntity> liveOpt = getCurrentLiveBroadcast();
-    
-    if (liveOpt.isEmpty()) {
-        // No broadcast: skip check (reduce backend load)
-        return;
+/**
+ * Calculate adaptive health check interval based on broadcast age and health status
+ */
+private long calculateAdaptiveInterval(BroadcastEntity broadcast, boolean isHealthy) {
+    if (!adaptiveIntervalsEnabled) {
+        return healthCheckIntervalMs; // Fallback to fixed interval
     }
-    
-    BroadcastEntity broadcast = liveOpt.get();
-    
-    // Adaptive interval based on broadcast age
+
+    // If unhealthy or recovering, use minimum interval for faster detection
+    if (!isHealthy || recovering || consecutiveUnhealthyChecks > 0) {
+        return adaptiveMinIntervalMs; // 5 seconds
+    }
+
     long broadcastAgeMinutes = Duration.between(
         broadcast.getActualStart(),
         LocalDateTime.now()
     ).toMinutes();
+
+    // New broadcasts (< 5 minutes): 5-second intervals
+    if (broadcastAgeMinutes < 5) {
+        return adaptiveMinIntervalMs;
+    }
+    // Stable broadcasts (> 60 minutes): 60-second intervals
+    else if (broadcastAgeMinutes >= adaptiveStableThresholdMinutes) {
+        return adaptiveMaxIntervalMs;
+    }
+    // Medium-age broadcasts: linear interpolation 5s → 60s
+    else {
+        double progress = (double) broadcastAgeMinutes / adaptiveStableThresholdMinutes;
+        long interval = (long) (adaptiveMinIntervalMs + 
+            (adaptiveMaxIntervalMs - adaptiveMinIntervalMs) * progress);
+        return Math.max(adaptiveMinIntervalMs, Math.min(adaptiveMaxIntervalMs, interval));
+    }
+}
+
+/**
+ * Self-rescheduling adaptive health check scheduler
+ */
+@PostConstruct
+public void initAdaptiveHealthCheck() {
+    if (adaptiveIntervalsEnabled && healthCheckEnabled) {
+        healthCheckScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "BroadcastHealthCheck-Adaptive");
+            t.setDaemon(true);
+            return t;
+        });
+        scheduleNextHealthCheck(); // Start adaptive loop
+    }
+}
+
+private void scheduleNextHealthCheck() {
+    Optional<BroadcastEntity> liveOpt = getCurrentLiveBroadcast();
+    boolean isHealthy = lastHealthSnapshot.getOrDefault("healthy", false).equals(true);
     
-    // Longer broadcasts: check less frequently
-    long checkInterval = broadcastAgeMinutes > 60 
-        ? 60000  // 1 minute for broadcasts > 1 hour
-        : 15000; // 15 seconds for new broadcasts
+    long nextInterval = liveOpt.isPresent() 
+        ? calculateAdaptiveInterval(liveOpt.get(), isHealthy)
+        : adaptiveMaxIntervalMs; // No broadcast: use max interval
     
-    // Check health
-    Map<String, Object> status = icecastService.checkMountPointStatus(false);
-    boolean healthy = isHealthy(status);
-    
-    // Push via WebSocket (not HTTP polling)
-    Map<String, Object> healthSnapshot = new HashMap<>(status);
-    healthSnapshot.put("healthy", healthy);
-    healthSnapshot.put("broadcastId", broadcast.getId());
-    healthSnapshot.put("timestamp", System.currentTimeMillis());
-    
-    messagingTemplate.convertAndSend("/topic/broadcast/health", healthSnapshot);
+    healthCheckFuture = healthCheckScheduler.schedule(() -> {
+        monitorLiveStreamHealthInternal();
+        scheduleNextHealthCheck(); // Reschedule with new adaptive interval
+    }, nextInterval, TimeUnit.MILLISECONDS);
 }
 ```
 
@@ -1003,10 +1053,10 @@ The WildCats Radio live broadcast system has a solid foundation with WebSocket-b
 
 ---
 
-**Document Version:** 1.3
+**Document Version:** 1.5
 **Last Updated:** January 2025
 **Author:** System Evaluation
-**Review Status:** Phase 1, Phase 2 (Web & Mobile), & Phase 3 Completed
+**Review Status:** Phase 1, Phase 2 (Web & Mobile with Adaptive Health Checks), Phase 3 (with Stale Broadcast Cleanup) Completed
 
 ---
 
@@ -1025,13 +1075,14 @@ The WildCats Radio live broadcast system has a solid foundation with WebSocket-b
 - ✅ HTTP polling minimized on web and mobile (fallback-only when WebSockets are unavailable)
 - ✅ **All polling intervals are conditional** - zero HTTP requests when WebSocket is connected
 - ✅ WebSocket heartbeat/health standardized on web and mobile (10-25s STOMP heartbeats, configurable)
-- ⚠️ Adaptive health check intervals (server-side) still use fixed 15-second interval (future enhancement)
+- ✅ Adaptive health check intervals (server-side) implemented (5s → 60s based on broadcast age and health status)
 
 ### Phase 3: State Persistence ✅ **COMPLETED**
 - ✅ Periodic checkpointing (every 60s) implemented
 - ✅ Broadcast recovery on startup implemented
 - ✅ State machine validation implemented
 - ✅ Audit logging enhancement implemented
+- ✅ Stale broadcast cleanup mechanism implemented
 
 ### Phase 4: Monitoring & Observability ⏳ **PENDING**
 - ⏳ Metrics collection (pending)
