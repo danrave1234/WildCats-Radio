@@ -92,10 +92,7 @@ class GlobalWebSocketService {
       this.connectDJWebSocket(this.lastDJUrl);
     }
 
-    if (this.lastListenerStatusUrl && !this.isListenerStatusWebSocketConnected()) {
-      logger.info('Attempting Listener/Status WebSocket reconnection after network recovery');
-      this.connectListenerStatusWebSocket(this.lastListenerStatusUrl);
-    }
+    // Listener status WebSocket removed - now handled via STOMP /topic/listener-status
   }
 
   // --- Helper for Reconnection Logic (Legacy - kept for backward compatibility) ---
@@ -285,75 +282,35 @@ class GlobalWebSocketService {
     }
   }
 
-  // --- Listener/Status WebSocket (Consolidated) ---
+  // --- Listener/Status WebSocket REMOVED ---
+  // HARD REFACTOR: Listener status now handled via STOMP /topic/listener-status
+  // Use stompClientManager.subscribe('/topic/listener-status', callback) instead
+  
+  // Deprecated methods - kept for backward compatibility but do nothing
   connectListenerStatusWebSocket(wsUrl) {
-    if (this.listenerStatusWebSocket && (this.listenerStatusWebSocket.readyState === WebSocket.CONNECTING || this.listenerStatusWebSocket.readyState === WebSocket.OPEN)) {
-      logger.debug('Listener/Status WebSocket already connected or connecting.');
-      return;
-    }
-
-    this._clearReconnectTimer('listenerStatusReconnectTimer'); // Clear any pending reconnect
-    this.lastListenerStatusUrl = wsUrl; // Store URL for persistence
-
-    logger.info(`Connecting Listener/Status WebSocket to: ${wsUrl}`);
-    try {
-      this.listenerStatusWebSocket = new WebSocket(wsUrl);
-
-      this.listenerStatusWebSocket.onopen = () => {
-        logger.info('Listener/Status WebSocket connected successfully.');
-        this.listenerStatusReconnectAttempts = 0; // Reset attempts on success (legacy)
-        this.listenerStatusReconnectManager.reset(); // Reset exponential backoff manager
-        this.listenerStatusOpenCallbacks.forEach(cb => cb());
-        this._startListenerStatusPing();
-      };
-
-      this.listenerStatusWebSocket.onmessage = (event) => {
-        this.listenerStatusMessageCallbacks.forEach(cb => cb(event));
-      };
-
-      this.listenerStatusWebSocket.onerror = (event) => {
-        logger.error('Listener/Status WebSocket error:', event);
-        this.listenerStatusErrorCallbacks.forEach(cb => cb(event));
-      };
-
-      this.listenerStatusWebSocket.onclose = (event) => {
-        logger.warn(`Listener/Status WebSocket disconnected: Code=${event.code}, Reason=${event.reason}`);
-        this.listenerStatusCloseCallbacks.forEach(cb => cb(event));
-        this._stopListenerStatusPing();
-        if (event.code !== 1000 && event.code !== 1001) {
-          this._scheduleReconnect('Listener/Status', () => this.connectListenerStatusWebSocket(wsUrl), 'listenerStatusReconnectAttempts', 'listenerStatusReconnectTimer');
-        }
-      };
-    } catch (error) {
-      logger.error('Error creating Listener/Status WebSocket:', error);
-      this.listenerStatusErrorCallbacks.forEach(cb => cb(error));
-      this._scheduleReconnect('Listener/Status', () => this.connectListenerStatusWebSocket(wsUrl), 'listenerStatusReconnectAttempts', 'listenerStatusReconnectTimer');
-    }
+    logger.warn('connectListenerStatusWebSocket is deprecated. Use STOMP /topic/listener-status instead.');
   }
 
   sendListenerStatusMessage(message) {
-    if (this.listenerStatusWebSocket && this.listenerStatusWebSocket.readyState === WebSocket.OPEN) {
-      this.listenerStatusWebSocket.send(message);
-    } else {
-      logger.warn('Listener/Status WebSocket not open, cannot send message.');
-    }
+    logger.warn('sendListenerStatusMessage is deprecated. Use STOMP /app/listener/status instead.');
   }
 
   disconnectListenerStatusWebSocket() {
-    if (this.listenerStatusWebSocket) {
-      logger.info('Disconnecting Listener/Status WebSocket.');
-      this._clearReconnectTimer('listenerStatusReconnectTimer');
-      this._stopListenerStatusPing();
-      this.listenerStatusWebSocket.close(1000, 'Client initiated disconnect');
-      this.listenerStatusWebSocket = null;
-      this.lastListenerStatusUrl = null; // Clear stored URL
-    }
+    logger.warn('disconnectListenerStatusWebSocket is deprecated. Unsubscribe from STOMP subscription instead.');
   }
 
-  onListenerStatusMessage(callback) { this.listenerStatusMessageCallbacks.push(callback); }
-  onListenerStatusError(callback) { this.listenerStatusErrorCallbacks.push(callback); }
-  onListenerStatusClose(callback) { this.listenerStatusCloseCallbacks.push(callback); }
-  onListenerStatusOpen(callback) { this.listenerStatusOpenCallbacks.push(callback); }
+  onListenerStatusMessage(callback) { 
+    logger.warn('onListenerStatusMessage is deprecated. Use STOMP subscription callback instead.');
+  }
+  onListenerStatusError(callback) { 
+    logger.warn('onListenerStatusError is deprecated.');
+  }
+  onListenerStatusClose(callback) { 
+    logger.warn('onListenerStatusClose is deprecated.');
+  }
+  onListenerStatusOpen(callback) { 
+    logger.warn('onListenerStatusOpen is deprecated.');
+  }
 
   // --- Poll WebSocket ---
   connectPollWebSocket(wsUrl) {
@@ -422,7 +379,7 @@ class GlobalWebSocketService {
   // --- Global Disconnect ---
   disconnectAll() {
     this.disconnectDJWebSocket();
-    this.disconnectListenerStatusWebSocket();
+    // disconnectListenerStatusWebSocket removed - listener status now via STOMP
     this.disconnectPollWebSocket();
     logger.info('All WebSockets disconnected.');
   }
@@ -432,8 +389,11 @@ class GlobalWebSocketService {
     return this.djWebSocket && this.djWebSocket.readyState === WebSocket.OPEN;
   }
 
+  // isListenerStatusWebSocketConnected removed - listener status now via STOMP
+  // Use stompClientManager.isConnected() instead
   isListenerStatusWebSocketConnected() {
-    return this.listenerStatusWebSocket && this.listenerStatusWebSocket.readyState === WebSocket.OPEN;
+    logger.warn('isListenerStatusWebSocketConnected is deprecated. Use stompClientManager.isConnected() instead.');
+    return false;
   }
 
   getDJWebSocket() {

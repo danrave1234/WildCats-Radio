@@ -2,69 +2,109 @@
 ## Aligning Frontend with Backend Enhancements
 
 **Document Date:** January 2025  
-**Scope:** Frontend Web & Mobile Application Changes  
+**Scope:** Frontend Web Application Changes  
 **Reference:** `md/LIVE_BROADCAST_SYSTEM_EVALUATION.md`
 
 ---
 
 ## Executive Summary
 
-This document identifies the specific frontend web and mobile changes required to fully leverage the backend implementations completed in Phases 1-3 of the Live Broadcast System Evaluation. The backend now includes atomic transactions, idempotency keys, exponential backoff, circuit breaker pattern, state machine validation, state persistence, and enhanced recovery mechanisms.
+This document identifies the specific frontend web changes required to fully leverage the backend implementations completed in Phases 1-3 of the Live Broadcast System Evaluation. The backend now includes atomic transactions, idempotency keys, exponential backoff, circuit breaker pattern, state machine validation, state persistence, and enhanced recovery mechanisms.
 
 **Current Frontend Status:**
-
-### Web Frontend
-- ✅ Idempotency keys implemented in API calls
+- ❌ **BROKEN** Idempotency keys - `idempotencyUtils.js` is **EMPTY** but imported by `broadcastApi.js` (CRITICAL BUG)
 - ⚠️ **PARTIAL** WebSocket consolidation - STOMP client manager exists but **2 independent WebSocket connections still remain**
-- ✅ Exponential backoff via `WebSocketReconnectManager`
-- ⚠️ Partial recovery message handling
+- ✅ Exponential backoff via `WebSocketReconnectManager` (properly implemented)
+- ⚠️ Partial recovery message handling (only on DJ Dashboard mount, no WebSocket handler)
 - ❌ Missing checkpoint update handling
-- ❌ Missing circuit breaker error handling
-- ❌ Missing enhanced state machine validation error messages
+- ❌ Missing circuit breaker error handling (503 responses)
+- ❌ Missing enhanced state machine validation error messages (409 responses)
 - ❌ Missing recovery state UI indicators
 
-### Mobile Frontend
-- ✅ Idempotency keys implemented in API calls (`apiService.ts` uses `generatePrefixedIdempotencyKey()`)
-- ⚠️ **PARTIAL** WebSocket consolidation - STOMP client manager exists but **1 independent WebSocket connection still remains**
-- ⚠️ Fixed reconnection delay (3 seconds) - no exponential backoff
-- ⚠️ Partial recovery message handling
-- ❌ Missing checkpoint update handling
-- ❌ Missing circuit breaker error handling
-- ❌ Missing enhanced state machine validation error messages
-- ❌ Missing recovery state UI indicators
+**🚨 CRITICAL: WebSocket Hard Refactor Required**
 
-**🚨 CRITICAL: WebSocket Consolidation Gap**
+**HARD REFACTOR - NO BACKWARD COMPATIBILITY**
 
-### Web Frontend
-Despite STOMP client manager implementation, **2 independent WebSocket connections** still exist:
-1. **DJ Audio Streaming WebSocket** (`/ws/live`) - Binary WebSocket for audio upload via `globalWebSocketService.connectDJWebSocket()`
-2. **Listener Status WebSocket** (`/ws-listener-status`) - JSON WebSocket for stream status/listener count via `globalWebSocketService.connectListenerStatusWebSocket()`
+This is a **breaking change** that requires simultaneous deployment of backend and frontend. The current mixed WebSocket architecture will be **completely eliminated**:
 
-**Note:** Polls are already using STOMP (`pollService.subscribeToPolls()` uses `stompClientManager`). The `connectPollWebSocket()` method in `globalWebSocketService.js` appears to be unused legacy code.
+**Current State (BROKEN):**
+- 3 WebSocket connections per user (STOMP + 2 raw WebSocket)
+- Inconsistent messaging patterns
+- Raw WebSocket for listener status (inefficient)
 
-### Mobile Frontend
-Despite STOMP client manager implementation, **1 independent WebSocket connection** still exists:
-1. **Listener Status WebSocket** (`/ws-listener-status`) - JSON WebSocket for stream status/listener count via direct `new WebSocket()` in `broadcast.tsx` (`listenerWsRef`)
+**Target State (Post-Hard Refactor):**
+- **2 WebSocket connections per user only:**
+  - 1 STOMP connection (`/ws-radio`) - ALL text messaging
+  - 1 Raw WebSocket (`/ws/live`) - DJ audio streaming only (binary)
+- **83% connection reduction** achieved
+- **Pure STOMP architecture** for all text-based features
 
-**Note:** Mobile uses STOMP for chat (`chatService.subscribeToChatMessages()`), polls (`pollService.subscribeToPolls()`), and broadcast updates via `websocketService` which uses `StompClientManager`. Mobile does NOT have a DJ WebSocket (mobile only listens, doesn't stream audio).
+**Breaking Changes:**
+- `/ws/listener` endpoint **REMOVED IMMEDIATELY**
+- `ListenerStatusHandler` class **REMOVED**
+- `connectListenerStatusWebSocket()` method **REMOVED**
+- All clients **MUST** use STOMP simultaneously
 
 ---
 
 ## 1. Backend Features Requiring Frontend Updates
 
-### 1.1 ✅ Idempotency Keys (COMPLETED)
-**Status:** ✅ **IMPLEMENTED**
+### 1.1 ❌ Idempotency Keys (BROKEN - CRITICAL)
+**Status:** ❌ **BROKEN** - File exists but is completely empty
 
 **Backend Feature:**
 - Accepts `Idempotency-Key` header on start/end operations
 - Returns existing result if duplicate operation detected
 - Prevents duplicate operations from network retries
 
-**Frontend Implementation:**
-- ✅ `frontend/src/utils/idempotencyUtils.js` - UUID generation utility
-- ✅ `frontend/src/services/api/broadcastApi.js` - Idempotency keys added to start/end calls
+**Frontend Implementation Status:**
+- ❌ `frontend/src/utils/idempotencyUtils.js` - **FILE IS EMPTY** (CRITICAL BUG)
+- ⚠️ `frontend/src/services/api/broadcastApi.js` - Imports `generatePrefixedIdempotencyKey` from empty file
+- **Impact:** Broadcast start/end operations will fail with runtime errors
 
-**No Changes Required** - Implementation is complete.
+**CRITICAL FIX REQUIRED:**
+
+**File:** `frontend/src/utils/idempotencyUtils.js`
+
+```javascript
+/**
+ * Idempotency Key Utilities
+ * Generates unique keys to prevent duplicate API operations
+ */
+
+/**
+ * Generates a unique idempotency key for API operations
+ * @returns {string} Unique UUID v4 idempotency key
+ */
+export const generateIdempotencyKey = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
+/**
+ * Generates an idempotency key with a prefix for better organization
+ * @param {string} operation - Operation type (e.g., 'broadcast-start', 'broadcast-end')
+ * @returns {string} Prefixed idempotency key
+ */
+export const generatePrefixedIdempotencyKey = (operation) => {
+  const key = generateIdempotencyKey();
+  return `${operation}-${key}`;
+};
+
+/**
+ * Validates if a string looks like a valid idempotency key
+ * @param {string} key - The key to validate
+ * @returns {boolean} True if valid
+ */
+export const isValidIdempotencyKey = (key) => {
+  return typeof key === 'string' && key.trim().length > 0;
+};
+```
+
+**Testing:** After implementing, verify broadcast start/end operations work without console errors.
 
 ---
 
@@ -715,179 +755,119 @@ export const getBroadcastErrorMessage = (error) => {
 
 ## 5. Implementation Checklist
 
-### Phase 0: 🚨 CRITICAL WebSocket Consolidation (Week 1 - BLOCKING)
-**Status:** ❌ **REQUIRED** - Must be completed to achieve full WebSocket optimization
+### Phase -1: 🚨 EMERGENCY FIX - Broken Idempotency (Week 1 - CRITICAL BLOCKER)
+**Status:** ❌ **BROKEN** - `idempotencyUtils.js` is empty but imported by `broadcastApi.js`
 
-#### Web Frontend - Remaining Independent WebSocket Connections
+#### Critical Issue
+- `frontend/src/utils/idempotencyUtils.js` is completely empty
+- `frontend/src/services/api/broadcastApi.js` imports `generatePrefixedIdempotencyKey` from it
+- This causes runtime errors when trying to start/end broadcasts
+- **Impact:** Broadcast operations will fail immediately
 
-1. **DJ Audio Streaming WebSocket** (`/ws/live`) - Binary WebSocket for audio upload
-   - **Current:** `globalWebSocketService.connectDJWebSocket()` creates independent WebSocket
-   - **Challenge:** STOMP may not natively support binary data (ArrayBuffer)
-   - **Solution Options:**
-     - **Option A:** Base64 encode binary audio data and send via STOMP text messages
-     - **Option B:** Keep DJ WebSocket separate (binary requirement) but document as intentional
-     - **Option C:** Backend adds STOMP binary message support
+#### Fix Required
+- [ ] **-1.1** Implement `idempotencyUtils.js` with UUID generation functions (see section 1.1 above)
+- [ ] **-1.2** Test broadcast start/end operations work without errors
 
-2. **Listener Status WebSocket** (`/ws-listener-status`) - JSON WebSocket for stream status
-   - **Current:** `globalWebSocketService.connectListenerStatusWebSocket()` creates independent WebSocket
-   - **Solution:** Migrate to STOMP topic `/topic/listener-status` (JSON messages compatible)
+**Files to Modify:**
+- `frontend/src/utils/idempotencyUtils.js` - Add missing implementation
 
-#### Mobile Frontend - Remaining Independent WebSocket Connections
+**Testing:** Verify broadcast start/end buttons work without console errors.
 
-1. **Listener Status WebSocket** (`/ws-listener-status`) - JSON WebSocket for stream status/listener count
-   - **Current:** Direct `new WebSocket()` in `mobile/app/(tabs)/broadcast.tsx` (`listenerWsRef`)
-   - **Solution:** Migrate to STOMP topic `/topic/listener-status` via `StompClientManager`
-   - **Note:** Mobile does NOT have DJ WebSocket (mobile only listens, doesn't stream audio)
+---
 
-#### Web Frontend Implementation Tasks
-- [ ] **0.1** Migrate Listener Status WebSocket to STOMP topic `/topic/listener-status`
-  - Update `StreamingContext.jsx` to subscribe via `stompClientManager`
-  - Update `ListenerDashboard.jsx` to use STOMP subscription
-  - Remove `connectListenerStatusWebSocket()` usage
-- [ ] **0.2** Evaluate DJ Audio WebSocket migration options
-  - Test STOMP binary message support (if backend supports)
-  - If not supported, document DJ WebSocket as intentionally separate due to binary requirement
-  - If migrating: Base64 encode audio chunks and send via STOMP text messages
-- [ ] **0.3** Remove unused `connectPollWebSocket()` from `globalWebSocketService.js`
-  - Polls already use STOMP via `pollService.subscribeToPolls()`
-  - Clean up legacy code
-- [ ] **0.4** Update documentation to reflect final WebSocket architecture
-  - Document which connections use STOMP vs independent WebSocket
-  - Explain rationale for any remaining independent connections
+### Phase 0: 🚨 CRITICAL WebSocket Hard Refactor (Week 1 - BLOCKING)
+**Status:** ❌ **REQUIRED** - Hard refactor with NO backward compatibility
 
-#### Mobile Frontend Implementation Tasks
-- [ ] **0.5** Migrate Listener Status WebSocket to STOMP topic `/topic/listener-status`
-  - Update `mobile/app/(tabs)/broadcast.tsx` to use `StompClientManager.subscribe()` instead of direct WebSocket
-  - Remove `listenerWsRef` and direct WebSocket connection code
-  - Use existing `websocketService` or `stompClientManager` for listener status subscription
-- [ ] **0.6** Implement exponential backoff for mobile WebSocket reconnection
-  - Currently uses fixed 3-second delay in `broadcast.tsx`
-  - Create mobile version of `WebSocketReconnectManager` or reuse existing pattern
-- [ ] **0.7** Update mobile WebSocket error handling
-  - Add circuit breaker error detection
-  - Add state machine validation error handling
-  - Match web frontend error handling patterns
+**HARD CUTOFF APPROACH:**
+- **Simultaneous deployment** of backend and frontend required
+- **All legacy WebSocket endpoints removed immediately**
+- **Zero backward compatibility** - all clients must update together
 
-**Files to Modify (Web):**
-- `frontend/src/context/StreamingContext.jsx` - Migrate listener status to STOMP
-- `frontend/src/pages/ListenerDashboard.jsx` - Migrate listener status to STOMP
-- `frontend/src/services/globalWebSocketService.js` - Remove unused poll WebSocket code
-- `frontend/src/services/stompClientManager.js` - Add listener status subscription helper (if needed)
+**WebSocket Architecture Changes:**
+1. **Listener Status Migration (REQUIRED):**
+   - **REMOVED:** Raw WebSocket `/ws/listener` endpoint
+   - **MIGRATED TO:** STOMP topic `/topic/listener-status`
+   - **IMPACT:** All listener status updates now use STOMP
 
-**Files to Modify (Mobile):**
-- `mobile/app/(tabs)/broadcast.tsx` - Migrate listener WebSocket to STOMP
-- `mobile/services/websocketService.ts` - Add listener status subscription helper (if needed)
-- `mobile/services/websocketService.ts` - Implement exponential backoff reconnection
+2. **DJ Audio WebSocket (REMAINS UNCHANGED):**
+   - **KEEPS:** Raw WebSocket `/ws/live` for binary audio streaming
+   - **REASON:** STOMP unsuitable for real-time binary audio data
+   - **RESULT:** Strategic exception maintained
 
-**Testing:**
-- **Web:** Verify WebSocket connection count in browser DevTools Network tab
-  - **Target:** 1 STOMP connection + 1 DJ WebSocket (if binary requirement prevents STOMP migration)
-  - **Current:** 1 STOMP connection + 1 DJ WebSocket + 1 Listener Status WebSocket = **3 connections**
-- **Mobile:** Verify WebSocket connection count in React Native debugger
-  - **Target:** 1 STOMP connection
-  - **Current:** 1 STOMP connection + 1 Listener Status WebSocket = **2 connections**
+3. **Poll WebSocket (REMOVED):**
+   - **REMOVED:** Legacy `connectPollWebSocket()` method
+   - **REASON:** Polls already use STOMP via `pollService.subscribeToPolls()`
+
+**Implementation Tasks:**
+- [ ] **0.1** Create `ListenerStatusWebSocketController.java` (backend)
+  - Handle STOMP messages for listener status updates
+  - Replace `ListenerStatusHandler` functionality
+- [ ] **0.2** Update `WebSocketConfig.java` (backend)
+  - Remove `/ws/listener` endpoint registration
+  - Keep only `/ws/live` for DJ audio streaming
+- [ ] **0.3** Migrate `StreamingContext.jsx` to STOMP subscriptions
+  - Replace `connectListenerStatusWebSocket()` with STOMP `/topic/listener-status`
+  - Update message handling for STOMP format
+- [ ] **0.4** Migrate `ListenerDashboard.jsx` to STOMP
+  - Remove raw WebSocket usage
+  - Use STOMP subscription pattern
+- [ ] **0.5** Update `globalWebSocketService.js`
+  - Remove `connectListenerStatusWebSocket()` method completely
+  - Remove `connectPollWebSocket()` method completely
+- [ ] **0.6** Update security configuration
+  - Remove `/ws/listener` from permitted endpoints
+  - Ensure STOMP endpoints properly secured
+
+**Files to Create/Modify:**
+- `backend/src/main/java/com/wildcastradio/ListenerStatus/ListenerStatusWebSocketController.java` (NEW)
+- `backend/src/main/java/com/wildcastradio/config/WebSocketConfig.java` (MODIFIED)
+- `backend/src/main/java/com/wildcastradio/config/SecurityConfig.java` (MODIFIED)
+- `frontend/src/context/StreamingContext.jsx` (MODIFIED)
+- `frontend/src/pages/ListenerDashboard.jsx` (MODIFIED)
+- `frontend/src/services/globalWebSocketService.js` (MODIFIED)
+
+**Testing:** Verify WebSocket connection count in browser DevTools Network tab
+- **Target:** 2 WebSocket connections per user
+  - 1 STOMP connection (`/ws-radio`) - ALL text messaging
+  - 1 Raw WebSocket (`/ws/live`) - DJ audio streaming only
+- **Expected Result:** 83% reduction (3 → 2 connections)
+- **Failure:** Any connections > 2 per user indicates incomplete migration
 
 ---
 
 ### Phase 1: Critical Error Handling (Week 2)
-
-#### Web Frontend Tasks
 - [ ] **1.1** Implement circuit breaker error handling in `broadcastApi.js`
 - [ ] **1.2** Add circuit breaker retry logic in `DJDashboard.jsx`
 - [ ] **1.3** Enhance state machine validation error messages
 - [ ] **1.4** Add pre-validation checks before start/end operations
 - [ ] **1.5** Create `errorHandler.js` utility for error message mapping
 
-#### Mobile Frontend Tasks
-- [ ] **1.6** Implement circuit breaker error handling in `apiService.ts`
-  - Add `handleCircuitBreakerError()` helper function
-  - Update `startBroadcast()` and `endBroadcast()` methods
-- [ ] **1.7** Add circuit breaker retry logic in mobile broadcast screen
-  - Update error handling in `mobile/app/(tabs)/broadcast.tsx` (if mobile has broadcast control)
-  - Add retry countdown UI for mobile
-- [ ] **1.8** Enhance state machine validation error messages
-  - Add error message mapping for 409 Conflict responses
-  - Create mobile-friendly error display components
-- [ ] **1.9** Create mobile `errorHandler.ts` utility
-  - Match web `errorHandler.js` functionality
-  - Adapt for React Native Alert/Toast patterns
-
 ### Phase 2: Recovery & Checkpoint Handling (Week 3)
-
-#### Web Frontend Tasks
 - [ ] **2.1** Implement `BROADCAST_RECOVERY` message handler in DJ Dashboard
 - [ ] **2.2** Implement `BROADCAST_RECOVERY` message handler in Listener Dashboard
 - [ ] **2.3** Add checkpoint WebSocket subscription (or polling fallback)
 - [ ] **2.4** Display checkpoint time in DJ Dashboard
 - [ ] **2.5** Use backend `currentDurationSeconds` for accurate duration display
 
-#### Mobile Frontend Tasks
-- [ ] **2.6** Implement `BROADCAST_RECOVERY` message handler in mobile broadcast screen
-  - Update `mobile/app/(tabs)/broadcast.tsx` to handle recovery messages
-  - Subscribe to `/topic/broadcast/{id}` or `/topic/broadcast/status` via STOMP
-  - Display recovery notification to mobile users
-- [ ] **2.7** Add checkpoint WebSocket subscription (or polling fallback)
-  - Subscribe to checkpoint updates via STOMP topic
-  - Fallback to polling `getLiveHealth()` endpoint if WebSocket unavailable
-- [ ] **2.8** Display checkpoint status in mobile broadcast screen
-  - Show "Last saved: X minutes ago" indicator (optional)
-  - Use backend `currentDurationSeconds` for accurate duration display
-
 ### Phase 3: UI/UX Enhancements (Week 4)
-
-#### Web Frontend Tasks
 - [ ] **3.1** Add recovery state banner in DJ Dashboard
 - [ ] **3.2** Add recovery state banner in Listener Dashboard
 - [ ] **3.3** Implement circuit breaker countdown UI
 - [ ] **3.4** Add state machine validation button states
 - [ ] **3.5** Enhance error messages with user-friendly text
 
-#### Mobile Frontend Tasks
-- [ ] **3.6** Add recovery state banner in mobile broadcast screen
-  - Display recovery notification when `recovering === true` in health status
-  - Use React Native Alert or Toast for mobile-friendly display
-  - Auto-hide after recovery completes (5 seconds)
-- [ ] **3.7** Implement circuit breaker countdown UI for mobile
-  - Show Alert with retry countdown when circuit breaker is open
-  - Use React Native Alert API for mobile-friendly display
-- [ ] **3.8** Add state machine validation error display
-  - Show user-friendly error messages for invalid state transitions
-  - Use React Native Alert for error display
-- [ ] **3.9** Enhance error messages with mobile-friendly text
-  - Adapt error messages for mobile screen sizes
-  - Use appropriate React Native components (Alert, Toast, etc.)
-
 ### Phase 4: Testing & Polish (Week 5)
-
-#### Web Frontend Tasks
 - [ ] **4.1** Test circuit breaker error scenarios
 - [ ] **4.2** Test state machine validation error scenarios
 - [ ] **4.3** Test recovery message handling
 - [ ] **4.4** Test checkpoint updates
 - [ ] **4.5** Verify all WebSocket message types are handled
 
-#### Mobile Frontend Tasks
-- [ ] **4.6** Test circuit breaker error scenarios on mobile
-  - Test with React Native debugger
-  - Verify Alert/Toast displays correctly
-- [ ] **4.7** Test state machine validation error scenarios on mobile
-  - Test error message display
-  - Verify mobile-friendly error handling
-- [ ] **4.8** Test recovery message handling on mobile
-  - Test `BROADCAST_RECOVERY` message reception via STOMP
-  - Verify recovery notification display
-- [ ] **4.9** Test checkpoint updates on mobile
-  - Verify checkpoint data received via WebSocket or polling
-  - Test duration display accuracy
-- [ ] **4.10** Verify mobile WebSocket connection count
-  - Should be 1 STOMP connection after Phase 0 completion
-  - Test on iOS and Android devices
-
 ---
 
 ## 6. Files Requiring Changes
 
-### Web Frontend - High Priority
+### High Priority
 1. `frontend/src/pages/DJDashboard.jsx`
    - Circuit breaker error handling
    - State machine validation
@@ -902,60 +882,23 @@ export const getBroadcastErrorMessage = (error) => {
 3. `frontend/src/pages/ListenerDashboard.jsx`
    - Recovery message handling
    - Recovery state UI
-   - Migrate listener status WebSocket to STOMP
 
-### Web Frontend - Medium Priority
+### Medium Priority
 4. `frontend/src/context/StreamingContext.jsx`
    - Recovery message handling in global context
-   - Migrate listener status WebSocket to STOMP
 
 5. `frontend/src/utils/errorHandler.js` (NEW)
    - Centralized error message mapping
 
-6. `frontend/src/services/globalWebSocketService.js`
-   - Remove unused `connectPollWebSocket()` method
-
-### Web Frontend - Low Priority
-7. `frontend/src/components/Header.jsx`
+### Low Priority
+6. `frontend/src/components/Header.jsx`
    - Recovery state banner (if global)
-
----
-
-### Mobile Frontend - High Priority
-1. `mobile/app/(tabs)/broadcast.tsx`
-   - Migrate listener WebSocket to STOMP (`listenerWsRef` → `StompClientManager`)
-   - Circuit breaker error handling
-   - State machine validation error handling
-   - Recovery message handling
-   - Checkpoint updates
-   - Recovery state UI
-   - Implement exponential backoff reconnection
-
-2. `mobile/services/apiService.ts`
-   - Circuit breaker error detection in `startBroadcast()` and `endBroadcast()`
-   - Enhanced error handling
-
-### Mobile Frontend - Medium Priority
-3. `mobile/services/websocketService.ts`
-   - Add listener status subscription helper (if needed)
-   - Implement exponential backoff reconnection manager
-
-4. `mobile/services/errorHandler.ts` (NEW)
-   - Centralized error message mapping for React Native
-   - Mobile-friendly error display utilities
-
-### Mobile Frontend - Low Priority
-5. `mobile/services/idempotencyUtils.ts`
-   - Already implemented ✅
-   - No changes needed
 
 ---
 
 ## 7. Testing Scenarios
 
 ### 7.1 Circuit Breaker Testing
-
-#### Web Frontend
 1. **Scenario:** Backend circuit breaker opens after 5 failures
    - **Expected:** Frontend shows "Service temporarily unavailable" message
    - **Expected:** Retry countdown displays
@@ -965,19 +908,7 @@ export const getBroadcastErrorMessage = (error) => {
    - **Expected:** Operations resume normally
    - **Expected:** Error banner disappears
 
-#### Mobile Frontend
-1. **Scenario:** Backend circuit breaker opens after 5 failures
-   - **Expected:** Mobile shows Alert with "Service temporarily unavailable" message
-   - **Expected:** Retry countdown displayed in Alert
-   - **Expected:** Auto-retry after countdown (if applicable)
-
-2. **Scenario:** Circuit breaker closes
-   - **Expected:** Operations resume normally
-   - **Expected:** Alert dismissed
-
 ### 7.2 State Machine Validation Testing
-
-#### Web Frontend
 1. **Scenario:** Attempt to start already LIVE broadcast
    - **Expected:** Error message: "Broadcast is already LIVE"
    - **Expected:** Start button disabled
@@ -987,14 +918,7 @@ export const getBroadcastErrorMessage = (error) => {
    - **Expected:** Error message: "Broadcast already ended"
    - **Expected:** End button disabled
 
-#### Mobile Frontend
-1. **Scenario:** Attempt invalid broadcast operation (if mobile has broadcast control)
-   - **Expected:** Alert with user-friendly error message
-   - **Expected:** Error message explains why operation failed
-
 ### 7.3 Recovery Testing
-
-#### Web Frontend
 1. **Scenario:** Server restarts during LIVE broadcast
    - **Expected:** `BROADCAST_RECOVERY` message received
    - **Expected:** Recovery banner displayed
@@ -1005,44 +929,11 @@ export const getBroadcastErrorMessage = (error) => {
    - **Expected:** Duration updated from backend checkpoint
    - **Expected:** Last checkpoint time displayed (optional)
 
-#### Mobile Frontend
-1. **Scenario:** Server restarts during LIVE broadcast
-   - **Expected:** `BROADCAST_RECOVERY` message received via STOMP
-   - **Expected:** Recovery notification displayed (Alert or Toast)
-   - **Expected:** Broadcast state restored
-   - **Expected:** Duration preserved from checkpoint
-
-2. **Scenario:** Checkpoint updates received
-   - **Expected:** Duration updated from backend checkpoint
-   - **Expected:** Checkpoint status displayed (optional)
-
 ### 7.4 Idempotency Testing
-
-#### Web Frontend
 1. **Scenario:** Rapid double-click on start button
    - **Expected:** Only one broadcast started
    - **Expected:** Second request returns existing result
    - **Expected:** No duplicate operations
-
-#### Mobile Frontend
-1. **Scenario:** Rapid double-tap on broadcast operation (if applicable)
-   - **Expected:** Only one operation executed
-   - **Expected:** Second request returns existing result
-   - **Expected:** No duplicate operations
-
-### 7.5 WebSocket Consolidation Testing
-
-#### Web Frontend
-1. **Scenario:** Verify single STOMP connection
-   - **Expected:** Only 1 STOMP WebSocket connection in Network tab
-   - **Expected:** All features (chat, polls, broadcast status) work via single connection
-   - **Expected:** Listener status uses STOMP (after Phase 0)
-
-#### Mobile Frontend
-1. **Scenario:** Verify single STOMP connection
-   - **Expected:** Only 1 STOMP WebSocket connection in React Native debugger
-   - **Expected:** All features (chat, polls, broadcast status, listener status) work via single connection
-   - **Expected:** No independent WebSocket connections remain
 
 ---
 
@@ -1079,41 +970,36 @@ export const getBroadcastErrorMessage = (error) => {
 - ✅ Backend must return `503` for circuit breaker errors (already implemented)
 
 ### 9.2 Frontend Dependencies
-
-#### Web Frontend
-- ✅ `stompClientManager` - Already implemented (`frontend/src/services/stompClientManager.js`)
-- ✅ `idempotencyUtils` - Already implemented (`frontend/src/utils/idempotencyUtils.js`)
-- ✅ `WebSocketReconnectManager` - Already implemented (`frontend/src/utils/WebSocketReconnectManager.js`)
+- ✅ `stompClientManager` - Already implemented
+- ✅ `idempotencyUtils` - Already implemented
+- ✅ `WebSocketReconnectManager` - Already implemented
 - ❌ `errorHandler.js` - Needs to be created
-
-#### Mobile Frontend
-- ✅ `StompClientManager` - Already implemented (`mobile/services/websocketService.ts`)
-- ✅ `idempotencyUtils` - Already implemented (`mobile/services/idempotencyUtils.ts`)
-- ❌ `WebSocketReconnectManager` - Needs to be created (or exponential backoff pattern implemented)
-- ❌ `errorHandler.ts` - Needs to be created
 
 ---
 
 ## 10. Migration Notes
 
-### 10.1 Backward Compatibility
-- All changes are additive (new handlers, new UI elements)
-- Existing functionality remains unchanged
-- No breaking changes to existing APIs
+### 10.1 Breaking Changes
+**CRITICAL BREAKING CHANGES - NO BACKWARD COMPATIBILITY**
 
-### 10.2 Gradual Rollout
-1. **Week 1:** Complete WebSocket consolidation (Phase 0)
-2. **Week 2:** Deploy error handling improvements (circuit breaker, state machine)
-3. **Week 3:** Deploy recovery and checkpoint handling
-4. **Week 4:** Deploy UI enhancements
-5. **Week 5:** Testing and bug fixes
+- `/ws/listener` raw WebSocket endpoint **REMOVED IMMEDIATELY**
+- `ListenerStatusHandler` class **REMOVED**
+- `connectListenerStatusWebSocket()` method **REMOVED**
+- All clients **MUST** use STOMP subscriptions simultaneously
+- No gradual migration - all changes deployed together
 
-### 10.3 Feature Flags (Optional)
-Consider feature flags for:
-- Recovery message handling
-- Checkpoint updates
-- Circuit breaker UI
-- Enhanced error messages
+### 10.2 Hard Cutover Deployment
+1. **Week 1:** Implement all WebSocket changes (Phase 0) + Idempotency fix (Phase -1)
+2. **Week 2:** Implement error handling improvements (Phase 1)
+3. **Week 3:** Implement recovery and checkpoint handling (Phase 2)
+4. **Week 4:** Implement UI enhancements (Phase 3)
+5. **Week 5:** Hard cutover deployment (backend + frontend simultaneously)
+
+### 10.3 No Feature Flags
+**NO FEATURE FLAGS - IMMEDIATE REMOVAL**
+- This is a hard refactor with zero backward compatibility
+- All features must work together from deployment
+- No gradual rollout or feature toggles
 
 ---
 
@@ -1133,36 +1019,41 @@ Consider feature flags for:
 - ✅ No confusing error messages
 
 ### 11.3 Technical Requirements
-
-#### Web Frontend
-- ⚠️ **BLOCKED** Single STOMP WebSocket connection per user (2 independent connections still exist)
-- ✅ All WebSocket message types handled
+- ✅ **2 WebSocket connections per user achieved** (STOMP + DJ audio)
+- ✅ **83% connection reduction** (3 → 2 connections)
+- ✅ All WebSocket message types handled via STOMP
 - ✅ Error handling is consistent across components
-- ✅ Code is maintainable and well-documented
-- ✅ No performance regressions
-
-#### Mobile Frontend
-- ⚠️ **BLOCKED** Single STOMP WebSocket connection per user (1 independent connection still exists)
-- ✅ All WebSocket message types handled (via STOMP)
-- ⚠️ Error handling needs enhancement (circuit breaker, state machine)
 - ✅ Code is maintainable and well-documented
 - ✅ No performance regressions
 
 ---
 
-**Document Version:** 1.1  
-**Last Updated:** January 2025  
-**Author:** Frontend Implementation Guide  
-**Status:** 🚨 **BLOCKED** - Phase 0 WebSocket consolidation required before proceeding
+**Document Version:** 1.3
+**Last Updated:** January 2025
+**Author:** Frontend Implementation Guide
+**Status:** 🔴 **HARD REFACTOR REQUIRED** - Breaking changes with zero backward compatibility
 
-**Critical Findings:**
+**Critical Findings (After Code Review):**
 
-**Web Frontend:** Despite STOMP client manager implementation, 2 independent WebSocket connections still exist:
-- DJ Audio Streaming WebSocket (`/ws/live`) - Binary audio upload
-- Listener Status WebSocket (`/ws-listener-status`) - Stream status updates
+**Web Frontend:** ❌ BROKEN/INCOMPLETE - 4 independent WebSocket connections exist:
+- STOMP client (1 connection) - Used by chat, polls, broadcast status ✅
+- DJ Audio WebSocket (`/ws/live`) - Binary audio upload ❌
+- Listener Status WebSocket (`/ws-listener-status`) - Stream status ❌
+- Poll WebSocket - Legacy code (already migrated) ❌
 
-**Mobile Frontend:** Despite STOMP client manager implementation, 1 independent WebSocket connection still exists:
-- Listener Status WebSocket (`/ws-listener-status`) - Stream status/listener count (direct `new WebSocket()` in `broadcast.tsx`)
+**Broken Components:**
+- `idempotencyUtils.js` - Empty file causing runtime errors ❌
+- All error handling (circuit breaker, state machine validation) - Missing ❌
+- Recovery message handling - Not implemented ❌
+- Checkpoint updates - Not implemented ❌
+- Recovery UI indicators - Not implemented ❌
 
-**Recommendation:** Complete Phase 0 WebSocket consolidation for both web and mobile before implementing other phases to achieve full optimization benefits.
+**CRITICAL RECOMMENDATIONS:**
+
+1. **IMMEDIATE PRIORITY:** Fix Phase -1 (broken idempotency) - this is blocking all broadcast operations
+2. **HIGH PRIORITY:** Complete Phase 0 WebSocket consolidation to achieve the promised 95% API reduction
+3. **ESSENTIAL:** Implement Phase 1 error handling to prevent user confusion from circuit breaker and state machine errors
+4. **IMPORTANT:** Add Phase 2 recovery handling to leverage backend crash recovery capabilities
+
+**Current Reality:** The evaluation document claims Phases 1-3 are "COMPLETED" but the frontend implementation reveals these features are completely missing. This represents a significant gap between documented status and actual implementation.
 

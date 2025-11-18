@@ -21,7 +21,7 @@ import { useAuth } from "../context/AuthContext";
 import { useStreaming } from "../context/StreamingContext";
 import { useLocalBackend, config } from "../config";
 import { createLogger } from "../services/logger";
-import { globalWebSocketService } from '../services/globalWebSocketService';
+import stompClientManager from '../services/stompClientManager';
 import SpotifyPlayer from '../components/SpotifyPlayer';
 import SEO from '../components/SEO';
 import { generateRadioStationData, generateBroadcastEventData } from '../utils/structuredData';
@@ -1676,119 +1676,126 @@ export default function ListenerDashboard() {
     );
   };
 
+  // Subscribe to listener status via STOMP (replaces raw WebSocket)
   useEffect(() => {
-    if (!serverConfig?.wsBaseUrl) return;
-    const wsUrl = `${serverConfig.wsBaseUrl}/ws/listener`;
-    globalWebSocketService.connectListenerStatusWebSocket(wsUrl);
+    let subscription = null;
 
-    // Register callbacks
-    const handleOpen = () => {
-      setListenerWsConnected(true);
-      logger.info('Listener WebSocket connected (via global service)');
-      // Optionally send initial status message
-      if (audioRef.current && !audioRef.current.paused && localAudioPlaying) {
-        const message = {
-          type: 'LISTENER_STATUS',
-          action: 'START_LISTENING',
-          broadcastId: currentBroadcastId,
-          userId: currentUser?.id || null,
-          userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener',
-          timestamp: Date.now()
-        };
-        globalWebSocketService.sendListenerStatusMessage(JSON.stringify(message));
-        logger.debug('Sent initial listener status on WebSocket connect: listening', message);
-      }
-    };
-    globalWebSocketService.onListenerStatusOpen(handleOpen);
-
-    const handleMessage = (event) => {
+    const setupSTOMPSubscription = async () => {
       try {
-        const data = JSON.parse(event.data);
-        logger.debug('Listener WebSocket message received:', data);
-        if (data.type === 'STREAM_STATUS') {
-          logger.debug('ListenerDashboard: Stream status updated via WebSocket:', data.isLive);
-          if (data.listenerCount !== undefined) {
-            logger.debug('ListenerDashboard: Updating listener count to:', data.listenerCount);
-            setLocalListenerCount(data.listenerCount);
-          }
+        subscription = await stompClientManager.subscribe(
+          '/topic/listener-status',
+          (message) => {
+            try {
+              const data = JSON.parse(message.body);
+              logger.debug('ListenerDashboard: Stream status updated via STOMP:', data);
+              
+              if (data.type === 'STREAM_STATUS') {
+                logger.debug('ListenerDashboard: Stream status updated via STOMP:', data.isLive);
+                
+                setListenerWsConnected(stompClientManager.isConnected());
+                
+                if (data.listenerCount !== undefined) {
+                  logger.debug('ListenerDashboard: Updating listener count to:', data.listenerCount);
+                  setLocalListenerCount(data.listenerCount);
+                }
 
-          // CRITICAL: Update radio server state immediately from WebSocket health data
-          // This eliminates the 30-second delay by replacing HTTP polling
-          if (data.health) {
-            const health = data.health;
-            logger.debug('ListenerDashboard: Updating radio server state from WebSocket health:', health);
+                // CRITICAL: Update radio server state immediately from STOMP health data
+                // This eliminates the 30-second delay by replacing HTTP polling
+                if (data.health) {
+                  const health = data.health;
+                  logger.debug('ListenerDashboard: Updating radio server state from STOMP health:', health);
 
-            // Determine server state from health data
-            let serverState = 'unknown';
-            if (health.radioServerState) {
-              // Use the direct radioServerState if provided
-              serverState = health.radioServerState;
-            } else if (health.broadcastLive === true) {
-              if (health.healthy === true) {
-                serverState = 'running'; // Server is healthy and broadcasting
-              } else if (health.recovering === true) {
-                serverState = 'running'; // Server is recovering but still broadcasting
-              } else {
-                serverState = 'stopped'; // Server is broadcasting but unhealthy
+                  // Determine server state from health data
+                  let serverState = 'unknown';
+                  if (health.radioServerState) {
+                    // Use the direct radioServerState if provided
+                    serverState = health.radioServerState;
+                  } else if (health.broadcastLive === true) {
+                    if (health.healthy === true) {
+                      serverState = 'running'; // Server is healthy and broadcasting
+                    } else if (health.recovering === true) {
+                      serverState = 'running'; // Server is recovering but still broadcasting
+                    } else {
+                      serverState = 'stopped'; // Server is broadcasting but unhealthy
+                    }
+                  } else {
+                    serverState = 'stopped'; // No broadcast active
+                  }
+
+                  logger.debug('ListenerDashboard: Computed server state from STOMP:', serverState);
+                  setRadioServerState(serverState);
+                }
+
+                // Detect live status transitions and react immediately
+                if (typeof data.isLive === 'boolean') {
+                  const prev = lastIsLiveRef.current;
+                  lastIsLiveRef.current = data.isLive;
+
+                  // When stream just went live, immediately fetch current broadcast and refresh session
+                  if (data.isLive && prev !== true) {
+                    logger.debug('ListenerDashboard: Detected live transition via STOMP');
+                    broadcastEndedRef.current = false; // Reset ended flag for new live broadcast
+                    // Fresh start: clear all and re-subscribe with the new ID
+                    if (data.broadcastId) {
+                      logger.debug('ListenerDashboard: Using broadcastId from STOMP:', data.broadcastId);
+                      resetForNewBroadcast(data.broadcastId);
+                    } else {
+                      // No id included; still force a reset and let fetch resolve the id
+                      resetForNewBroadcast(null);
+                    }
+                    // Fetch complete current broadcast info in background
+                    fetchCurrentBroadcastInfo().catch((e) => logger.error('Error fetching current broadcast after live transition:', e));
+                  }
+
+                  // When stream ended, clear current broadcast (but only if broadcast wasn't explicitly ended)
+                  if (!data.isLive && prev !== false && !broadcastEndedRef.current) {
+                    logger.debug('ListenerDashboard: Detected end of stream via STOMP, clearing current broadcast');
+                    resetForNewBroadcast(null);
+                  }
+                }
               }
-            } else {
-              serverState = 'stopped'; // No broadcast active
+            } catch (error) {
+              logger.error('Error parsing STOMP message:', error);
             }
-
-            logger.debug('ListenerDashboard: Computed server state from WebSocket:', serverState);
-            setRadioServerState(serverState);
           }
+        );
 
-          // Detect live status transitions and react immediately
-          if (typeof data.isLive === 'boolean') {
-            const prev = lastIsLiveRef.current;
-            lastIsLiveRef.current = data.isLive;
+        setListenerWsConnected(stompClientManager.isConnected());
+        logger.info('ListenerDashboard: STOMP subscription established');
 
-            // When stream just went live, immediately fetch current broadcast and refresh session
-            if (data.isLive && prev !== true) {
-              logger.debug('ListenerDashboard: Detected live transition via WebSocket');
-              broadcastEndedRef.current = false; // Reset ended flag for new live broadcast
-              // Fresh start: clear all and re-subscribe with the new ID
-              if (data.broadcastId) {
-                logger.debug('ListenerDashboard: Using broadcastId from WS:', data.broadcastId);
-                resetForNewBroadcast(data.broadcastId);
-              } else {
-                // No id included; still force a reset and let fetch resolve the id
-                resetForNewBroadcast(null);
-              }
-              // Fetch complete current broadcast info in background
-              fetchCurrentBroadcastInfo().catch((e) => logger.error('Error fetching current broadcast after live transition:', e));
-            }
-
-            // When stream ended, clear current broadcast (but only if broadcast wasn't explicitly ended)
-            if (!data.isLive && prev !== false && !broadcastEndedRef.current) {
-              logger.debug('ListenerDashboard: Detected end of stream via WebSocket, clearing current broadcast');
-              resetForNewBroadcast(null);
-            }
+        // Send initial START_LISTENING message if audio is playing
+        if (audioRef.current && !audioRef.current.paused && localAudioPlaying && currentBroadcastId) {
+          try {
+            await stompClientManager.publish('/app/listener/status', {
+              action: 'START_LISTENING',
+              broadcastId: currentBroadcastId,
+              userId: currentUser?.id || null,
+              userName: currentUser?.firstName || currentUser?.name || 'Anonymous Listener'
+            });
+            logger.debug('Sent initial listener status via STOMP: listening');
+          } catch (e) {
+            logger.warn('Failed to send initial START_LISTENING message:', e);
           }
         }
       } catch (error) {
-        logger.error('Error parsing WebSocket message:', error);
+        logger.error('Failed to subscribe to listener status via STOMP:', error);
+        setListenerWsConnected(false);
       }
     };
-    globalWebSocketService.onListenerStatusMessage(handleMessage);
 
-    const handleClose = (event) => {
-      setListenerWsConnected(false);
-      logger.info(`Listener WebSocket disconnected (via global service): ${event.code}, reason: ${event.reason}`);
-    };
-    globalWebSocketService.onListenerStatusClose(handleClose);
-
-    const handleError = (error) => {
-      logger.error('Listener WebSocket error (via global service):', error);
-    };
-    globalWebSocketService.onListenerStatusError(handleError);
+    setupSTOMPSubscription();
 
     return () => {
-      // Optionally disconnect on unmount
-      globalWebSocketService.disconnectListenerStatusWebSocket();
+      if (subscription) {
+        try {
+          subscription.unsubscribe();
+        } catch (e) {
+          logger.warn('Error unsubscribing from listener status STOMP:', e);
+        }
+      }
+      setListenerWsConnected(false);
     };
-  }, [serverConfig?.wsBaseUrl, currentBroadcastId, currentUser, localAudioPlaying]);
+  }, [currentBroadcastId, currentUser, localAudioPlaying]);
 
   // Generate SEO data based on current broadcast
   const broadcastTitle = currentBroadcast 

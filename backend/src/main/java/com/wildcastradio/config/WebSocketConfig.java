@@ -9,7 +9,6 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
 
 import com.wildcastradio.icecast.IcecastStreamHandler;
-import com.wildcastradio.icecast.ListenerStatusHandler;
 
 /**
  * WebSocket configuration for the application.
@@ -20,19 +19,16 @@ import com.wildcastradio.icecast.ListenerStatusHandler;
 public class WebSocketConfig implements WebSocketConfigurer {
     
     private final IcecastStreamHandler icecastStreamHandler;
-    private final ListenerStatusHandler listenerStatusHandler;
     private final CorsConfig corsConfig;
     private final WebSocketHandshakeAuthInterceptor handshakeAuthInterceptor;
     private final com.wildcastradio.ratelimit.WebSocketRateLimitHandshakeInterceptor rateLimitHandshakeInterceptor;
     
     @Autowired
     public WebSocketConfig(IcecastStreamHandler icecastStreamHandler, 
-                          ListenerStatusHandler listenerStatusHandler,
                           CorsConfig corsConfig,
                           WebSocketHandshakeAuthInterceptor handshakeAuthInterceptor,
                           com.wildcastradio.ratelimit.WebSocketRateLimitHandshakeInterceptor rateLimitHandshakeInterceptor) {
         this.icecastStreamHandler = icecastStreamHandler;
-        this.listenerStatusHandler = listenerStatusHandler;
         this.corsConfig = corsConfig;
         this.handshakeAuthInterceptor = handshakeAuthInterceptor;
         this.rateLimitHandshakeInterceptor = rateLimitHandshakeInterceptor;
@@ -58,17 +54,16 @@ public class WebSocketConfig implements WebSocketConfigurer {
     
     /**
      * Register WebSocket handlers and configure allowed origins
+     * 
+     * HARD REFACTOR: /ws/listener endpoint removed - listener status now handled via STOMP /topic/listener-status
      */
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        // Audio streaming endpoint for DJs
+        // Audio streaming endpoint for DJs (binary data - must remain raw WebSocket)
         registry.addHandler(icecastStreamHandler, "/ws/live")
                 .addInterceptors(handshakeAuthInterceptor, rateLimitHandshakeInterceptor)
                 .setAllowedOrigins(corsConfig.getAllowedOrigins().toArray(new String[0]));
         
-        // Status updates endpoint for listeners  
-        registry.addHandler(listenerStatusHandler, "/ws/listener")
-                .addInterceptors(handshakeAuthInterceptor, rateLimitHandshakeInterceptor)
-                .setAllowedOrigins(corsConfig.getAllowedOrigins().toArray(new String[0]));
+        // Listener status removed - now handled via STOMP /topic/listener-status
     }
 }

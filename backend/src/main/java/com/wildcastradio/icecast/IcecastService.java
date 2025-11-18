@@ -83,16 +83,11 @@ public class IcecastService {
     // Track active broadcasting sessions
     private final Map<String, BroadcastInfo> activeBroadcasts = new ConcurrentHashMap<>();
 
-    // Reference to the listener status handler (will be set after construction)
-    private ListenerStatusHandler listenerStatusHandler;
+    // ListenerStatusHandler removed - listener status now handled via STOMP ListenerStatusWebSocketController
 
     @Autowired
     public IcecastService(NetworkConfig networkConfig) {
         this.networkConfig = networkConfig;
-    }
-
-    public void setListenerStatusHandler(ListenerStatusHandler handler) {
-        this.listenerStatusHandler = handler;
     }
 
     /**
@@ -103,10 +98,8 @@ public class IcecastService {
         logger.info("Broadcast started for session: {}", sessionId);
         activeBroadcasts.put(sessionId, new BroadcastInfo(sessionId, System.currentTimeMillis()));
 
-        // Notify listener status handler if available
-        if (listenerStatusHandler != null) {
-            listenerStatusHandler.triggerStatusUpdate();
-        }
+        // Listener status update now handled via STOMP ListenerStatusWebSocketController
+        // Status updates are broadcast automatically via @Scheduled method
     }
 
     /**
@@ -117,10 +110,8 @@ public class IcecastService {
         logger.info("Broadcast ended for session: {}", sessionId);
         activeBroadcasts.remove(sessionId);
 
-        // Notify listener status handler if available
-        if (listenerStatusHandler != null) {
-            listenerStatusHandler.triggerStatusUpdate();
-        }
+        // Listener status update now handled via STOMP ListenerStatusWebSocketController
+        // Status updates are broadcast automatically via @Scheduled method
     }
 
     /**
@@ -150,10 +141,8 @@ public class IcecastService {
         logger.info("Clearing all active broadcasts from session tracking");
         activeBroadcasts.clear();
         
-        // Notify listener status handler if available
-        if (listenerStatusHandler != null) {
-            listenerStatusHandler.triggerStatusUpdate();
-        }
+        // Listener status update now handled via STOMP ListenerStatusWebSocketController
+        // Status updates are broadcast automatically via @Scheduled method
     }
 
     /**
@@ -373,7 +362,9 @@ public class IcecastService {
      */
     public Integer getCurrentListenerCount(boolean logWarnings) {
         int icecastListeners = 0;
-        int webSocketListeners = listenerStatusHandler != null ? listenerStatusHandler.getActiveListenersCount() : 0;
+        // WebSocket listener count now tracked via STOMP ListenerStatusWebSocketController
+        // Use ListenerTrackingService for listener count instead
+        int webSocketListeners = 0; // Deprecated - use ListenerTrackingService.getCurrentListenerCount()
 
         try {
             URL url = new URL(getIcecastStreamingUrl() + "/status-json.xsl");
@@ -562,7 +553,7 @@ public class IcecastService {
         config.put("icecastPort", icecastPort);
         config.put("icecastHost", icecastHost); // Add separate field for Icecast host
         config.put("webSocketUrl", getWebSocketUrl());
-        config.put("listenerWebSocketUrl", getListenerWebSocketUrl()); // Add listener WebSocket URL
+        // listenerWebSocketUrl removed - listener status now via STOMP /topic/listener-status
         config.put("streamUrl", getStreamUrl());
         config.put("icecastUrl", getIcecastUrl());
         config.put("mountPoint", icecastMount);
@@ -587,16 +578,14 @@ public class IcecastService {
 
     /**
      * Get the WebSocket URL for listener status updates
-     * @return URL for WebSocket connection to receive status updates
+     * @deprecated Removed in hard refactor - listener status now via STOMP /topic/listener-status
+     * @return null - method removed
      */
+    @Deprecated
     public String getListenerWebSocketUrl() {
-        if (networkConfig != null) {
-            return networkConfig.getListenerWebSocketUrl();
-        }
-        // Fallback - use app domain from configuration or default to deployed URL
-        String protocol = appDomain != null && appDomain.startsWith("https://") ? "wss" : "ws";
-        String baseUrl = appDomain != null ? appDomain.replaceFirst("https?://", "") : "api.wildcat-radio.live";
-        return protocol + "://" + baseUrl + "/ws/listener";
+        // HARD REFACTOR: This method is deprecated and returns null
+        // Listener status is now handled via STOMP /topic/listener-status
+        return null;
     }
 
     /**

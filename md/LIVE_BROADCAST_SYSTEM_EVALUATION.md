@@ -1147,10 +1147,12 @@ The WildCats Radio live broadcast system has a solid foundation with WebSocket-b
 
 ---
 
-**Document Version:** 1.6
+**Document Version:** 1.7
 **Last Updated:** January 2025
 **Author:** System Evaluation
-**Review Status:** Phase 1, Phase 2 (Web & Mobile with Adaptive Health Checks + Full WebSocket Optimization), Phase 3 (with Stale Broadcast Cleanup) Completed
+**Review Status:** Phase 1 ✅ COMPLETED, Phase 2 🔴 HARD REFACTOR REQUIRED, Phase 3 ✅ COMPLETED
+
+**CRITICAL UPDATE:** Phase 2 WebSocket optimization is NOT completed. Hard refactor required with breaking changes to achieve pure STOMP architecture.
 
 ---
 
@@ -1164,16 +1166,24 @@ The WildCats Radio live broadcast system has a solid foundation with WebSocket-b
 - ✅ State machine validation added
 - ✅ State persistence (checkpointing) added
 
-### Phase 2: API Efficiency & WebSocket Optimization ✅ **COMPLETED**
-- ✅ WebSocket consolidation on web and mobile (shared STOMP client via `StompClientManager`)
-- ✅ HTTP polling minimized on web and mobile (fallback-only when WebSockets are unavailable)
-- ✅ **All polling intervals are conditional** - zero HTTP requests when WebSocket is connected
-- ✅ WebSocket heartbeat/health standardized on web and mobile (10-25s STOMP heartbeats, configurable)
-- ✅ Adaptive health check intervals (server-side) implemented (5s → 60s based on broadcast age and health status)
-- ✅ **WebSocket Connection Optimization** - Frontend idempotency key generation implemented
-  - Created `idempotencyUtils.js` and `idempotencyUtils.ts` for cross-platform UUID generation
-  - Updated web `broadcastApi.js` and mobile `apiService.ts` to include `Idempotency-Key` headers
-  - Prevents duplicate broadcast operations from network retries and rapid user clicks
+### Phase 2: API Efficiency & WebSocket Optimization 🔴 **HARD REFACTOR REQUIRED**
+- 🔴 **NOT COMPLETED** - Requires hard refactor with breaking changes
+- ❌ WebSocket consolidation incomplete - 3 connections per user (should be 2)
+- ❌ Raw WebSocket `/ws/listener` still exists (should be migrated to STOMP)
+- ❌ `ListenerStatusHandler` still exists (should be replaced with STOMP controller)
+- ❌ `connectListenerStatusWebSocket()` still exists (should be removed)
+- ⚠️ HTTP polling partially minimized but WebSocket consolidation not achieved
+- ✅ Adaptive health check intervals implemented (5s → 60s based on broadcast age and health status)
+- ⚠️ **WebSocket Connection Optimization** - Requires hard refactor for completion
+
+**Required Changes:**
+- **HARD BREAKING CHANGE:** Remove `/ws/listener` endpoint immediately
+- **HARD BREAKING CHANGE:** Replace `ListenerStatusHandler` with `ListenerStatusWebSocketController`
+- **HARD BREAKING CHANGE:** Remove `connectListenerStatusWebSocket()` method
+- **MIGRATE:** Listener status to STOMP topic `/topic/listener-status`
+- **RESULT:** 83% WebSocket connection reduction (3 → 2 connections per user)
+
+**Impact:** Zero backward compatibility - all clients must update simultaneously
 
 ### Phase 3: State Persistence ✅ **COMPLETED**
 - ✅ Periodic checkpointing (every 60s) implemented

@@ -72,7 +72,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/stream/**").permitAll()
                 // Websocket endpoints
                 .requestMatchers("/ws/live").permitAll()
-                .requestMatchers("/ws/listener").permitAll()
+                // /ws/listener removed - listener status now via STOMP /topic/listener-status
                 .requestMatchers("/stream").permitAll()
                 .requestMatchers("/ws-radio/**").permitAll()
                 .requestMatchers("/ws-radio/info/**").permitAll()

@@ -42,10 +42,7 @@ public class SongRequestService {
         SongRequestDTO requestDTO = SongRequestDTO.fromEntity(savedRequest);
 
         // Notify all clients about the new song request
-        messagingTemplate.convertAndSend(
-                "/topic/broadcast/" + broadcastId + "/song-requests",
-                requestDTO
-        );
+        broadcastSongRequestUpdate(broadcastId, requestDTO);
 
         return savedRequest;
     }
@@ -139,9 +136,20 @@ public class SongRequestService {
         deletionNotification.put("requestId", requestId);
 
         // Notify all clients about the deletion
+        broadcastSongRequestUpdate(broadcastId, deletionNotification);
+    }
+
+    /**
+     * Broadcast song request update to all subscribers
+     * Centralized messaging method for controller-based pattern
+     * 
+     * @param broadcastId The broadcast ID for the topic
+     * @param message The song request message to broadcast (can be DTO or Map)
+     */
+    public void broadcastSongRequestUpdate(Long broadcastId, Object message) {
         messagingTemplate.convertAndSend(
                 "/topic/broadcast/" + broadcastId + "/song-requests",
-                deletionNotification
+                message
         );
     }
 }
