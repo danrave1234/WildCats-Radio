@@ -1,4 +1,4 @@
-import { createWebSocketConnection, getCookie, logger } from './apiBase';
+import { createWebSocketConnection, getCookie, logger } from './api/apiBase';
 
 /**
  * Shared STOMP client manager for `/ws-radio`.
