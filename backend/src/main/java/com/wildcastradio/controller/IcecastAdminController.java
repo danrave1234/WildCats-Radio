@@ -93,12 +93,11 @@ public class IcecastAdminController {
     public ResponseEntity<Map<String, Object>> getAllWebSocketUrls() {
         try {
             String djWebSocketUrl = icecastService.getWebSocketUrl();
-            String listenerWebSocketUrl = icecastService.getListenerWebSocketUrl();
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("djWebSocketUrl", djWebSocketUrl);
-            response.put("listenerWebSocketUrl", listenerWebSocketUrl);
+            // listenerWebSocketUrl removed - listener status now via STOMP /topic/listener-status
             response.put("timestamp", System.currentTimeMillis());
 
             return ResponseEntity.ok(response);

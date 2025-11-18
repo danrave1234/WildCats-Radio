@@ -88,10 +88,8 @@ public class PollService {
                 // Broadcast update for ended poll so clients can clear it
                 List<PollOptionEntity> endedOptions = optionRepository.findByPollOrderByIdAsc(ended);
                 PollDTO endedDTO = buildPollDTO(ended, endedOptions);
-                messagingTemplate.convertAndSend(
-                        "/topic/broadcast/" + ended.getBroadcast().getId() + "/polls",
-                        new PollWebSocketMessage("POLL_UPDATED", endedDTO, null, null)
-                );
+                broadcastPollUpdate(ended.getBroadcast().getId(), 
+                    new PollWebSocketMessage("POLL_UPDATED", endedDTO, null, null));
             }
         }
 
@@ -104,10 +102,8 @@ public class PollService {
         PollDTO pollDTO = buildPollDTO(poll, options);
 
         // Notify listeners that a new poll is now visible
-        messagingTemplate.convertAndSend(
-                "/topic/broadcast/" + poll.getBroadcast().getId() + "/polls",
-                new PollWebSocketMessage("NEW_POLL", pollDTO, null, null)
-        );
+        broadcastPollUpdate(poll.getBroadcast().getId(), 
+            new PollWebSocketMessage("NEW_POLL", pollDTO, null, null));
 
         return pollDTO;
     }
@@ -123,10 +119,8 @@ public class PollService {
         pollRepository.delete(poll);
 
         // Notify listeners that the poll was deleted
-        messagingTemplate.convertAndSend(
-                "/topic/broadcast/" + broadcastId + "/polls",
-                new PollWebSocketMessage("POLL_DELETED", pollId, null)
-        );
+        broadcastPollUpdate(broadcastId, 
+            new PollWebSocketMessage("POLL_DELETED", pollId, null));
     }
 
     @Transactional(readOnly = true)
@@ -202,10 +196,8 @@ public class PollService {
         PollResultDTO results = getPollResults(poll.getId());
 
         // Notify all clients about the vote
-        messagingTemplate.convertAndSend(
-                "/topic/broadcast/" + poll.getBroadcast().getId() + "/polls",
-                new PollWebSocketMessage("POLL_RESULTS", poll.getId(), results)
-        );
+        broadcastPollUpdate(poll.getBroadcast().getId(), 
+            new PollWebSocketMessage("POLL_RESULTS", poll.getId(), results));
 
         return results;
     }
@@ -254,10 +246,8 @@ public class PollService {
         PollDTO pollDTO = buildPollDTO(savedPoll, options);
 
         // Notify all clients about the poll ending
-        messagingTemplate.convertAndSend(
-                "/topic/broadcast/" + savedPoll.getBroadcast().getId() + "/polls",
-                new PollWebSocketMessage("POLL_UPDATED", pollDTO, null, null)
-        );
+        broadcastPollUpdate(savedPoll.getBroadcast().getId(), 
+            new PollWebSocketMessage("POLL_UPDATED", pollDTO, null, null));
 
         return pollDTO;
     }
@@ -306,6 +296,20 @@ public class PollService {
                 poll.getBroadcast().getId(),
                 optionDTOs,
                 voteRepository.countByPoll(poll)
+        );
+    }
+
+    /**
+     * Broadcast poll update to all subscribers
+     * Centralized messaging method for controller-based pattern
+     * 
+     * @param broadcastId The broadcast ID for the topic
+     * @param message The poll WebSocket message to broadcast
+     */
+    public void broadcastPollUpdate(Long broadcastId, PollWebSocketMessage message) {
+        messagingTemplate.convertAndSend(
+                "/topic/broadcast/" + broadcastId + "/polls",
+                message
         );
     }
 }

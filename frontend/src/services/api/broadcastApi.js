@@ -1,6 +1,7 @@
 import { api, getCookie, logger } from './apiBase';
 import stompClientManager from '../stompClientManager';
 import { generatePrefixedIdempotencyKey } from '../../utils/idempotencyUtils';
+import { handleCircuitBreakerError, getBroadcastErrorMessage } from '../../utils/errorHandler';
 
 /**
  * Broadcast Management API
@@ -15,22 +16,44 @@ export const broadcastApi = {
   delete: (id) => api.delete(`/api/broadcasts/${id}`),
   
   // Broadcast control operations
-  start: (id) => {
+  start: async (id) => {
     const idempotencyKey = generatePrefixedIdempotencyKey('broadcast-start');
-    return api.post(`/api/broadcasts/${id}/start`, {}, {
-      headers: {
-        'Idempotency-Key': idempotencyKey
+    try {
+      const response = await api.post(`/api/broadcasts/${id}/start`, {}, {
+        headers: {
+          'Idempotency-Key': idempotencyKey
+        }
+      });
+      return response;
+    } catch (error) {
+      // Handle circuit breaker errors
+      const circuitBreakerError = handleCircuitBreakerError(error);
+      if (circuitBreakerError) {
+        throw new Error(circuitBreakerError.message);
       }
-    });
+      // Re-throw other errors
+      throw error;
+    }
   },
   startTest: (id) => api.post(`/api/broadcasts/${id}/start-test`),
-  end: (id) => {
+  end: async (id) => {
     const idempotencyKey = generatePrefixedIdempotencyKey('broadcast-end');
-    return api.post(`/api/broadcasts/${id}/end`, {}, {
-      headers: {
-        'Idempotency-Key': idempotencyKey
+    try {
+      const response = await api.post(`/api/broadcasts/${id}/end`, {}, {
+        headers: {
+          'Idempotency-Key': idempotencyKey
+        }
+      });
+      return response;
+    } catch (error) {
+      // Handle circuit breaker errors
+      const circuitBreakerError = handleCircuitBreakerError(error);
+      if (circuitBreakerError) {
+        throw new Error(circuitBreakerError.message);
       }
-    });
+      // Re-throw other errors
+      throw error;
+    }
   },
   test: (id) => api.post(`/api/broadcasts/${id}/test`),
   

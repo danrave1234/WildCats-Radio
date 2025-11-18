@@ -31,6 +31,7 @@ import { createLogger } from "../services/logger"
 import { profanityService } from "../services/api"
 import EnhancedScheduleForm from "../components/EnhancedScheduleForm"
 import { CalendarIcon } from "@heroicons/react/24/outline"
+import { getBroadcastErrorMessage, handleStateMachineError } from "../utils/errorHandler"
 
 const logger = createLogger("DJDashboard")
 
@@ -1321,6 +1322,17 @@ export default function DJDashboard() {
       return
     }
 
+    // Pre-validate state on frontend (optional, backend will also validate)
+    if (currentBroadcast.status === 'LIVE') {
+      setStreamError("Broadcast is already LIVE. Cannot start again.")
+      return
+    }
+
+    if (currentBroadcast.status === 'ENDED') {
+      setStreamError("Cannot start an ended broadcast. Please create a new broadcast.")
+      return
+    }
+
     try {
       setStreamError(null)
       logger.debug("Starting broadcast live:", currentBroadcast.id)
@@ -1348,8 +1360,38 @@ export default function DJDashboard() {
       logger.debug("Broadcast is now live:", liveBroadcast)
     } catch (error) {
       logger.error("Error starting broadcast:", error)
-      const msg = error?.response?.data?.message || error.message || "Failed to start broadcast"
-      setStreamError(`Error starting broadcast: ${msg}`)
+
+      // Handle circuit breaker errors
+      if (error.message?.includes('temporarily unavailable')) {
+        const retryMatch = error.message.match(/(\d+) seconds/);
+        const retrySeconds = retryMatch ? parseInt(retryMatch[1], 10) : 60;
+
+        setStreamError(`Service temporarily unavailable. Retrying in ${retrySeconds} seconds...`);
+
+        // Auto-retry after delay
+        setTimeout(() => {
+          startBroadcastLive();
+        }, retrySeconds * 1000);
+        return;
+      }
+
+      // Handle state machine validation errors
+      const stateMachineError = handleStateMachineError(error);
+      if (stateMachineError) {
+        setStreamError(`Cannot start broadcast: ${stateMachineError.message}`);
+        // Refresh broadcast state
+        try {
+          const updated = await broadcastService.getById(currentBroadcast.id);
+          setCurrentBroadcast(updated.data);
+        } catch (refreshError) {
+          logger.error("Failed to refresh broadcast state:", refreshError);
+        }
+        return;
+      }
+
+      // Handle other errors with enhanced error messages
+      const broadcastError = getBroadcastErrorMessage(error);
+      setStreamError(`Error starting broadcast: ${broadcastError.userMessage}`);
     }
   }
 
@@ -1361,6 +1403,12 @@ export default function DJDashboard() {
 
     if (!currentBroadcast?.id) {
       setStreamError("No broadcast instance found")
+      return
+    }
+
+    // Pre-validate state on frontend (optional, backend will also validate)
+    if (currentBroadcast.status !== 'LIVE') {
+      setStreamError("Broadcast is not currently LIVE. Cannot end a broadcast that is not live.")
       return
     }
 
@@ -1402,8 +1450,33 @@ export default function DJDashboard() {
       setActivePoll(null)
     } catch (error) {
       logger.error("Error ending broadcast:", error)
-      const msg = error?.response?.data?.message || error.message || "Failed to end broadcast"
-      setStreamError(`Error ending broadcast: ${msg}`)
+
+      // Handle circuit breaker errors
+      if (error.message?.includes('temporarily unavailable')) {
+        const retryMatch = error.message.match(/(\d+) seconds/);
+        const retrySeconds = retryMatch ? parseInt(retryMatch[1], 10) : 60;
+
+        setStreamError(`Service temporarily unavailable. Cannot end broadcast right now. Please try again in ${retrySeconds} seconds.`);
+        return;
+      }
+
+      // Handle state machine validation errors
+      const stateMachineError = handleStateMachineError(error);
+      if (stateMachineError) {
+        setStreamError(`Cannot end broadcast: ${stateMachineError.message}`);
+        // Refresh broadcast state
+        try {
+          const updated = await broadcastService.getById(currentBroadcast.id);
+          setCurrentBroadcast(updated.data);
+        } catch (refreshError) {
+          logger.error("Failed to refresh broadcast state:", refreshError);
+        }
+        return;
+      }
+
+      // Handle other errors with enhanced error messages
+      const broadcastError = getBroadcastErrorMessage(error);
+      setStreamError(`Error ending broadcast: ${broadcastError.userMessage}`);
     } finally {
       setIsStoppingBroadcast(false)
     }
@@ -1814,11 +1887,12 @@ export default function DJDashboard() {
                       )}
                       <button
                           onClick={() => setConfirmEndOpen(true)}
-                          disabled={isStoppingBroadcast}
+                          disabled={isStoppingBroadcast || currentBroadcast?.status !== 'LIVE'}
                           className="flex items-center px-4 py-1.5 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-md transition-all duration-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={currentBroadcast?.status !== 'LIVE' ? 'Broadcast is not currently live' : 'End the current broadcast'}
                       >
                         <StopIcon className="h-3.5 w-3.5 mr-1.5" />
-                        {isStoppingBroadcast ? "Ending..." : "End Broadcast"}
+                        {isStoppingBroadcast ? "Ending..." : currentBroadcast?.status !== 'LIVE' ? "Not Live" : "End Broadcast"}
                       </button>
                     </div>
                   </div>
@@ -2884,16 +2958,22 @@ export default function DJDashboard() {
                         </div>
                         <button
                           onClick={startBroadcastLive}
-                          disabled={radioServerState !== 'running'}
+                          disabled={radioServerState !== 'running' || currentBroadcast?.status === 'LIVE'}
                           className={`ml-6 flex items-center px-8 py-4 rounded-lg font-bold text-lg transition-all shadow-lg ${
-                            radioServerState === 'running'
+                            radioServerState === 'running' && currentBroadcast?.status !== 'LIVE'
                               ? 'bg-red-600 text-white hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-300 hover:shadow-xl'
                               : 'bg-gray-400 text-gray-600 cursor-not-allowed'
                           }`}
-                          title={radioServerState !== 'running' ? 'Start the radio server first' : 'Go live and open the interactive dashboard'}
+                          title={
+                            currentBroadcast?.status === 'LIVE'
+                              ? 'Broadcast is already live'
+                              : radioServerState !== 'running'
+                                ? 'Start the radio server first'
+                                : 'Go live and open the interactive dashboard'
+                          }
                         >
                           <MicrophoneIcon className="h-6 w-6 mr-2" />
-                          Go Live
+                          {currentBroadcast?.status === 'LIVE' ? 'Broadcast Already Live' : 'Go Live'}
                         </button>
                       </div>
                     </div>

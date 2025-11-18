@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext';
 import { useLocalBackend, config } from '../config';
 import { createLogger } from '../services/logger';
 import { globalWebSocketService } from '../services/globalWebSocketService';
+import stompClientManager from '../services/stompClientManager';
 
 const logger = createLogger('StreamingContext');
 
@@ -64,6 +65,9 @@ export function StreamingProvider({ children }) {
   const audioStreamRef = useRef(null);
   const audioRef = useRef(null);
   const djReconnectTimerRef = useRef(null);
+  
+  // STOMP subscription reference for listener status
+  const listenerStatusSubscriptionRef = useRef(null);
 
   // Flag to prevent auto-reconnection during pipeline resets
   const pipelineResetInProgressRef = useRef(false);
@@ -96,9 +100,9 @@ export function StreamingProvider({ children }) {
     let cancelled = false;
     let intervalId;
     
-    // Check if WebSocket is connected - if so, use it as primary source (no polling needed)
-    // Use the state variable that tracks listener status WebSocket connection
-    const isWebSocketConnected = globalWebSocketService.isListenerStatusWebSocketConnected();
+    // Check if STOMP is connected - if so, use it as primary source (no polling needed)
+    // Use STOMP connection status for listener status updates
+    const isWebSocketConnected = stompClientManager.isConnected();
     
     // Only poll if WebSocket is not available (fallback mode)
     if (isWebSocketConnected) {
@@ -211,17 +215,17 @@ export function StreamingProvider({ children }) {
         // Set up listener connections
         checkAndRestoreListenerState();
       }
-      // Authenticated users also receive status updates
-      connectListenerStatusWebSocket();
+      // Authenticated users also receive status updates via STOMP
+      setupListenerStatusSTOMP();
       // Connect to global broadcast status updates
       connectBroadcastStatusWebSocket();
       // Also refresh status once immediately
       refreshStreamStatus();
     } else {
       // When unauthenticated, disconnect any DJ or poll connections,
-      // but still connect to listener status WS and broadcast status WS so guests can see live state
+      // but still connect to listener status via STOMP and broadcast status WS so guests can see live state
       disconnectAll();
-      connectListenerStatusWebSocket();
+      setupListenerStatusSTOMP();
       connectBroadcastStatusWebSocket();
       refreshStreamStatus();
     }
@@ -1212,9 +1216,9 @@ export function StreamingProvider({ children }) {
         // Only restore listening state if it was recently active (within 1 hour)
         const oneHour = 60 * 60 * 1000;
         if (parsed.timestamp && (Date.now() - parsed.timestamp) < oneHour) {
-          if (parsed.isListening) {
-            // Restore listening state
-            connectListenerStatusWebSocket();
+            if (parsed.isListening) {
+            // Restore listening state via STOMP
+            setupListenerStatusSTOMP();
 
             if (parsed.audioPlaying && serverConfig?.streamUrl) {
               // Attempt to restore audio playback
@@ -1365,89 +1369,106 @@ export function StreamingProvider({ children }) {
     });
   }, [isLive]);
 
-  // Connect listener/status WebSocket
-  const connectListenerStatusWebSocket = useCallback(() => {
-    // Use the global service to manage the connection
-    const wsUrl = getWebSocketUrl('listener'); // Assuming 'listener' endpoint handles both
-    globalWebSocketService.connectListenerStatusWebSocket(wsUrl);
-
-    // Register callbacks for messages, errors, and close events
-    globalWebSocketService.onListenerStatusMessage((event) => {
+  // Setup listener status via STOMP (replaces raw WebSocket)
+  const setupListenerStatusSTOMP = useCallback(async () => {
+    // Unsubscribe from previous subscription if exists
+    if (listenerStatusSubscriptionRef.current) {
       try {
-        // Some servers send heartbeat 'pong' strings; ignore non-JSON frames
-        if (typeof event.data === 'string' && event.data.trim() === 'pong') {
-          return;
-        }
-        const data = JSON.parse(event.data);
-        if (data.type === 'STREAM_STATUS') {
-          console.log('Stream status update received via Listener/Status WebSocket:', data);
-          setListenerCount(typeof data.listenerCount === 'number' ? data.listenerCount : 0);
-          // Update peak from server if present; keep max to avoid regressions on out-of-order messages
-          const incomingPeak = typeof data.peakListenerCount === 'number' ? data.peakListenerCount
-                            : (typeof data.peakListeners === 'number' ? data.peakListeners : null);
-          if (incomingPeak !== null) {
-            setPeakListenerCount((prev) => Math.max(prev || 0, incomingPeak));
-          }
-          if (data.isLive !== undefined) {
-            setIsLive(data.isLive);
-          }
-          
-          // Update health status from WebSocket (replaces polling when available)
-          if (data.health) {
-            const health = data.health;
-            const healthy = !!health.healthy;
-            const recovering = !!health.recovering;
-            const broadcastLive = !!health.broadcastLive;
-            const bitrate = typeof health.bitrate === 'number' ? health.bitrate : streamHealth.bitrate;
-            const errorMessage = health.errorMessage || null;
-            
-            setStreamHealth(prev => ({
-              ...prev,
-              healthy,
-              recovering,
-              broadcastLive,
-              bitrate,
-              errorMessage,
-              lastCheckedAt: data.timestamp ? new Date(data.timestamp).toISOString() : null
-            }));
-            
-            // Auto-resume playback when recovering -> healthy
-            if (prevRecoveringRef.current && healthy && audioRef.current) {
-              audioRef.current.play().catch(() => {});
-            }
-            prevRecoveringRef.current = recovering && broadcastLive;
-          }
-          
-          // Expose last stream status globally for other components (read-only usage)
-          try {
-            window.__wildcats_stream_state__ = {
-              isLive: !!data.isLive,
-              broadcastId: data.broadcastId || null,
-              peakListeners: incomingPeak,
-              listenerCount: data.listenerCount || 0,
-              timestamp: data.timestamp || Date.now()
-            };
-          } catch (_e) { /* noop for SSR safety */ }
-        }
-      } catch (error) {
-        console.error('Error parsing listener/status WebSocket message:', error);
+        listenerStatusSubscriptionRef.current.unsubscribe();
+      } catch (e) {
+        logger.warn('Error unsubscribing from previous listener status subscription:', e);
       }
-    });
+      listenerStatusSubscriptionRef.current = null;
+    }
 
-    globalWebSocketService.onListenerStatusError((error) => {
-      console.error('Listener/Status WebSocket error:', error);
-    });
+    try {
+      // Subscribe to listener status topic via STOMP
+      const subscription = await stompClientManager.subscribe(
+        '/topic/listener-status',
+        (message) => {
+          try {
+            const data = JSON.parse(message.body);
+            
+            if (data.type === 'STREAM_STATUS') {
+              logger.debug('Stream status update received via STOMP:', data);
+              
+              setListenerCount(typeof data.listenerCount === 'number' ? data.listenerCount : 0);
+              
+              // Update peak from server if present; keep max to avoid regressions on out-of-order messages
+              const incomingPeak = typeof data.peakListenerCount === 'number' ? data.peakListenerCount
+                                : (typeof data.peakListeners === 'number' ? data.peakListeners : null);
+              if (incomingPeak !== null) {
+                setPeakListenerCount((prev) => Math.max(prev || 0, incomingPeak));
+              }
+              
+              if (data.isLive !== undefined) {
+                setIsLive(data.isLive);
+              }
+              
+              // Update health status from STOMP (replaces polling when available)
+              if (data.health) {
+                const health = data.health;
+                const healthy = !!health.healthy;
+                const recovering = !!health.recovering;
+                const broadcastLive = !!health.broadcastLive;
+                const bitrate = typeof health.bitrate === 'number' ? health.bitrate : streamHealth.bitrate;
+                const errorMessage = health.errorMessage || null;
+                
+                setStreamHealth(prev => ({
+                  ...prev,
+                  healthy,
+                  recovering,
+                  broadcastLive,
+                  bitrate,
+                  errorMessage,
+                  lastCheckedAt: data.timestamp ? new Date(data.timestamp).toISOString() : null
+                }));
+                
+                // Auto-resume playback when recovering -> healthy
+                if (prevRecoveringRef.current && healthy && audioRef.current) {
+                  audioRef.current.play().catch(() => {});
+                }
+                prevRecoveringRef.current = recovering && broadcastLive;
+              }
+              
+              // Expose last stream status globally for other components (read-only usage)
+              try {
+                window.__wildcats_stream_state__ = {
+                  isLive: !!data.isLive,
+                  broadcastId: data.broadcastId || null,
+                  peakListeners: incomingPeak,
+                  listenerCount: data.listenerCount || 0,
+                  timestamp: data.timestamp || Date.now()
+                };
+              } catch (_e) { /* noop for SSR safety */ }
+            }
+          } catch (error) {
+            logger.error('Error parsing listener status STOMP message:', error);
+          }
+        }
+      );
 
-    globalWebSocketService.onListenerStatusClose((event) => {
-      console.log('Listener/Status WebSocket disconnected:', event.code, event.reason);
-      setIsListening(false); // Assuming listener status implies listening
-    });
+      listenerStatusSubscriptionRef.current = subscription;
 
-    globalWebSocketService.onListenerStatusOpen(() => {
-      console.log('Listener/Status WebSocket connected successfully');
-      setIsListening(true);
-    });
-  }, []);
+      // Send listener start message if we have a current broadcast
+      if (currentBroadcast?.id) {
+        try {
+          await stompClientManager.publish('/app/listener/status', {
+            action: 'START_LISTENING',
+            broadcastId: currentBroadcast.id,
+            userId: currentUser?.id || null,
+            userName: currentUser?.email || null
+          });
+        } catch (e) {
+          logger.warn('Failed to send START_LISTENING message:', e);
+        }
+      }
+
+      logger.info('Listener status STOMP subscription established');
+    } catch (error) {
+      logger.error('Failed to subscribe to listener status via STOMP:', error);
+    }
+  }, [currentBroadcast, currentUser, streamHealth.bitrate]);
 
   // Connect broadcast status WebSocket
   const connectBroadcastStatusWebSocket = useCallback(() => {
@@ -1827,24 +1848,24 @@ export function StreamingProvider({ children }) {
     const baseUrl = serverConfig?.streamUrl || config.icecastUrl;
     if (!baseUrl) return;
 
-    logger.info('Attempting to start listening...');
-    setIsListening(true);
-    setAudioPlaying(true); // Optimistically set to true
+      logger.info('Attempting to start listening...');
+      setIsListening(true);
+      setAudioPlaying(true); // Optimistically set to true
 
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
-      audioRef.current.crossOrigin = 'anonymous';
-      audioRef.current.preload = 'auto';
-      attachAudioEventHandlers();
-    }
+      if (!audioRef.current) {
+        audioRef.current = new Audio();
+        audioRef.current.crossOrigin = 'anonymous';
+        audioRef.current.preload = 'auto';
+        attachAudioEventHandlers();
+      }
 
-    try {
-      const streamUrl = `${baseUrl}?_=${Date.now()}`;
-      audioRef.current.src = streamUrl;
-      await audioRef.current.play();
-      logger.info('Audio playback started successfully.');
-      connectListenerStatusWebSocket();
-      await refreshStreamStatus();
+      try {
+        const streamUrl = `${baseUrl}?_=${Date.now()}`;
+        audioRef.current.src = streamUrl;
+        await audioRef.current.play();
+        logger.info('Audio playback started successfully.');
+        setupListenerStatusSTOMP();
+        await refreshStreamStatus();
     } catch (error) {
       logger.error('Failed to start audio playback:', error);
       setIsListening(false);
@@ -1871,7 +1892,15 @@ export function StreamingProvider({ children }) {
       audioRef.current.src = '';
     }
 
-    globalWebSocketService.disconnectListenerStatusWebSocket();
+    // Unsubscribe from listener status STOMP subscription
+    if (listenerStatusSubscriptionRef.current) {
+      try {
+        listenerStatusSubscriptionRef.current.unsubscribe();
+        listenerStatusSubscriptionRef.current = null;
+      } catch (e) {
+        logger.warn('Error unsubscribing from listener status:', e);
+      }
+    }
     refreshStreamStatus();
   };
 
@@ -1922,10 +1951,13 @@ export function StreamingProvider({ children }) {
         setIsStreamRecovering(false);
         retryAttemptRef.current = 0;
         setAudioPlaying(false);
-        if (globalWebSocketService.isListenerStatusWebSocketConnected()) {
-          globalWebSocketService.sendListenerStatusMessage(
-            JSON.stringify({ type: 'LISTENER_STATUS', action: 'STOP_LISTENING' })
-          );
+        // Send STOP_LISTENING message via STOMP
+        try {
+          await stompClientManager.publish('/app/listener/status', {
+            action: 'STOP_LISTENING'
+          });
+        } catch (e) {
+          logger.warn('Failed to send STOP_LISTENING message:', e);
         }
       } else {
         logger.info('Starting audio playback');
@@ -1985,10 +2017,16 @@ export function StreamingProvider({ children }) {
           }
         }
         setAudioPlaying(true);
-        if (globalWebSocketService.isListenerStatusWebSocketConnected()) {
-          globalWebSocketService.sendListenerStatusMessage(
-            JSON.stringify({ type: 'LISTENER_STATUS', action: 'START_LISTENING' })
-          );
+        // Send START_LISTENING message via STOMP
+        try {
+          await stompClientManager.publish('/app/listener/status', {
+            action: 'START_LISTENING',
+            broadcastId: currentBroadcast?.id || null,
+            userId: currentUser?.id || null,
+            userName: currentUser?.email || null
+          });
+        } catch (e) {
+          logger.warn('Failed to send START_LISTENING message:', e);
         }
       }
     } catch (error) {
@@ -2098,10 +2136,10 @@ export function StreamingProvider({ children }) {
               connectDJWebSocket();
             }
           }
-          // Always ensure listener status WebSocket is connected
-          if (!globalWebSocketService.isListenerStatusWebSocketConnected()) {
-            console.log('Reconnecting listener status WebSocket after page visibility change');
-            connectListenerStatusWebSocket();
+          // Always ensure listener status STOMP subscription is active
+          if (!listenerStatusSubscriptionRef.current || !stompClientManager.isConnected()) {
+            console.log('Reconnecting listener status STOMP subscription after page visibility change');
+            setupListenerStatusSTOMP();
           }
 
           // Try to resume audio if stream is live or recovering
@@ -2230,7 +2268,7 @@ export function StreamingProvider({ children }) {
     toggleAudio,
     updateVolume,
     toggleMute,
-    connectListenerStatusWebSocket,
+    setupListenerStatusSTOMP,
     connectBroadcastStatusWebSocket,
 
     // Audio Source Functions
