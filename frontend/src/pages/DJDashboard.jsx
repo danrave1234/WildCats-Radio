@@ -260,6 +260,7 @@ export default function DJDashboard() {
 
   // Analytics State
   const [broadcastStartTime, setBroadcastStartTime] = useState(null)
+  const [lastCheckpointTime, setLastCheckpointTime] = useState(null)
   const [totalInteractions, setTotalInteractions] = useState(0)
   const [peakListeners, setPeakListeners] = useState(0)
   const [totalSongRequests, setTotalSongRequests] = useState(0)
@@ -989,6 +990,29 @@ export default function DJDashboard() {
                 setReconnectionStatus(null)
               }, 5000) // Clear after 5 seconds
             }
+          } else if (message.type === "BROADCAST_RECOVERY") {
+            logger.info("DJ Dashboard: Broadcast recovery notification received:", message)
+
+            setReconnectionStatus({
+              status: 'RECOVERED',
+              message: message.message || 'Broadcast recovered after server restart',
+              checkpointTime: message.checkpointTime,
+              duration: message.duration,
+              timestamp: message.timestamp
+            })
+
+            // Update broadcast state if provided
+            if (message.broadcast) {
+              setCurrentBroadcast(message.broadcast)
+              if (message.broadcast.actualStart) {
+                setBroadcastStartTime(new Date(message.broadcast.actualStart))
+              }
+            }
+
+            // Hide recovery notification after 5 seconds
+            setTimeout(() => {
+              setReconnectionStatus(null)
+            }, 5000)
           }
         })
 
@@ -1011,15 +1035,94 @@ export default function DJDashboard() {
                 setReconnectionStatus(null)
               }, 5000)
             }
+          } else if (data.type === "BROADCAST_RECOVERY" && data.broadcastId === currentBroadcast.id) {
+            logger.info("DJ Dashboard: Broadcast recovery notification received from global topic:", data)
+
+            setReconnectionStatus({
+              status: 'RECOVERED',
+              message: data.message || 'Broadcast recovered after server restart',
+              checkpointTime: data.checkpointTime,
+              duration: data.duration,
+              timestamp: data.timestamp
+            })
+
+            // Update broadcast state if provided
+            if (data.broadcast) {
+              setCurrentBroadcast(data.broadcast)
+              if (data.broadcast.actualStart) {
+                setBroadcastStartTime(new Date(data.broadcast.actualStart))
+              }
+            }
+
+            // Hide recovery notification after 5 seconds
+            setTimeout(() => {
+              setReconnectionStatus(null)
+            }, 5000)
           }
         })
 
-        reconnectionWsRef.current = { connection, globalConnection }
+        // Subscribe to checkpoint updates (if backend supports it)
+        const checkpointConnection = await stompClientManager.subscribe(
+          `/topic/broadcast/${currentBroadcast.id}`,
+          (message) => {
+            const data = JSON.parse(message.body)
+
+            if (data.type === 'BROADCAST_CHECKPOINT') {
+              logger.debug('DJ Dashboard: Checkpoint update received:', data)
+
+              // Update broadcast duration from backend checkpoint if provided
+              if (data.currentDurationSeconds !== undefined) {
+                const durationMs = data.currentDurationSeconds * 1000
+                const checkpointStart = new Date(Date.now() - durationMs)
+                setBroadcastStartTime(checkpointStart)
+              }
+
+              // Store last checkpoint time for display
+              if (data.lastCheckpointTime) {
+                setLastCheckpointTime(new Date(data.lastCheckpointTime))
+              }
+            }
+          }
+        )
+
+        reconnectionWsRef.current = { connection, globalConnection, checkpointConnection }
         logger.debug("DJ Dashboard: Reconnection WebSocket connected successfully")
       } catch (error) {
         logger.error("DJ Dashboard: Failed to connect reconnection WebSocket:", error)
       }
     }
+
+    // Setup checkpoint polling fallback (every 60 seconds when broadcast is LIVE)
+    useEffect(() => {
+      if (!currentBroadcast?.id || currentBroadcast?.status !== 'LIVE') {
+        return
+      }
+
+      logger.debug('DJ Dashboard: Setting up checkpoint polling fallback')
+
+      const interval = setInterval(async () => {
+        try {
+          const healthResponse = await broadcastService.getLiveHealth()
+          const health = healthResponse.data
+
+          // Update duration from backend checkpoint if available
+          if (health.currentDurationSeconds) {
+            const durationMs = health.currentDurationSeconds * 1000
+            const checkpointStart = new Date(Date.now() - durationMs)
+            setBroadcastStartTime(checkpointStart)
+          }
+
+          // Update last checkpoint time if available
+          if (health.lastCheckpointTime) {
+            setLastCheckpointTime(new Date(health.lastCheckpointTime))
+          }
+        } catch (error) {
+          logger.debug('DJ Dashboard: Failed to fetch checkpoint data (this is normal if WebSocket is working):', error)
+        }
+      }, 60000) // Every 60 seconds (matches backend checkpoint interval)
+
+      return () => clearInterval(interval)
+    }, [currentBroadcast?.id, currentBroadcast?.status])
 
     // Setup WebSockets immediately - no delay needed with proper guards
     setupChatWebSocket()
@@ -2089,6 +2192,11 @@ export default function DJDashboard() {
                         <ClockIcon className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                       </div>
                       <div className="text-lg font-bold text-emerald-800 dark:text-emerald-200">{getBroadcastDuration()}</div>
+                      {lastCheckpointTime && (
+                        <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
+                          Last saved: {formatDistanceToNow(lastCheckpointTime, { addSuffix: true })}
+                        </div>
+                      )}
                     </div>
                     <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
                       <div className="flex items-center justify-between mb-1">

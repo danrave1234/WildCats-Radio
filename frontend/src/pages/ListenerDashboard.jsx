@@ -104,6 +104,7 @@ export default function ListenerDashboard() {
   const [activeTab, setActiveTab] = useState("poll");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [_currentSong, _setCurrentSong] = useState(null);
+  const [recoveryNotification, setRecoveryNotification] = useState(null);
   const [broadcastLoading, setBroadcastLoading] = useState(false);
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false);
 
@@ -772,6 +773,25 @@ export default function ListenerDashboard() {
               if (message.data?.listenerCount !== undefined) {
                 setLocalListenerCount(message.data.listenerCount);
               }
+              break;
+
+            case 'BROADCAST_RECOVERY':
+              logger.info('Listener Dashboard: Broadcast recovery notification:', message);
+
+              // Show recovery notification to listeners
+              setRecoveryNotification({
+                message: message.message || 'Broadcast recovered after brief interruption',
+                timestamp: message.timestamp
+              });
+
+              if (message.broadcast) {
+                setCurrentBroadcast(message.broadcast);
+              }
+
+              // Hide notification after 5 seconds
+              setTimeout(() => {
+                setRecoveryNotification(null);
+              }, 5000);
               break;
 
             default:
@@ -1829,6 +1849,20 @@ export default function ListenerDashboard() {
           <p className="text-slate-600 dark:text-slate-400 text-xs">Tune in to live broadcasts and connect with listeners</p>
         </div>
 
+        {/* Recovery Notification Banner */}
+        {recoveryNotification && (
+          <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+            <div className="flex items-center">
+              <svg className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+              <span className="text-blue-800 dark:text-blue-200 text-sm font-medium">
+                {recoveryNotification.message}
+              </span>
+            </div>
+          </div>
+        )}
+
       {/* Desktop: Grid layout */}
       <div className="hidden lg:grid lg:grid-cols-3 lg:gap-8">
         {/* Desktop Left Column - Broadcast + Poll */}
@@ -2257,6 +2291,20 @@ export default function ListenerDashboard() {
       <div className="lg:hidden space-y-6">
         {/* Mobile Spotify-style Music Player */}
         <SpotifyPlayer />
+
+        {/* Mobile Recovery Notification Banner */}
+        {recoveryNotification && (
+          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+            <div className="flex items-center">
+              <svg className="w-5 h-5 text-blue-600 dark:text-blue-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+              <span className="text-blue-800 dark:text-blue-200 text-sm font-medium">
+                {recoveryNotification.message}
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Mobile Tabs */}
         <div className="card-modern overflow-hidden">
