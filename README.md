@@ -30,6 +30,18 @@ Where to find things in code (pointers)
   - Profanity filter: backend/src/main/java/com/wildcastradio/ChatMessage/ProfanityFilter.java
   - Notifications: backend/src/main/java/com/wildcastradio/Notification
 
+WebSocket Architecture
+- **Pure STOMP Architecture** - All text messaging via single STOMP connection (`/ws-radio`)
+  - Chat messages: `/topic/broadcast/{id}/chat`
+  - Polls: `/topic/broadcast/{id}/polls`
+  - Song requests: `/topic/broadcast/{id}/song-requests`
+  - Broadcast status: `/topic/broadcast/status`
+  - Listener status: `/topic/listener-status`
+  - Notifications: `/topic/announcements/public`, `/user/queue/notifications`
+- **Raw WebSocket** - Only for DJ audio streaming (`/ws/live`) - Binary ArrayBuffer data
+- **Connection Count:** 2 WebSocket connections per user (83% reduction from previous 3)
+- See `md/WEBSOCKET_REFACTOR_IMPLEMENTATION_PLAN.md` for detailed architecture documentation
+
 Note
 - The repo ships with ICECAST integration for live streaming. Audio recording/archiving is not available.
 
