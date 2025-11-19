@@ -161,6 +161,7 @@ export default function DJDashboard() {
     audioSource,
     setAudioSource,
     getAudioStream,
+    streamStatusCircuitBreakerOpen,
   } = useStreaming()
 
   // Core workflow state
@@ -1092,37 +1093,6 @@ export default function DJDashboard() {
       }
     }
 
-    // Setup checkpoint polling fallback (every 60 seconds when broadcast is LIVE)
-    useEffect(() => {
-      if (!currentBroadcast?.id || currentBroadcast?.status !== 'LIVE') {
-        return
-      }
-
-      logger.debug('DJ Dashboard: Setting up checkpoint polling fallback')
-
-      const interval = setInterval(async () => {
-        try {
-          const healthResponse = await broadcastService.getLiveHealth()
-          const health = healthResponse.data
-
-          // Update duration from backend checkpoint if available
-          if (health.currentDurationSeconds) {
-            const durationMs = health.currentDurationSeconds * 1000
-            const checkpointStart = new Date(Date.now() - durationMs)
-            setBroadcastStartTime(checkpointStart)
-          }
-
-          // Update last checkpoint time if available
-          if (health.lastCheckpointTime) {
-            setLastCheckpointTime(new Date(health.lastCheckpointTime))
-          }
-        } catch (error) {
-          logger.debug('DJ Dashboard: Failed to fetch checkpoint data (this is normal if WebSocket is working):', error)
-        }
-      }, 60000) // Every 60 seconds (matches backend checkpoint interval)
-
-      return () => clearInterval(interval)
-    }, [currentBroadcast?.id, currentBroadcast?.status])
 
     // Setup WebSockets immediately - no delay needed with proper guards
     setupChatWebSocket()
@@ -1149,11 +1119,14 @@ export default function DJDashboard() {
       }
 
       if (reconnectionWsRef.current) {
-        if (reconnectionWsRef.current.connection) {
-          reconnectionWsRef.current.connection.disconnect()
+        if (reconnectionWsRef.current.connection && reconnectionWsRef.current.connection.unsubscribe) {
+          reconnectionWsRef.current.connection.unsubscribe()
         }
-        if (reconnectionWsRef.current.globalConnection) {
-          reconnectionWsRef.current.globalConnection.disconnect()
+        if (reconnectionWsRef.current.globalConnection && reconnectionWsRef.current.globalConnection.unsubscribe) {
+          reconnectionWsRef.current.globalConnection.unsubscribe()
+        }
+        if (reconnectionWsRef.current.checkpointConnection && reconnectionWsRef.current.checkpointConnection.unsubscribe) {
+          reconnectionWsRef.current.checkpointConnection.unsubscribe()
         }
         reconnectionWsRef.current = null
       }
@@ -1184,6 +1157,38 @@ export default function DJDashboard() {
       }
     }
   }, [])
+
+  // Setup checkpoint polling fallback (every 60 seconds when broadcast is LIVE)
+  useEffect(() => {
+    if (!currentBroadcast?.id || currentBroadcast?.status !== 'LIVE') {
+      return
+    }
+
+    logger.debug('DJ Dashboard: Setting up checkpoint polling fallback')
+
+    const interval = setInterval(async () => {
+      try {
+        const healthResponse = await broadcastService.getLiveHealth()
+        const health = healthResponse.data
+
+        // Update duration from backend checkpoint if available
+        if (health.currentDurationSeconds) {
+          const durationMs = health.currentDurationSeconds * 1000
+          const checkpointStart = new Date(Date.now() - durationMs)
+          setBroadcastStartTime(checkpointStart)
+        }
+
+        // Update last checkpoint time if available
+        if (health.lastCheckpointTime) {
+          setLastCheckpointTime(new Date(health.lastCheckpointTime))
+        }
+      } catch (error) {
+        logger.debug('DJ Dashboard: Failed to fetch checkpoint data (this is normal if WebSocket is working):', error)
+      }
+    }, 60000) // Every 60 seconds (matches backend checkpoint interval)
+
+    return () => clearInterval(interval)
+  }, [currentBroadcast?.id, currentBroadcast?.status])
 
   // Form handling functions
   const handleFormChange = (e) => {
@@ -1948,6 +1953,12 @@ export default function DJDashboard() {
                             <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${websocketConnected ? "bg-green-300" : "bg-yellow-300"}`}></span>
                             <span>{(graceUntilMs && Date.now() < graceUntilMs) ? "Connecting…" : (websocketConnected ? "Connected" : "Disconnected")}</span>
                           </div>
+                          {streamStatusCircuitBreakerOpen && (
+                            <div className="flex items-center">
+                              <span className="h-1.5 w-1.5 rounded-full mr-1.5 bg-orange-400"></span>
+                              <span>Status: Degraded</span>
+                            </div>
+                          )}
                           <div className="flex items-center">
                             <span className="font-semibold mr-1">{listenerCount}</span>
                             <span>listener{listenerCount !== 1 ? "s" : ""}</span>

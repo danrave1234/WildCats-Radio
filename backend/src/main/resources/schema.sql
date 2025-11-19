@@ -89,3 +89,8 @@ CREATE INDEX IF NOT EXISTS idx_notification_user ON notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_notification_read ON notifications(read_status);
 CREATE INDEX IF NOT EXISTS idx_notification_created_at ON notifications(created_at);
 
+-- Fix activity_logs table to allow null user_id for system events (health checks, recovery, etc.)
+-- This allows logging system-level events that don't have an associated user
+ALTER TABLE IF EXISTS activity_logs
+    ALTER COLUMN user_id DROP NOT NULL;
+

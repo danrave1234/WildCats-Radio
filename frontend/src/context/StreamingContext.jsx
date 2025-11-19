@@ -75,6 +75,9 @@ export function StreamingProvider({ children }) {
   // WebSocket message size limits (based on backend configuration)
   const MAX_MESSAGE_SIZE = 60000; // 60KB - safety margin below the 64KB server buffer for low latency
 
+  // Circuit breaker status for stream checks
+  const [streamStatusCircuitBreakerOpen, setStreamStatusCircuitBreakerOpen] = useState(false);
+
   // Add new audio source state
   const [audioSource, setAudioSource] = useState(() => {
     const saved = localStorage.getItem('wildcats_audio_source');
@@ -292,17 +295,59 @@ export function StreamingProvider({ children }) {
     }
   };
 
+  // Circuit breaker state for stream status checks
+  const streamStatusCircuitBreaker = useRef({
+    consecutiveFailures: 0,
+    lastFailureTime: 0,
+    isOpen: false,
+    nextRetryTime: 0
+  });
+
   const refreshStreamStatus = async () => {
+    const now = Date.now();
+    const breaker = streamStatusCircuitBreaker.current;
+
+    // Check if circuit breaker is open (too many failures)
+    if (breaker.isOpen && now < breaker.nextRetryTime) {
+      // Circuit is open, skip this call but don't log (to reduce spam)
+      return;
+    }
+
     try {
       const response = await streamService.getStatus();
       if (response.data && response.data.success) {
         const { listenerCount, isLive } = response.data.data;
         setListenerCount(listenerCount);
         setIsLive(isLive);
+
+        // Success! Reset circuit breaker
+        breaker.consecutiveFailures = 0;
+        breaker.isOpen = false;
+        breaker.lastFailureTime = 0;
+        breaker.nextRetryTime = 0;
+        setStreamStatusCircuitBreakerOpen(false);
+
         logger.info(`Refreshed stream status: isLive=${isLive}, listeners=${listenerCount}`);
       }
     } catch (error) {
-      logger.error('Error refreshing stream status:', error);
+      breaker.consecutiveFailures++;
+      breaker.lastFailureTime = now;
+
+      // Open circuit breaker after 3 consecutive failures
+      if (breaker.consecutiveFailures >= 3 && !breaker.isOpen) {
+        breaker.isOpen = true;
+        setStreamStatusCircuitBreakerOpen(true);
+        // Exponential backoff: wait 30 seconds, then 60, then 120, etc.
+        const backoffSeconds = Math.min(30 * Math.pow(2, breaker.consecutiveFailures - 3), 300); // Max 5 minutes
+        breaker.nextRetryTime = now + (backoffSeconds * 1000);
+
+        logger.warn(`Stream status circuit breaker opened after ${breaker.consecutiveFailures} failures. Next retry in ${backoffSeconds} seconds.`);
+      }
+
+      // Only log errors when circuit breaker opens or for the first few failures
+      if (breaker.consecutiveFailures <= 3 || breaker.consecutiveFailures % 5 === 0) {
+        logger.error(`Error refreshing stream status (${breaker.consecutiveFailures} consecutive failures):`, error);
+      }
     }
   };
 
@@ -2247,6 +2292,7 @@ export function StreamingProvider({ children }) {
     audioSource,
     audioLevel,
     qualityError,
+    streamStatusCircuitBreakerOpen,
 
     // Health monitoring
     streamHealth,
