@@ -107,8 +107,8 @@ export default defineConfig(({ mode }) => {
       exclude: ['@vite/client', '@vite/env']
     },
     server: {
-      host: '0.0.0.0', // Listen on all interfaces for mobile access
-      port: 5173,
+      // host: '0.0.0.0', // Listen on all interfaces for mobile access
+      // port: 5173,
       proxy: {
         '/api': {
           target: useLocalBackend 
