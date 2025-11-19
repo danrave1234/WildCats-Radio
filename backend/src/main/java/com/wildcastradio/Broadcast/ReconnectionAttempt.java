@@ -37,13 +37,12 @@ public class ReconnectionAttempt {
      * @return Delay in milliseconds
      */
     public long getNextDelayMs() {
-        if (attemptCount == 0) {
-            return BASE_DELAY_MS; // First attempt: 1 second
-        }
-        
-        // Exponential backoff: baseDelay * 2^(attemptCount-1)
-        long exponentialDelay = BASE_DELAY_MS * (long) Math.pow(2, attemptCount - 1);
-        
+        // Exponential backoff: baseDelay * 2^(attemptCount)
+        // attemptCount=0 -> 1000 * 2^0 = 1000 (first attempt)
+        // attemptCount=1 -> 1000 * 2^1 = 2000 (second attempt)
+        // attemptCount=2 -> 1000 * 2^2 = 4000 (third attempt)
+        long exponentialDelay = BASE_DELAY_MS * (long) Math.pow(2, attemptCount);
+
         // Cap at maximum delay
         return Math.min(exponentialDelay, MAX_DELAY_MS);
     }

@@ -90,12 +90,11 @@ public class StreamController {
     public ResponseEntity<Map<String, Object>> getWebSocketUrl() {
         try {
             String djWsUrl = icecastService.getWebSocketUrl();
-            String listenerWsUrl = icecastService.getListenerWebSocketUrl();
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("webSocketUrl", djWsUrl);  // For DJ streaming
-            response.put("listenerWebSocketUrl", listenerWsUrl);  // For listener status updates
+            // listenerWebSocketUrl removed - listener status now via STOMP /topic/listener-status
 
             return ResponseEntity.ok(response);
 

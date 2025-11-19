@@ -31,6 +31,7 @@ import { createLogger } from "../services/logger"
 import { profanityService } from "../services/api"
 import EnhancedScheduleForm from "../components/EnhancedScheduleForm"
 import { CalendarIcon } from "@heroicons/react/24/outline"
+import { getBroadcastErrorMessage, handleStateMachineError } from "../utils/errorHandler"
 
 const logger = createLogger("DJDashboard")
 
@@ -160,6 +161,7 @@ export default function DJDashboard() {
     audioSource,
     setAudioSource,
     getAudioStream,
+    streamStatusCircuitBreakerOpen,
   } = useStreaming()
 
   // Core workflow state
@@ -259,6 +261,7 @@ export default function DJDashboard() {
 
   // Analytics State
   const [broadcastStartTime, setBroadcastStartTime] = useState(null)
+  const [lastCheckpointTime, setLastCheckpointTime] = useState(null)
   const [totalInteractions, setTotalInteractions] = useState(0)
   const [peakListeners, setPeakListeners] = useState(0)
   const [totalSongRequests, setTotalSongRequests] = useState(0)
@@ -988,6 +991,29 @@ export default function DJDashboard() {
                 setReconnectionStatus(null)
               }, 5000) // Clear after 5 seconds
             }
+          } else if (message.type === "BROADCAST_RECOVERY") {
+            logger.info("DJ Dashboard: Broadcast recovery notification received:", message)
+
+            setReconnectionStatus({
+              status: 'RECOVERED',
+              message: message.message || 'Broadcast recovered after server restart',
+              checkpointTime: message.checkpointTime,
+              duration: message.duration,
+              timestamp: message.timestamp
+            })
+
+            // Update broadcast state if provided
+            if (message.broadcast) {
+              setCurrentBroadcast(message.broadcast)
+              if (message.broadcast.actualStart) {
+                setBroadcastStartTime(new Date(message.broadcast.actualStart))
+              }
+            }
+
+            // Hide recovery notification after 5 seconds
+            setTimeout(() => {
+              setReconnectionStatus(null)
+            }, 5000)
           }
         })
 
@@ -1010,15 +1036,63 @@ export default function DJDashboard() {
                 setReconnectionStatus(null)
               }, 5000)
             }
+          } else if (data.type === "BROADCAST_RECOVERY" && data.broadcastId === currentBroadcast.id) {
+            logger.info("DJ Dashboard: Broadcast recovery notification received from global topic:", data)
+
+            setReconnectionStatus({
+              status: 'RECOVERED',
+              message: data.message || 'Broadcast recovered after server restart',
+              checkpointTime: data.checkpointTime,
+              duration: data.duration,
+              timestamp: data.timestamp
+            })
+
+            // Update broadcast state if provided
+            if (data.broadcast) {
+              setCurrentBroadcast(data.broadcast)
+              if (data.broadcast.actualStart) {
+                setBroadcastStartTime(new Date(data.broadcast.actualStart))
+              }
+            }
+
+            // Hide recovery notification after 5 seconds
+            setTimeout(() => {
+              setReconnectionStatus(null)
+            }, 5000)
           }
         })
 
-        reconnectionWsRef.current = { connection, globalConnection }
+        // Subscribe to checkpoint updates (if backend supports it)
+        const checkpointConnection = await stompClientManager.subscribe(
+          `/topic/broadcast/${currentBroadcast.id}`,
+          (message) => {
+            const data = JSON.parse(message.body)
+
+            if (data.type === 'BROADCAST_CHECKPOINT') {
+              logger.debug('DJ Dashboard: Checkpoint update received:', data)
+
+              // Update broadcast duration from backend checkpoint if provided
+              if (data.currentDurationSeconds !== undefined) {
+                const durationMs = data.currentDurationSeconds * 1000
+                const checkpointStart = new Date(Date.now() - durationMs)
+                setBroadcastStartTime(checkpointStart)
+              }
+
+              // Store last checkpoint time for display
+              if (data.lastCheckpointTime) {
+                setLastCheckpointTime(new Date(data.lastCheckpointTime))
+              }
+            }
+          }
+        )
+
+        reconnectionWsRef.current = { connection, globalConnection, checkpointConnection }
         logger.debug("DJ Dashboard: Reconnection WebSocket connected successfully")
       } catch (error) {
         logger.error("DJ Dashboard: Failed to connect reconnection WebSocket:", error)
       }
     }
+
 
     // Setup WebSockets immediately - no delay needed with proper guards
     setupChatWebSocket()
@@ -1045,11 +1119,14 @@ export default function DJDashboard() {
       }
 
       if (reconnectionWsRef.current) {
-        if (reconnectionWsRef.current.connection) {
-          reconnectionWsRef.current.connection.disconnect()
+        if (reconnectionWsRef.current.connection && reconnectionWsRef.current.connection.unsubscribe) {
+          reconnectionWsRef.current.connection.unsubscribe()
         }
-        if (reconnectionWsRef.current.globalConnection) {
-          reconnectionWsRef.current.globalConnection.disconnect()
+        if (reconnectionWsRef.current.globalConnection && reconnectionWsRef.current.globalConnection.unsubscribe) {
+          reconnectionWsRef.current.globalConnection.unsubscribe()
+        }
+        if (reconnectionWsRef.current.checkpointConnection && reconnectionWsRef.current.checkpointConnection.unsubscribe) {
+          reconnectionWsRef.current.checkpointConnection.unsubscribe()
         }
         reconnectionWsRef.current = null
       }
@@ -1080,6 +1157,38 @@ export default function DJDashboard() {
       }
     }
   }, [])
+
+  // Setup checkpoint polling fallback (every 60 seconds when broadcast is LIVE)
+  useEffect(() => {
+    if (!currentBroadcast?.id || currentBroadcast?.status !== 'LIVE') {
+      return
+    }
+
+    logger.debug('DJ Dashboard: Setting up checkpoint polling fallback')
+
+    const interval = setInterval(async () => {
+      try {
+        const healthResponse = await broadcastService.getLiveHealth()
+        const health = healthResponse.data
+
+        // Update duration from backend checkpoint if available
+        if (health.currentDurationSeconds) {
+          const durationMs = health.currentDurationSeconds * 1000
+          const checkpointStart = new Date(Date.now() - durationMs)
+          setBroadcastStartTime(checkpointStart)
+        }
+
+        // Update last checkpoint time if available
+        if (health.lastCheckpointTime) {
+          setLastCheckpointTime(new Date(health.lastCheckpointTime))
+        }
+      } catch (error) {
+        logger.debug('DJ Dashboard: Failed to fetch checkpoint data (this is normal if WebSocket is working):', error)
+      }
+    }, 60000) // Every 60 seconds (matches backend checkpoint interval)
+
+    return () => clearInterval(interval)
+  }, [currentBroadcast?.id, currentBroadcast?.status])
 
   // Form handling functions
   const handleFormChange = (e) => {
@@ -1321,6 +1430,17 @@ export default function DJDashboard() {
       return
     }
 
+    // Pre-validate state on frontend (optional, backend will also validate)
+    if (currentBroadcast.status === 'LIVE') {
+      setStreamError("Broadcast is already LIVE. Cannot start again.")
+      return
+    }
+
+    if (currentBroadcast.status === 'ENDED') {
+      setStreamError("Cannot start an ended broadcast. Please create a new broadcast.")
+      return
+    }
+
     try {
       setStreamError(null)
       logger.debug("Starting broadcast live:", currentBroadcast.id)
@@ -1348,8 +1468,38 @@ export default function DJDashboard() {
       logger.debug("Broadcast is now live:", liveBroadcast)
     } catch (error) {
       logger.error("Error starting broadcast:", error)
-      const msg = error?.response?.data?.message || error.message || "Failed to start broadcast"
-      setStreamError(`Error starting broadcast: ${msg}`)
+
+      // Handle circuit breaker errors
+      if (error.message?.includes('temporarily unavailable')) {
+        const retryMatch = error.message.match(/(\d+) seconds/);
+        const retrySeconds = retryMatch ? parseInt(retryMatch[1], 10) : 60;
+
+        setStreamError(`Service temporarily unavailable. Retrying in ${retrySeconds} seconds...`);
+
+        // Auto-retry after delay
+        setTimeout(() => {
+          startBroadcastLive();
+        }, retrySeconds * 1000);
+        return;
+      }
+
+      // Handle state machine validation errors
+      const stateMachineError = handleStateMachineError(error);
+      if (stateMachineError) {
+        setStreamError(`Cannot start broadcast: ${stateMachineError.message}`);
+        // Refresh broadcast state
+        try {
+          const updated = await broadcastService.getById(currentBroadcast.id);
+          setCurrentBroadcast(updated.data);
+        } catch (refreshError) {
+          logger.error("Failed to refresh broadcast state:", refreshError);
+        }
+        return;
+      }
+
+      // Handle other errors with enhanced error messages
+      const broadcastError = getBroadcastErrorMessage(error);
+      setStreamError(`Error starting broadcast: ${broadcastError.userMessage}`);
     }
   }
 
@@ -1361,6 +1511,12 @@ export default function DJDashboard() {
 
     if (!currentBroadcast?.id) {
       setStreamError("No broadcast instance found")
+      return
+    }
+
+    // Pre-validate state on frontend (optional, backend will also validate)
+    if (currentBroadcast.status !== 'LIVE') {
+      setStreamError("Broadcast is not currently LIVE. Cannot end a broadcast that is not live.")
       return
     }
 
@@ -1402,8 +1558,33 @@ export default function DJDashboard() {
       setActivePoll(null)
     } catch (error) {
       logger.error("Error ending broadcast:", error)
-      const msg = error?.response?.data?.message || error.message || "Failed to end broadcast"
-      setStreamError(`Error ending broadcast: ${msg}`)
+
+      // Handle circuit breaker errors
+      if (error.message?.includes('temporarily unavailable')) {
+        const retryMatch = error.message.match(/(\d+) seconds/);
+        const retrySeconds = retryMatch ? parseInt(retryMatch[1], 10) : 60;
+
+        setStreamError(`Service temporarily unavailable. Cannot end broadcast right now. Please try again in ${retrySeconds} seconds.`);
+        return;
+      }
+
+      // Handle state machine validation errors
+      const stateMachineError = handleStateMachineError(error);
+      if (stateMachineError) {
+        setStreamError(`Cannot end broadcast: ${stateMachineError.message}`);
+        // Refresh broadcast state
+        try {
+          const updated = await broadcastService.getById(currentBroadcast.id);
+          setCurrentBroadcast(updated.data);
+        } catch (refreshError) {
+          logger.error("Failed to refresh broadcast state:", refreshError);
+        }
+        return;
+      }
+
+      // Handle other errors with enhanced error messages
+      const broadcastError = getBroadcastErrorMessage(error);
+      setStreamError(`Error ending broadcast: ${broadcastError.userMessage}`);
     } finally {
       setIsStoppingBroadcast(false)
     }
@@ -1772,6 +1953,12 @@ export default function DJDashboard() {
                             <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${websocketConnected ? "bg-green-300" : "bg-yellow-300"}`}></span>
                             <span>{(graceUntilMs && Date.now() < graceUntilMs) ? "Connecting…" : (websocketConnected ? "Connected" : "Disconnected")}</span>
                           </div>
+                          {streamStatusCircuitBreakerOpen && (
+                            <div className="flex items-center">
+                              <span className="h-1.5 w-1.5 rounded-full mr-1.5 bg-orange-400"></span>
+                              <span>Status: Degraded</span>
+                            </div>
+                          )}
                           <div className="flex items-center">
                             <span className="font-semibold mr-1">{listenerCount}</span>
                             <span>listener{listenerCount !== 1 ? "s" : ""}</span>
@@ -1814,11 +2001,12 @@ export default function DJDashboard() {
                       )}
                       <button
                           onClick={() => setConfirmEndOpen(true)}
-                          disabled={isStoppingBroadcast}
+                          disabled={isStoppingBroadcast || currentBroadcast?.status !== 'LIVE'}
                           className="flex items-center px-4 py-1.5 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-md transition-all duration-200 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={currentBroadcast?.status !== 'LIVE' ? 'Broadcast is not currently live' : 'End the current broadcast'}
                       >
                         <StopIcon className="h-3.5 w-3.5 mr-1.5" />
-                        {isStoppingBroadcast ? "Ending..." : "End Broadcast"}
+                        {isStoppingBroadcast ? "Ending..." : currentBroadcast?.status !== 'LIVE' ? "Not Live" : "End Broadcast"}
                       </button>
                     </div>
                   </div>
@@ -2015,6 +2203,11 @@ export default function DJDashboard() {
                         <ClockIcon className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                       </div>
                       <div className="text-lg font-bold text-emerald-800 dark:text-emerald-200">{getBroadcastDuration()}</div>
+                      {lastCheckpointTime && (
+                        <div className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
+                          Last saved: {formatDistanceToNow(lastCheckpointTime, { addSuffix: true })}
+                        </div>
+                      )}
                     </div>
                     <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
                       <div className="flex items-center justify-between mb-1">
@@ -2884,16 +3077,22 @@ export default function DJDashboard() {
                         </div>
                         <button
                           onClick={startBroadcastLive}
-                          disabled={radioServerState !== 'running'}
+                          disabled={radioServerState !== 'running' || currentBroadcast?.status === 'LIVE'}
                           className={`ml-6 flex items-center px-8 py-4 rounded-lg font-bold text-lg transition-all shadow-lg ${
-                            radioServerState === 'running'
+                            radioServerState === 'running' && currentBroadcast?.status !== 'LIVE'
                               ? 'bg-red-600 text-white hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-300 hover:shadow-xl'
                               : 'bg-gray-400 text-gray-600 cursor-not-allowed'
                           }`}
-                          title={radioServerState !== 'running' ? 'Start the radio server first' : 'Go live and open the interactive dashboard'}
+                          title={
+                            currentBroadcast?.status === 'LIVE'
+                              ? 'Broadcast is already live'
+                              : radioServerState !== 'running'
+                                ? 'Start the radio server first'
+                                : 'Go live and open the interactive dashboard'
+                          }
                         >
                           <MicrophoneIcon className="h-6 w-6 mr-2" />
-                          Go Live
+                          {currentBroadcast?.status === 'LIVE' ? 'Broadcast Already Live' : 'Go Live'}
                         </button>
                       </div>
                     </div>

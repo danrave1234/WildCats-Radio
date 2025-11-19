@@ -76,13 +76,15 @@ public class ActivityLogService {
             Long broadcastId,
             Map<String, Object> metadata) {
         try {
-            String metadataJson = metadata != null && !metadata.isEmpty() 
-                ? objectMapper.writeValueAsString(metadata) 
+            String metadataJson = metadata != null && !metadata.isEmpty()
+                ? objectMapper.writeValueAsString(metadata)
                 : null;
-            
-            ActivityLogEntity activityLog = new ActivityLogEntity(activityType, description);
+
+            // For system events, pass null user (entity should handle this)
+            ActivityLogEntity activityLog = new ActivityLogEntity(activityType, description, null);
             activityLog.setBroadcastId(broadcastId);
             activityLog.setMetadata(metadataJson);
+            activityLog.setIsSystemEvent(true); // Explicitly mark as system event
             return activityLogRepository.save(activityLog);
         } catch (JsonProcessingException e) {
             // Fallback to simple logging if JSON serialization fails

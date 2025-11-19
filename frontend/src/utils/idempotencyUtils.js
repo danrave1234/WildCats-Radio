@@ -5,23 +5,18 @@
 
 /**
  * Generates a unique idempotency key for API operations
- * Uses a combination of timestamp and random values
- *
- * @returns {string} Unique idempotency key
+ * @returns {string} Unique UUID v4 idempotency key
  */
 export const generateIdempotencyKey = () => {
-  // Use timestamp and random values to create a UUID-like string
-  const timestamp = Date.now().toString(36);
-  const randomPart1 = Math.random().toString(36).substring(2, 11);
-  const randomPart2 = Math.random().toString(36).substring(2, 11);
-  const randomPart3 = Math.random().toString(36).substring(2, 11);
-
-  return `${timestamp}-${randomPart1}-${randomPart2}-${randomPart3}`;
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
 };
 
 /**
  * Generates an idempotency key with a prefix for better organization
- *
  * @param {string} operation - Operation type (e.g., 'broadcast-start', 'broadcast-end')
  * @returns {string} Prefixed idempotency key
  */
@@ -32,18 +27,9 @@ export const generatePrefixedIdempotencyKey = (operation) => {
 
 /**
  * Validates if a string looks like a valid idempotency key
- * Basic validation - checks if it's a non-empty string
- *
  * @param {string} key - The key to validate
  * @returns {boolean} True if valid
  */
 export const isValidIdempotencyKey = (key) => {
   return typeof key === 'string' && key.trim().length > 0;
 };
-
-export default {
-  generateIdempotencyKey,
-  generatePrefixedIdempotencyKey,
-  isValidIdempotencyKey,
-};
-
