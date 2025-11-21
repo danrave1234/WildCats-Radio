@@ -1,9 +1,11 @@
 package com.wildcastradio.User;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 
@@ -567,4 +569,144 @@ public class UserService implements UserDetailsService {
     }
 
     // Removed insecure getAllUsers exposure
+
+    /**
+     * Handles OAuth2 login/registration from Google or Microsoft
+     * Creates a new user if email doesn't exist, otherwise logs in existing user
+     * Extracts birthdate and gender from OAuth provider when available
+     */
+    public LoginResponse oauth2Login(Map<String, Object> oauthAttributes, String provider) {
+        if (oauthAttributes == null || oauthAttributes.isEmpty()) {
+            throw new IllegalArgumentException("OAuth attributes are required");
+        }
+        
+        if (provider == null || provider.isEmpty()) {
+            throw new IllegalArgumentException("OAuth provider is required");
+        }
+        
+        String email = extractEmail(oauthAttributes);
+        if (email == null || email.isEmpty()) {
+            throw new IllegalArgumentException("Email is required from OAuth provider");
+        }
+        
+        String normalizedEmail = email.trim().toLowerCase();
+        Optional<UserEntity> userOpt = userRepository.findByEmailIgnoreCase(normalizedEmail);
+        
+        UserEntity user;
+        
+        if (userOpt.isPresent()) {
+            user = userOpt.get();
+        } else {
+            user = new UserEntity();
+            user.setEmail(normalizedEmail);
+            user.setPassword(passwordEncoder.encode(generateRandomPassword()));
+            
+            String firstName = extractFirstName(oauthAttributes);
+            String lastName = extractLastName(oauthAttributes);
+            user.setFirstname(firstName != null ? firstName : "User");
+            user.setLastname(lastName != null ? lastName : "");
+            
+            LocalDate birthdate = extractBirthdate(oauthAttributes);
+            if (birthdate != null) {
+                user.setBirthdate(birthdate);
+            }
+            
+            UserEntity.Gender gender = extractGender(oauthAttributes);
+            if (gender != null) {
+                user.setGender(gender);
+            }
+            
+            user.setVerified(true);
+            user.setRole(UserEntity.UserRole.LISTENER);
+            
+            user = userRepository.save(user);
+            
+            activityLogService.logActivity(
+                user,
+                ActivityLogEntity.ActivityType.USER_REGISTER,
+                "User registered via OAuth2 (" + provider + "): " + user.getEmail()
+            );
+        }
+        
+        UserDetails userDetails = loadUserByUsername(user.getEmail());
+        String token = jwtUtil.generateToken(userDetails);
+        
+        activityLogService.logActivity(
+            user,
+            ActivityLogEntity.ActivityType.LOGIN,
+            "User logged in via OAuth2 (" + provider + "): " + user.getEmail()
+        );
+        
+        return new LoginResponse(token, UserDTO.fromEntity(user));
+    }
+    
+    private String extractEmail(Map<String, Object> attributes) {
+        return (String) attributes.get("email");
+    }
+    
+    private String extractFirstName(Map<String, Object> attributes) {
+        String givenName = (String) attributes.get("given_name");
+        if (givenName != null) return givenName;
+        String name = (String) attributes.get("name");
+        if (name != null && name.contains(" ")) {
+            return name.split(" ")[0];
+        }
+        return name;
+    }
+    
+    private String extractLastName(Map<String, Object> attributes) {
+        String familyName = (String) attributes.get("family_name");
+        if (familyName != null) return familyName;
+        String name = (String) attributes.get("name");
+        if (name != null && name.contains(" ")) {
+            String[] parts = name.split(" ");
+            return parts.length > 1 ? parts[parts.length - 1] : "";
+        }
+        return "";
+    }
+    
+    private LocalDate extractBirthdate(Map<String, Object> attributes) {
+        try {
+            String birthday = (String) attributes.get("birthday");
+            if (birthday != null && !birthday.isEmpty() && birthday.contains("-")) {
+                String[] parts = birthday.split("-");
+                if (parts.length == 3) {
+                    return LocalDate.parse(birthday);
+                } else if (parts.length == 2) {
+                    return LocalDate.parse("2000-" + birthday);
+                }
+            }
+        } catch (Exception e) {
+            // Ignore parsing errors
+        }
+        return null;
+    }
+    
+    private UserEntity.Gender extractGender(Map<String, Object> attributes) {
+        try {
+            String gender = (String) attributes.get("gender");
+            if (gender != null) {
+                if ("male".equalsIgnoreCase(gender)) {
+                    return UserEntity.Gender.MALE;
+                } else if ("female".equalsIgnoreCase(gender)) {
+                    return UserEntity.Gender.FEMALE;
+                } else if ("other".equalsIgnoreCase(gender)) {
+                    return UserEntity.Gender.OTHER;
+                }
+            }
+        } catch (Exception e) {
+            // Ignore parsing errors
+        }
+        return null;
+    }
+    
+    private String generateRandomPassword() {
+        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
+        StringBuilder password = new StringBuilder();
+        Random random = new Random();
+        for (int i = 0; i < 32; i++) {
+            password.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        return password.toString();
+    }
 } 

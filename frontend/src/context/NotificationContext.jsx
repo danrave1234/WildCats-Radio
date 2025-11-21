@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useMemo } from 'react';
 // Announcement popups removed per new requirement
 import { notificationService } from '../services/api/index.js';
+import { getAllAnnouncements } from '../services/announcementService';
 import { useAuth } from './AuthContext';
 import { createLogger } from '../services/logger';
 
@@ -15,6 +16,7 @@ export function NotificationProvider({ children }) {
   const [hasMore, setHasMore] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [announcements, setAnnouncements] = useState([]);
   const { isAuthenticated } = useAuth();
   const wsConnection = useRef(null);
   const refreshInterval = useRef(null);
@@ -88,14 +90,20 @@ export function NotificationProvider({ children }) {
     // Connect only for authenticated users now
     if (isAuthenticated) {
       connectToWebSocket();
+      fetchNotifications();
+      refreshAnnouncements();
+      startPeriodicRefresh();
     } else {
       disconnectWebSocket();
       setNotifications([]);
       setUnreadCount(0);
+      setAnnouncements([]);
+      stopPeriodicRefresh();
     }
 
     return () => {
       disconnectWebSocket();
+      stopPeriodicRefresh();
     };
   }, [isAuthenticated]);
 
@@ -183,6 +191,30 @@ export function NotificationProvider({ children }) {
     }
   };
 
+  const refreshAnnouncements = async () => {
+    try {
+      const resp = await getAllAnnouncements(0, 20);
+      const content = resp?.content || resp?.data?.content || [];
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const items = content
+        .filter((a) => a?.publishedAt && new Date(a.publishedAt) >= sevenDaysAgo)
+        .map((a) => ({
+          id: `ann-${a.id}`,
+          message: a.title,
+          type: 'ANNOUNCEMENT',
+          timestamp: a.publishedAt,
+          read: true,
+          link: '/announcements',
+          isAnnouncement: true,
+        }));
+      setAnnouncements(items);
+    } catch (error) {
+      logger.warn('Failed to refresh announcements', error);
+      setAnnouncements([]);
+    }
+  };
+
   const loadMoreNotifications = async () => {
     if (!isAuthenticated || !hasMore) return;
     try {
@@ -248,6 +280,24 @@ export function NotificationProvider({ children }) {
     logger.debug('Cleared all notifications');
   };
 
+  const sortedNotifications = useMemo(() => {
+    return [...notifications].sort(
+      (a, b) =>
+        new Date(b.timestamp || b.createdAt || 0) - new Date(a.timestamp || a.createdAt || 0)
+    );
+  }, [notifications]);
+
+  const combinedNotifications = useMemo(() => {
+    return [...sortedNotifications, ...announcements].sort(
+      (a, b) =>
+        new Date(b.timestamp || b.createdAt || 0) - new Date(a.timestamp || a.createdAt || 0)
+    );
+  }, [sortedNotifications, announcements]);
+
+  const getLatestUnreadNotifications = (limit = 10) => {
+    return sortedNotifications.filter((n) => !n.read).slice(0, limit);
+  };
+
   // No automatic refreshes to reduce console noise; use WebSocket pushes only
 
   return (
@@ -263,11 +313,15 @@ export function NotificationProvider({ children }) {
       addNotification,
       clearAllNotifications,
       fetchNotifications,
+      refreshAnnouncements,
       isConnected,
       connectToWebSocket,
       disconnectWebSocket,
       preferences,
-      updatePreferences
+      updatePreferences,
+      announcements,
+      combinedNotifications,
+      getLatestUnreadNotifications
     }}>
       {children}
     </NotificationContext.Provider>

@@ -103,7 +103,14 @@ class ApiProxyBase {
     // Request interceptor for authentication
     this.axiosInstance.interceptors.request.use(
       (config) => {
-        const token = this.getCookie('token');
+        // Try to get token from cookie first (production)
+        let token = this.getCookie('token');
+        
+        // Fallback to localStorage for localhost OAuth (cookies don't work across ports)
+        if (!token && window.location.hostname === 'localhost') {
+          token = localStorage.getItem('oauth_token');
+        }
+        
         if (token) {
           config.headers['Authorization'] = `Bearer ${token}`;
         }

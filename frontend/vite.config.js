@@ -151,6 +151,37 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: true,
           ws: true
+        },
+        // Proxy OAuth2 endpoints so cookies work across ports
+        '/oauth2': {
+          target: useLocalBackend 
+            ? 'http://localhost:8080'
+            : `https://${apiBaseUrl}`,
+          changeOrigin: true,
+          secure: true,
+          configure: (proxy, _options) => {
+            proxy.on('proxyReq', (proxyReq, req, _res) => {
+              // Forward cookies
+              if (req.headers.cookie) {
+                proxyReq.setHeader('Cookie', req.headers.cookie);
+              }
+            });
+          }
+        },
+        '/login/oauth2': {
+          target: useLocalBackend 
+            ? 'http://localhost:8080'
+            : `https://${apiBaseUrl}`,
+          changeOrigin: true,
+          secure: true,
+          configure: (proxy, _options) => {
+            proxy.on('proxyReq', (proxyReq, req, _res) => {
+              // Forward cookies
+              if (req.headers.cookie) {
+                proxyReq.setHeader('Cookie', req.headers.cookie);
+              }
+            });
+          }
         }
       }
     },
