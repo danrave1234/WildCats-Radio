@@ -77,14 +77,27 @@ public class OAuth2ClientConfig {
                 .scope(resolveScopes(googleScopes,
                         "profile", "email",
                         "https://www.googleapis.com/auth/user.birthday.read",
-                        "https://www.googleapis.com/auth/user.gender.read"))
-                // Use explicit redirect URI to avoid proxy/load balancer resolution issues
-                // Spring Security's {baseUrl} template can resolve incorrectly behind proxies
-                // This ensures Google always receives the correct redirect URI
-                .redirectUri("https://api.wildcat-radio.live/login/oauth2/code/google");
-        
-        logger.info("OAuth redirect URI configured: https://api.wildcat-radio.live/login/oauth2/code/google");
+                        "https://www.googleapis.com/auth/user.gender.read"));
 
+        // Handle redirect URI based on environment
+        String hostname = System.getenv("HOSTNAME");
+        if (hostname == null || hostname.isEmpty()) {
+            hostname = System.getProperty("server.hostname", "");
+        }
+        
+        // For localhost development
+        if (hostname == null || hostname.contains("localhost") || hostname.contains("127.0.0.1") || hostname.isEmpty()) {
+            // Use template for localhost - Spring Security resolves this correctly
+            builder.redirectUri("{baseUrl}/login/oauth2/code/google");
+            logger.info("Using dynamic OAuth redirect URI for local/dev environment");
+        } else {
+            // For production: Use explicit redirect URI to avoid proxy/load balancer resolution issues
+            // This ensures Google always receives the correct redirect URI regardless of internal routing
+            String prodRedirectUri = "https://api.wildcat-radio.live/login/oauth2/code/google";
+            builder.redirectUri(prodRedirectUri);
+            logger.info("Using explicit OAuth redirect URI for production: {}", prodRedirectUri);
+        }
+        
         return builder.build();
     }
 

@@ -309,34 +309,19 @@ public class SecurityConfig {
 
     /**
      * Auto-detect frontend domain from request headers
-     * Tries Origin header first, then Referer, then derives from request
+     * Tries Origin header first, then maps known backend hosts to frontend URLs
      */
     private String getFrontendDomain(HttpServletRequest request) {
-        // Try Origin header first (most reliable for CORS requests)
+        // 1. Try Origin header first (most reliable for CORS requests)
         String origin = request.getHeader("Origin");
         if (origin != null && !origin.isEmpty()) {
-            return origin;
-        }
-        
-        // Fallback to Referer header
-        String referer = request.getHeader("Referer");
-        if (referer != null && !referer.isEmpty()) {
-            try {
-                java.net.URL url = new java.net.URL(referer);
-                String protocol = url.getProtocol();
-                String host = url.getHost();
-                int port = url.getPort();
-                if (port != -1 && port != 80 && port != 443) {
-                    return protocol + "://" + host + ":" + port;
-                }
-                return protocol + "://" + host;
-            } catch (Exception e) {
-                logger.debug("Could not parse Referer header: {}", e.getMessage());
+            // Verify origin is one of our allowed domains to be safe
+            if (origin.contains("localhost") || origin.contains("wildcat-radio.live")) {
+                return origin;
             }
         }
         
-        // Last resort: detect from request
-        String scheme = request.getScheme();
+        // 2. Determine current backend host
         String host = request.getHeader("Host");
         if (host == null || host.isEmpty()) {
             host = request.getServerName();
@@ -345,22 +330,42 @@ public class SecurityConfig {
                 host += ":" + port;
             }
         }
+
+        // 3. Map Backend Host -> Frontend URL
         
-        // If localhost, use default localhost frontend
+        // Localhost Development
         if (host.contains("localhost") || host.contains("127.0.0.1")) {
             return "http://localhost:5173";
         }
         
-        // For production, assume frontend is on root domain
-        // api.wildcat-radio.live -> wildcat-radio.live
-        String domain = host.split(":")[0]; // Remove port if present
-        String rootDomain = extractRootDomain(domain);
-        if (rootDomain != null && !rootDomain.isEmpty()) {
-            return "https://" + rootDomain;
+        // Production (api.wildcat-radio.live -> wildcat-radio.live)
+        if (host.contains("wildcat-radio.live")) {
+            return "https://wildcat-radio.live";
+        }
+
+        // 4. Fallback: Referer (ONLY if internal)
+        // WE DO NOT want to redirect back to "accounts.google.com"
+        String referer = request.getHeader("Referer");
+        if (referer != null && !referer.isEmpty()) {
+            try {
+                java.net.URL url = new java.net.URL(referer);
+                String refHost = url.getHost();
+                // Only accept referer if it matches our known domains
+                if (refHost.contains("localhost") || refHost.contains("wildcat-radio.live")) {
+                    String protocol = url.getProtocol();
+                    int port = url.getPort();
+                    if (port != -1 && port != 80 && port != 443) {
+                        return protocol + "://" + refHost + ":" + port;
+                    }
+                    return protocol + "://" + refHost;
+                }
+            } catch (Exception e) {
+                logger.debug("Could not parse Referer header: {}", e.getMessage());
+            }
         }
         
-        // Fallback to detected host
-        return scheme + "://" + host;
+        // Absolute fallback (shouldn't happen in normal flow)
+        return "https://wildcat-radio.live";
     }
     
     /**
