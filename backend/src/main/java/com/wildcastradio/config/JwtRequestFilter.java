@@ -31,6 +31,15 @@ public class JwtRequestFilter extends OncePerRequestFilter {
     }
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        // Skip JWT filter for OAuth2 endpoints - let Spring Security OAuth2Login handle them
+        return path.startsWith("/oauth2/") || 
+               path.startsWith("/login/oauth2/") ||
+               path.startsWith("/api/auth/oauth2/");
+    }
+
+    @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         
