@@ -31,6 +31,7 @@ import com.wildcastradio.User.DTO.LoginResponse;
 import com.wildcastradio.User.UserService;
 import com.wildcastradio.ratelimit.RateLimitingFilter;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -62,6 +63,15 @@ public class SecurityConfig {
 
     @Value("${app.production:false}")
     private boolean isProduction;
+    
+    @PostConstruct
+    public void init() {
+        // Auto-enable secure cookies in production
+        if (isProduction && !useSecureCookies) {
+            useSecureCookies = true;
+            logger.info("Production mode detected: Auto-enabled secure cookies (Secure=true, SameSite=None)");
+        }
+    }
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -151,7 +161,7 @@ public class SecurityConfig {
                         response.sendRedirect(redirectUrl);
                         
                     } catch (Exception e) {
-                        logger.error("OAuth2 success handler error: {}", e.getMessage());
+                        logger.error("OAuth2 success handler error: {}", e.getMessage(), e);
                         String frontendDomain = getFrontendDomain(request);
                         response.sendRedirect(frontendDomain + "/login?oauth_error=handler_error");
                     }
