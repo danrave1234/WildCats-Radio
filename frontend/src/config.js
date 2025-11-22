@@ -73,12 +73,16 @@ const environments = {
   local: {
     // Use relative API base in dev so Vite proxy handles CORS and cookies
     apiBaseUrl: '',
+    // Backend base URL (without /api prefix) for OAuth and other non-API endpoints
+    backendBaseUrl: '',
     // Always talk to the local backend for WS/SockJS during development
     wsBaseUrl: 'ws://localhost:8080',
     sockJsBaseUrl: 'http://localhost:8080',
   },
   deployed: {
     apiBaseUrl: `https://${getEnvVar('VITE_API_BASE_URL', 'api.wildcat-radio.live')}`,
+    // Backend base URL (same as API URL, but explicitly for OAuth endpoints)
+    backendBaseUrl: `https://${getEnvVar('VITE_API_BASE_URL', 'api.wildcat-radio.live')}`,
     wsBaseUrl: `wss://${getEnvVar('VITE_WS_BASE_URL', 'api.wildcat-radio.live')}`,
     sockJsBaseUrl: `https://${getEnvVar('VITE_WS_BASE_URL', 'api.wildcat-radio.live')}`,
   }
@@ -96,6 +100,7 @@ export const config = {
 
   // Base URLs with automatic environment detection
   apiBaseUrl: currentEnvConfig.apiBaseUrl,
+  backendBaseUrl: currentEnvConfig.backendBaseUrl,
   wsBaseUrl: currentEnvConfig.wsBaseUrl,
   sockJsBaseUrl: currentEnvConfig.sockJsBaseUrl,
 

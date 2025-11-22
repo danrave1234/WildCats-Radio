@@ -111,13 +111,31 @@ public class SecurityConfig {
                         tokenCookie.setSecure(useSecureCookies);
                         if (!frontendDomain.contains("localhost")) {
                             try {
-                                java.net.URL url = new java.net.URL(frontendDomain);
-                                String domain = url.getHost();
-                                if (domain != null && !domain.startsWith("localhost")) {
-                                    tokenCookie.setDomain(domain);
+                                // Use request host to determine cookie domain (backend's domain)
+                                String requestHost = request.getHeader("Host");
+                                String domainToUse = null;
+                                
+                                if (requestHost != null && !requestHost.isEmpty()) {
+                                    // Remove port if present
+                                    int colonIndex = requestHost.indexOf(':');
+                                    domainToUse = colonIndex > 0 ? requestHost.substring(0, colonIndex) : requestHost;
+                                } else {
+                                    // Fallback to frontend domain
+                                    java.net.URL url = new java.net.URL(frontendDomain);
+                                    domainToUse = url.getHost();
+                                }
+                                
+                                if (domainToUse != null && !domainToUse.startsWith("localhost")) {
+                                    // Extract root domain for cross-subdomain cookies
+                                    // e.g., api.wildcat-radio.live -> wildcat-radio.live
+                                    String rootDomain = extractRootDomain(domainToUse);
+                                    if (rootDomain != null && !rootDomain.isEmpty()) {
+                                        tokenCookie.setDomain("." + rootDomain);
+                                        logger.debug("Setting cookie domain to: .{}", rootDomain);
+                                    }
                                 }
                             } catch (Exception e) {
-                                // Ignore domain extraction errors
+                                logger.debug("Could not extract domain for cookie: {}", e.getMessage());
                             }
                         }
                         tokenCookie.setPath("/");
@@ -130,13 +148,26 @@ public class SecurityConfig {
                         userIdCookie.setSecure(useSecureCookies);
                         if (!frontendDomain.contains("localhost")) {
                             try {
-                                java.net.URL url = new java.net.URL(frontendDomain);
-                                String domain = url.getHost();
-                                if (domain != null && !domain.startsWith("localhost")) {
-                                    userIdCookie.setDomain(domain);
+                                // Use request host to determine cookie domain (backend's domain)
+                                String requestHost = request.getHeader("Host");
+                                String domainToUse = null;
+                                
+                                if (requestHost != null && !requestHost.isEmpty()) {
+                                    int colonIndex = requestHost.indexOf(':');
+                                    domainToUse = colonIndex > 0 ? requestHost.substring(0, colonIndex) : requestHost;
+                                } else {
+                                    java.net.URL url = new java.net.URL(frontendDomain);
+                                    domainToUse = url.getHost();
+                                }
+                                
+                                if (domainToUse != null && !domainToUse.startsWith("localhost")) {
+                                    String rootDomain = extractRootDomain(domainToUse);
+                                    if (rootDomain != null && !rootDomain.isEmpty()) {
+                                        userIdCookie.setDomain("." + rootDomain);
+                                    }
                                 }
                             } catch (Exception e) {
-                                logger.debug("Could not extract domain from frontend URL: {}", e.getMessage());
+                                logger.debug("Could not extract domain for cookie: {}", e.getMessage());
                             }
                         }
                         userIdCookie.setPath("/");
@@ -149,13 +180,26 @@ public class SecurityConfig {
                         userRoleCookie.setSecure(useSecureCookies);
                         if (!frontendDomain.contains("localhost")) {
                             try {
-                                java.net.URL url = new java.net.URL(frontendDomain);
-                                String domain = url.getHost();
-                                if (domain != null && !domain.startsWith("localhost")) {
-                                    userRoleCookie.setDomain(domain);
+                                // Use request host to determine cookie domain (backend's domain)
+                                String requestHost = request.getHeader("Host");
+                                String domainToUse = null;
+                                
+                                if (requestHost != null && !requestHost.isEmpty()) {
+                                    int colonIndex = requestHost.indexOf(':');
+                                    domainToUse = colonIndex > 0 ? requestHost.substring(0, colonIndex) : requestHost;
+                                } else {
+                                    java.net.URL url = new java.net.URL(frontendDomain);
+                                    domainToUse = url.getHost();
+                                }
+                                
+                                if (domainToUse != null && !domainToUse.startsWith("localhost")) {
+                                    String rootDomain = extractRootDomain(domainToUse);
+                                    if (rootDomain != null && !rootDomain.isEmpty()) {
+                                        userRoleCookie.setDomain("." + rootDomain);
+                                    }
                                 }
                             } catch (Exception e) {
-                                logger.debug("Could not extract domain from frontend URL: {}", e.getMessage());
+                                logger.debug("Could not extract domain for cookie: {}", e.getMessage());
                             }
                         }
                         userRoleCookie.setPath("/");
@@ -333,5 +377,42 @@ public class SecurityConfig {
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration authConfig) throws Exception {
         return authConfig.getAuthenticationManager();
+    }
+
+    /**
+     * Extract root domain from a subdomain
+     * e.g., api.wildcat-radio.live -> wildcat-radio.live
+     * e.g., www.example.com -> example.com
+     * e.g., subdomain.example.co.uk -> example.co.uk
+     */
+    private String extractRootDomain(String domain) {
+        if (domain == null || domain.isEmpty()) {
+            return null;
+        }
+
+        // Common TLDs that have two parts (e.g., .co.uk, .com.au)
+        String[] twoPartTlds = {".co.uk", ".com.au", ".co.za", ".co.nz", ".com.br", ".co.jp"};
+        
+        // Check for two-part TLDs first
+        for (String tld : twoPartTlds) {
+            if (domain.endsWith(tld)) {
+                // Extract domain without subdomain
+                String withoutTld = domain.substring(0, domain.length() - tld.length());
+                int lastDot = withoutTld.lastIndexOf('.');
+                if (lastDot > 0) {
+                    return withoutTld.substring(lastDot + 1) + tld;
+                }
+                return domain; // Already root domain
+            }
+        }
+
+        // Standard TLD handling (e.g., .com, .org, .live)
+        String[] parts = domain.split("\\.");
+        if (parts.length >= 2) {
+            // Take last two parts for standard TLDs
+            return parts[parts.length - 2] + "." + parts[parts.length - 1];
+        }
+
+        return domain; // Fallback to original domain
     }
 } 
