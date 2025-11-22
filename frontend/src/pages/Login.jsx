@@ -136,10 +136,10 @@ export default function Login() {
                   type="button"
                   onClick={() => {
                     // In local dev, use relative URL so Vite proxy handles it (cookies work across ports)
-                    // In production, use full backend URL
+                    // In production, use full backend URL (not API URL, since OAuth is at root level)
                     const oauthUrl = config.isLocal 
                       ? '/oauth2/authorization/google' 
-                      : `${config.apiBaseUrl || window.location.origin}/oauth2/authorization/google`;
+                      : `${config.backendBaseUrl || config.apiBaseUrl || window.location.origin}/oauth2/authorization/google`;
                     window.location.href = oauthUrl;
                   }}
                   className="w-full h-11 bg-white dark:bg-slate-600 hover:bg-gray-50 dark:hover:bg-slate-500 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-slate-500 font-semibold shadow-sm hover:shadow-md transition-all duration-300 !rounded-none focus:outline-none focus-visible:ring-0"
