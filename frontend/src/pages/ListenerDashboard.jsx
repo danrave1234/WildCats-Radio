@@ -14,8 +14,10 @@ import {
   ArrowRightOnRectangleIcon,
   ExclamationTriangleIcon,
 } from "@heroicons/react/24/solid";
+import { UserIcon } from "@heroicons/react/24/outline";
 import Toast from "../components/Toast";
 import { broadcastService, chatService, songRequestService, pollService, streamService, authService, radioService } from "../services/api/index.js";
+import { broadcastApi } from "../services/api/broadcastApi";
 import { format, formatDistanceToNow } from 'date-fns';
 import { useAuth } from "../context/AuthContext";
 import { useStreaming } from "../context/StreamingContext";
@@ -127,6 +129,9 @@ export default function ListenerDashboard() {
 
   // Chat timestamp update state
   const [_chatTimestampTick, _setChatTimestampTick] = useState(0);
+
+  // Current active DJ state
+  const [currentActiveDJ, setCurrentActiveDJ] = useState(null);
 
   // WebSocket connection status
   const [wsConnected, setWsConnected] = useState(false);
@@ -307,6 +312,31 @@ export default function ListenerDashboard() {
 
     fetchCurrentBroadcast();
   }, [targetBroadcastId]);
+
+  // Fetch current active DJ when broadcast is live
+  useEffect(() => {
+    const fetchCurrentActiveDJ = async () => {
+      if (currentBroadcast?.status === 'LIVE' && currentBroadcast?.id) {
+        try {
+          const response = await broadcastApi.getCurrentActiveDJ(currentBroadcast.id);
+          setCurrentActiveDJ(response.data);
+        } catch (error) {
+          logger.error('Error fetching current active DJ:', error);
+          // Fallback to startedBy if available
+          if (currentBroadcast?.startedBy) {
+            setCurrentActiveDJ(currentBroadcast.startedBy);
+          }
+        }
+      } else {
+        setCurrentActiveDJ(null);
+      }
+    };
+
+    fetchCurrentActiveDJ();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchCurrentActiveDJ, 30000);
+    return () => clearInterval(interval);
+  }, [currentBroadcast?.id, currentBroadcast?.status]);
 
   // Handle play/pause
   const handlePlayPause = () => {
@@ -808,6 +838,59 @@ export default function ListenerDashboard() {
       }
     };
 
+    // Setup Handover WebSocket for current DJ updates
+    const setupHandoverWebSocket = async () => {
+      try {
+        const subscribedBroadcastId = currentBroadcastId;
+        
+        // Subscribe to current DJ updates
+        const currentDJSubscription = await stompClientManager.subscribe(
+          `/topic/broadcast/${subscribedBroadcastId}/current-dj`,
+          (message) => {
+            try {
+              const data = JSON.parse(message.body);
+              if (data.type === "CURRENT_DJ_UPDATE" && data.broadcastId === subscribedBroadcastId) {
+                logger.info('Listener Dashboard: Current DJ update received:', data);
+                if (data.currentDJ) {
+                  setCurrentActiveDJ(data.currentDJ);
+                }
+              }
+            } catch (error) {
+              logger.error('Error parsing current DJ message:', error);
+            }
+          }
+        );
+
+        // Subscribe to handover events
+        const handoverSubscription = await stompClientManager.subscribe(
+          `/topic/broadcast/${subscribedBroadcastId}/handover`,
+          (message) => {
+            try {
+              const data = JSON.parse(message.body);
+              if (data.type === "DJ_HANDOVER" && data.broadcastId === subscribedBroadcastId) {
+                logger.info('Listener Dashboard: Handover event received:', data);
+                // Update current active DJ
+                if (data.handover?.newDJ) {
+                  setCurrentActiveDJ(data.handover.newDJ);
+                }
+              }
+            } catch (error) {
+              logger.error('Error parsing handover message:', error);
+            }
+          }
+        );
+
+        // Store subscriptions for cleanup
+        if (!broadcastWsRef.current) {
+          broadcastWsRef.current = {};
+        }
+        broadcastWsRef.current.handoverSubscriptions = { currentDJSubscription, handoverSubscription };
+        logger.debug('Listener Dashboard: Handover WebSocket connected successfully for broadcast:', currentBroadcastId);
+      } catch (error) {
+        logger.error('Listener Dashboard: Failed to connect handover WebSocket:', error);
+      }
+    };
+
     // Setup WebSockets immediately - no delay needed with proper guards
     logger.debug('Listener Dashboard: Setting up WebSocket connections for broadcast:', currentBroadcastId, 'session:', broadcastSession);
     
@@ -843,6 +926,7 @@ export default function ListenerDashboard() {
       setupSongRequestWebSocket();
       setupBroadcastWebSocket();
       setupPollWebSocket();
+      setupHandoverWebSocket();
     } else {
       logger.warn('Listener Dashboard: Skipping WebSocket setup - invalid broadcast ID:', currentBroadcastId);
     }
@@ -865,7 +949,18 @@ export default function ListenerDashboard() {
       }
       if (broadcastWsRef.current) {
         logger.debug('Listener Dashboard: Disconnecting broadcast WebSocket');
-        broadcastWsRef.current.disconnect();
+        // Clean up handover subscriptions if they exist
+        if (broadcastWsRef.current.handoverSubscriptions) {
+          if (broadcastWsRef.current.handoverSubscriptions.currentDJSubscription?.unsubscribe) {
+            broadcastWsRef.current.handoverSubscriptions.currentDJSubscription.unsubscribe();
+          }
+          if (broadcastWsRef.current.handoverSubscriptions.handoverSubscription?.unsubscribe) {
+            broadcastWsRef.current.handoverSubscriptions.handoverSubscription.unsubscribe();
+          }
+        }
+        if (typeof broadcastWsRef.current.disconnect === 'function') {
+          broadcastWsRef.current.disconnect();
+        }
         broadcastWsRef.current = null;
         broadcastWsBroadcastIdRef.current = null;
       }
@@ -1847,6 +1942,19 @@ export default function ListenerDashboard() {
         <div className="mb-4 pt-4">
           <h2 className="text-xl font-semibold text-maroon-700 dark:text-maroon-400 mb-1">Broadcast Stream</h2>
           <p className="text-slate-600 dark:text-slate-400 text-xs">Tune in to live broadcasts and connect with listeners</p>
+          {/* Current DJ Display */}
+          {currentBroadcast && currentBroadcast.status === 'LIVE' && (
+            <div className="mt-3 inline-flex items-center px-3 py-1.5 bg-maroon-50 dark:bg-maroon-900/20 border border-maroon-200 dark:border-maroon-800 rounded-lg">
+              <UserIcon className="h-4 w-4 text-maroon-600 dark:text-maroon-400 mr-2" />
+              <span className="text-sm font-medium text-maroon-700 dark:text-maroon-300">
+                {currentActiveDJ ? (
+                  <>Now Playing: <span className="font-semibold">{currentActiveDJ.name || currentActiveDJ.email || currentActiveDJ.firstname + ' ' + currentActiveDJ.lastname}</span></>
+                ) : (
+                  <>Loading DJ info...</>
+                )}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Recovery Notification Banner */}

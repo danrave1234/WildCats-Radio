@@ -30,6 +30,10 @@ export const analyticsApi = {
   // Individual broadcast analytics
   getBroadcastAnalytics: (broadcastId, config) => api.get(`/api/analytics/broadcast/${broadcastId}`, config),
   getAllBroadcastAnalytics: (config) => api.get('/api/analytics/broadcasts/detailed', config),
+  
+  // DJ Handover analytics
+  getDJPeriodAnalytics: (broadcastId, config) => api.get(`/api/analytics/broadcasts/${broadcastId}/dj-periods`, config),
+  getDJHandoverStats: (djId, config) => api.get(`/api/analytics/dj/${djId}/handover-stats`, config),
 };
 
 export default analyticsApi;

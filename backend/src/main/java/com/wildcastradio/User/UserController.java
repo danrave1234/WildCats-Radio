@@ -248,7 +248,7 @@ public class UserController {
     }
 
     @GetMapping("/by-role/{role}")
-    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<List<UserDTO>> getUsersByRole(@PathVariable UserEntity.UserRole role) {
         List<UserDTO> users = userService.findUsersByRole(role).stream()
                 .map(UserDTO::fromEntity)

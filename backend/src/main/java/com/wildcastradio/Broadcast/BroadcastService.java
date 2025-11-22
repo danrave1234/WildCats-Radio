@@ -348,6 +348,7 @@ public class BroadcastService {
             broadcast.setActualStart(LocalDateTime.now());
             broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
             broadcast.setStartedBy(dj);
+            broadcast.setCurrentActiveDJ(dj); // Set current active DJ when broadcast starts
             if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
                 broadcast.setStartIdempotencyKey(idempotencyKey);
             }
@@ -647,7 +648,8 @@ public class BroadcastService {
     }
 
     public List<BroadcastEntity> getBroadcastsByDJ(UserEntity dj) {
-        return broadcastRepository.findByCreatedBy(dj);
+        // Include broadcasts where DJ was active (creator, startedBy, currentActiveDJ, or via handovers)
+        return broadcastRepository.findByActiveDJ(dj);
     }
 
     public List<BroadcastEntity> getLiveBroadcasts() {

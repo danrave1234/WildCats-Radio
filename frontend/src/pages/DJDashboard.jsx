@@ -32,6 +32,8 @@ import { profanityService } from "../services/api"
 import EnhancedScheduleForm from "../components/EnhancedScheduleForm"
 import { CalendarIcon } from "@heroicons/react/24/outline"
 import { getBroadcastErrorMessage, handleStateMachineError } from "../utils/errorHandler"
+import DJHandoverModal from "../components/DJHandover/DJHandoverModal"
+import { broadcastApi } from "../services/api/broadcastApi"
 
 const logger = createLogger("DJDashboard")
 
@@ -186,6 +188,8 @@ export default function DJDashboard() {
   const [isStoppingBroadcast, setIsStoppingBroadcast] = useState(false)
   const [confirmEndOpen, setConfirmEndOpen] = useState(false)
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false)
+  const [showHandoverModal, setShowHandoverModal] = useState(false)
+  const [currentActiveDJ, setCurrentActiveDJ] = useState(null)
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 })
   // Grace period to suppress transient unhealthy/isLive=false immediately after going live
   const [graceUntilMs, setGraceUntilMs] = useState(0)
@@ -245,6 +249,7 @@ export default function DJDashboard() {
   const chatWsRef = useRef(null)
   const songRequestWsRef = useRef(null)
   const pollWsRef = useRef(null)
+  const handoverWsRef = useRef(null)
 
   // Add abort controller ref for managing HTTP requests
   const abortControllerRef = useRef(null)
@@ -585,6 +590,31 @@ export default function DJDashboard() {
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [showSettingsDropdown])
+
+  // Fetch current active DJ when broadcast is live
+  useEffect(() => {
+    const fetchCurrentActiveDJ = async () => {
+      if (currentBroadcast?.status === 'LIVE' && currentBroadcast?.id) {
+        try {
+          const response = await broadcastApi.getCurrentActiveDJ(currentBroadcast.id);
+          setCurrentActiveDJ(response.data);
+        } catch (error) {
+          logger.error('Error fetching current active DJ:', error);
+          // Fallback to startedBy if available
+          if (currentBroadcast?.startedBy) {
+            setCurrentActiveDJ(currentBroadcast.startedBy);
+          }
+        }
+      } else {
+        setCurrentActiveDJ(null);
+      }
+    };
+
+    fetchCurrentActiveDJ();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchCurrentActiveDJ, 30000);
+    return () => clearInterval(interval);
+  }, [currentBroadcast?.id, currentBroadcast?.status]);
 
   // Fetch initial data when broadcast becomes available
   useEffect(() => {
@@ -1094,11 +1124,71 @@ export default function DJDashboard() {
     }
 
 
+    // Setup Handover WebSocket
+    const setupHandoverWebSocket = async () => {
+      try {
+        // Clean up any existing connection first
+        if (handoverWsRef.current) {
+          handoverWsRef.current.unsubscribe()
+          handoverWsRef.current = null
+        }
+
+        logger.debug("DJ Dashboard: Setting up handover WebSocket for broadcast:", currentBroadcast.id)
+
+        // Subscribe to handover events
+        const handoverSubscription = await stompClientManager.subscribe(
+          `/topic/broadcast/${currentBroadcast.id}/handover`,
+          (message) => {
+            try {
+              const data = JSON.parse(message.body)
+              if (data.type === "DJ_HANDOVER" && data.broadcastId === currentBroadcast.id) {
+                logger.info("DJ Dashboard: Handover event received:", data)
+                // Update current active DJ
+                if (data.handover?.newDJ) {
+                  setCurrentActiveDJ(data.handover.newDJ)
+                }
+                // Refresh broadcast data
+                broadcastService.getById(currentBroadcast.id)
+                  .then(response => setCurrentBroadcast(response.data))
+                  .catch(error => logger.error('Error refreshing broadcast after handover:', error))
+              }
+            } catch (error) {
+              logger.error('Error parsing handover message:', error)
+            }
+          }
+        )
+
+        // Subscribe to current DJ updates
+        const currentDJSubscription = await stompClientManager.subscribe(
+          `/topic/broadcast/${currentBroadcast.id}/current-dj`,
+          (message) => {
+            try {
+              const data = JSON.parse(message.body)
+              if (data.type === "CURRENT_DJ_UPDATE" && data.broadcastId === currentBroadcast.id) {
+                logger.info("DJ Dashboard: Current DJ update received:", data)
+                if (data.currentDJ) {
+                  setCurrentActiveDJ(data.currentDJ)
+                }
+              }
+            } catch (error) {
+              logger.error('Error parsing current DJ message:', error)
+            }
+          }
+        )
+
+        handoverWsRef.current = { handoverSubscription, currentDJSubscription }
+        logger.debug("DJ Dashboard: Handover WebSocket connected successfully")
+      } catch (error) {
+        logger.error("DJ Dashboard: Failed to connect handover WebSocket:", error)
+      }
+    }
+
     // Setup WebSockets immediately - no delay needed with proper guards
     setupChatWebSocket()
     setupSongRequestWebSocket()
     setupPollWebSocket()
     setupReconnectionWebSocket()
+    setupHandoverWebSocket()
 
     return () => {
       logger.debug("DJ Dashboard: Cleaning up WebSocket connections for broadcast:", currentBroadcast.id)
@@ -1129,6 +1219,16 @@ export default function DJDashboard() {
           reconnectionWsRef.current.checkpointConnection.unsubscribe()
         }
         reconnectionWsRef.current = null
+      }
+
+      if (handoverWsRef.current) {
+        if (handoverWsRef.current.handoverSubscription && handoverWsRef.current.handoverSubscription.unsubscribe) {
+          handoverWsRef.current.handoverSubscription.unsubscribe()
+        }
+        if (handoverWsRef.current.currentDJSubscription && handoverWsRef.current.currentDJSubscription.unsubscribe) {
+          handoverWsRef.current.currentDJSubscription.unsubscribe()
+        }
+        handoverWsRef.current = null
       }
     }
   }, [workflowState, currentBroadcast?.id]) // Removed unnecessary dependencies to prevent re-runs
@@ -1932,6 +2032,28 @@ export default function DJDashboard() {
               </div>
             </div>
           )}
+
+          {/* DJ Handover Modal */}
+          {currentBroadcast && (
+            <DJHandoverModal
+              isOpen={showHandoverModal}
+              onClose={() => setShowHandoverModal(false)}
+              broadcastId={currentBroadcast.id}
+              currentDJ={currentActiveDJ}
+              onHandoverSuccess={async () => {
+                // Refresh current active DJ after handover
+                try {
+                  const response = await broadcastApi.getCurrentActiveDJ(currentBroadcast.id);
+                  setCurrentActiveDJ(response.data);
+                  // Refresh broadcast data
+                  const updated = await broadcastService.getById(currentBroadcast.id);
+                  setCurrentBroadcast(updated.data);
+                } catch (error) {
+                  logger.error('Error refreshing after handover:', error);
+                }
+              }}
+            />
+          )}
           {/* Live Streaming Status Bar - Fixed at top when live */}
           {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
               <div className="bg-red-600 text-white rounded-lg shadow-lg mb-6 sticky top-4 z-50">
@@ -1998,6 +2120,19 @@ export default function DJDashboard() {
                             {isSavingSlowMode ? 'Saving…' : 'Save'}
                           </button>
                         </div>
+                      )}
+                      {/* Handover Button - Only show if user is current active DJ or Admin/Moderator */}
+                      {currentBroadcast?.status === 'LIVE' && 
+                       (currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR' || 
+                        (currentActiveDJ && currentActiveDJ.id === currentUser?.id)) && (
+                        <button
+                          onClick={() => setShowHandoverModal(true)}
+                          className="flex items-center px-4 py-1.5 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-md transition-all duration-200 text-sm font-medium"
+                          title="Handover broadcast to another DJ"
+                        >
+                          <UserIcon className="h-3.5 w-3.5 mr-1.5" />
+                          Handover
+                        </button>
                       )}
                       <button
                           onClick={() => setConfirmEndOpen(true)}
