@@ -51,7 +51,7 @@ import { useTheme } from "../context/ThemeContext.jsx";
 import QRCode from "react-qr-code";
 
 const Header = ({ onMobileMenuToggle }) => {
-  const { currentUser, isAuthenticated, logout } = useAuth();
+  const { currentUser, isAuthenticated, logout, loading: authLoading } = useAuth();
   const { isLive, recovering, healthBroadcastLive, healthy } = useStreaming();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -416,8 +416,8 @@ const Header = ({ onMobileMenuToggle }) => {
                 <NotificationBell />
               </motion.div>
 
-              {/* User Dropdown - only show if authenticated */}
-              {isAuthenticated && currentUser && (
+              {/* User Dropdown - only show if authenticated and not loading */}
+              {!authLoading && isAuthenticated && currentUser && (
                 <motion.div 
                   className="relative z-20"
                   whileHover={{ scale: 1.02 }}
@@ -556,8 +556,8 @@ const Header = ({ onMobileMenuToggle }) => {
                 </motion.div>
               )}
 
-              {/* Login/Sign Up Buttons - only show if not authenticated */}
-              {!isAuthenticated && (
+              {/* Login/Sign Up Buttons - only show if not authenticated and not loading */}
+              {!authLoading && !isAuthenticated && (
                 <motion.div 
                   className="relative z-20 flex items-center space-x-3"
                   initial={{ opacity: 0, x: 20 }}

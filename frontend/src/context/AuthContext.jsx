@@ -16,25 +16,82 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    // Check if user is already logged in by validating with the server
-    const checkAuthStatus = async () => {
-      try {
-        // The secure HttpOnly cookies will be automatically sent with this request
-        const response = await authService.getCurrentUser();
-        setCurrentUser(response.data);
-      } catch (err) {
-        // If the request fails, the user is not authenticated or token is invalid
+  // Check if user is already logged in by validating with the server
+  const checkAuthStatus = async () => {
+    // For localhost: Check localStorage immediately for instant initial state
+    // This gives instant feedback before API call completes
+    const isLocalhost = window.location.hostname === 'localhost';
+    let optimisticUser = null;
+    
+    if (isLocalhost) {
+      const localToken = localStorage.getItem('oauth_token');
+      if (localToken) {
+        // Create optimistic user object from localStorage
+        // This allows UI to show logged-in state immediately
+        const userId = localStorage.getItem('oauth_userId');
+        const userRole = localStorage.getItem('oauth_userRole');
+        optimisticUser = {
+          id: userId ? parseInt(userId) : null,
+          role: userRole || 'LISTENER',
+          // Minimal user object - will be replaced by API response
+        };
+        setCurrentUser(optimisticUser);
+        setLoading(false); // Show logged-in UI immediately
+      } else {
+        // No token, definitely not logged in
         setCurrentUser(null);
-        // Don't show error message on initial load - user might just not be logged in
-        if (err.response?.status !== 401 && err.response?.status !== 403) {
+        setLoading(false); // Show logged-out UI immediately
+        return null;
+      }
+    }
+
+    try {
+      // Make API call to verify authentication (runs in background for localhost)
+      // In production, HttpOnly cookies are sent automatically by the browser
+      // In localhost, localStorage token will be sent via Authorization header (see apiBase.js)
+      // Use very short timeout to prevent blocking UI
+      // For production, use aggressive timeout to show UI quickly
+      const timeoutMs = isLocalhost ? 3000 : 1000; // 3s local, 1s prod (very fast - fail fast)
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Auth check timeout')), timeoutMs);
+      });
+      
+      const authPromise = authService.getCurrentUser();
+      const response = await Promise.race([authPromise, timeoutPromise]);
+      
+      // Update with real user data from API
+      const user = response.data;
+      setCurrentUser(user);
+      setError(null);
+      setLoading(false);
+      return user;
+    } catch (err) {
+      // If authentication fails, clear state
+      if (err.response?.status === 401 || err.response?.status === 403 || err.message === 'Auth check timeout') {
+        if (isLocalhost) {
+          localStorage.removeItem('oauth_token');
+          localStorage.removeItem('oauth_userId');
+          localStorage.removeItem('oauth_userRole');
+        }
+        setCurrentUser(null);
+        setLoading(false);
+      } else {
+        // Network or other errors - for localhost, keep optimistic state
+        // For production with timeout, assume not authenticated (show login buttons)
+        if (!isLocalhost || err.message === 'Auth check timeout') {
+          setCurrentUser(null);
+        }
+        setLoading(false);
+        if (err.response?.status !== 401 && err.response?.status !== 403 && err.message !== 'Auth check timeout') {
           setError('Failed to verify authentication status.');
         }
       }
+      return null;
+    }
+  };
 
-      setLoading(false);
-    };
-
+  useEffect(() => {
+    // Initial check - start immediately
     checkAuthStatus();
   }, []);
 
@@ -146,18 +203,18 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Logout function - now relies on backend to clear cookies
+  // Logout function - clears all authentication data
   const logout = async () => {
     try {
-      // Call backend logout endpoint to clear secure cookies
       await authService.logout();
     } catch (err) {
-      // Even if logout request fails, clear local state
-      console.error('Logout request failed:', err);
+      // Ignore logout errors - clear state anyway
     } finally {
-      // Clear local state regardless of backend response
       setCurrentUser(null);
       setError(null);
+      localStorage.removeItem('oauth_token');
+      localStorage.removeItem('oauth_userId');
+      localStorage.removeItem('oauth_userRole');
     }
   };
 
@@ -172,6 +229,7 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     changePassword,
     logout,
+    checkAuthStatus,
     isAuthenticated: !!currentUser
   };
 

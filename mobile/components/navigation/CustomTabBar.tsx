@@ -151,8 +151,8 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
         zIndex: -1, // Behind tab content but above system UI
       }} />
       <View style={styles.tabBar}>
-        {/* Animated Line Indicator - Placed at top of container */}
-        <Animated.View
+        {/* Animated Line Indicator - Removed for seamless blend */}
+        {/* <Animated.View
           style={{
             position: 'absolute',
             top: 0,
@@ -170,7 +170,7 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
             elevation: 3,
             opacity: underlineOpacity, // Fade out when broadcast is selected
           }}
-        />
+        /> */}
         
         {state.routes.map((route, index) => {
           if (!route || !route.key) return null;
@@ -286,11 +286,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-around',
     marginBottom: 0, // Remove bottom margin
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 5,
-    elevation: 10, // Increased elevation for more pronounced shadow
+    shadowColor: 'transparent', // Remove shadow for seamless blend
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0, // Remove elevation for seamless blend
   },
   tabButton: {
     flex: 1,
@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
     height: FOCUSED_ICON_CONTAINER_SIZE + 14,
     alignItems: 'center',
     justifyContent: 'center', 
-    marginTop: Platform.OS === 'ios' ? -45 : -40, // Adjusted for better visual lift
+    marginTop: Platform.OS === 'ios' ? -25 : -20, // Further reduced lift to move tab bar down more
   },
   centerIconContainer: {
     width: FOCUSED_ICON_CONTAINER_SIZE,
@@ -313,14 +313,13 @@ const styles = StyleSheet.create({
     backgroundColor: CORDOVAN_COLOR, // Matching the tab bar background
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: MIKADO_YELLOW, // Yellow shadow outline
+    shadowColor: 'transparent',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 8,
-    elevation: 10,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
     borderWidth: 2,
     borderColor: MIKADO_YELLOW, // Yellow border for stronger outline
-    // Inner shadow effect to make it look solid
     overflow: 'hidden', // Ensure the inner shadow doesn't leak outside
   },
   innerShadow: {
