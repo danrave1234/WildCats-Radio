@@ -157,12 +157,12 @@ const OAuthCallback = () => {
             }
           }
           
-          // Check auth status - this will fetch the user from backend using HttpOnly cookies
-          // Use the returned user directly to avoid race conditions with state updates
+          // Check auth status - this will fetch the user from backend
+          // In production: uses HttpOnly cookies automatically
+          // In localhost: uses Authorization header from localStorage token
           const user = await checkAuthStatus();
           
-          // Determine user role from the API response (most reliable)
-          // Fallback to localStorage only for localhost if API call somehow failed
+          // Navigate based on user role
           const userRole = user?.role || (window.location.hostname === 'localhost' ? localStorage.getItem('oauth_userRole') : null);
           
           if (userRole === 'DJ') {

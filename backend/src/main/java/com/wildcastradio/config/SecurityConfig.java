@@ -32,6 +32,7 @@ import com.wildcastradio.User.UserService;
 import com.wildcastradio.ratelimit.RateLimitingFilter;
 
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 
 @Configuration
 @EnableWebSecurity
@@ -56,9 +57,6 @@ public class SecurityConfig {
     @org.springframework.context.annotation.Lazy
     private UserService userService;
 
-    @Value("${app.frontend.domain:http://localhost:5173}")
-    private String frontendDomain;
-
     @Value("${app.security.cookie.secure:false}")
     private boolean useSecureCookies;
 
@@ -70,6 +68,8 @@ public class SecurityConfig {
             .oauth2Login(oauth2 -> oauth2
                 .successHandler((request, response, authentication) -> {
                     try {
+                        String frontendDomain = getFrontendDomain(request);
+                        
                         if (authentication == null || !(authentication instanceof OAuth2AuthenticationToken)) {
                             response.sendRedirect(frontendDomain + "/login?oauth_error=auth_failed");
                             return;
@@ -109,35 +109,7 @@ public class SecurityConfig {
                         Cookie tokenCookie = new Cookie("token", loginResponse.getToken());
                         tokenCookie.setHttpOnly(true);
                         tokenCookie.setSecure(useSecureCookies);
-                        if (!frontendDomain.contains("localhost")) {
-                            try {
-                                // Use request host to determine cookie domain (backend's domain)
-                                String requestHost = request.getHeader("Host");
-                                String domainToUse = null;
-                                
-                                if (requestHost != null && !requestHost.isEmpty()) {
-                                    // Remove port if present
-                                    int colonIndex = requestHost.indexOf(':');
-                                    domainToUse = colonIndex > 0 ? requestHost.substring(0, colonIndex) : requestHost;
-                                } else {
-                                    // Fallback to frontend domain
-                                    java.net.URL url = new java.net.URL(frontendDomain);
-                                    domainToUse = url.getHost();
-                                }
-                                
-                                if (domainToUse != null && !domainToUse.startsWith("localhost")) {
-                                    // Extract root domain for cross-subdomain cookies
-                                    // e.g., api.wildcat-radio.live -> wildcat-radio.live
-                                    String rootDomain = extractRootDomain(domainToUse);
-                                    if (rootDomain != null && !rootDomain.isEmpty()) {
-                                        tokenCookie.setDomain("." + rootDomain);
-                                        logger.debug("Setting cookie domain to: .{}", rootDomain);
-                                    }
-                                }
-                            } catch (Exception e) {
-                                logger.debug("Could not extract domain for cookie: {}", e.getMessage());
-                            }
-                        }
+                        setCookieDomain(tokenCookie, request);
                         tokenCookie.setPath("/");
                         tokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
                         tokenCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
@@ -146,30 +118,7 @@ public class SecurityConfig {
                         Cookie userIdCookie = new Cookie("userId", String.valueOf(loginResponse.getUser().getId()));
                         userIdCookie.setHttpOnly(true);
                         userIdCookie.setSecure(useSecureCookies);
-                        if (!frontendDomain.contains("localhost")) {
-                            try {
-                                // Use request host to determine cookie domain (backend's domain)
-                                String requestHost = request.getHeader("Host");
-                                String domainToUse = null;
-                                
-                                if (requestHost != null && !requestHost.isEmpty()) {
-                                    int colonIndex = requestHost.indexOf(':');
-                                    domainToUse = colonIndex > 0 ? requestHost.substring(0, colonIndex) : requestHost;
-                                } else {
-                                    java.net.URL url = new java.net.URL(frontendDomain);
-                                    domainToUse = url.getHost();
-                                }
-                                
-                                if (domainToUse != null && !domainToUse.startsWith("localhost")) {
-                                    String rootDomain = extractRootDomain(domainToUse);
-                                    if (rootDomain != null && !rootDomain.isEmpty()) {
-                                        userIdCookie.setDomain("." + rootDomain);
-                                    }
-                                }
-                            } catch (Exception e) {
-                                logger.debug("Could not extract domain for cookie: {}", e.getMessage());
-                            }
-                        }
+                        setCookieDomain(userIdCookie, request);
                         userIdCookie.setPath("/");
                         userIdCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
                         userIdCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
@@ -178,37 +127,15 @@ public class SecurityConfig {
                         Cookie userRoleCookie = new Cookie("userRole", String.valueOf(loginResponse.getUser().getRole()));
                         userRoleCookie.setHttpOnly(true);
                         userRoleCookie.setSecure(useSecureCookies);
-                        if (!frontendDomain.contains("localhost")) {
-                            try {
-                                // Use request host to determine cookie domain (backend's domain)
-                                String requestHost = request.getHeader("Host");
-                                String domainToUse = null;
-                                
-                                if (requestHost != null && !requestHost.isEmpty()) {
-                                    int colonIndex = requestHost.indexOf(':');
-                                    domainToUse = colonIndex > 0 ? requestHost.substring(0, colonIndex) : requestHost;
-                                } else {
-                                    java.net.URL url = new java.net.URL(frontendDomain);
-                                    domainToUse = url.getHost();
-                                }
-                                
-                                if (domainToUse != null && !domainToUse.startsWith("localhost")) {
-                                    String rootDomain = extractRootDomain(domainToUse);
-                                    if (rootDomain != null && !rootDomain.isEmpty()) {
-                                        userRoleCookie.setDomain("." + rootDomain);
-                                    }
-                                }
-                            } catch (Exception e) {
-                                logger.debug("Could not extract domain for cookie: {}", e.getMessage());
-                            }
-                        }
+                        setCookieDomain(userRoleCookie, request);
                         userRoleCookie.setPath("/");
                         userRoleCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
                         userRoleCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
                         response.addCookie(userRoleCookie);
                         
-                        // For localhost development, pass token in URL since cookies don't work across ports
-                        // In production, cookies will work since both frontend and backend are on same domain
+                        // Redirect to frontend
+                        // For localhost: include token in URL since cookies don't work across ports
+                        // For production: cookies work, so just redirect with success flag
                         String redirectUrl;
                         if (frontendDomain.contains("localhost")) {
                             redirectUrl = frontendDomain + "/?oauth=success&token=" + 
@@ -218,16 +145,17 @@ public class SecurityConfig {
                         } else {
                             redirectUrl = frontendDomain + "/?oauth=success";
                         }
-                        
                         response.sendRedirect(redirectUrl);
                         
                     } catch (Exception e) {
                         logger.error("OAuth2 success handler error: {}", e.getMessage());
+                        String frontendDomain = getFrontendDomain(request);
                         response.sendRedirect(frontendDomain + "/login?oauth_error=handler_error");
                     }
                 })
                 .failureHandler((request, response, exception) -> {
                     logger.error("OAuth2 login failure: {}", exception.getMessage());
+                    String frontendDomain = getFrontendDomain(request);
                     response.sendRedirect(frontendDomain + "/login?oauth_error=login_failed");
                 }))
             .exceptionHandling(ex -> ex
@@ -379,6 +307,85 @@ public class SecurityConfig {
         return authConfig.getAuthenticationManager();
     }
 
+    /**
+     * Auto-detect frontend domain from request headers
+     * Tries Origin header first, then Referer, then derives from request
+     */
+    private String getFrontendDomain(HttpServletRequest request) {
+        // Try Origin header first (most reliable for CORS requests)
+        String origin = request.getHeader("Origin");
+        if (origin != null && !origin.isEmpty()) {
+            return origin;
+        }
+        
+        // Fallback to Referer header
+        String referer = request.getHeader("Referer");
+        if (referer != null && !referer.isEmpty()) {
+            try {
+                java.net.URL url = new java.net.URL(referer);
+                String protocol = url.getProtocol();
+                String host = url.getHost();
+                int port = url.getPort();
+                if (port != -1 && port != 80 && port != 443) {
+                    return protocol + "://" + host + ":" + port;
+                }
+                return protocol + "://" + host;
+            } catch (Exception e) {
+                logger.debug("Could not parse Referer header: {}", e.getMessage());
+            }
+        }
+        
+        // Last resort: detect from request
+        String scheme = request.getScheme();
+        String host = request.getHeader("Host");
+        if (host == null || host.isEmpty()) {
+            host = request.getServerName();
+            int port = request.getServerPort();
+            if (port != 80 && port != 443 && port != -1) {
+                host += ":" + port;
+            }
+        }
+        
+        // If localhost, use default localhost frontend
+        if (host.contains("localhost") || host.contains("127.0.0.1")) {
+            return "http://localhost:5173";
+        }
+        
+        // For production, assume frontend is on root domain
+        // api.wildcat-radio.live -> wildcat-radio.live
+        String domain = host.split(":")[0]; // Remove port if present
+        String rootDomain = extractRootDomain(domain);
+        if (rootDomain != null && !rootDomain.isEmpty()) {
+            return "https://" + rootDomain;
+        }
+        
+        // Fallback to detected host
+        return scheme + "://" + host;
+    }
+    
+    /**
+     * Set cookie domain for cross-subdomain sharing
+     * Only sets domain for production (not localhost)
+     */
+    private void setCookieDomain(Cookie cookie, HttpServletRequest request) {
+        String host = request.getHeader("Host");
+        if (host == null || host.isEmpty()) {
+            host = request.getServerName();
+        }
+        
+        // Remove port if present
+        String domain = host.split(":")[0];
+        
+        // Only set domain for production (not localhost)
+        if (domain != null && !domain.contains("localhost") && !domain.contains("127.0.0.1")) {
+            String rootDomain = extractRootDomain(domain);
+            if (rootDomain != null && !rootDomain.isEmpty()) {
+                cookie.setDomain("." + rootDomain);
+                logger.debug("Setting cookie domain to: .{}", rootDomain);
+            }
+        }
+    }
+    
     /**
      * Extract root domain from a subdomain
      * e.g., api.wildcat-radio.live -> wildcat-radio.live

@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.wildcastradio.User.DTO.LoginResponse;
 
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 @RestController
@@ -32,9 +33,6 @@ public class OAuth2Controller {
 
     @Value("${app.security.cookie.secure:false}")
     private boolean useSecureCookies;
-
-    @Value("${app.frontend.domain:http://localhost:5173}")
-    private String frontendDomain;
 
     @GetMapping("/login/{provider}")
     public ResponseEntity<?> initiateOAuth2Login(@PathVariable String provider) {
@@ -50,9 +48,13 @@ public class OAuth2Controller {
             @PathVariable String provider,
             @AuthenticationPrincipal OAuth2User oauth2User,
             OAuth2AuthenticationToken authentication,
+            HttpServletRequest request,
             HttpServletResponse response) {
         
         // This endpoint is kept as a fallback but primary OAuth handling is done in SecurityConfig success handler
+        // Note: This should rarely be called as Spring Security handles OAuth callbacks automatically
+        String frontendDomain = getFrontendDomain(request);
+        
         try {
             if (oauth2User == null || authentication == null) {
                 return ResponseEntity.status(HttpStatus.FOUND)
@@ -76,31 +78,13 @@ public class OAuth2Controller {
             Cookie tokenCookie = new Cookie("token", loginResponse.getToken());
             tokenCookie.setHttpOnly(true);
             tokenCookie.setSecure(useSecureCookies);
-            if (!frontendDomain.contains("localhost")) {
-                try {
-                    java.net.URL url = new java.net.URL(frontendDomain);
-                    String domain = url.getHost();
-                    if (domain != null && !domain.startsWith("localhost")) {
-                        tokenCookie.setDomain(domain);
-                    }
-                } catch (Exception e) {
-                    // Ignore domain extraction errors
-                }
-            }
+            setCookieDomain(tokenCookie, request);
             tokenCookie.setPath("/");
             tokenCookie.setMaxAge(7 * 24 * 60 * 60);
             tokenCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
             response.addCookie(tokenCookie);
             
-            String redirectUrl;
-            if (frontendDomain.contains("localhost")) {
-                redirectUrl = frontendDomain + "/?oauth=success&token=" + 
-                    java.net.URLEncoder.encode(loginResponse.getToken(), java.nio.charset.StandardCharsets.UTF_8) +
-                    "&userId=" + loginResponse.getUser().getId() +
-                    "&userRole=" + loginResponse.getUser().getRole();
-            } else {
-                redirectUrl = frontendDomain + "/?oauth=success";
-            }
+            String redirectUrl = frontendDomain + "/?oauth=success";
             
             return ResponseEntity.status(HttpStatus.FOUND)
                 .header("Location", redirectUrl)
@@ -111,6 +95,72 @@ public class OAuth2Controller {
             return ResponseEntity.status(HttpStatus.FOUND)
                 .header("Location", frontendDomain + "/login?oauth_error=unexpected_error")
                 .build();
+        }
+    }
+    
+    /**
+     * Auto-detect frontend domain from request headers
+     */
+    private String getFrontendDomain(HttpServletRequest request) {
+        String origin = request.getHeader("Origin");
+        if (origin != null && !origin.isEmpty()) {
+            return origin;
+        }
+        
+        String referer = request.getHeader("Referer");
+        if (referer != null && !referer.isEmpty()) {
+            try {
+                java.net.URL url = new java.net.URL(referer);
+                String protocol = url.getProtocol();
+                String host = url.getHost();
+                int port = url.getPort();
+                if (port != -1 && port != 80 && port != 443) {
+                    return protocol + "://" + host + ":" + port;
+                }
+                return protocol + "://" + host;
+            } catch (Exception e) {
+                logger.debug("Could not parse Referer header: {}", e.getMessage());
+            }
+        }
+        
+        String host = request.getHeader("Host");
+        if (host == null || host.isEmpty()) {
+            host = request.getServerName();
+            int port = request.getServerPort();
+            if (port != 80 && port != 443 && port != -1) {
+                host += ":" + port;
+            }
+        }
+        
+        if (host.contains("localhost") || host.contains("127.0.0.1")) {
+            return "http://localhost:5173";
+        }
+        
+        String domain = host.split(":")[0];
+        // Simple root domain extraction for this fallback
+        String[] parts = domain.split("\\.");
+        if (parts.length > 2) {
+            domain = parts[parts.length - 2] + "." + parts[parts.length - 1];
+        }
+        return "https://" + domain;
+    }
+    
+    /**
+     * Set cookie domain for cross-subdomain sharing
+     */
+    private void setCookieDomain(Cookie cookie, HttpServletRequest request) {
+        String host = request.getHeader("Host");
+        if (host == null || host.isEmpty()) {
+            host = request.getServerName();
+        }
+        
+        String domain = host.split(":")[0];
+        if (domain != null && !domain.contains("localhost") && !domain.contains("127.0.0.1")) {
+            String[] parts = domain.split("\\.");
+            if (parts.length > 2) {
+                String rootDomain = parts[parts.length - 2] + "." + parts[parts.length - 1];
+                cookie.setDomain("." + rootDomain);
+            }
         }
     }
 }
