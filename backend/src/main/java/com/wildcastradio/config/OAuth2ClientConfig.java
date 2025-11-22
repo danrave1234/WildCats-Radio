@@ -78,7 +78,12 @@ public class OAuth2ClientConfig {
                         "profile", "email",
                         "https://www.googleapis.com/auth/user.birthday.read",
                         "https://www.googleapis.com/auth/user.gender.read"))
-                .redirectUri("{baseUrl}/login/oauth2/code/google");
+                // Use explicit redirect URI to avoid proxy/load balancer resolution issues
+                // Spring Security's {baseUrl} template can resolve incorrectly behind proxies
+                // This ensures Google always receives the correct redirect URI
+                .redirectUri("https://api.wildcat-radio.live/login/oauth2/code/google");
+        
+        logger.info("OAuth redirect URI configured: https://api.wildcat-radio.live/login/oauth2/code/google");
 
         return builder.build();
     }
