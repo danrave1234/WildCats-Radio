@@ -25,14 +25,21 @@ export const AuthProvider = ({ children }) => {
       // In production, HttpOnly cookies are sent automatically by the browser
       // In localhost, localStorage token will be sent via Authorization header (see apiBase.js)
       // We can't check for HttpOnly cookies via JavaScript (that's the security feature)
-      const response = await authService.getCurrentUser();
+      // Use Promise.race with timeout to prevent slow auth checks from blocking UI
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Auth check timeout')), 5000); // 5 second timeout
+      });
+      
+      const authPromise = authService.getCurrentUser();
+      const response = await Promise.race([authPromise, timeoutPromise]);
+      
       const user = response.data;
       setCurrentUser(user);
       setError(null);
       return user; // Return user so callers can use it immediately
     } catch (err) {
       // If authentication fails, clear any localStorage tokens (for localhost only)
-      if (err.response?.status === 401 || err.response?.status === 403) {
+      if (err.response?.status === 401 || err.response?.status === 403 || err.message === 'Auth check timeout') {
         if (window.location.hostname === 'localhost') {
           localStorage.removeItem('oauth_token');
           localStorage.removeItem('oauth_userId');
