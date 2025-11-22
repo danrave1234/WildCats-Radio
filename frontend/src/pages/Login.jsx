@@ -135,12 +135,9 @@ export default function Login() {
                 <Button
                   type="button"
                   onClick={() => {
-                    // In local dev, use relative URL so Vite proxy handles it (cookies work across ports)
-                    // In production, use backend URL directly - cookies are set with root domain (.wildcat-radio.live)
-                    // so they work across both wildcat-radio.live and api.wildcat-radio.live subdomains
-                    const oauthUrl = config.isLocal 
-                      ? '/oauth2/authorization/google' 
-                      : `${config.backendBaseUrl || config.apiBaseUrl || 'https://api.wildcat-radio.live'}/oauth2/authorization/google`;
+                    // Use backend URL from config - works for both localhost (via proxy) and production
+                    const backendUrl = config.backendBaseUrl || config.apiBaseUrl || (config.isLocal ? '' : 'https://api.wildcat-radio.live');
+                    const oauthUrl = backendUrl ? `${backendUrl}/oauth2/authorization/google` : '/oauth2/authorization/google';
                     window.location.href = oauthUrl;
                   }}
                   className="w-full h-11 bg-white dark:bg-slate-600 hover:bg-gray-50 dark:hover:bg-slate-500 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-slate-500 font-semibold shadow-sm hover:shadow-md transition-all duration-300 !rounded-none focus:outline-none focus-visible:ring-0"

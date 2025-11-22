@@ -32,9 +32,6 @@ public class OAuth2ClientConfig {
     @Value("${app.oauth.google.scopes:}")
     private String googleScopes;
 
-    @Value("${app.oauth.backend.base-url:}")
-    private String backendBaseUrl;
-
     @Bean
     public ClientRegistrationRepository clientRegistrationRepository() {
         List<ClientRegistration> registrations = new ArrayList<>();
@@ -80,19 +77,8 @@ public class OAuth2ClientConfig {
                 .scope(resolveScopes(googleScopes,
                         "profile", "email",
                         "https://www.googleapis.com/auth/user.birthday.read",
-                        "https://www.googleapis.com/auth/user.gender.read"));
-        
-        // Set redirect URI explicitly if backend base URL is configured
-        // For production, set APP_OAUTH_BACKEND_BASE_URL=https://api.wildcat-radio.live
-        // For localhost, leave it empty to use {baseUrl} template (which auto-resolves)
-        if (backendBaseUrl != null && !backendBaseUrl.isBlank()) {
-            String redirectUri = backendBaseUrl.trim().replaceAll("/$", "") + "/login/oauth2/code/google";
-            builder.redirectUri(redirectUri);
-            logger.info("Using explicit OAuth redirect URI: {}", redirectUri);
-        } else {
-            builder.redirectUri("{baseUrl}/login/oauth2/code/google");
-            logger.info("Using template OAuth redirect URI: {baseUrl}/login/oauth2/code/google (will auto-resolve from request)");
-        }
+                        "https://www.googleapis.com/auth/user.gender.read"))
+                .redirectUri("{baseUrl}/login/oauth2/code/google");
 
         return builder.build();
     }
