@@ -18,47 +18,80 @@ export const AuthProvider = ({ children }) => {
 
   // Check if user is already logged in by validating with the server
   const checkAuthStatus = async () => {
+    // For localhost: Check localStorage immediately for instant initial state
+    // This gives instant feedback before API call completes
+    const isLocalhost = window.location.hostname === 'localhost';
+    let optimisticUser = null;
+    
+    if (isLocalhost) {
+      const localToken = localStorage.getItem('oauth_token');
+      if (localToken) {
+        // Create optimistic user object from localStorage
+        // This allows UI to show logged-in state immediately
+        const userId = localStorage.getItem('oauth_userId');
+        const userRole = localStorage.getItem('oauth_userRole');
+        optimisticUser = {
+          id: userId ? parseInt(userId) : null,
+          role: userRole || 'LISTENER',
+          // Minimal user object - will be replaced by API response
+        };
+        setCurrentUser(optimisticUser);
+        setLoading(false); // Show logged-in UI immediately
+      } else {
+        // No token, definitely not logged in
+        setCurrentUser(null);
+        setLoading(false); // Show logged-out UI immediately
+        return null;
+      }
+    }
+
     try {
-      setLoading(true);
-      
-      // Always call the API to verify authentication
+      // Make API call to verify authentication (runs in background for localhost)
       // In production, HttpOnly cookies are sent automatically by the browser
       // In localhost, localStorage token will be sent via Authorization header (see apiBase.js)
-      // We can't check for HttpOnly cookies via JavaScript (that's the security feature)
-      // Use Promise.race with timeout to prevent slow auth checks from blocking UI
+      // Use very short timeout to prevent blocking UI
+      // For production, use aggressive timeout to show UI quickly
+      const timeoutMs = isLocalhost ? 3000 : 1000; // 3s local, 1s prod (very fast - fail fast)
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Auth check timeout')), 5000); // 5 second timeout
+        setTimeout(() => reject(new Error('Auth check timeout')), timeoutMs);
       });
       
       const authPromise = authService.getCurrentUser();
       const response = await Promise.race([authPromise, timeoutPromise]);
       
+      // Update with real user data from API
       const user = response.data;
       setCurrentUser(user);
       setError(null);
-      return user; // Return user so callers can use it immediately
+      setLoading(false);
+      return user;
     } catch (err) {
-      // If authentication fails, clear any localStorage tokens (for localhost only)
+      // If authentication fails, clear state
       if (err.response?.status === 401 || err.response?.status === 403 || err.message === 'Auth check timeout') {
-        if (window.location.hostname === 'localhost') {
+        if (isLocalhost) {
           localStorage.removeItem('oauth_token');
           localStorage.removeItem('oauth_userId');
           localStorage.removeItem('oauth_userRole');
         }
         setCurrentUser(null);
+        setLoading(false);
       } else {
-        // Network or other errors - don't clear state, might be temporary
-        if (err.response?.status !== 401 && err.response?.status !== 403) {
+        // Network or other errors - for localhost, keep optimistic state
+        // For production with timeout, assume not authenticated (show login buttons)
+        if (!isLocalhost || err.message === 'Auth check timeout') {
+          setCurrentUser(null);
+        }
+        setLoading(false);
+        if (err.response?.status !== 401 && err.response?.status !== 403 && err.message !== 'Auth check timeout') {
           setError('Failed to verify authentication status.');
         }
       }
       return null;
-    } finally {
-      setLoading(false);
     }
   };
 
   useEffect(() => {
+    // Initial check - start immediately
     checkAuthStatus();
   }, []);
 
