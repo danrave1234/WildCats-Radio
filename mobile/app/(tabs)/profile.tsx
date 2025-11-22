@@ -271,8 +271,8 @@ const ProfileScreen: React.FC = () => {
       if ('error' in result) {
         // Revert local state on error
         setUserData(prev => prev ? { ...prev, [preferenceKey]: !value } : null);
-        setPreferenceUpdateError(result.error);
-        Alert.alert('Error', result.error);
+        setPreferenceUpdateError(result.error || 'Failed to update preference');
+        Alert.alert('Error', result.error || 'Failed to update preference');
       } else {
         // Update with server response
         setUserData(result);
@@ -561,7 +561,7 @@ const ProfileScreen: React.FC = () => {
     );
   }
   
-  const currentDisplayName = userData?.name || 'User Name';
+  const currentDisplayName = `${firstname} ${lastname}`.trim() || 'User Name';
   const memberSinceText = userData?.memberSince || `Listener since ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
 
   return (
