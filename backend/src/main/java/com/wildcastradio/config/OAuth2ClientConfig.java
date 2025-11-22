@@ -79,23 +79,34 @@ public class OAuth2ClientConfig {
                         "https://www.googleapis.com/auth/user.birthday.read",
                         "https://www.googleapis.com/auth/user.gender.read"));
 
-        // Handle redirect URI based on environment
+        // Environment Detection Logic
+        // We need to distinguish between Local (Windows/localhost) and Production (Linux VM)
+        
+        String osName = System.getProperty("os.name").toLowerCase();
         String hostname = System.getenv("HOSTNAME");
-        if (hostname == null || hostname.isEmpty()) {
-            hostname = System.getProperty("server.hostname", "");
+        
+        boolean isLocalEnv = false;
+        
+        // 1. Check OS: Windows is almost certainly local development for this project
+        if (osName.contains("win")) {
+            isLocalEnv = true;
+        }
+        // 2. Check Hostname: If explicitly localhost
+        else if (hostname == null || hostname.isEmpty() || hostname.contains("localhost") || hostname.contains("127.0.0.1")) {
+            isLocalEnv = true;
         }
         
-        // For localhost development
-        if (hostname == null || hostname.contains("localhost") || hostname.contains("127.0.0.1") || hostname.isEmpty()) {
-            // Use template for localhost - Spring Security resolves this correctly
-            builder.redirectUri("{baseUrl}/login/oauth2/code/google");
-            logger.info("Using dynamic OAuth redirect URI for local/dev environment");
+        if (isLocalEnv) {
+            // LOCALHOST: Hardcode to port 8080 to match Google Console exactly.
+            // Using {baseUrl} is risky because it might resolve to 127.0.0.1 or [::1] which causes mismatch.
+            String localRedirectUri = "http://localhost:8080/login/oauth2/code/google";
+            builder.redirectUri(localRedirectUri);
+            logger.info("Detected Local Environment. Using redirect URI: {}", localRedirectUri);
         } else {
-            // For production: Use explicit redirect URI to avoid proxy/load balancer resolution issues
-            // This ensures Google always receives the correct redirect URI regardless of internal routing
+            // PRODUCTION: Explicitly use the API domain
             String prodRedirectUri = "https://api.wildcat-radio.live/login/oauth2/code/google";
             builder.redirectUri(prodRedirectUri);
-            logger.info("Using explicit OAuth redirect URI for production: {}", prodRedirectUri);
+            logger.info("Detected Production Environment. Using redirect URI: {}", prodRedirectUri);
         }
         
         return builder.build();
