@@ -32,6 +32,9 @@ public class OAuth2ClientConfig {
     @Value("${app.oauth.google.scopes:}")
     private String googleScopes;
 
+    @Value("${app.production:false}")
+    private boolean isProduction;
+
     @Bean
     public ClientRegistrationRepository clientRegistrationRepository() {
         List<ClientRegistration> registrations = new ArrayList<>();
@@ -79,23 +82,17 @@ public class OAuth2ClientConfig {
                         "https://www.googleapis.com/auth/user.birthday.read",
                         "https://www.googleapis.com/auth/user.gender.read"));
 
-        // Handle redirect URI based on environment
-        String hostname = System.getenv("HOSTNAME");
-        if (hostname == null || hostname.isEmpty()) {
-            hostname = System.getProperty("server.hostname", "");
-        }
-        
-        // For localhost development
-        if (hostname == null || hostname.contains("localhost") || hostname.contains("127.0.0.1") || hostname.isEmpty()) {
-            // Use template for localhost - Spring Security resolves this correctly
-            builder.redirectUri("{baseUrl}/login/oauth2/code/google");
-            logger.info("Using dynamic OAuth redirect URI for local/dev environment");
-        } else {
-            // For production: Use explicit redirect URI to avoid proxy/load balancer resolution issues
-            // This ensures Google always receives the correct redirect URI regardless of internal routing
+        // Simplified Environment Logic using 'app.production' flag
+        if (isProduction) {
+            // PRODUCTION
             String prodRedirectUri = "https://api.wildcat-radio.live/login/oauth2/code/google";
             builder.redirectUri(prodRedirectUri);
-            logger.info("Using explicit OAuth redirect URI for production: {}", prodRedirectUri);
+            logger.info("Production Mode: ON. Using redirect URI: {}", prodRedirectUri);
+        } else {
+            // LOCALHOST (Default)
+            String localRedirectUri = "http://localhost:8080/login/oauth2/code/google";
+            builder.redirectUri(localRedirectUri);
+            logger.info("Production Mode: OFF. Using Localhost redirect URI: {}", localRedirectUri);
         }
         
         return builder.build();

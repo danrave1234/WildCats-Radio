@@ -135,9 +135,13 @@ export default function Login() {
                 <Button
                   type="button"
                   onClick={() => {
-                    // Always use relative URL - Vercel rewrites will proxy to backend
-                    // This keeps user on wildcat-radio.live domain throughout OAuth flow
-                    window.location.href = '/oauth2/authorization/google';
+                    // Simple: Direct navigation to backend OAuth endpoint
+                    // Local: http://localhost:8080/oauth2/authorization/google
+                    // Production: https://api.wildcat-radio.live/oauth2/authorization/google
+                    const oauthUrl = config.isLocal 
+                      ? 'http://localhost:8080/oauth2/authorization/google'
+                      : 'https://api.wildcat-radio.live/oauth2/authorization/google';
+                    window.location.href = oauthUrl;
                   }}
                   className="w-full h-11 bg-white dark:bg-slate-600 hover:bg-gray-50 dark:hover:bg-slate-500 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-slate-500 font-semibold shadow-sm hover:shadow-md transition-all duration-300 !rounded-none focus:outline-none focus-visible:ring-0"
                 >

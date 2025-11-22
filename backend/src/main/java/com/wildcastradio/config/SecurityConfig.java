@@ -60,6 +60,9 @@ public class SecurityConfig {
     @Value("${app.security.cookie.secure:false}")
     private boolean useSecureCookies;
 
+    @Value("${app.production:false}")
+    private boolean isProduction;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -309,63 +312,25 @@ public class SecurityConfig {
 
     /**
      * Auto-detect frontend domain from request headers
-     * Tries Origin header first, then maps known backend hosts to frontend URLs
+     * Tries Origin header first, otherwise falls back to configured environment defaults.
      */
     private String getFrontendDomain(HttpServletRequest request) {
-        // 1. Try Origin header first (most reliable for CORS requests)
+        // 1. Try Origin header first (most reliable for CORS requests from frontend)
         String origin = request.getHeader("Origin");
         if (origin != null && !origin.isEmpty()) {
-            // Verify origin is one of our allowed domains to be safe
+            // Verify origin is one of our allowed domains
             if (origin.contains("localhost") || origin.contains("wildcat-radio.live")) {
                 return origin;
             }
         }
         
-        // 2. Determine current backend host
-        String host = request.getHeader("Host");
-        if (host == null || host.isEmpty()) {
-            host = request.getServerName();
-            int port = request.getServerPort();
-            if (port != 80 && port != 443 && port != -1) {
-                host += ":" + port;
-            }
-        }
-
-        // 3. Map Backend Host -> Frontend URL
-        
-        // Localhost Development
-        if (host.contains("localhost") || host.contains("127.0.0.1")) {
+        // 2. Use explicit Environment Flag
+        // This simplifies everything: no guessing based on Host or Referer headers.
+        if (isProduction) {
+            return "https://wildcat-radio.live";
+        } else {
             return "http://localhost:5173";
         }
-        
-        // Production (api.wildcat-radio.live -> wildcat-radio.live)
-        if (host.contains("wildcat-radio.live")) {
-            return "https://wildcat-radio.live";
-        }
-
-        // 4. Fallback: Referer (ONLY if internal)
-        // WE DO NOT want to redirect back to "accounts.google.com"
-        String referer = request.getHeader("Referer");
-        if (referer != null && !referer.isEmpty()) {
-            try {
-                java.net.URL url = new java.net.URL(referer);
-                String refHost = url.getHost();
-                // Only accept referer if it matches our known domains
-                if (refHost.contains("localhost") || refHost.contains("wildcat-radio.live")) {
-                    String protocol = url.getProtocol();
-                    int port = url.getPort();
-                    if (port != -1 && port != 80 && port != 443) {
-                        return protocol + "://" + refHost + ":" + port;
-                    }
-                    return protocol + "://" + refHost;
-                }
-            } catch (Exception e) {
-                logger.debug("Could not parse Referer header: {}", e.getMessage());
-            }
-        }
-        
-        // Absolute fallback (shouldn't happen in normal flow)
-        return "https://wildcat-radio.live";
     }
     
     /**
