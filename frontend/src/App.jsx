@@ -137,7 +137,7 @@ const OAuthCallback = () => {
         }
         
         if (oauthStatus === 'success') {
-          // For localhost: extract token from URL and store it
+          // For localhost: extract token from URL and store it (cookies don't work across ports)
           if (window.location.hostname === 'localhost') {
             const token = urlParams.get('token');
             const userId = urlParams.get('userId');
@@ -157,12 +157,14 @@ const OAuthCallback = () => {
             }
           }
           
-          // Check auth status and redirect
-          await checkAuthStatus();
-          await new Promise(resolve => setTimeout(resolve, 300));
+          // Check auth status - this will fetch the user from backend using HttpOnly cookies
+          // Use the returned user directly to avoid race conditions with state updates
+          const user = await checkAuthStatus();
           
-          // Redirect based on user role
-          const userRole = localStorage.getItem('oauth_userRole') || currentUser?.role;
+          // Determine user role from the API response (most reliable)
+          // Fallback to localStorage only for localhost if API call somehow failed
+          const userRole = user?.role || (window.location.hostname === 'localhost' ? localStorage.getItem('oauth_userRole') : null);
+          
           if (userRole === 'DJ') {
             navigate('/dj-dashboard', { replace: true });
           } else if (userRole === 'ADMIN') {

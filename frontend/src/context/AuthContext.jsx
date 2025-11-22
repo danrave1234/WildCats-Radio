@@ -18,39 +18,34 @@ export const AuthProvider = ({ children }) => {
 
   // Check if user is already logged in by validating with the server
   const checkAuthStatus = async () => {
-    // Check if token exists before making API call
-    const getCookie = (name) => {
-      const value = `; ${document.cookie}`;
-      const parts = value.split(`; ${name}=`);
-      if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
-      return null;
-    };
-    
-    const token = getCookie('token') || (window.location.hostname === 'localhost' ? localStorage.getItem('oauth_token') : null);
-    
-    // If no token, skip API call
-    if (!token) {
-      setCurrentUser(null);
-      setLoading(false);
-      return;
-    }
-    
     try {
       setLoading(true);
+      
+      // Always call the API to verify authentication
+      // In production, HttpOnly cookies are sent automatically by the browser
+      // In localhost, localStorage token will be sent via Authorization header (see apiBase.js)
+      // We can't check for HttpOnly cookies via JavaScript (that's the security feature)
       const response = await authService.getCurrentUser();
-      setCurrentUser(response.data);
+      const user = response.data;
+      setCurrentUser(user);
       setError(null);
+      return user; // Return user so callers can use it immediately
     } catch (err) {
-      // If authentication fails, clear any OAuth tokens from localStorage
+      // If authentication fails, clear any localStorage tokens (for localhost only)
       if (err.response?.status === 401 || err.response?.status === 403) {
-        localStorage.removeItem('oauth_token');
-        localStorage.removeItem('oauth_userId');
-        localStorage.removeItem('oauth_userRole');
+        if (window.location.hostname === 'localhost') {
+          localStorage.removeItem('oauth_token');
+          localStorage.removeItem('oauth_userId');
+          localStorage.removeItem('oauth_userRole');
+        }
+        setCurrentUser(null);
+      } else {
+        // Network or other errors - don't clear state, might be temporary
+        if (err.response?.status !== 401 && err.response?.status !== 403) {
+          setError('Failed to verify authentication status.');
+        }
       }
-      setCurrentUser(null);
-      if (err.response?.status !== 401 && err.response?.status !== 403) {
-        setError('Failed to verify authentication status.');
-      }
+      return null;
     } finally {
       setLoading(false);
     }

@@ -103,17 +103,19 @@ class ApiProxyBase {
     // Request interceptor for authentication
     this.axiosInstance.interceptors.request.use(
       (config) => {
-        // Try to get token from cookie first (production)
-        let token = this.getCookie('token');
+        // In production: HttpOnly cookies are sent automatically by the browser
+        // We cannot and should not try to read HttpOnly cookies via JavaScript
+        // The backend will automatically receive and validate the cookie
         
-        // Fallback to localStorage for localhost OAuth (cookies don't work across ports)
-        if (!token && window.location.hostname === 'localhost') {
-          token = localStorage.getItem('oauth_token');
+        // In localhost: Use localStorage token and send via Authorization header
+        // (HttpOnly cookies don't work across different ports in development)
+        if (window.location.hostname === 'localhost') {
+          const token = localStorage.getItem('oauth_token');
+          if (token) {
+            config.headers['Authorization'] = `Bearer ${token}`;
+          }
         }
-        
-        if (token) {
-          config.headers['Authorization'] = `Bearer ${token}`;
-        }
+        // In production: Don't set Authorization header - let HttpOnly cookies handle it
 
         // Prevent stale caches and always fetch fresh analytics data
         if (config.method && config.method.toLowerCase() === 'get') {
