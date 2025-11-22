@@ -367,6 +367,8 @@ public class SecurityConfig {
     /**
      * Set cookie domain for cross-subdomain sharing
      * Only sets domain for production (not localhost)
+     * Note: Tomcat 10+ (RFC 6265) doesn't allow leading dot, but browsers still support
+     * cross-subdomain cookies without it for same root domain
      */
     private void setCookieDomain(Cookie cookie, HttpServletRequest request) {
         String host = request.getHeader("Host");
@@ -381,8 +383,10 @@ public class SecurityConfig {
         if (domain != null && !domain.contains("localhost") && !domain.contains("127.0.0.1")) {
             String rootDomain = extractRootDomain(domain);
             if (rootDomain != null && !rootDomain.isEmpty()) {
-                cookie.setDomain("." + rootDomain);
-                logger.debug("Setting cookie domain to: .{}", rootDomain);
+                // Set domain WITHOUT leading dot - Tomcat 10+ doesn't allow it
+                // Modern browsers still share cookies across subdomains (api.wildcat-radio.live <-> wildcat-radio.live)
+                cookie.setDomain(rootDomain);
+                logger.debug("Setting cookie domain to: {} (without leading dot for Tomcat 10+ compatibility)", rootDomain);
             }
         }
     }
