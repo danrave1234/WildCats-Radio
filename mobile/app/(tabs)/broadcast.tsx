@@ -32,6 +32,7 @@ import {
   ChatMessageDTO,
   SongRequestDTO,
   PollDTO,
+  UserData,
   getLiveBroadcasts,
   getBroadcastDetails,
   getChatMessages,
@@ -358,13 +359,6 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
   );
 });
 
-interface UserAuthData {
-  name?: string;
-  fullName?: string;
-  firstName?: string;
-  lastName?: string;
-}
-
 interface TabDefinition {
   key: string;
   name: string;
@@ -535,7 +529,7 @@ const BroadcastScreen: React.FC = () => {
   const pollConnectionRef = useRef<any>(null);
 
   // Add user data state
-  const [userData, setUserData] = useState<UserAuthData | null>(null);
+  const [userData, setUserData] = useState<UserData | null>(null);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   // Slow mode state (matching website implementation)
@@ -763,7 +757,9 @@ const BroadcastScreen: React.FC = () => {
               action: 'START_LISTENING',
               broadcastId: currentBroadcast.id,
               userId: currentUserId,
-              userName: userData?.name || 'Anonymous Listener',
+              userName: userData?.firstname && userData?.lastname 
+                ? `${userData.firstname} ${userData.lastname}`.trim() 
+                : userData?.firstname || userData?.lastname || 'Anonymous Listener',
               timestamp: Date.now(),
             };
             ws.send(JSON.stringify(message));
@@ -864,7 +860,9 @@ const BroadcastScreen: React.FC = () => {
         action: streamingState.isPlaying ? 'START_LISTENING' : 'STOP_LISTENING',
         broadcastId: currentBroadcast?.id,
         userId: currentUserId,
-        userName: userData?.name || 'Anonymous Listener',
+        userName: userData?.firstname && userData?.lastname 
+          ? `${userData.firstname} ${userData.lastname}`.trim() 
+          : userData?.firstname || userData?.lastname || 'Anonymous Listener',
         timestamp: Date.now(),
       };
       listenerWsRef.current.send(JSON.stringify(message));
@@ -976,7 +974,11 @@ const BroadcastScreen: React.FC = () => {
           setUserData(null);
           setCurrentUserId(null);
         } else {
-          console.log('✅ User data fetched successfully:', { id: result.id, name: result.name });
+          console.log('✅ User data fetched successfully:', { 
+            id: result.id, 
+            firstname: result.firstname, 
+            lastname: result.lastname 
+          });
           setUserData(result);
           setCurrentUserId(result.id ? parseInt(result.id.toString(), 10) : null);
         }
@@ -1007,16 +1009,16 @@ const BroadcastScreen: React.FC = () => {
     if (!userData || typeof userData !== 'object') return 'Listener';
     
     try {
-      // Use the same logic as the profile screen - prioritize 'name' field
-      if (userData.name && typeof userData.name === 'string' && userData.name.trim()) {
-        return userData.name.trim();
+      // Use firstname and lastname from UserData interface
+      if (userData.firstname && typeof userData.firstname === 'string' && userData.firstname.trim()) {
+        const lastName = userData.lastname && typeof userData.lastname === 'string' ? userData.lastname.trim() : '';
+        return `${userData.firstname.trim()} ${lastName}`.trim();
       }
-      if (userData.fullName && typeof userData.fullName === 'string' && userData.fullName.trim()) {
-        return userData.fullName.trim();
+      if (userData.firstname && typeof userData.firstname === 'string') {
+        return userData.firstname.trim();
       }
-      if (userData.firstName && typeof userData.firstName === 'string' && userData.firstName.trim()) {
-        const lastName = userData.lastName && typeof userData.lastName === 'string' ? userData.lastName.trim() : '';
-        return `${userData.firstName.trim()} ${lastName}`.trim();
+      if (userData.lastname && typeof userData.lastname === 'string') {
+        return userData.lastname.trim();
       }
     } catch (error) {
       console.warn('Error processing user name:', error);
@@ -1453,11 +1455,11 @@ const BroadcastScreen: React.FC = () => {
           setChatMessages(prevMessages => {
             if (prevMessages.length === 0) {
               // No previous messages, just use server messages
-              return messagesResult.data;
+              return messagesResult.data || [];
             }
             
             // Merge with any existing messages (e.g., from WebSocket)
-            const serverMessages = messagesResult.data;
+            const serverMessages = messagesResult.data || [];
             const mergedMessages = [...serverMessages, ...prevMessages];
             
             // Remove duplicates and sort by timestamp
@@ -1590,7 +1592,7 @@ const BroadcastScreen: React.FC = () => {
         
         // Only act on significant status changes, not just isLive mismatch
         // The stream status checks OGG, but mobile uses MP3, so they can differ
-        if (response.isLive && !currentBroadcast) {
+        if (response.live && !currentBroadcast) {
           console.log('📡 Stream is live but no broadcast found, refreshing...');
           // Stream is live but we don't have a broadcast, refresh data
           loadInitialDataForBroadcastScreen(true);
@@ -1627,9 +1629,14 @@ const BroadcastScreen: React.FC = () => {
           return;
         }
 
+        if (!authToken) {
+          console.error('❌ No auth token available');
+          return;
+        }
+
         const liveBroadcasts = await getLiveBroadcasts(authToken);
         
-        if (liveBroadcasts.length > 0) {
+        if (!('error' in liveBroadcasts) && liveBroadcasts.length > 0) {
           const newBroadcast = liveBroadcasts[0];
           
           // Check if this is a different broadcast or status change
@@ -1685,6 +1692,11 @@ const BroadcastScreen: React.FC = () => {
     const setupGlobalBroadcastWebSocket = async () => {
       try {
         console.log('🌐 Setting up global broadcast WebSocket...');
+        
+        if (!authToken) {
+          console.error('❌ No auth token available for WebSocket');
+          return;
+        }
         
         // Use the existing WebSocket service to subscribe to global updates
         connection = await chatService.subscribeToGlobalBroadcastUpdates((update) => {
@@ -1790,27 +1802,27 @@ const BroadcastScreen: React.FC = () => {
         
         // Restore message to input on error
         setChatInput(messageToSend);
-      } else {
+      } else if (result.data) {
         // Update last message time for slow mode
         setLastMessageTime(Date.now());
         console.log('✅ Message sent successfully via chatService');
         // Message will appear via WebSocket when server broadcasts it
         // Track this as our own message FIRST to prevent left-side flicker
         setUserMessageIds(prev => {
-          const newSet = new Set([...prev, result.data.id]);
+          const newSet = new Set([...prev, result.data!.id]);
           return newSet;
         });
         
         // Then add the sent message to chat messages
         setChatMessages(prev => {
           // Check if message already exists (avoid duplicates)
-          const exists = prev.some(msg => msg.id === result.data.id);
+          const exists = prev.some(msg => msg.id === result.data!.id);
           if (exists) {
             return prev;
           }
           
           // Add new message and sort by timestamp
-          const newMessages = [...prev, result.data];
+          const newMessages = [...prev, result.data!];
           return newMessages.sort((a, b) => 
             new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
           );
@@ -1873,7 +1885,7 @@ const BroadcastScreen: React.FC = () => {
       if (!('error' in messagesResult)) {
         // Smart merge: preserve recent local messages that might not be on server yet
         setChatMessages(prevMessages => {
-          const serverMessages = messagesResult.data;
+          const serverMessages = messagesResult.data || [];
           const now = new Date().getTime();
           
           // Keep recent local messages (sent in last 30 seconds) that might not be on server
@@ -2001,12 +2013,11 @@ const BroadcastScreen: React.FC = () => {
       if (userData && msg.sender?.name) {
         const senderName = msg.sender.name.toLowerCase().trim();
         
-        // Check all possible name variations
+        // Check all possible name variations using UserData properties
         const nameVariations = [
-          userData.name?.toLowerCase().trim(),
-          userData.fullName?.toLowerCase().trim(),
-          userData.firstName?.toLowerCase().trim(),
-          `${userData.firstName?.toLowerCase().trim()} ${userData.lastName?.toLowerCase().trim()}`.trim()
+          userData.firstname?.toLowerCase().trim(),
+          userData.lastname?.toLowerCase().trim(),
+          `${userData.firstname?.toLowerCase().trim()} ${userData.lastname?.toLowerCase().trim()}`.trim()
         ].filter(Boolean);
         
         if (nameVariations.some(variation => variation === senderName)) {
