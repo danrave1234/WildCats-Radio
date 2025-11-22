@@ -17,3 +17,80 @@ UPDATE users SET warning_count = COALESCE(warning_count, 0);
 ALTER TABLE IF EXISTS chat_messages
 	ADD COLUMN IF NOT EXISTS original_content TEXT;
 
+-- Broadcast entity migration: embed schedule fields
+-- Add embedded schedule columns to broadcasts table
+ALTER TABLE IF EXISTS broadcasts
+    ADD COLUMN IF NOT EXISTS scheduled_start timestamp NULL,
+    ADD COLUMN IF NOT EXISTS scheduled_end timestamp NULL;
+
+-- Migrate data from schedule table to broadcasts table (only if schedule table exists and has data)
+-- First, migrate scheduled broadcasts
+UPDATE broadcasts
+SET scheduled_start = s.scheduled_start,
+    scheduled_end = s.scheduled_end
+FROM schedule s
+WHERE broadcasts.schedule_id = s.id AND broadcasts.schedule_id IS NOT NULL;
+
+-- Set default past times for broadcasts that don't have schedule data (immediate broadcasts)
+-- For broadcasts that have started, set scheduled_start to 1 minute before actual_start
+UPDATE broadcasts
+SET scheduled_start = actual_start - INTERVAL '1 minute',
+    scheduled_end = COALESCE(actual_end, actual_start + INTERVAL '2 hours')
+WHERE scheduled_start IS NULL AND actual_start IS NOT NULL;
+
+-- For broadcasts that haven't started yet, set past times based on created_at
+UPDATE broadcasts
+SET scheduled_start = created_at - INTERVAL '1 minute',
+    scheduled_end = created_at + INTERVAL '2 hours'
+WHERE scheduled_start IS NULL;
+
+-- Now safe to drop the foreign key and column
+ALTER TABLE broadcasts DROP CONSTRAINT IF EXISTS fk_broadcast_schedule;
+ALTER TABLE broadcasts DROP COLUMN IF EXISTS schedule_id;
+
+-- Drop the schedule table if it exists
+DROP TABLE IF EXISTS schedule;
+
+-- Database Performance Indexes
+-- Critical indexes for frequently queried fields to improve query performance
+
+-- Broadcast indexes (most queried table)
+CREATE INDEX IF NOT EXISTS idx_broadcast_status ON broadcasts(status);
+CREATE INDEX IF NOT EXISTS idx_broadcast_created_by ON broadcasts(created_by_id);
+CREATE INDEX IF NOT EXISTS idx_broadcast_actual_start ON broadcasts(actual_start);
+CREATE INDEX IF NOT EXISTS idx_broadcast_scheduled_start ON broadcasts(scheduled_start);
+CREATE INDEX IF NOT EXISTS idx_broadcast_created_by_status ON broadcasts(created_by_id, status);
+CREATE INDEX IF NOT EXISTS idx_broadcast_status_scheduled ON broadcasts(status, scheduled_start);
+
+-- Chat message indexes (high volume table)
+CREATE INDEX IF NOT EXISTS idx_chat_broadcast_id ON chat_messages(broadcast_id);
+CREATE INDEX IF NOT EXISTS idx_chat_created_at ON chat_messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_broadcast_created_at ON chat_messages(broadcast_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_sender_created_at ON chat_messages(sender_id, created_at);
+
+-- Song request indexes
+CREATE INDEX IF NOT EXISTS idx_song_request_broadcast ON song_requests(broadcast_id);
+CREATE INDEX IF NOT EXISTS idx_song_request_requested_by ON song_requests(requested_by_id);
+CREATE INDEX IF NOT EXISTS idx_song_request_status ON song_requests(status);
+CREATE INDEX IF NOT EXISTS idx_song_request_broadcast_status ON song_requests(broadcast_id, status);
+
+-- User indexes
+CREATE INDEX IF NOT EXISTS idx_user_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_user_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_user_banned ON users(banned);
+
+-- Activity log indexes (for analytics)
+CREATE INDEX IF NOT EXISTS idx_activity_log_timestamp ON activity_logs(timestamp);
+CREATE INDEX IF NOT EXISTS idx_activity_log_user ON activity_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_activity_log_type ON activity_logs(activity_type);
+
+-- Notification indexes
+CREATE INDEX IF NOT EXISTS idx_notification_user ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notification_read ON notifications(read_status);
+CREATE INDEX IF NOT EXISTS idx_notification_created_at ON notifications(created_at);
+
+-- Fix activity_logs table to allow null user_id for system events (health checks, recovery, etc.)
+-- This allows logging system-level events that don't have an associated user
+ALTER TABLE IF EXISTS activity_logs
+    ALTER COLUMN user_id DROP NOT NULL;
+

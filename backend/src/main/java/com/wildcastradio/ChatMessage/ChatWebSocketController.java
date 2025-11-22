@@ -1,5 +1,7 @@
 package com.wildcastradio.ChatMessage;
 
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -8,7 +10,11 @@ import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Controller;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import com.wildcastradio.Broadcast.BroadcastEntity;
+import com.wildcastradio.Broadcast.BroadcastRepository;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
 
@@ -18,11 +24,19 @@ import com.wildcastradio.User.UserService;
 @Controller
 public class ChatWebSocketController {
 
+    private static final Logger logger = LoggerFactory.getLogger(ChatWebSocketController.class);
+
     @Autowired
     private ChatMessageService chatMessageService;
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private BroadcastRepository broadcastRepository;
+
+    // In-memory per-user per-broadcast cooldown tracking for slow mode (shared with REST controller)
+    private final ConcurrentHashMap<String, Long> lastMessageTimestamps = new ConcurrentHashMap<>();
 
     /**
      * Handle chat messages sent via WebSocket
@@ -37,9 +51,7 @@ public class ChatWebSocketController {
             @Payload ChatMessageWebSocketRequest message,
             SimpMessageHeaderAccessor headerAccessor) {
 
-        System.out.println("Received WebSocket chat message for broadcast: " + broadcastId);
-        System.out.println("Message content: " + message.getContent());
-        System.out.println("Headers: " + headerAccessor.getSessionAttributes());
+        logger.debug("Received WebSocket chat message for broadcast: {}", broadcastId);
 
         try {
             // Parse broadcast ID
@@ -51,10 +63,10 @@ public class ChatWebSocketController {
             
             if (authentication != null && authentication.isAuthenticated()) {
                 String userEmail = authentication.getName();
-                System.out.println("Authenticated user: " + userEmail);
+                logger.debug("Authenticated user: {}", userEmail);
                 sender = userService.getUserByEmail(userEmail).orElse(null);
             } else {
-                System.out.println("No authentication found in SecurityContext");
+                logger.debug("No authentication found in SecurityContext");
             }
 
             // If no sender found, try to get from header
@@ -63,20 +75,66 @@ public class ChatWebSocketController {
                     headerAccessor.getUser().getName() : null;
                 
                 if (userEmail != null) {
-                    System.out.println("User from header: " + userEmail);
+                    logger.debug("User from header: {}", userEmail);
                     sender = userService.getUserByEmail(userEmail).orElse(null);
                 } else {
-                    System.out.println("No user found in header");
+                    logger.debug("No user found in header");
                 }
             }
 
             // If still no sender found, create anonymous message or return
             if (sender == null) {
-                System.err.println("No authenticated user found for chat message");
+                logger.warn("No authenticated user found for chat message");
                 return;
             }
 
-            System.out.println("Creating chat message with sender: " + sender.getEmail());
+            // Block banned users
+            if (userService.isUserCurrentlyBanned(sender)) {
+                logger.debug("Blocked banned user {} from sending chat message", sender.getEmail());
+                return;
+            }
+
+            // Enforce slow mode for non-DJ/Admin users if enabled on the broadcast
+            try {
+                BroadcastEntity broadcast = broadcastRepository.findById(parsedBroadcastId)
+                    .orElseThrow(() -> new IllegalArgumentException("Broadcast not found with ID: " + parsedBroadcastId));
+
+                boolean isPrivileged = sender.getRole() == UserEntity.UserRole.DJ
+                        || sender.getRole() == UserEntity.UserRole.ADMIN;
+
+                Integer slowSeconds = broadcast.getSlowModeSeconds();
+                boolean slowEnabled = Boolean.TRUE.equals(broadcast.getSlowModeEnabled()) && slowSeconds != null && slowSeconds > 0;
+
+                if (slowEnabled && !isPrivileged) {
+                    long now = System.currentTimeMillis();
+                    String key = parsedBroadcastId + ":" + sender.getId();
+                    Long last = lastMessageTimestamps.get(key);
+
+                    // Opportunistic cleanup of very old entries
+                    if (last != null && last < now - 24L * 60L * 60L * 1000L) {
+                        lastMessageTimestamps.remove(key);
+                        last = null;
+                    }
+
+                    if (last != null) {
+                        long cooldownMillis = slowSeconds * 1000L;
+                        long elapsed = now - last;
+                        if (elapsed < cooldownMillis) {
+                            // User is still in cooldown - silently drop the message
+                            logger.debug("Slowmode: Dropping message from user {} in broadcast {} - cooldown active", sender.getEmail(), parsedBroadcastId);
+                            return;
+                        }
+                    }
+
+                    // Update timestamp before processing to prevent racey double-send
+                    lastMessageTimestamps.put(key, now);
+                }
+            } catch (IllegalArgumentException e) {
+                logger.warn("Broadcast not found for slowmode check: {}", parsedBroadcastId);
+                return;
+            }
+
+            logger.debug("Creating chat message with sender: {}", sender.getEmail());
 
             // Create the chat message
             chatMessageService.createMessage(parsedBroadcastId, sender, message.getContent());

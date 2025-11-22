@@ -10,7 +10,6 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 
 /**
  * WebSocket STOMP messaging configuration
- * This is separate from the WebSocket streaming configuration and handles notifications
  */
 @Configuration
 @EnableWebSocketMessageBroker
@@ -32,6 +31,7 @@ public class WebSocketMessageConfig implements WebSocketMessageBrokerConfigurer 
     public void configureMessageBroker(MessageBrokerRegistry config) {
         config.enableSimpleBroker("/topic", "/queue");
         config.setApplicationDestinationPrefixes("/app");
+        config.setUserDestinationPrefix("/user/");
     }
 
     @Override
@@ -46,4 +46,9 @@ public class WebSocketMessageConfig implements WebSocketMessageBrokerConfigurer 
     public void configureClientInboundChannel(ChannelRegistration registration) {
         registration.interceptors(webSocketAuthInterceptor);
     }
-} 
+
+    @Override
+    public void configureClientOutboundChannel(ChannelRegistration registration) {
+        // No specific configuration needed for outbound channel
+    }
+}

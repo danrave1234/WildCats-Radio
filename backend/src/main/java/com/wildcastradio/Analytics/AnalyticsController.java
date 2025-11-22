@@ -15,14 +15,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.*;
 
 import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.Broadcast.BroadcastService;
 import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
+import com.wildcastradio.ChatMessage.ChatMessageRepository;
+import com.wildcastradio.SongRequest.SongRequestRepository;
+import com.wildcastradio.User.UserEntity;
+import com.wildcastradio.User.UserService;
 
 /**
  * Analytics Controller for retrieving application statistics and metrics
@@ -42,17 +45,67 @@ public class AnalyticsController {
     @Autowired
     private ListenerTrackingService listenerTrackingService;
 
+    @Autowired
+    private UserService userService;
+
+    @Autowired
+    private ChatMessageRepository chatMessageRepository;
+
+    @Autowired
+    private SongRequestRepository songRequestRepository;
+
+    /**
+     * Helper method to get current authenticated user
+     */
+    private UserEntity getCurrentUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.isAuthenticated()) {
+            String email = authentication.getName();
+            return userService.getUserByEmail(email).orElse(null);
+        }
+        return null;
+    }
+
+    /**
+     * Helper method to get userId for DJ filtering (returns null for Admin/Moderator)
+     */
+    private Long getUserIdForFiltering() {
+        UserEntity currentUser = getCurrentUser();
+        if (currentUser != null) {
+            String role = currentUser.getRole() != null ? currentUser.getRole().toString() : "";
+            if ("DJ".equalsIgnoreCase(role)) {
+                return currentUser.getId();
+            }
+        }
+        return null; // Admin and Moderator see overall stats
+    }
+
     /**
      * Get broadcast statistics including real-time listener data
+     * DJs see only their own broadcasts, Admin/Moderator can see overall or specific DJ stats via userId param
      */
     @GetMapping("/broadcasts")
     @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
-    public ResponseEntity<Map<String, Object>> getBroadcastStats() {
+    public ResponseEntity<Map<String, Object>> getBroadcastStats(@RequestParam(required = false) Long userId) {
+        UserEntity currentUser = getCurrentUser();
+        Long filterUserId = null;
+        
+        // If userId param is provided and user is Admin/Moderator, use it
+        if (userId != null && currentUser != null && 
+            (currentUser.getRole().toString().equals("ADMIN") || currentUser.getRole().toString().equals("MODERATOR"))) {
+            filterUserId = userId;
+        } 
+        // If no userId param and user is DJ, filter by their own ID
+        else if (userId == null && currentUser != null && currentUser.getRole().toString().equals("DJ")) {
+            filterUserId = currentUser.getId();
+        }
+        // Otherwise, show overall stats (userId is null)
+        
         return ResponseEntity.ok()
             .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
             .header("Pragma", "no-cache")
             .header("Expires", "0")
-            .body(analyticsService.getBroadcastStats());
+            .body(analyticsService.getBroadcastStats(filterUserId));
     }
 
     /**
@@ -70,45 +123,116 @@ public class AnalyticsController {
 
     /**
      * Get engagement statistics
+     * DJs see only their own broadcasts' engagement, Admin/Moderator can see overall or specific DJ stats via userId param
      */
     @GetMapping("/engagement")
     @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
-    public ResponseEntity<Map<String, Object>> getEngagementStats() {
+    public ResponseEntity<Map<String, Object>> getEngagementStats(@RequestParam(required = false) Long userId) {
+        try {
+            logger.info("Getting engagement stats, userId param: {}", userId);
+            UserEntity currentUser = getCurrentUser();
+            Long filterUserId = null;
+            
+            // If userId param is provided and user is Admin/Moderator, use it
+            if (userId != null && currentUser != null && 
+                (currentUser.getRole().toString().equals("ADMIN") || currentUser.getRole().toString().equals("MODERATOR"))) {
+                filterUserId = userId;
+                logger.info("Filtering by userId: {} (Admin/Moderator request)", userId);
+            } 
+            // If no userId param and user is DJ, filter by their own ID
+            else if (userId == null && currentUser != null && currentUser.getRole().toString().equals("DJ")) {
+                filterUserId = currentUser.getId();
+                logger.info("Filtering by current DJ userId: {}", filterUserId);
+            }
+            // Otherwise, show overall stats (userId is null)
+            else {
+                logger.info("Showing overall engagement stats (no filter)");
+            }
+            
+            logger.info("Fetching engagement stats with filterUserId: {}", filterUserId);
+            Map<String, Object> stats = analyticsService.getEngagementStats(filterUserId);
+            logger.info("Successfully retrieved engagement stats");
+            
         return ResponseEntity.ok()
             .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
             .header("Pragma", "no-cache")
             .header("Expires", "0")
-            .body(analyticsService.getEngagementStats());
+                .body(stats);
+        } catch (Exception e) {
+            logger.error("Error getting engagement stats: ", e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
     /**
      * Get activity statistics
+     * DJs see only their own activities, Admin/Moderator can see overall or specific DJ stats via userId param
      */
     @GetMapping("/activity")
     @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
-    public ResponseEntity<Map<String, Object>> getActivityStats() {
+    public ResponseEntity<Map<String, Object>> getActivityStats(@RequestParam(required = false) Long userId) {
+        UserEntity currentUser = getCurrentUser();
+        Long filterUserId = null;
+        
+        // If userId param is provided and user is Admin/Moderator, use it
+        if (userId != null && currentUser != null && 
+            (currentUser.getRole().toString().equals("ADMIN") || currentUser.getRole().toString().equals("MODERATOR"))) {
+            filterUserId = userId;
+        } 
+        // If no userId param and user is DJ, filter by their own ID
+        else if (userId == null && currentUser != null && currentUser.getRole().toString().equals("DJ")) {
+            filterUserId = currentUser.getId();
+        }
+        // Otherwise, show overall stats (userId is null)
+        
         return ResponseEntity.ok()
             .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
             .header("Pragma", "no-cache")
             .header("Expires", "0")
-            .body(analyticsService.getActivityStats());
+            .body(analyticsService.getActivityStats(filterUserId));
     }
 
     /**
      * Get popular broadcasts
+     * DJs see only their own popular broadcasts, Admin/Moderator can see overall or specific DJ stats via userId param
      */
     @GetMapping("/popular-broadcasts")
     @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
-    public ResponseEntity<List<BroadcastDTO>> getPopularBroadcasts() {
-        List<BroadcastEntity> popularBroadcasts = broadcastService.getPopularBroadcasts(5);
-        List<BroadcastDTO> broadcastDTOs = popularBroadcasts.stream()
-                .map(BroadcastDTO::fromEntity)
-                .collect(Collectors.toList());
+    public ResponseEntity<List<BroadcastDTO>> getPopularBroadcasts(@RequestParam(required = false) Long userId) {
+        try {
+            logger.info("Getting popular broadcasts, userId param: {}", userId);
+            UserEntity currentUser = getCurrentUser();
+            Long filterUserId = null;
+            
+            // If userId param is provided and user is Admin/Moderator, use it
+            if (userId != null && currentUser != null && 
+                (currentUser.getRole().toString().equals("ADMIN") || currentUser.getRole().toString().equals("MODERATOR"))) {
+                filterUserId = userId;
+                logger.info("Filtering by userId: {} (Admin/Moderator request)", userId);
+            } 
+            // If no userId param and user is DJ, filter by their own ID
+            else if (userId == null && currentUser != null && currentUser.getRole().toString().equals("DJ")) {
+                filterUserId = currentUser.getId();
+                logger.info("Filtering by current DJ userId: {}", filterUserId);
+            }
+            // Otherwise, show overall stats (userId is null)
+            else {
+                logger.info("Showing overall popular broadcasts (no filter)");
+            }
+            
+            logger.info("Fetching popular broadcasts with filterUserId: {}", filterUserId);
+            List<BroadcastDTO> broadcastDTOs = analyticsService.getPopularBroadcasts(5, filterUserId);
+            logger.info("Successfully retrieved {} popular broadcasts", broadcastDTOs.size());
+            
         return ResponseEntity.ok()
             .header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
             .header("Pragma", "no-cache")
             .header("Expires", "0")
             .body(broadcastDTOs);
+        } catch (Exception e) {
+            logger.error("Error getting popular broadcasts: ", e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
     /**
@@ -144,7 +268,36 @@ public class AnalyticsController {
         Map<String, Object> topicAnalytics = new HashMap<>();
 
         try {
+            // Get broadcasts without collections to avoid N+1 queries
             List<com.wildcastradio.Broadcast.BroadcastEntity> broadcasts = broadcastService.getAllBroadcasts();
+
+            // Create broadcast ID to interaction count mapping to avoid N+1 queries
+            Map<Long, Integer> chatMessageCounts = new HashMap<>();
+            Map<Long, Integer> songRequestCounts = new HashMap<>();
+
+            // Initialize all broadcasts with 0 counts
+            for (BroadcastEntity broadcast : broadcasts) {
+                chatMessageCounts.put(broadcast.getId(), 0);
+                songRequestCounts.put(broadcast.getId(), 0);
+            }
+
+            // Batch query for all chat messages across all broadcasts
+            List<Object[]> chatCounts = chatMessageRepository.countMessagesByBroadcastIds(
+                broadcasts.stream().map(BroadcastEntity::getId).collect(java.util.stream.Collectors.toList()));
+            for (Object[] result : chatCounts) {
+                Long broadcastId = ((Number) result[0]).longValue();
+                Long count = ((Number) result[1]).longValue();
+                chatMessageCounts.put(broadcastId, count.intValue());
+            }
+
+            // Batch query for all song requests across all broadcasts
+            List<Object[]> requestCounts = songRequestRepository.countSongRequestsByBroadcastIds(
+                broadcasts.stream().map(BroadcastEntity::getId).collect(java.util.stream.Collectors.toList()));
+            for (Object[] result : requestCounts) {
+                Long broadcastId = ((Number) result[0]).longValue();
+                Long count = ((Number) result[1]).longValue();
+                songRequestCounts.put(broadcastId, count.intValue());
+            }
 
             // Map to store topic performance data
             Map<String, Map<String, Object>> topicPerformance = new HashMap<>();
@@ -158,8 +311,8 @@ public class AnalyticsController {
                 // Extract topic keywords (simple approach - could be enhanced with NLP)
                 String[] keywords = extractKeywords(title);
 
-                int chatMessages = broadcast.getChatMessages() != null ? broadcast.getChatMessages().size() : 0;
-                int songRequests = broadcast.getSongRequests() != null ? broadcast.getSongRequests().size() : 0;
+                int chatMessages = chatMessageCounts.getOrDefault(broadcast.getId(), 0);
+                int songRequests = songRequestCounts.getOrDefault(broadcast.getId(), 0);
                 int totalInteractions = chatMessages + songRequests;
 
                 // Calculate duration for engagement rate

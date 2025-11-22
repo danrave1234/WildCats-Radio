@@ -316,19 +316,16 @@ public class NetworkConfig {
         }
     }
 
+    /**
+     * Get the WebSocket URL for listener status updates
+     * @deprecated Removed in hard refactor - listener status now via STOMP /topic/listener-status
+     * @return null - method removed
+     */
+    @Deprecated
     public String getListenerWebSocketUrl() {
-        // WebSocket URL for listener status updates - Spring Boot app, NOT Icecast server
-        String protocol = determineWebSocketProtocol();
-        String port = shouldIncludePort() ? ":" + serverPort : "";
-
-        // Check if serverIp already contains a protocol
-        if (serverIp.startsWith("http://") || serverIp.startsWith("https://")) {
-            // Extract the domain from the URL
-            String domain = serverIp.replaceFirst("https?://", "");
-            return protocol + "://" + domain + port + "/ws/listener";
-        } else {
-            return protocol + "://" + serverIp + port + "/ws/listener";
-        }
+        // HARD REFACTOR: This method is deprecated and returns null
+        // Listener status is now handled via STOMP /topic/listener-status
+        return null;
     }
 
     /**

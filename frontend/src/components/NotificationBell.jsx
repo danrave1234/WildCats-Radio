@@ -16,11 +16,10 @@ import {
 } from 'lucide-react';
 import { useNotifications } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
-import { formatDistanceToNow, format } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { Popover, PopoverTrigger, PopoverContent } from './ui/popover';
-import { useState, useEffect } from 'react';
-import { getAllAnnouncements } from '../services/announcementService';
+import { useState, useMemo } from 'react';
 import { formatInTimeZone } from 'date-fns-tz';
 import { parseISO } from 'date-fns';
 
@@ -103,16 +102,15 @@ const parseBackendTimestamp = (timestamp) => {
 
 export default function NotificationBell() {
     const { 
-        notifications, 
         unreadCount, 
         markAsRead, 
         markAllAsRead,
-        deleteNotification
+        deleteNotification,
+        combinedNotifications
     } = useNotifications();
     const { isAuthenticated } = useAuth();
     
     const [isOpen, setIsOpen] = useState(false);
-    const [announcementItems, setAnnouncementItems] = useState([]);
     const [swipeStates, setSwipeStates] = useState({}); // Track swipe state for each notification
 
     const handleMarkAllAsRead = async () => {
@@ -150,41 +148,11 @@ export default function NotificationBell() {
         setIsOpen(false); // Close popover after clicking notification
     };
 
-    // Load a small slice of recent announcements (public) and map to notification-like items
-    useEffect(() => {
-        const load = async () => {
-            try {
-                if (!isAuthenticated) {
-                    setAnnouncementItems([]);
-                    return;
-                }
-                const resp = await getAllAnnouncements(0, 10);
-                const content = resp?.content || resp?.data?.content || [];
-                const sevenDaysAgo = new Date();
-                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-                const items = content
-                  .filter(a => a?.publishedAt && new Date(a.publishedAt) >= sevenDaysAgo)
-                  .map(a => ({
-                    id: `ann-${a.id}`,
-                    message: a.title,
-                    type: 'ANNOUNCEMENT',
-                    timestamp: a.publishedAt,
-                    read: false,
-                    link: '/announcements'
-                  }));
-                setAnnouncementItems(items);
-            } catch (_e) {
-                setAnnouncementItems([]);
-            }
-        };
-        load();
-    }, [isAuthenticated]);
-
-    // Get 10 latest unread notifications: newest first
-    const latestUnreadNotifications = notifications
-        .filter(notification => !notification.read)
-        .sort((a, b) => new Date(b.timestamp || b.createdAt) - new Date(a.timestamp || a.createdAt))
-        .slice(0, 10);
+    const popoverNotifications = useMemo(() => {
+        return combinedNotifications
+            .filter((notification) => notification?.isAnnouncement || !notification?.read)
+            .slice(0, 10);
+    }, [combinedNotifications]);
 
     const getNotificationIcon = (type) => {
         const IconComponent = notificationTypeIcons[type] || notificationTypeIcons.default;
@@ -327,7 +295,7 @@ export default function NotificationBell() {
                     </div>
 
                     {/* Notifications List */}
-                    <div className={`${(!isAuthenticated || (latestUnreadNotifications.length + announcementItems.length) === 0) ? 'p-4' : 'max-h-96 overflow-y-auto notification-scroll'}`}>
+                    <div className={`${(!isAuthenticated || popoverNotifications.length === 0) ? 'p-4' : 'max-h-96 overflow-y-auto notification-scroll'}`}>
                         {!isAuthenticated ? (
                             <div className="flex flex-col items-center justify-center text-center p-8">
                                 <div className="relative mb-4">
@@ -336,7 +304,7 @@ export default function NotificationBell() {
                                 <h3 className="text-lg font-medium mb-2">Sign in to view notifications</h3>
                                 <a href="/login" className="text-sm text-maroon-600 hover:underline">Login</a>
                             </div>
-                        ) : ((latestUnreadNotifications.length + announcementItems.length) === 0 ? (
+                        ) : (popoverNotifications.length === 0 ? (
                             <div className="flex flex-col items-center justify-center text-center p-8">
                                 <div className="relative mb-4">
                                     <Bell className="h-12 w-12 text-muted-foreground mx-auto" />
@@ -348,9 +316,7 @@ export default function NotificationBell() {
                                 </p>
                             </div>
                         ) : (
-                            [...announcementItems, ...latestUnreadNotifications]
-                              .sort((a,b) => new Date(b.timestamp || b.createdAt) - new Date(a.timestamp || a.createdAt))
-                              .slice(0, 10)
+                            popoverNotifications
                               .map((notification, index) => {
                                 const swipeState = swipeStates[notification.id] || { offset: 0, isDragging: false };
                                 const opacity = swipeState.isDragging ? Math.max(0.3, 1 - Math.abs(swipeState.offset) / 200) : 1;

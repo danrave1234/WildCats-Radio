@@ -1,4 +1,5 @@
-import { api, createWebSocketConnection, getCookie, logger } from './apiBase';
+import { api, getCookie, logger } from './apiBase';
+import stompClientManager from '../stompClientManager';
 
 /**
  * Chat Messages API
@@ -14,45 +15,35 @@ export const chatApi = {
 
   // Real-time WebSocket subscription for chat messages
   subscribeToChatMessages: (broadcastId, callback) => {
-    const stompClient = createWebSocketConnection('/ws-radio');
-
-    const token = getCookie('token');
-    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-
     return new Promise((resolve, reject) => {
-      stompClient.connect(headers, () => {
-        logger.debug('Connected to Chat WebSocket for broadcast:', broadcastId);
-
-        // Subscribe to chat messages for this broadcast
-        const subscription = stompClient.subscribe(`/topic/broadcast/${broadcastId}/chat`, (message) => {
+      stompClientManager
+        .subscribe(`/topic/broadcast/${broadcastId}/chat`, (message) => {
           try {
             const chatMessage = JSON.parse(message.body);
             callback(chatMessage);
           } catch (error) {
             logger.error('Error parsing chat message:', error);
           }
+        })
+        .then((subscription) => {
+          resolve({
+            disconnect: () => {
+              if (subscription) {
+                subscription.unsubscribe();
+              }
+            },
+            isConnected: () => stompClientManager.isConnected(),
+            // Method to send messages to the chat: use REST to align with backend
+            sendMessage: async (messageText) => {
+              const payload = { content: messageText };
+              return api.post(`/api/chats/${broadcastId}`, payload);
+            },
+          });
+        })
+        .catch((error) => {
+          logger.error('Chat WebSocket connection error:', error);
+          reject(error);
         });
-
-        resolve({
-          disconnect: () => {
-            if (subscription) {
-              subscription.unsubscribe();
-            }
-            if (stompClient && stompClient.connected) {
-              stompClient.disconnect();
-            }
-          },
-          isConnected: () => stompClient.connected,
-          // Method to send messages to the chat: use REST to align with backend
-          sendMessage: async (messageText) => {
-            const payload = { content: messageText };
-            return api.post(`/api/chats/${broadcastId}`, payload);
-          }
-        });
-      }, (error) => {
-        logger.error('Chat WebSocket connection error:', error);
-        reject(error);
-      });
     });
   }
   ,

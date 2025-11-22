@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect, useState, useRef, lazy, Suspense } from 'react';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -14,6 +14,7 @@ const Settings = lazy(() => import('./pages/Settings'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const BroadcastHistory = lazy(() => import('./pages/BroadcastHistory'));
 const AnalyticsDashboard = lazy(() => import('./pages/AnalyticsDashboard'));
+const DJAnalyticsDashboard = lazy(() => import('./pages/DJAnalyticsDashboard'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const TermsOfService = lazy(() => import('./pages/TermsOfService'));
 const Contact = lazy(() => import('./pages/Contact'));
@@ -51,6 +52,27 @@ const Logout = () => {
   return <div className="flex justify-center items-center h-screen">Logging out...</div>;
 };
 
+// Analytics Router component - routes to appropriate analytics page based on role
+const AnalyticsRouter = () => {
+  const { currentUser } = useAuth();
+  
+  if (currentUser?.role === 'DJ') {
+    return (
+      <ProtectedRoute 
+        element={<DJAnalyticsDashboard />} 
+        allowedRoles={['DJ']} 
+      />
+    );
+  }
+  
+  return (
+    <ProtectedRoute 
+      element={<AnalyticsDashboard />} 
+      allowedRoles={['ADMIN', 'MODERATOR']} 
+    />
+  );
+};
+
 // Protected route component
 const ProtectedRoute = ({ element, allowedRoles }) => {
   const { isAuthenticated, currentUser, loading } = useAuth();
@@ -84,12 +106,111 @@ const ProtectedRoute = ({ element, allowedRoles }) => {
   );
 };
 
+// OAuth Callback Handler component - handles redirect from backend after OAuth login
+const OAuthCallback = () => {
+  const { checkAuthStatus, currentUser } = useAuth();
+  const navigate = useNavigate();
+  const [error, setError] = useState(null);
+  const processedRef = useRef(false);
+
+  useEffect(() => {
+    if (processedRef.current) return;
+    processedRef.current = true;
+
+    const handleOAuthCallback = async () => {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const oauthStatus = urlParams.get('oauth');
+        const oauthError = urlParams.get('oauth_error');
+        const errorReason = urlParams.get('reason');
+        
+        // Handle OAuth errors
+        if (oauthError) {
+          const errorMessage = errorReason 
+            ? `OAuth authentication failed: ${decodeURIComponent(errorReason)}`
+            : 'OAuth authentication failed. Please try again.';
+          setError(errorMessage);
+          setTimeout(() => {
+            navigate('/login?oauth_error=' + encodeURIComponent(errorMessage), { replace: true });
+          }, 2000);
+          return;
+        }
+        
+        if (oauthStatus === 'success') {
+          // For localhost: extract token from URL and store it
+          if (window.location.hostname === 'localhost') {
+            const token = urlParams.get('token');
+            const userId = urlParams.get('userId');
+            const userRole = urlParams.get('userRole');
+            
+            if (token) {
+              localStorage.setItem('oauth_token', token);
+              if (userId) localStorage.setItem('oauth_userId', userId);
+              if (userRole) localStorage.setItem('oauth_userRole', userRole);
+              
+              // Clean up URL
+              const newUrl = new URL(window.location.href);
+              newUrl.searchParams.delete('token');
+              newUrl.searchParams.delete('userId');
+              newUrl.searchParams.delete('userRole');
+              window.history.replaceState({}, document.title, newUrl.pathname + newUrl.search);
+            }
+          }
+          
+          // Check auth status and redirect
+          await checkAuthStatus();
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          // Redirect based on user role
+          const userRole = localStorage.getItem('oauth_userRole') || currentUser?.role;
+          if (userRole === 'DJ') {
+            navigate('/dj-dashboard', { replace: true });
+          } else if (userRole === 'ADMIN') {
+            navigate('/admin', { replace: true });
+          } else if (userRole === 'MODERATOR') {
+            navigate('/moderator', { replace: true });
+          } else {
+            navigate('/dashboard', { replace: true });
+          }
+        } else if (oauthStatus === 'error') {
+          setError('OAuth authentication failed. Please try again.');
+          setTimeout(() => {
+            navigate('/login?error=oauth_failed', { replace: true });
+          }, 2000);
+        } else {
+          await checkAuthStatus();
+        }
+      } catch (err) {
+        setError('An unexpected error occurred. Please try again.');
+        setTimeout(() => {
+          navigate('/login?oauth_error=' + encodeURIComponent('An unexpected error occurred'), { replace: true });
+        }, 2000);
+      }
+    };
+
+    handleOAuthCallback();
+  }, [navigate, checkAuthStatus, currentUser]);
+
+  if (error) {
+    return (
+      <div className="flex flex-col justify-center items-center h-screen gap-4">
+        <div className="text-red-500 text-lg font-semibold">{error}</div>
+        <div className="text-muted-foreground">Redirecting to login...</div>
+      </div>
+    );
+  }
+
+  return <LoadingFallback />;
+};
+
 // App Routes component
 const AppRoutes = () => {
   const { isAuthenticated, currentUser } = useAuth();
 
   return (
     <Routes>
+      <Route path="/oauth-callback" element={<OAuthCallback />} />
+      
       <Route path="/login" element={
         isAuthenticated ? (
           <Navigate to={
@@ -135,9 +256,18 @@ const AppRoutes = () => {
                     : '/dashboard'
             } replace />
           ) : (
-            <Suspense fallback={<LoadingFallback />}>
-              <ListenerDashboard />
-            </Suspense>
+            (() => {
+              // Check for OAuth callback
+              const urlParams = new URLSearchParams(window.location.search);
+              if (urlParams.get('oauth')) {
+                return <OAuthCallback />;
+              }
+              return (
+                <Suspense fallback={<LoadingFallback />}>
+                  <ListenerDashboard />
+                </Suspense>
+              );
+            })()
           )}
         </Layout>
       } />
@@ -228,10 +358,7 @@ const AppRoutes = () => {
 
       <Route path="/analytics" element={
         <Layout>
-          <ProtectedRoute 
-            element={<AnalyticsDashboard />} 
-            allowedRoles={['DJ', 'ADMIN', 'MODERATOR']} 
-          />
+          <AnalyticsRouter />
         </Layout>
       } />
 

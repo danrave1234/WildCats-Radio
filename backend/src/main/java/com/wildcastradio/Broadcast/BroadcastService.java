@@ -4,6 +4,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,18 +17,20 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.wildcastradio.ActivityLog.ActivityLogEntity;
 import com.wildcastradio.ActivityLog.ActivityLogService;
 import com.wildcastradio.Analytics.ListenerTrackingService;
 import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 import com.wildcastradio.Broadcast.DTO.CreateBroadcastRequest;
+import com.wildcastradio.ChatMessage.ChatMessageRepository;
 import com.wildcastradio.Notification.NotificationService;
 import com.wildcastradio.Notification.NotificationType;
-import com.wildcastradio.Schedule.ScheduleEntity;
-import com.wildcastradio.Schedule.ScheduleService;
+import com.wildcastradio.SongRequest.SongRequestRepository;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserRepository;
 import com.wildcastradio.icecast.IcecastService;
@@ -35,8 +42,6 @@ public class BroadcastService {
     @Autowired
     private BroadcastRepository broadcastRepository;
 
-    @Autowired
-    private ScheduleService scheduleService;
 
     @Autowired
     private IcecastService icecastService;
@@ -53,21 +58,64 @@ public class BroadcastService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private ChatMessageRepository chatMessageRepository;
+
+    @Autowired
+    private SongRequestRepository songRequestRepository;
+
     @Autowired(required = false)
     private com.wildcastradio.radio.RadioAgentClient radioAgentClient;
+
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired(required = false)
+    private BroadcastCircuitBreaker circuitBreaker;
+
+    @Autowired(required = false)
+    private SourceStateClassifier sourceStateClassifier;
+
+    @Autowired(required = false)
+    private ReconnectionManager reconnectionManager;
 
     // Live stream health check configuration
     @Value("${broadcast.healthCheck.enabled:true}")
     private boolean healthCheckEnabled;
 
     @Value("${broadcast.healthCheck.intervalMs:15000}")
-    private long healthCheckIntervalMs;
+    private long healthCheckIntervalMs; // Base interval (used as fallback)
 
     @Value("${broadcast.healthCheck.unhealthyConsecutiveThreshold:3}")
     private int unhealthyConsecutiveThreshold;
 
     @Value("${broadcast.healthCheck.startupGraceMs:60000}")
     private long healthCheckStartupGraceMs;
+
+    @Value("${broadcast.healthCheck.adaptive.enabled:true}")
+    private boolean adaptiveIntervalsEnabled;
+
+    @Value("${broadcast.healthCheck.adaptive.minIntervalMs:5000}")
+    private long adaptiveMinIntervalMs; // 5 seconds for new/unhealthy broadcasts
+
+    @Value("${broadcast.healthCheck.adaptive.maxIntervalMs:60000}")
+    private long adaptiveMaxIntervalMs; // 60 seconds for stable long-running broadcasts
+
+    @Value("${broadcast.healthCheck.adaptive.stableThresholdMinutes:60}")
+    private long adaptiveStableThresholdMinutes; // After 60 minutes, use max interval
+
+    // Broadcast cleanup configuration (stale LIVE broadcasts)
+    @Value("${broadcast.cleanup.enabled:true}")
+    private boolean cleanupEnabled;
+
+    @Value("${broadcast.cleanup.maxLiveDurationHours:24}")
+    private long cleanupMaxLiveDurationHours; // Auto-end broadcasts older than this
+
+    @Value("${broadcast.cleanup.staleThresholdMinutes:30}")
+    private long cleanupStaleThresholdMinutes; // Auto-end broadcasts with no recent checkpoint
+
+    @Value("${broadcast.cleanup.intervalMinutes:30}")
+    private long cleanupIntervalMinutes; // How often to run cleanup check
 
     // In-memory tracking for consecutive unhealthy checks
     private int consecutiveUnhealthyChecks = 0;
@@ -81,65 +129,51 @@ public class BroadcastService {
     private volatile java.util.Map<String, Object> lastHealthSnapshot = new java.util.HashMap<>();
     private volatile LocalDateTime lastHealthCheckTime = null;
 
-    public BroadcastDTO createBroadcast(CreateBroadcastRequest request) {
-        logger.info("Creating broadcast: {}", request.getTitle());
+    // Adaptive scheduling
+    private ScheduledExecutorService healthCheckScheduler;
+    private ScheduledFuture<?> healthCheckFuture;
 
-        // Get current user from security context (this will be handled by the controller)
-        // For now, we'll assume the user is passed separately or we'll update this later
 
-        // First create the schedule
-        ScheduleEntity schedule = scheduleService.createSchedule(
-            request.getScheduledStart(), 
-            request.getScheduledEnd(), 
-            getCurrentUser() // This will need to be passed from controller
-        );
-
-        // Then create the broadcast with the schedule
-        BroadcastEntity broadcast = new BroadcastEntity();
-        broadcast.setTitle(request.getTitle());
-        broadcast.setDescription(request.getDescription());
-        broadcast.setSchedule(schedule);
-        broadcast.setCreatedBy(getCurrentUser()); // This will need to be passed from controller
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
-
-        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
-
-        // Log the activity
-        activityLogService.logActivity(
-            getCurrentUser(), // This will need to be passed from controller
-            ActivityLogEntity.ActivityType.BROADCAST_START,
-            "Broadcast created: " + savedBroadcast.getTitle()
-        );
-
-        // Only send a schedule notification if this broadcast is not being immediately started
-        if (savedBroadcast.getScheduledStart() != null &&
-            savedBroadcast.getScheduledStart().isAfter(LocalDateTime.now().plusMinutes(1))) {
-            String notificationMessage = "New broadcast scheduled: " + savedBroadcast.getTitle() +
-                                        " at " + savedBroadcast.getScheduledStart();
-            sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_SCHEDULED);
-        }
-
-        return BroadcastDTO.fromEntity(savedBroadcast);
-    }
-
-    // Overloaded method that accepts user parameter
+    // Unified method that handles both scheduled and immediate broadcasts
     public BroadcastDTO createBroadcast(CreateBroadcastRequest request, UserEntity user) {
         logger.info("Creating broadcast: {} for user: {}", request.getTitle(), user.getEmail());
 
-        // First create the schedule
-        ScheduleEntity schedule = scheduleService.createSchedule(
-            request.getScheduledStart(), 
-            request.getScheduledEnd(), 
-            user
-        );
+        LocalDateTime now = LocalDateTime.now();
 
-        // Then create the broadcast with the schedule
+        // Validate that if scheduledStart is provided, scheduledEnd must also be provided
+        if (request.getScheduledStart() != null && request.getScheduledEnd() == null) {
+            throw new IllegalArgumentException("Scheduled end time is required when scheduled start time is provided.");
+        }
+        if (request.getScheduledStart() == null && request.getScheduledEnd() != null) {
+            throw new IllegalArgumentException("Scheduled start time is required when scheduled end time is provided.");
+        }
+
+        // Validate that scheduled broadcasts cannot be in the past
+        if (request.getScheduledStart() != null && request.getScheduledStart().isBefore(now.plusSeconds(30))) {
+            throw new IllegalArgumentException("Cannot schedule broadcasts in the past. Scheduled start time must be at least 30 seconds from now.");
+        }
+
+        // Create broadcast with embedded schedule fields
         BroadcastEntity broadcast = new BroadcastEntity();
         broadcast.setTitle(request.getTitle());
         broadcast.setDescription(request.getDescription());
-        broadcast.setSchedule(schedule);
         broadcast.setCreatedBy(user);
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
+
+        // Determine if this is a scheduled broadcast or immediate broadcast
+        boolean isScheduledForFuture = request.getScheduledStart() != null &&
+                                      request.getScheduledStart().isAfter(now.plusMinutes(1));
+
+        if (isScheduledForFuture) {
+            // This is a scheduled broadcast - use provided times
+            broadcast.setScheduledStart(request.getScheduledStart());
+            broadcast.setScheduledEnd(request.getScheduledEnd());
+            broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
+        } else {
+            // This is an immediate broadcast - set past times to avoid "starting soon" notifications
+            broadcast.setScheduledStart(now.minusMinutes(1)); // Set to past so no notifications
+            broadcast.setScheduledEnd(now.plusHours(2)); // Default 2 hours
+            broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
+        }
 
         BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
 
@@ -150,9 +184,8 @@ public class BroadcastService {
             "Broadcast created: " + savedBroadcast.getTitle()
         );
 
-        // Only send a schedule notification if this broadcast is not being immediately started
-        if (savedBroadcast.getScheduledStart() != null &&
-            savedBroadcast.getScheduledStart().isAfter(LocalDateTime.now().plusMinutes(1))) {
+        // Only send a schedule notification if this broadcast is scheduled for the future
+        if (isScheduledForFuture) {
             String notificationMessage = "New broadcast scheduled: " + savedBroadcast.getTitle() +
                                         " at " + savedBroadcast.getScheduledStart();
             sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_SCHEDULED);
@@ -164,20 +197,31 @@ public class BroadcastService {
     public BroadcastDTO updateBroadcast(Long id, CreateBroadcastRequest request) {
         logger.info("Updating broadcast: {}", id);
 
+        LocalDateTime now = LocalDateTime.now();
+
+        // Validate that if scheduledStart is provided, scheduledEnd must also be provided
+        if (request.getScheduledStart() != null && request.getScheduledEnd() == null) {
+            throw new IllegalArgumentException("Scheduled end time is required when scheduled start time is provided.");
+        }
+        if (request.getScheduledStart() == null && request.getScheduledEnd() != null) {
+            throw new IllegalArgumentException("Scheduled start time is required when scheduled end time is provided.");
+        }
+
+        // Validate that scheduled broadcasts cannot be updated to past times
+        if (request.getScheduledStart() != null && request.getScheduledStart().isBefore(now.plusSeconds(30))) {
+            throw new IllegalArgumentException("Cannot schedule broadcasts in the past. Scheduled start time must be at least 30 seconds from now.");
+        }
+
         BroadcastEntity broadcast = broadcastRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
         // Update broadcast details
         broadcast.setTitle(request.getTitle());
         broadcast.setDescription(request.getDescription());
 
-        // Update the associated schedule
-        scheduleService.updateSchedule(
-            broadcast.getSchedule().getId(),
-            request.getScheduledStart(),
-            request.getScheduledEnd(),
-            broadcast.getCreatedBy()
-        );
+        // Update embedded schedule fields directly
+        broadcast.setScheduledStart(request.getScheduledStart());
+        broadcast.setScheduledEnd(request.getScheduledEnd());
 
         BroadcastEntity updatedBroadcast = broadcastRepository.save(broadcast);
         return BroadcastDTO.fromEntity(updatedBroadcast);
@@ -186,7 +230,7 @@ public class BroadcastService {
     public BroadcastDTO updateSlowMode(Long id, Boolean enabled, Integer seconds) {
         logger.info("Updating slow mode for broadcast {}: enabled={}, seconds={}", id, enabled, seconds);
         BroadcastEntity broadcast = broadcastRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
         boolean isEnabled = enabled != null && enabled;
         int secs = seconds != null ? Math.max(0, Math.min(seconds, 3600)) : 0; // clamp to [0, 3600]
         broadcast.setSlowModeEnabled(isEnabled);
@@ -195,27 +239,6 @@ public class BroadcastService {
         return BroadcastDTO.fromEntity(saved);
     }
 
-    // Keep the existing scheduleBroadcast method for backward compatibility
-    public BroadcastEntity scheduleBroadcast(BroadcastEntity broadcast, UserEntity dj) {
-        broadcast.setCreatedBy(dj);
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.SCHEDULED);
-        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
-
-        // Log the activity
-        activityLogService.logActivity(
-            dj,
-            ActivityLogEntity.ActivityType.SCHEDULE_CREATE,
-            "Broadcast scheduled: " + savedBroadcast.getTitle() + " from " + 
-            savedBroadcast.getScheduledStart() + " to " + savedBroadcast.getScheduledEnd()
-        );
-
-        // Send notification to all users about the new broadcast schedule
-        String notificationMessage = "New broadcast scheduled: " + savedBroadcast.getTitle() + 
-                                    " on " + savedBroadcast.getScheduledStart();
-        sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_SCHEDULED);
-
-        return savedBroadcast;
-    }
 
     // Helper method to send notifications to all users
     private void sendNotificationToAllUsers(String message, NotificationType type) {
@@ -226,166 +249,388 @@ public class BroadcastService {
     }
 
     public BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj) {
-        return startBroadcast(broadcastId, dj, false);
+        return startBroadcast(broadcastId, dj, false, null);
+    }
+
+    public BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj, String idempotencyKey) {
+        return startBroadcast(broadcastId, dj, false, idempotencyKey);
     }
 
     public BroadcastEntity startBroadcastTestMode(Long broadcastId, UserEntity dj) {
-        return startBroadcast(broadcastId, dj, true);
+        return startBroadcast(broadcastId, dj, true, null);
     }
 
-    private BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj, boolean testMode) {
-        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
-
-        // Activate the schedule when starting the broadcast
-        if (broadcast.getSchedule() != null) {
-            scheduleService.activateSchedule(broadcast.getSchedule().getId());
+    @Transactional
+    private BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj, boolean testMode, String idempotencyKey) {
+        // Check circuit breaker
+        if (circuitBreaker != null && !circuitBreaker.allowRequest()) {
+            logger.warn("Circuit breaker is OPEN - blocking broadcast start request");
+            throw new IllegalStateException("Service temporarily unavailable. Please try again later.");
         }
 
-        // Allow any DJ to start a broadcast, not just the creator
-        // This enables site-wide broadcast control
+        try {
+            // Check idempotency if key provided
+            if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
+                Optional<BroadcastEntity> existing = broadcastRepository.findByStartIdempotencyKey(idempotencyKey);
+                if (existing.isPresent()) {
+                    logger.info("Duplicate start request detected with idempotency key: {}. Returning existing broadcast.", idempotencyKey);
+                    circuitBreaker.recordSuccess();
+                    return existing.get();
+                }
+            }
+            BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
-        if (testMode) {
-            // Test mode - bypass server checks
-            logger.info("Starting broadcast in TEST MODE (Google Cloud Icecast integration bypassed)");
-            // Generate a test stream URL
-            broadcast.setStreamUrl(icecastService.getStreamUrl() + "?test=true");
-        } else {
-            // Check if the Google Cloud Icecast server is accessible
-            boolean icecastServerAccessible = icecastService.checkIcecastServer();
+            // State machine validation
+            BroadcastEntity.BroadcastStatus currentStatus = broadcast.getStatus();
+            if (!currentStatus.canTransitionTo(BroadcastEntity.BroadcastStatus.LIVE)) {
+                String errorMsg = String.format("Cannot start broadcast in state: %s. Valid transitions: SCHEDULED->LIVE, TESTING->LIVE", currentStatus);
+                logger.warn(errorMsg);
+                circuitBreaker.recordFailure();
+                throw new IllegalStateException(errorMsg);
+            }
 
-            // If the Google Cloud Icecast server is accessible, we can proceed
-            if (icecastServerAccessible) {
-                logger.info("Google Cloud Icecast server is available, proceeding with broadcast");
+            // Schedule is now embedded in broadcast entity, no separate activation needed
+            // Allow any DJ to start a broadcast, not just the creator
+            // This enables site-wide broadcast control
 
-                // Set the stream URL from Google Cloud Icecast service
-                broadcast.setStreamUrl(icecastService.getStreamUrl());
+            if (testMode) {
+                // Test mode - bypass server checks
+                logger.info("Starting broadcast in TEST MODE (Google Cloud Icecast integration bypassed)");
+                // Generate a test stream URL
+                broadcast.setStreamUrl(icecastService.getStreamUrl() + "?test=true");
             } else {
-                // If the Google Cloud Icecast server is not accessible, decide based on configuration
-                if (icecastService.isDegradedStartAllowed()) {
-                    logger.warn("Icecast server not accessible. Proceeding with broadcast in DEGRADED MODE using fallback stream URL");
-                    String fallbackUrl = icecastService.getFallbackStreamUrl();
-                    // Tag URL so clients can be aware (optional)
-                    if (fallbackUrl != null && !fallbackUrl.isEmpty()) {
+                // Check if the Google Cloud Icecast server is accessible
+                boolean icecastServerAccessible = icecastService.checkIcecastServer();
+
+                // If the Google Cloud Icecast server is accessible, we can proceed
+                if (icecastServerAccessible) {
+                    logger.info("Google Cloud Icecast server is available, proceeding with broadcast");
+
+                    // Set the stream URL from Google Cloud Icecast service
+                    broadcast.setStreamUrl(icecastService.getStreamUrl());
+                } else {
+                    // If the Google Cloud Icecast server is not accessible, decide based on configuration
+                    if (icecastService.isDegradedStartAllowed()) {
+                        logger.warn("Icecast server not accessible. Proceeding with broadcast in DEGRADED MODE using fallback stream URL");
+                        String fallbackUrl = icecastService.getFallbackStreamUrl();
+                        // Tag URL so clients can be aware (optional)
+                        if (fallbackUrl != null && !fallbackUrl.isEmpty()) {
+                            if (!fallbackUrl.contains("?")) {
+                                fallbackUrl = fallbackUrl + "?degraded=true";
+                            } else {
+                                fallbackUrl = fallbackUrl + "&degraded=true";
+                            }
+                        }
+                        broadcast.setStreamUrl(fallbackUrl != null ? fallbackUrl : icecastService.getStreamUrl());
+                    } else {
+                        // Force degraded start to avoid hard failure in dev/local environments
+                        logger.error("Failed to reach Icecast. Proceeding with broadcast in FORCED DEGRADED MODE");
+                        String fallbackUrl = icecastService.getFallbackStreamUrl();
+                        if (fallbackUrl == null || fallbackUrl.isEmpty()) {
+                            fallbackUrl = icecastService.getStreamUrl();
+                        }
+                        // Tag URL so clients can handle UI accordingly
                         if (!fallbackUrl.contains("?")) {
                             fallbackUrl = fallbackUrl + "?degraded=true";
                         } else {
                             fallbackUrl = fallbackUrl + "&degraded=true";
                         }
+                        broadcast.setStreamUrl(fallbackUrl);
                     }
-                    broadcast.setStreamUrl(fallbackUrl != null ? fallbackUrl : icecastService.getStreamUrl());
-                } else {
-                    // Force degraded start to avoid hard failure in dev/local environments
-                    logger.error("Failed to reach Icecast. Proceeding with broadcast in FORCED DEGRADED MODE");
-                    String fallbackUrl = icecastService.getFallbackStreamUrl();
-                    if (fallbackUrl == null || fallbackUrl.isEmpty()) {
-                        fallbackUrl = icecastService.getStreamUrl();
-                    }
-                    // Tag URL so clients can handle UI accordingly
-                    if (!fallbackUrl.contains("?")) {
-                        fallbackUrl = fallbackUrl + "?degraded=true";
-                    } else {
-                        fallbackUrl = fallbackUrl + "&degraded=true";
-                    }
-                    broadcast.setStreamUrl(fallbackUrl);
                 }
             }
-        }
 
-        broadcast.setActualStart(LocalDateTime.now());
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
-        broadcast.setStartedBy(dj);
+            // Capture old status for audit logging
+            BroadcastEntity.BroadcastStatus oldStatus = broadcast.getStatus();
 
-        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
-
-        // Log the activity
-        activityLogService.logActivity(
-            dj,
-            ActivityLogEntity.ActivityType.BROADCAST_START,
-            (testMode ? "TEST MODE: " : "") + "Broadcast started: " + savedBroadcast.getTitle()
-        );
-
-        // Only send notifications if not in test mode
-        if (!testMode) {
-            // Send notification to all users that the broadcast has started
-            String notificationMessage = "Broadcast started: " + savedBroadcast.getTitle();
-            sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_STARTED);
-
-            // Clear transient key used for "starting soon" notifications for this broadcast
-            if (savedBroadcast.getId() != null) {
-                notificationService.clearTransientKey("starting-soon:" + savedBroadcast.getId());
+            // Atomic update
+            broadcast.setActualStart(LocalDateTime.now());
+            broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
+            broadcast.setStartedBy(dj);
+            if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
+                broadcast.setStartIdempotencyKey(idempotencyKey);
             }
 
-            // WebSocket status updates are handled by the broadcast WebSocket controller
-        }
+            BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
 
-        return savedBroadcast;
+            // Log state transition for audit trail
+            Map<String, Object> metadata = new java.util.HashMap<>();
+            metadata.put("testMode", testMode);
+            if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
+                metadata.put("idempotencyKey", idempotencyKey);
+            }
+            
+            activityLogService.logBroadcastStateTransition(
+                dj,
+                savedBroadcast.getId(),
+                savedBroadcast.getTitle(),
+                oldStatus.toString(),
+                BroadcastEntity.BroadcastStatus.LIVE.toString(),
+                testMode ? "TEST MODE" : "Normal start"
+            );
+
+            // Log the activity (legacy support)
+            activityLogService.logActivity(
+                dj,
+                ActivityLogEntity.ActivityType.BROADCAST_START,
+                (testMode ? "TEST MODE: " : "") + "Broadcast started: " + savedBroadcast.getTitle()
+            );
+
+            // Record success in circuit breaker
+            if (circuitBreaker != null) {
+                circuitBreaker.recordSuccess();
+            }
+
+            // Send notifications asynchronously (non-blocking)
+            if (!testMode) {
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        // Send notification to all users that the broadcast has started
+                        String notificationMessage = "Broadcast started: " + savedBroadcast.getTitle();
+                        sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_STARTED);
+
+                        // Send WebSocket message for immediate UI updates
+                        Map<String, Object> broadcastStartedMessage = new java.util.HashMap<>();
+                        broadcastStartedMessage.put("type", "BROADCAST_STARTED");
+                        broadcastStartedMessage.put("broadcast", BroadcastDTO.fromEntity(savedBroadcast));
+                        messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastStartedMessage);
+
+                        // Clear transient key used for "starting soon" notifications for this broadcast
+                        if (savedBroadcast.getId() != null) {
+                            notificationService.clearTransientKey("starting-soon:" + savedBroadcast.getId());
+                        }
+                    } catch (Exception e) {
+                        logger.error("Error sending broadcast start notifications", e);
+                    }
+                });
+            }
+
+            return savedBroadcast;
+        } catch (IllegalStateException e) {
+            // Re-throw state machine validation errors
+            throw e;
+        } catch (Exception e) {
+            // Record failure in circuit breaker
+            if (circuitBreaker != null) {
+                circuitBreaker.recordFailure();
+            }
+            logger.error("Error starting broadcast", e);
+            throw e;
+        }
     }
 
     public BroadcastEntity endBroadcast(Long broadcastId, UserEntity dj) {
-        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
+        return endBroadcast(broadcastId, dj, null);
+    }
 
-        // Complete the schedule when ending the broadcast
-        if (broadcast.getSchedule() != null) {
-            scheduleService.completeSchedule(broadcast.getSchedule().getId());
+    @Transactional
+    public BroadcastEntity endBroadcast(Long broadcastId, UserEntity dj, String idempotencyKey) {
+        // Check circuit breaker
+        if (circuitBreaker != null && !circuitBreaker.allowRequest()) {
+            logger.warn("Circuit breaker is OPEN - blocking broadcast end request");
+            throw new IllegalStateException("Service temporarily unavailable. Please try again later.");
         }
 
-        // Allow any DJ to end a broadcast, not just the creator
-        // This enables site-wide broadcast control
+        try {
+            // Check idempotency if key provided
+            if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
+                Optional<BroadcastEntity> existing = broadcastRepository.findByEndIdempotencyKey(idempotencyKey);
+                if (existing.isPresent()) {
+                    logger.info("Duplicate end request detected with idempotency key: {}. Returning existing broadcast.", idempotencyKey);
+                    
+                    // Audit log: Idempotent operation detected
+                    Map<String, Object> metadata = new java.util.HashMap<>();
+                    metadata.put("idempotencyKey", idempotencyKey);
+                    metadata.put("existingBroadcastId", existing.get().getId());
+                    activityLogService.logAuditWithMetadata(
+                        dj,
+                        ActivityLogEntity.ActivityType.IDEMPOTENT_OPERATION_DETECTED,
+                        String.format("Duplicate broadcast end prevented (idempotency key: %s)", idempotencyKey),
+                        existing.get().getId(),
+                        metadata
+                    );
+                    
+                    circuitBreaker.recordSuccess();
+                    return existing.get();
+                }
+            }
 
-        // End the stream
-        broadcast.setActualEnd(LocalDateTime.now());
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
+            BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
-        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+            // State machine validation
+            BroadcastEntity.BroadcastStatus currentStatus = broadcast.getStatus();
+            if (!currentStatus.canTransitionTo(BroadcastEntity.BroadcastStatus.ENDED)) {
+                String errorMsg = String.format("Cannot end broadcast in state: %s. Valid transitions: LIVE->ENDED, TESTING->ENDED", currentStatus);
+                logger.warn(errorMsg);
+                circuitBreaker.recordFailure();
+                throw new IllegalStateException(errorMsg);
+            }
 
-        // CRITICAL FIX: Clear all active broadcasts from IcecastService to ensure stream status is updated
-        // This fixes the issue where the stream still shows as live after ending
-        icecastService.clearAllActiveBroadcasts();
+            // Allow any DJ to end a broadcast, not just the creator
+            // This enables site-wide broadcast control
 
-        // Log the activity
-        activityLogService.logActivity(
-            dj,
-            ActivityLogEntity.ActivityType.BROADCAST_END,
-            "Broadcast ended: " + savedBroadcast.getTitle()
-        );
+            // Capture old status for audit logging
+            BroadcastEntity.BroadcastStatus oldStatus = broadcast.getStatus();
 
-        // Send notification to all users that the broadcast has ended
-        String notificationMessage = "Broadcast ended: " + savedBroadcast.getTitle();
-        sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_ENDED);
+            // Atomic update
+            broadcast.setActualEnd(LocalDateTime.now());
+            broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
+            if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
+                broadcast.setEndIdempotencyKey(idempotencyKey);
+            }
 
-        // WebSocket status updates are handled by the broadcast WebSocket controller
+            BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
 
-        return savedBroadcast;
+            // CRITICAL FIX: Clear all active broadcasts from IcecastService to ensure stream status is updated
+            // This fixes the issue where the stream still shows as live after ending
+            icecastService.clearAllActiveBroadcasts();
+
+            // Log state transition for audit trail
+            Map<String, Object> metadata = new java.util.HashMap<>();
+            if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
+                metadata.put("idempotencyKey", idempotencyKey);
+            }
+            
+            activityLogService.logBroadcastStateTransition(
+                dj,
+                savedBroadcast.getId(),
+                savedBroadcast.getTitle(),
+                oldStatus.toString(),
+                BroadcastEntity.BroadcastStatus.ENDED.toString(),
+                "Manual end by DJ"
+            );
+
+            // Log the activity (legacy support)
+            activityLogService.logActivity(
+                dj,
+                ActivityLogEntity.ActivityType.BROADCAST_END,
+                "Broadcast ended: " + savedBroadcast.getTitle()
+            );
+
+            // Record success in circuit breaker
+            if (circuitBreaker != null) {
+                circuitBreaker.recordSuccess();
+            }
+
+            // Cancel any ongoing reconnection attempts when broadcast ends
+            if (reconnectionManager != null) {
+                reconnectionManager.cancelReconnection(broadcastId);
+            }
+
+            // Send notifications asynchronously (non-blocking)
+            CompletableFuture.runAsync(() -> {
+                try {
+                    // Send notification to all users that the broadcast has ended
+                    String notificationMessage = "Broadcast ended: " + savedBroadcast.getTitle();
+                    sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_ENDED);
+
+                    // Send WebSocket message for immediate UI updates
+                    Map<String, Object> broadcastEndedMessage = new java.util.HashMap<>();
+                    broadcastEndedMessage.put("type", "BROADCAST_ENDED");
+                    broadcastEndedMessage.put("broadcast", BroadcastDTO.fromEntity(savedBroadcast));
+                    messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastEndedMessage);
+                } catch (Exception e) {
+                    logger.error("Error sending broadcast end notifications", e);
+                }
+            });
+
+            return savedBroadcast;
+        } catch (IllegalStateException e) {
+            // Re-throw state machine validation errors
+            throw e;
+        } catch (Exception e) {
+            // Record failure in circuit breaker
+            if (circuitBreaker != null) {
+                circuitBreaker.recordFailure();
+            }
+            logger.error("Error ending broadcast", e);
+            throw e;
+        }
     }
 
     /**
      * Simplified version of endBroadcast that doesn't require a user parameter
-     * This is used for API calls that don't have user authentication
+     * This is used for API calls that don't have user authentication (e.g., auto-end on health check failure)
      */
+    @Transactional
     public BroadcastEntity endBroadcast(Long broadcastId) {
-        BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
-                .orElseThrow(() -> new RuntimeException("Broadcast not found"));
-
-        // Complete the schedule when ending the broadcast
-        if (broadcast.getSchedule() != null) {
-            scheduleService.completeSchedule(broadcast.getSchedule().getId());
+        // Check circuit breaker
+        if (circuitBreaker != null && !circuitBreaker.allowRequest()) {
+            logger.warn("Circuit breaker is OPEN - blocking broadcast end request");
+            throw new IllegalStateException("Service temporarily unavailable. Please try again later.");
         }
 
-        // End the stream
-        broadcast.setActualEnd(LocalDateTime.now());
-        broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
+        try {
+            BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
+                    .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
-        BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+            // State machine validation
+            BroadcastEntity.BroadcastStatus currentStatus = broadcast.getStatus();
+            if (!currentStatus.canTransitionTo(BroadcastEntity.BroadcastStatus.ENDED)) {
+                String errorMsg = String.format("Cannot end broadcast in state: %s. Valid transitions: LIVE->ENDED, TESTING->ENDED", currentStatus);
+                logger.warn(errorMsg);
+                circuitBreaker.recordFailure();
+                throw new IllegalStateException(errorMsg);
+            }
 
-        // CRITICAL FIX: Clear all active broadcasts from IcecastService to ensure stream status is updated
-        // This fixes the issue where the stream still shows as live after ending
-        icecastService.clearAllActiveBroadcasts();
+            // Capture old status for audit logging
+            BroadcastEntity.BroadcastStatus oldStatus = broadcast.getStatus();
 
-        logger.info("Broadcast ended without user info: {}", savedBroadcast.getTitle());
+            // Atomic update
+            broadcast.setActualEnd(LocalDateTime.now());
+            broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
 
-        return savedBroadcast;
+            BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+
+            // CRITICAL FIX: Clear all active broadcasts from IcecastService to ensure stream status is updated
+            icecastService.clearAllActiveBroadcasts();
+
+            // Log state transition for audit trail (system-level, no user)
+            activityLogService.logBroadcastStateTransition(
+                null, // System event
+                savedBroadcast.getId(),
+                savedBroadcast.getTitle(),
+                oldStatus.toString(),
+                BroadcastEntity.BroadcastStatus.ENDED.toString(),
+                "Auto-end (no user context)"
+            );
+
+            // Record success in circuit breaker
+            if (circuitBreaker != null) {
+                circuitBreaker.recordSuccess();
+            }
+
+            logger.info("Broadcast ended without user info: {}", savedBroadcast.getTitle());
+
+            // Cancel any ongoing reconnection attempts when broadcast ends
+            if (reconnectionManager != null) {
+                reconnectionManager.cancelReconnection(broadcastId);
+            }
+
+            // Send WebSocket notification asynchronously
+            CompletableFuture.runAsync(() -> {
+                try {
+                    Map<String, Object> broadcastEndedMessage = new java.util.HashMap<>();
+                    broadcastEndedMessage.put("type", "BROADCAST_ENDED");
+                    broadcastEndedMessage.put("broadcast", BroadcastDTO.fromEntity(savedBroadcast));
+                    messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastEndedMessage);
+                } catch (Exception e) {
+                    logger.error("Error sending broadcast end notification", e);
+                }
+            });
+
+            return savedBroadcast;
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            if (circuitBreaker != null) {
+                circuitBreaker.recordFailure();
+            }
+            logger.error("Error ending broadcast", e);
+            throw e;
+        }
     }
 
     public BroadcastEntity testBroadcast(Long broadcastId, UserEntity dj) {
@@ -425,6 +670,23 @@ public class BroadcastService {
         );
     }
 
+    /**
+     * Optimized method to get upcoming broadcasts using DTO projection.
+     * Eliminates N+1 queries by fetching only needed columns in a single query.
+     * Returns only SCHEDULED broadcasts (excludes COMPLETED, CANCELLED).
+     * 
+     * @return List of UpcomingBroadcastDTO sorted by scheduled start time
+     */
+    public List<com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO> getUpcomingBroadcastsDTO() {
+        // Limit to a reasonable number to keep payload small
+        Pageable pageable = PageRequest.of(0, 100);
+        return broadcastRepository.findUpcomingFromScheduleDTO(
+            BroadcastEntity.BroadcastStatus.SCHEDULED,
+            LocalDateTime.now(),
+            pageable
+        );
+    }
+
     public List<BroadcastEntity> getEndedBroadcastsSince(LocalDateTime since) {
         return broadcastRepository.findEndedSince(since);
     }
@@ -453,19 +715,14 @@ public class BroadcastService {
         logger.info("Deleting broadcast with ID: {}", id);
 
         // Check if the broadcast exists
-        BroadcastEntity broadcast = broadcastRepository.findById(id)
+        broadcastRepository.findById(id)
                 .orElseThrow(() -> {
                     logger.error("Failed to delete broadcast: Broadcast not found with ID: {}", id);
                     return new RuntimeException("Broadcast not found with id: " + id);
                 });
 
         try {
-            // Cancel the associated schedule if it exists
-            if (broadcast.getSchedule() != null) {
-                scheduleService.cancelSchedule(broadcast.getSchedule().getId(), broadcast.getCreatedBy());
-            }
-
-            // Delete the broadcast
+            // Delete the broadcast (schedule is now embedded, no separate entity to cancel)
             broadcastRepository.deleteById(id);
             logger.info("Broadcast with ID: {} deleted successfully", id);
         } catch (Exception e) {
@@ -487,7 +744,7 @@ public class BroadcastService {
 
         // Find broadcasts that are scheduled to start in the next 15 minutes
         List<BroadcastEntity> upcomingBroadcasts = broadcastRepository.findByScheduledStartBetween(
-            now,
+            now.plusMinutes(1), // Start from 1 minute in the future to avoid immediate broadcasts
             fifteenMinutesFromNow
         );
 
@@ -511,12 +768,6 @@ public class BroadcastService {
         }
     }
 
-    // Temporary method to get current user - this will be replaced with proper authentication
-    private UserEntity getCurrentUser() {
-        // This is a placeholder - in a real implementation, you'd get this from SecurityContext
-        // For now, we'll throw an exception to indicate this needs to be handled by the controller
-        throw new RuntimeException("User must be passed explicitly to this method");
-    }
 
     /**
      * Record a listener joining a broadcast
@@ -604,13 +855,56 @@ public class BroadcastService {
 
     public List<BroadcastEntity> getPopularBroadcasts(int limit) {
         // Prefer ended broadcasts with most interactions, then live, then scheduled
+        // Fetch all broadcasts (without collections to avoid MultipleBagFetchException)
         List<BroadcastEntity> all = broadcastRepository.findAll();
+        
+        if (all.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        
+        // Get all broadcast IDs
+        List<Long> broadcastIds = all.stream()
+            .map(BroadcastEntity::getId)
+            .collect(java.util.stream.Collectors.toList());
+        
+        // Use batch aggregation queries to get all counts in just 2 queries
+        java.util.Map<Long, Integer> interactionCounts = new java.util.HashMap<>();
+        
+        // Initialize all broadcasts with 0 counts
+        for (Long id : broadcastIds) {
+            interactionCounts.put(id, 0);
+        }
+        
+        // Batch query for chat messages - single query for all broadcasts
+        List<Object[]> chatCounts = chatMessageRepository.countMessagesByBroadcastIds(broadcastIds);
+        for (Object[] result : chatCounts) {
+            Long broadcastId = ((Number) result[0]).longValue();
+            Long count = ((Number) result[1]).longValue();
+            interactionCounts.put(broadcastId, count.intValue());
+        }
+        
+        // Batch query for song requests - single query for all broadcasts
+        List<Object[]> requestCounts = songRequestRepository.countSongRequestsByBroadcastIds(broadcastIds);
+        java.util.Map<Long, Integer> requestCountsMap = new java.util.HashMap<>();
+        for (Object[] result : requestCounts) {
+            Long broadcastId = ((Number) result[0]).longValue();
+            Long count = ((Number) result[1]).longValue();
+            requestCountsMap.put(broadcastId, count.intValue());
+        }
+        
+        // Combine chat and request counts
+        for (Long id : broadcastIds) {
+            int chatCount = interactionCounts.getOrDefault(id, 0);
+            int requestCount = requestCountsMap.getOrDefault(id, 0);
+            interactionCounts.put(id, chatCount + requestCount);
+        }
+        
         return all.stream()
             .sorted((a, b) -> {
-                int aInteractions = (a.getChatMessages() != null ? a.getChatMessages().size() : 0)
-                    + (a.getSongRequests() != null ? a.getSongRequests().size() : 0);
-                int bInteractions = (b.getChatMessages() != null ? b.getChatMessages().size() : 0)
-                    + (b.getSongRequests() != null ? b.getSongRequests().size() : 0);
+                // Use pre-computed counts instead of querying during sort
+                int aInteractions = interactionCounts.getOrDefault(a.getId(), 0);
+                int bInteractions = interactionCounts.getOrDefault(b.getId(), 0);
+                
                 // Desc by interactions, tie-breaker by latest actualStart/end
                 int cmp = Integer.compare(bInteractions, aInteractions);
                 if (cmp != 0) return cmp;
@@ -626,12 +920,145 @@ public class BroadcastService {
     }
 
     /**
+     * Initialize adaptive health check scheduler on startup
+     */
+    @jakarta.annotation.PostConstruct
+    public void initAdaptiveHealthCheck() {
+        if (adaptiveIntervalsEnabled && healthCheckEnabled) {
+            healthCheckScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "BroadcastHealthCheck-Adaptive");
+                t.setDaemon(true);
+                return t;
+            });
+            // Start the adaptive health check loop
+            scheduleNextHealthCheck();
+            logger.info("Adaptive health check scheduler initialized (min: {}ms, max: {}ms, stable threshold: {}min)",
+                adaptiveMinIntervalMs, adaptiveMaxIntervalMs, adaptiveStableThresholdMinutes);
+        }
+    }
+
+    /**
+     * Shutdown scheduler on destroy
+     */
+    @jakarta.annotation.PreDestroy
+    public void shutdownAdaptiveHealthCheck() {
+        if (healthCheckScheduler != null) {
+            if (healthCheckFuture != null) {
+                healthCheckFuture.cancel(false);
+            }
+            healthCheckScheduler.shutdown();
+            try {
+                if (!healthCheckScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                    healthCheckScheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                healthCheckScheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+            logger.info("Adaptive health check scheduler shut down");
+        }
+    }
+
+    /**
+     * Calculate adaptive health check interval based on broadcast age and health status
+     */
+    private long calculateAdaptiveInterval(BroadcastEntity broadcast, boolean isHealthy) {
+        if (!adaptiveIntervalsEnabled) {
+            return healthCheckIntervalMs; // Fallback to fixed interval
+        }
+
+        // If unhealthy or recovering, use minimum interval for faster detection
+        if (!isHealthy || recovering || consecutiveUnhealthyChecks > 0) {
+            return adaptiveMinIntervalMs;
+        }
+
+        // Calculate broadcast age
+        if (broadcast.getActualStart() == null) {
+            return adaptiveMinIntervalMs; // New broadcast, use min interval
+        }
+
+        long broadcastAgeMinutes = java.time.Duration.between(
+            broadcast.getActualStart(),
+            LocalDateTime.now()
+        ).toMinutes();
+
+        // For new broadcasts (< 5 minutes), use minimum interval
+        if (broadcastAgeMinutes < 5) {
+            return adaptiveMinIntervalMs;
+        }
+        // For stable broadcasts (> threshold), use maximum interval
+        else if (broadcastAgeMinutes >= adaptiveStableThresholdMinutes) {
+            return adaptiveMaxIntervalMs;
+        }
+        // For medium-age broadcasts, interpolate between min and max
+        else {
+            // Linear interpolation: min + (max - min) * (age / threshold)
+            double progress = (double) broadcastAgeMinutes / adaptiveStableThresholdMinutes;
+            long interval = (long) (adaptiveMinIntervalMs + 
+                (adaptiveMaxIntervalMs - adaptiveMinIntervalMs) * progress);
+            return Math.max(adaptiveMinIntervalMs, Math.min(adaptiveMaxIntervalMs, interval));
+        }
+    }
+
+    /**
+     * Schedule the next health check with adaptive interval
+     */
+    private void scheduleNextHealthCheck() {
+        if (healthCheckScheduler == null || !healthCheckEnabled) {
+            return;
+        }
+
+        try {
+            Optional<BroadcastEntity> liveOpt = getCurrentLiveBroadcast();
+            boolean isHealthy = lastHealthSnapshot.getOrDefault("healthy", false).equals(true);
+            
+            long nextInterval;
+            if (liveOpt.isPresent()) {
+                nextInterval = calculateAdaptiveInterval(liveOpt.get(), isHealthy);
+            } else {
+                // No live broadcast: use max interval to reduce load
+                nextInterval = adaptiveMaxIntervalMs;
+            }
+
+            healthCheckFuture = healthCheckScheduler.schedule(() -> {
+                monitorLiveStreamHealthInternal();
+                scheduleNextHealthCheck(); // Reschedule for next check
+            }, nextInterval, TimeUnit.MILLISECONDS);
+
+            logger.debug("Next health check scheduled in {}ms (adaptive: {})", 
+                nextInterval, adaptiveIntervalsEnabled);
+        } catch (Exception e) {
+            logger.error("Error scheduling adaptive health check: {}", e.getMessage());
+            // Fallback: reschedule with base interval
+            healthCheckFuture = healthCheckScheduler.schedule(() -> {
+                monitorLiveStreamHealthInternal();
+                scheduleNextHealthCheck();
+            }, healthCheckIntervalMs, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /**
      * Periodically verify live stream health and auto-end broadcast if stalled.
      * Healthy criteria: Icecast server reachable, mount exists, active source present, bitrate > 0.
      * Uses consecutive unhealthy checks to avoid false positives during brief network hiccups.
+     * 
+     * Note: When adaptive intervals are enabled, this method is called by the adaptive scheduler.
+     * Otherwise, it uses the fixed @Scheduled annotation.
      */
     @Scheduled(fixedDelayString = "${broadcast.healthCheck.intervalMs:15000}")
     public void monitorLiveStreamHealth() {
+        // Skip if adaptive scheduling is enabled (it will call this method directly)
+        if (adaptiveIntervalsEnabled && healthCheckScheduler != null) {
+            return;
+        }
+        
+        monitorLiveStreamHealthInternal();
+    }
+
+    /**
+     * Internal health check implementation (called by both fixed and adaptive schedulers)
+     */
+    private void monitorLiveStreamHealthInternal() {
         if (!healthCheckEnabled) {
             return;
         }
@@ -704,8 +1131,32 @@ public class BroadcastService {
             boolean healthy = serverReachable && mountExists && hasSource && bitrate > 0;
 
             if (healthy) {
-                if (consecutiveUnhealthyChecks > 0 || recovering) {
+                boolean wasRecovering = recovering || consecutiveUnhealthyChecks > 0;
+                if (wasRecovering) {
                     logger.info("Live stream recovered health for broadcast id={}; resetting recovering state", id);
+                    
+                    // Cancel any ongoing reconnection attempts (source restored)
+                    if (reconnectionManager != null && reconnectionManager.isReconnecting(id)) {
+                        ReconnectionAttempt attempt = reconnectionManager.getReconnectionAttempt(id);
+                        if (attempt != null) {
+                            logger.info("Source restored for broadcast {}, cancelling reconnection attempts", id);
+                            reconnectionManager.cancelReconnection(id);
+                        }
+                    }
+                    
+                    // Audit log: Health check recovered
+                    Map<String, Object> metadata = new java.util.HashMap<>();
+                    metadata.put("previousConsecutiveUnhealthyChecks", consecutiveUnhealthyChecks);
+                    metadata.put("serverReachable", serverReachable);
+                    metadata.put("mountExists", mountExists);
+                    metadata.put("hasSource", hasSource);
+                    metadata.put("bitrate", bitrate);
+                    activityLogService.logSystemAuditWithMetadata(
+                        ActivityLogEntity.ActivityType.BROADCAST_HEALTH_CHECK_RECOVERED,
+                        String.format("Broadcast health recovered: %s", live.getTitle()),
+                        id,
+                        metadata
+                    );
                 }
                 consecutiveUnhealthyChecks = 0;
                 recovering = false;
@@ -721,6 +1172,40 @@ public class BroadcastService {
             }
 
             consecutiveUnhealthyChecks++;
+            
+            // Classify source disconnection type if classifier is available
+            SourceDisconnectionType disconnectionType = SourceDisconnectionType.UNKNOWN;
+            if (sourceStateClassifier != null) {
+                try {
+                    disconnectionType = sourceStateClassifier.classify(status);
+                    logger.debug("Classified disconnection type for broadcast {}: {}", id, disconnectionType);
+                } catch (Exception e) {
+                    logger.warn("Failed to classify source disconnection type: {}", e.getMessage());
+                }
+            }
+            
+            // Audit log: Health check failed (only log when threshold is reached to avoid spam)
+            if (consecutiveUnhealthyChecks == unhealthyConsecutiveThreshold) {
+                Map<String, Object> metadata = new java.util.HashMap<>();
+                metadata.put("consecutiveUnhealthyChecks", consecutiveUnhealthyChecks);
+                metadata.put("threshold", unhealthyConsecutiveThreshold);
+                metadata.put("serverReachable", serverReachable);
+                metadata.put("mountExists", mountExists);
+                metadata.put("hasSource", hasSource);
+                metadata.put("bitrate", bitrate);
+                metadata.put("autoEndEnabled", autoEndOnUnhealthy);
+                metadata.put("disconnectionType", disconnectionType.toString());
+                metadata.put("supportsAutomaticRecovery", disconnectionType.supportsAutomaticRecovery());
+                metadata.put("requiresAdminIntervention", disconnectionType.requiresAdminIntervention());
+                activityLogService.logSystemAuditWithMetadata(
+                    ActivityLogEntity.ActivityType.BROADCAST_HEALTH_CHECK_FAILED,
+                    String.format("Broadcast health check failed (consecutive: %d/%d, type: %s): %s", 
+                        consecutiveUnhealthyChecks, unhealthyConsecutiveThreshold, disconnectionType, live.getTitle()),
+                    id,
+                    metadata
+                );
+            }
+            
             // Update snapshot for unhealthy state
             lastHealthSnapshot = new java.util.HashMap<>(status);
             lastHealthSnapshot.put("healthy", false);
@@ -728,11 +1213,37 @@ public class BroadcastService {
             lastHealthSnapshot.put("consecutiveUnhealthyChecks", consecutiveUnhealthyChecks);
             lastHealthSnapshot.put("broadcastId", id);
             lastHealthSnapshot.put("broadcastLive", true);
+            lastHealthSnapshot.put("disconnectionType", disconnectionType.toString());
+            lastHealthSnapshot.put("supportsAutomaticRecovery", disconnectionType.supportsAutomaticRecovery());
+            lastHealthSnapshot.put("requiresAdminIntervention", disconnectionType.requiresAdminIntervention());
             lastHealthCheckTime = LocalDateTime.now();
 
             if (consecutiveUnhealthyChecks >= unhealthyConsecutiveThreshold) {
                 if (autoEndOnUnhealthy) {
                     logger.warn("Auto-ending broadcast id={} due to sustained unhealthy stream (serverReachable={}, mountExists={}, hasSource={}, bitrate={})", id, serverReachable, mountExists, hasSource, bitrate);
+                    
+                    // Cancel any ongoing reconnection attempts
+                    if (reconnectionManager != null) {
+                        reconnectionManager.cancelReconnection(id);
+                    }
+                    
+                    // Audit log: Auto-end due to health check failure
+                    Map<String, Object> metadata = new java.util.HashMap<>();
+                    metadata.put("reason", "Health check failure threshold exceeded");
+                    metadata.put("consecutiveUnhealthyChecks", consecutiveUnhealthyChecks);
+                    metadata.put("threshold", unhealthyConsecutiveThreshold);
+                    metadata.put("serverReachable", serverReachable);
+                    metadata.put("mountExists", mountExists);
+                    metadata.put("hasSource", hasSource);
+                    metadata.put("bitrate", bitrate);
+                    metadata.put("disconnectionType", disconnectionType.toString());
+                    activityLogService.logSystemAuditWithMetadata(
+                        ActivityLogEntity.ActivityType.BROADCAST_AUTO_END,
+                        String.format("Auto-ended broadcast due to health check failure: %s", live.getTitle()),
+                        id,
+                        metadata
+                    );
+                    
                     try {
                         // Use simplified end that doesn't require a user context
                         endBroadcast(id);
@@ -747,7 +1258,16 @@ public class BroadcastService {
                 } else {
                     // Keep broadcast LIVE and mark recovering
                     recovering = true;
-                    logger.warn("Stream unhealthy for broadcast id={}, keeping LIVE (autoEndOnUnhealthy=false). Waiting for source reconnection. (serverReachable={}, mountExists={}, hasSource={}, bitrate={})", id, serverReachable, mountExists, hasSource, bitrate);
+                    logger.warn("Stream unhealthy for broadcast id={}, keeping LIVE (autoEndOnUnhealthy=false). Disconnection type: {}. Waiting for source reconnection. (serverReachable={}, mountExists={}, hasSource={}, bitrate={})", id, disconnectionType, serverReachable, mountExists, hasSource, bitrate);
+                    
+                    // Trigger automatic reconnection if supported and not already attempting
+                    if (reconnectionManager != null && disconnectionType.supportsAutomaticRecovery()) {
+                        if (!reconnectionManager.isReconnecting(id)) {
+                            logger.info("Triggering automatic reconnection for broadcast {} (disconnection type: {})", id, disconnectionType);
+                            reconnectionManager.attemptReconnection(id, disconnectionType);
+                        }
+                    }
+                    
                     // Cap the counter to avoid overflow/log spam
                     if (consecutiveUnhealthyChecks > unhealthyConsecutiveThreshold) {
                         consecutiveUnhealthyChecks = unhealthyConsecutiveThreshold;
@@ -794,7 +1314,38 @@ public class BroadcastService {
         snapshot.put("lastCheckedAt", lastHealthCheckTime != null ? lastHealthCheckTime.toString() : null);
         snapshot.put("autoEndOnUnhealthy", autoEndOnUnhealthy);
         snapshot.put("healthCheckEnabled", healthCheckEnabled);
+        
+        // Include disconnection type if available (for recovery system)
+        if (snapshot.containsKey("disconnectionType")) {
+            snapshot.put("disconnectionType", snapshot.get("disconnectionType"));
+            snapshot.put("supportsAutomaticRecovery", snapshot.get("supportsAutomaticRecovery"));
+            snapshot.put("requiresAdminIntervention", snapshot.get("requiresAdminIntervention"));
+        }
+        
         return snapshot;
+    }
+    
+    /**
+     * Get the classified disconnection type for the current live broadcast.
+     * Returns UNKNOWN if no live broadcast or classification unavailable.
+     * 
+     * @return SourceDisconnectionType for current live broadcast
+     */
+    public SourceDisconnectionType getCurrentDisconnectionType() {
+        if (sourceStateClassifier == null || lastHealthSnapshot == null || lastHealthSnapshot.isEmpty()) {
+            return SourceDisconnectionType.UNKNOWN;
+        }
+        
+        try {
+            String typeStr = (String) lastHealthSnapshot.get("disconnectionType");
+            if (typeStr != null) {
+                return SourceDisconnectionType.valueOf(typeStr);
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to parse disconnection type from snapshot: {}", e.getMessage());
+        }
+        
+        return SourceDisconnectionType.UNKNOWN;
     }
 
     /**
@@ -820,6 +1371,239 @@ public class BroadcastService {
             logger.error("Failed to check radio server status: {}", e.getMessage());
             // Graceful degradation - on error, assume running to avoid breaking existing functionality
             return true;
+        }
+    }
+
+    /**
+     * Periodic checkpointing for live broadcasts to enable recovery from server crashes.
+     * Runs every 60 seconds and updates checkpoint time and current duration.
+     */
+    @Scheduled(fixedRate = 60000) // Every minute
+    public void checkpointLiveBroadcasts() {
+        try {
+            List<BroadcastEntity> liveBroadcasts = getLiveBroadcasts();
+            
+            if (liveBroadcasts.isEmpty()) {
+                return; // No live broadcasts to checkpoint
+            }
+            
+            logger.debug("Checkpointing {} live broadcast(s)", liveBroadcasts.size());
+            
+            for (BroadcastEntity broadcast : liveBroadcasts) {
+                try {
+                    // Update last checkpoint time
+                    broadcast.setLastCheckpointTime(LocalDateTime.now());
+                    
+                    // Calculate and store current duration
+                    if (broadcast.getActualStart() != null) {
+                        java.time.Duration duration = java.time.Duration.between(
+                            broadcast.getActualStart(), 
+                            LocalDateTime.now()
+                        );
+                        broadcast.setCurrentDurationSeconds(duration.getSeconds());
+                    }
+                    
+                    broadcastRepository.save(broadcast);
+                    logger.debug("Checkpointed broadcast {}: duration={}s", broadcast.getId(), broadcast.getCurrentDurationSeconds());
+                    
+                    // Audit log: Periodic checkpoint (only log every 10th checkpoint to avoid log spam)
+                    if (broadcast.getCurrentDurationSeconds() != null && broadcast.getCurrentDurationSeconds() % 600 == 0) {
+                        Map<String, Object> metadata = new java.util.HashMap<>();
+                        metadata.put("durationSeconds", broadcast.getCurrentDurationSeconds());
+                        metadata.put("checkpointTime", broadcast.getLastCheckpointTime().toString());
+                        activityLogService.logSystemAuditWithMetadata(
+                            ActivityLogEntity.ActivityType.BROADCAST_CHECKPOINT,
+                            String.format("Checkpoint saved for broadcast: %s (duration: %ds)", broadcast.getTitle(), broadcast.getCurrentDurationSeconds()),
+                            broadcast.getId(),
+                            metadata
+                        );
+                    }
+                } catch (Exception e) {
+                    logger.error("Error checkpointing broadcast {}: {}", broadcast.getId(), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error during broadcast checkpointing: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Periodic cleanup of stale LIVE broadcasts.
+     * Cleans up broadcasts that were terminated ungracefully and left in LIVE status.
+     * This prevents the database from being clogged with stale LIVE broadcast statuses.
+     */
+    @Scheduled(fixedRateString = "#{${broadcast.cleanup.intervalMinutes:30} * 60 * 1000}") // Convert minutes to milliseconds
+    public void cleanupStaleLiveBroadcasts() {
+        if (!cleanupEnabled) {
+            return;
+        }
+
+        try {
+            logger.info("Starting cleanup of stale LIVE broadcasts");
+
+            List<BroadcastEntity> liveBroadcasts = getLiveBroadcasts();
+            if (liveBroadcasts.isEmpty()) {
+                logger.debug("No live broadcasts to clean up");
+                return;
+            }
+
+            int cleanedUp = 0;
+            LocalDateTime now = LocalDateTime.now();
+
+            for (BroadcastEntity broadcast : liveBroadcasts) {
+                try {
+                    boolean shouldCleanup = false;
+                    String cleanupReason = "";
+
+                    // Check 1: Broadcast running too long (> 24 hours by default)
+                    if (broadcast.getActualStart() != null) {
+                        long hoursRunning = java.time.Duration.between(
+                            broadcast.getActualStart(),
+                            now
+                        ).toHours();
+
+                        if (hoursRunning > cleanupMaxLiveDurationHours) {
+                            shouldCleanup = true;
+                            cleanupReason = String.format("Broadcast running too long (%d hours > %d max)",
+                                hoursRunning, cleanupMaxLiveDurationHours);
+                        }
+                    }
+
+                    // Check 2: No recent checkpoint (stale, possibly crashed server)
+                    if (!shouldCleanup && broadcast.getLastCheckpointTime() != null) {
+                        long minutesSinceCheckpoint = java.time.Duration.between(
+                            broadcast.getLastCheckpointTime(),
+                            now
+                        ).toMinutes();
+
+                        if (minutesSinceCheckpoint > cleanupStaleThresholdMinutes) {
+                            shouldCleanup = true;
+                            cleanupReason = String.format("No checkpoint for %d minutes (> %d threshold)",
+                                minutesSinceCheckpoint, cleanupStaleThresholdMinutes);
+                        }
+                    }
+
+                    // Check 3: No checkpoint at all and running for extended period (> 2 hours)
+                    if (!shouldCleanup && broadcast.getLastCheckpointTime() == null &&
+                        broadcast.getActualStart() != null) {
+                        long hoursRunning = java.time.Duration.between(
+                            broadcast.getActualStart(),
+                            now
+                        ).toHours();
+
+                        if (hoursRunning > 2) { // 2 hours without any checkpoint is suspicious
+                            shouldCleanup = true;
+                            cleanupReason = String.format("No checkpoint for %d hours (suspicious)", hoursRunning);
+                        }
+                    }
+
+                    if (shouldCleanup) {
+                        logger.warn("Auto-cleaning up stale LIVE broadcast {}: {}", broadcast.getId(), cleanupReason);
+
+                        // Audit log: Cleanup of stale broadcast
+                        Map<String, Object> metadata = new java.util.HashMap<>();
+                        metadata.put("reason", cleanupReason);
+                        metadata.put("hoursRunning", broadcast.getActualStart() != null ?
+                            java.time.Duration.between(broadcast.getActualStart(), now).toHours() : null);
+                        metadata.put("lastCheckpointTime", broadcast.getLastCheckpointTime() != null ?
+                            broadcast.getLastCheckpointTime().toString() : "null");
+                        metadata.put("currentDurationSeconds", broadcast.getCurrentDurationSeconds());
+                        metadata.put("cleanupMaxLiveDurationHours", cleanupMaxLiveDurationHours);
+                        metadata.put("cleanupStaleThresholdMinutes", cleanupStaleThresholdMinutes);
+                        activityLogService.logSystemAuditWithMetadata(
+                            ActivityLogEntity.ActivityType.BROADCAST_AUTO_END,
+                            String.format("Auto-cleaned up stale LIVE broadcast: %s", broadcast.getTitle()),
+                            broadcast.getId(),
+                            metadata
+                        );
+
+                        // Auto-end the stale broadcast
+                        endBroadcast(broadcast.getId());
+                        cleanedUp++;
+
+                        logger.info("Cleaned up stale broadcast {}: {}", broadcast.getId(), broadcast.getTitle());
+                    }
+                } catch (Exception e) {
+                    logger.error("Error cleaning up broadcast {}: {}", broadcast.getId(), e.getMessage());
+                }
+            }
+
+            if (cleanedUp > 0) {
+                logger.info("Cleanup completed: auto-ended {} stale LIVE broadcasts", cleanedUp);
+            } else {
+                logger.debug("Cleanup completed: no stale broadcasts found");
+            }
+        } catch (Exception e) {
+            logger.error("Error during stale broadcast cleanup: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Recover live broadcasts on server startup.
+     * Checks if broadcasts marked as LIVE are actually still streaming and handles stale broadcasts.
+     */
+    @jakarta.annotation.PostConstruct
+    public void recoverLiveBroadcasts() {
+        try {
+            List<BroadcastEntity> liveBroadcasts = getLiveBroadcasts();
+            
+            if (liveBroadcasts.isEmpty()) {
+                logger.info("No live broadcasts to recover on startup");
+                return;
+            }
+            
+            logger.info("Recovering {} live broadcast(s) on startup", liveBroadcasts.size());
+            
+            for (BroadcastEntity broadcast : liveBroadcasts) {
+                try {
+                    // Check if broadcast is actually still live by checking stream status
+                    Map<String, Object> streamStatus = icecastService.getStreamStatus(false);
+                    boolean actuallyLive = Boolean.TRUE.equals(streamStatus.get("live")) || Boolean.TRUE.equals(streamStatus.get("isLive"));
+                    
+                    if (!actuallyLive) {
+                        // Auto-end stale broadcasts
+                        logger.warn("Auto-ending stale broadcast {} on startup: {}", broadcast.getId(), broadcast.getTitle());
+                        
+                        // Audit log: Auto-end stale broadcast
+                        Map<String, Object> metadata = new java.util.HashMap<>();
+                        metadata.put("reason", "Stale broadcast detected on startup");
+                        metadata.put("lastCheckpointTime", broadcast.getLastCheckpointTime() != null ? broadcast.getLastCheckpointTime().toString() : "null");
+                        activityLogService.logSystemAuditWithMetadata(
+                            ActivityLogEntity.ActivityType.BROADCAST_AUTO_END,
+                            String.format("Auto-ended stale broadcast on startup: %s", broadcast.getTitle()),
+                            broadcast.getId(),
+                            metadata
+                        );
+                        
+                        endBroadcast(broadcast.getId());
+                    } else {
+                        // Verify health and restore state
+                        logger.info("Recovering live broadcast {}: {}", broadcast.getId(), broadcast.getTitle());
+                        
+                        // Audit log: Broadcast recovery
+                        Map<String, Object> metadata = new java.util.HashMap<>();
+                        metadata.put("reason", "Server startup recovery");
+                        metadata.put("lastCheckpointTime", broadcast.getLastCheckpointTime() != null ? broadcast.getLastCheckpointTime().toString() : "null");
+                        metadata.put("currentDurationSeconds", broadcast.getCurrentDurationSeconds());
+                        activityLogService.logSystemAuditWithMetadata(
+                            ActivityLogEntity.ActivityType.BROADCAST_RECOVERY,
+                            String.format("Recovered live broadcast on startup: %s", broadcast.getTitle()),
+                            broadcast.getId(),
+                            metadata
+                        );
+                        
+                        // Send recovery notification to clients
+                        Map<String, Object> recoveryMessage = new java.util.HashMap<>();
+                        recoveryMessage.put("type", "BROADCAST_RECOVERED");
+                        recoveryMessage.put("broadcast", BroadcastDTO.fromEntity(broadcast));
+                        messagingTemplate.convertAndSend("/topic/broadcast/status", recoveryMessage);
+                    }
+                } catch (Exception e) {
+                    logger.error("Error recovering broadcast {}: {}", broadcast.getId(), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error during broadcast recovery on startup: {}", e.getMessage());
         }
     }
 } 

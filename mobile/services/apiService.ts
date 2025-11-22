@@ -1,4 +1,5 @@
 import ENV from '../config/environment';
+import { generatePrefixedIdempotencyKey } from './idempotencyUtils';
 
 const API_BASE_URL = ENV.API_BASE_URL; // Automatically switches between dev/prod
 // Manual override (uncomment if needed):
@@ -173,7 +174,7 @@ export const loginUser = async (email: string, password: string): Promise<AuthRe
       headers: {
         'Content-Type': 'application/json',
       },
-      credentials: 'include' as RequestCredentials,
+      credentials: 'include',
       body: JSON.stringify({ email, password }),
     });
 
@@ -245,7 +246,7 @@ export const getMe = async (): Promise<UserData> => {
       headers: {
         'Content-Type': 'application/json',
       },
-      credentials: 'include' as RequestCredentials,
+      credentials: 'include',
     });
 
     if (!response.ok) {
@@ -697,6 +698,125 @@ export const updateNotificationPreferences = async (preferences: NotificationPre
     return data as UserData;
   } catch (error) {
     console.error('UpdateNotificationPreferences API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// +++ Broadcast Control API Functions +++
+
+export const startBroadcast = async (broadcastId: number, token: string): Promise<Broadcast | { error: string }> => {
+  try {
+    const idempotencyKey = generatePrefixedIdempotencyKey('broadcast-start');
+
+    const response = await fetch(`${API_BASE_URL}/broadcasts/${broadcastId}/start`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'Idempotency-Key': idempotencyKey,
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to start broadcast. Status: ${response.status}` };
+    }
+    return data as Broadcast;
+  } catch (error) {
+    console.error('StartBroadcast API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const endBroadcast = async (broadcastId: number, token: string): Promise<Broadcast | { error: string }> => {
+  try {
+    const idempotencyKey = generatePrefixedIdempotencyKey('broadcast-end');
+
+    const response = await fetch(`${API_BASE_URL}/broadcasts/${broadcastId}/end`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'Idempotency-Key': idempotencyKey,
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { error: data.message || data.error || `Failed to end broadcast. Status: ${response.status}` };
+    }
+    return data as Broadcast;
+  } catch (error) {
+    console.error('EndBroadcast API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// +++ Announcement Types and API Functions +++
+
+export interface AnnouncementDTO {
+  id: number;
+  title: string;
+  content: string;
+  imageUrl?: string;
+  status: 'DRAFT' | 'PUBLISHED' | 'SCHEDULED' | 'ARCHIVED' | 'REJECTED';
+  pinned: boolean;
+  createdAt: string;
+  createdById?: number;
+  createdByName?: string;
+  publishedAt?: string;
+  approvedByName?: string;
+  scheduledFor?: string;
+  expiresAt?: string;
+  rejectedAt?: string;
+  rejectedByName?: string;
+  rejectionReason?: string;
+  archivedAt?: string;
+  archivedByName?: string;
+  error?: string;
+}
+
+export interface AnnouncementPage {
+  content: AnnouncementDTO[];
+  totalPages: number;
+  totalElements: number;
+  size: number;
+  number: number;
+  error?: string;
+}
+
+// Get all published announcements (public - no auth needed, but we'll send token for consistency)
+export const getAllAnnouncements = async (page = 0, size = 10): Promise<AnnouncementPage | { error: string }> => {
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/announcements?page=${page}&size=${size}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to fetch announcements. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to fetch announcements. Status: ${response.status}, Response: ${text}` };
+        }
+      } else {
+        return { error: `Failed to fetch announcements. Status: ${response.status}, No response body.` };
+      }
+    }
+
+    const data: AnnouncementPage = await response.json();
+    return data;
+  } catch (error) {
+    console.error('GetAllAnnouncements API error:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
     return { error: errorMessage };
   }

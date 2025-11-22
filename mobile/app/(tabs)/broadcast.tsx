@@ -32,7 +32,6 @@ import {
   ChatMessageDTO,
   SongRequestDTO,
   PollDTO,
-  UserData,
   getLiveBroadcasts,
   getBroadcastDetails,
   getChatMessages,
@@ -51,6 +50,7 @@ import streamService from '../../services/streamService';
 import audioStreamingService from '../../services/audioStreamingService';
 import { useAudioStreaming } from '../../hooks/useAudioStreaming';
 import { runStreamDiagnostics, quickStreamTest } from '../../services/streamDebugUtils';
+import { websocketService } from '../../services/websocketService';
 import '../../global.css';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
 
@@ -359,6 +359,13 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(({
   );
 });
 
+interface UserAuthData {
+  name?: string;
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+}
+
 interface TabDefinition {
   key: string;
   name: string;
@@ -529,7 +536,7 @@ const BroadcastScreen: React.FC = () => {
   const pollConnectionRef = useRef<any>(null);
 
   // Add user data state
-  const [userData, setUserData] = useState<UserData | null>(null);
+  const [userData, setUserData] = useState<UserAuthData | null>(null);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
   // Slow mode state (matching website implementation)
@@ -735,7 +742,8 @@ const BroadcastScreen: React.FC = () => {
         console.log('🔄 Connecting to listener WebSocket:', listenerWsUrl);
 
         // Create WebSocket connection
-        const ws = new WebSocket(listenerWsUrl);
+        // Type assertion needed for React Native WebSocket compatibility
+        const ws = new WebSocket(listenerWsUrl) as any;
         listenerWsRef.current = ws;
 
         // Connection timeout
@@ -757,9 +765,7 @@ const BroadcastScreen: React.FC = () => {
               action: 'START_LISTENING',
               broadcastId: currentBroadcast.id,
               userId: currentUserId,
-              userName: userData?.firstname && userData?.lastname 
-                ? `${userData.firstname} ${userData.lastname}`.trim() 
-                : userData?.firstname || userData?.lastname || 'Anonymous Listener',
+              userName: userData?.name || 'Anonymous Listener',
               timestamp: Date.now(),
             };
             ws.send(JSON.stringify(message));
@@ -778,7 +784,7 @@ const BroadcastScreen: React.FC = () => {
           }, 30000) as ReturnType<typeof setInterval>; // 30 seconds to match backend
         };
 
-        ws.onmessage = (event) => {
+        ws.onmessage = (event: any) => {
           try {
             // Handle pong response
             if (event.data === 'pong') {
@@ -797,12 +803,12 @@ const BroadcastScreen: React.FC = () => {
           }
         };
 
-        ws.onerror = (error) => {
+        ws.onerror = (error: any) => {
           console.error('❌ Listener WebSocket error:', error);
           clearTimeout(connectionTimeout);
         };
 
-        ws.onclose = (event) => {
+        ws.onclose = (event: any) => {
           console.log('🔌 Listener WebSocket disconnected:', event.code, event.reason);
           clearTimeout(connectionTimeout);
           
@@ -860,9 +866,7 @@ const BroadcastScreen: React.FC = () => {
         action: streamingState.isPlaying ? 'START_LISTENING' : 'STOP_LISTENING',
         broadcastId: currentBroadcast?.id,
         userId: currentUserId,
-        userName: userData?.firstname && userData?.lastname 
-          ? `${userData.firstname} ${userData.lastname}`.trim() 
-          : userData?.firstname || userData?.lastname || 'Anonymous Listener',
+        userName: userData?.name || 'Anonymous Listener',
         timestamp: Date.now(),
       };
       listenerWsRef.current.send(JSON.stringify(message));
@@ -974,12 +978,15 @@ const BroadcastScreen: React.FC = () => {
           setUserData(null);
           setCurrentUserId(null);
         } else {
-          console.log('✅ User data fetched successfully:', { 
-            id: result.id, 
-            firstname: result.firstname, 
-            lastname: result.lastname 
-          });
-          setUserData(result);
+          console.log('✅ User data fetched successfully:', { id: result.id });
+          // Convert UserData to UserAuthData format
+          const userAuthData: UserAuthData = {
+            name: (result as any).name || (result as any).fullName || undefined,
+            fullName: (result as any).fullName || undefined,
+            firstName: (result as any).firstName || undefined,
+            lastName: (result as any).lastName || undefined,
+          };
+          setUserData(userAuthData);
           setCurrentUserId(result.id ? parseInt(result.id.toString(), 10) : null);
         }
       } catch (error) {
@@ -1009,16 +1016,16 @@ const BroadcastScreen: React.FC = () => {
     if (!userData || typeof userData !== 'object') return 'Listener';
     
     try {
-      // Use firstname and lastname from UserData interface
-      if (userData.firstname && typeof userData.firstname === 'string' && userData.firstname.trim()) {
-        const lastName = userData.lastname && typeof userData.lastname === 'string' ? userData.lastname.trim() : '';
-        return `${userData.firstname.trim()} ${lastName}`.trim();
+      // Use the same logic as the profile screen - prioritize 'name' field
+      if (userData.name && typeof userData.name === 'string' && userData.name.trim()) {
+        return userData.name.trim();
       }
-      if (userData.firstname && typeof userData.firstname === 'string') {
-        return userData.firstname.trim();
+      if (userData.fullName && typeof userData.fullName === 'string' && userData.fullName.trim()) {
+        return userData.fullName.trim();
       }
-      if (userData.lastname && typeof userData.lastname === 'string') {
-        return userData.lastname.trim();
+      if (userData.firstName && typeof userData.firstName === 'string' && userData.firstName.trim()) {
+        const lastName = userData.lastName && typeof userData.lastName === 'string' ? userData.lastName.trim() : '';
+        return `${userData.firstName.trim()} ${lastName}`.trim();
       }
     } catch (error) {
       console.warn('Error processing user name:', error);
@@ -1450,7 +1457,7 @@ const BroadcastScreen: React.FC = () => {
           songRequestService.getSongRequests(broadcastToUse.id, authToken),
         ]);
 
-        if (!('error' in messagesResult)) {
+        if (!('error' in messagesResult) && messagesResult.data) {
           // Use smart merge for initial load too, in case WebSocket messages arrived first
           setChatMessages(prevMessages => {
             if (prevMessages.length === 0) {
@@ -1501,16 +1508,21 @@ const BroadcastScreen: React.FC = () => {
     }
   }, [authToken, routeBroadcastId, authContext]);
 
-  // Start polling for broadcast status updates
+  // Start polling for broadcast status updates (fallback only)
   const startPolling = useCallback(() => {
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
     }
-    
-    // Poll every 30 seconds for broadcast status
+
+    // Poll every 60 seconds as fallback when WebSocket is not connected
     pollIntervalRef.current = setInterval(() => {
-      loadInitialDataForBroadcastScreen(true); // Background update
-    }, 30000);
+      // Only poll if STOMP WebSocket is not connected
+      if (!websocketService.isConnected()) {
+        loadInitialDataForBroadcastScreen(true); // Background update via HTTP
+      } else {
+        console.log('📡 Skipping broadcast status poll - STOMP WebSocket is connected');
+      }
+    }, 60000); // Increased to 60 seconds for mobile battery efficiency
   }, [loadInitialDataForBroadcastScreen]);
 
   // Stop polling
@@ -1583,14 +1595,20 @@ const BroadcastScreen: React.FC = () => {
   }, [isWebSocketConnected, currentBroadcast?.id, authToken]);
 
   // ===== AUTOMATIC STATUS UPDATES FOR LISTENERS =====
-  // Radio Status Polling (Every 30 seconds) - Check if stream is live
+  // Radio Status Polling (Fallback only - when WebSocket is not connected)
   useEffect(() => {
+    // Skip polling if WebSocket is connected - rely on WebSocket updates
+    if (isWebSocketConnected) {
+      console.log('📡 Skipping radio status poll - WebSocket is connected');
+      return;
+    }
+
     const fetchRadioStatus = async () => {
       try {
-        console.log('📡 Checking radio status...');
+        console.log('📡 Checking radio status (fallback polling)...');
         const response = await streamService.getStreamStatus();
         
-        // Only act on significant status changes, not just isLive mismatch
+        // Only act on significant status changes, not just live mismatch
         // The stream status checks OGG, but mobile uses MP3, so they can differ
         if (response.live && !currentBroadcast) {
           console.log('📡 Stream is live but no broadcast found, refreshing...');
@@ -1611,32 +1629,43 @@ const BroadcastScreen: React.FC = () => {
     // Initial check
     fetchRadioStatus();
     
-    // Poll every 30 seconds (reduced from 10s to be less aggressive)
+    // Poll every 30 seconds as fallback when WebSocket is unavailable
     const interval = setInterval(fetchRadioStatus, 30000);
     
     return () => clearInterval(interval);
-  }, [currentBroadcast, loadInitialDataForBroadcastScreen]);
+  }, [currentBroadcast, loadInitialDataForBroadcastScreen, isWebSocketConnected]);
 
-  // Broadcast Status Polling (Every 10 minutes) - Check for new broadcasts
+  // Broadcast Status Polling (Fallback only - when WebSocket is not connected)
   useEffect(() => {
+    // Skip polling if WebSocket is connected - rely on WebSocket updates
+    if (isWebSocketConnected) {
+      console.log('📻 Skipping broadcast status poll - WebSocket is connected');
+      return;
+    }
+
+    // Skip polling if we have a specific broadcast ID from route
+    if (routeBroadcastId) {
+      console.log('📻 Skipping broadcast status check - using specific broadcast ID');
+      return;
+    }
+
     const checkBroadcastStatus = async () => {
       try {
-        console.log('📻 Checking broadcast status...');
+        console.log('📻 Checking broadcast status (fallback polling)...');
         
-        // Skip polling if we have a specific broadcast ID from route
-        if (routeBroadcastId) {
-          console.log('📻 Skipping broadcast status check - using specific broadcast ID');
-          return;
-        }
-
         if (!authToken) {
-          console.error('❌ No auth token available');
+          console.log('📻 Skipping broadcast status check - no auth token');
           return;
         }
-
+        
         const liveBroadcasts = await getLiveBroadcasts(authToken);
         
-        if (!('error' in liveBroadcasts) && liveBroadcasts.length > 0) {
+        if ('error' in liveBroadcasts) {
+          console.error('📻 Error fetching live broadcasts:', liveBroadcasts.error);
+          return;
+        }
+        
+        if (liveBroadcasts.length > 0) {
           const newBroadcast = liveBroadcasts[0];
           
           // Check if this is a different broadcast or status change
@@ -1674,11 +1703,11 @@ const BroadcastScreen: React.FC = () => {
     // Initial check
     checkBroadcastStatus();
 
-    // Poll every 10 minutes
+    // Poll every 10 minutes as fallback when WebSocket is unavailable
     const interval = setInterval(checkBroadcastStatus, 600000);
     
     return () => clearInterval(interval);
-  }, [currentBroadcast, routeBroadcastId, authToken]);
+  }, [currentBroadcast, routeBroadcastId, authToken, isWebSocketConnected]);
 
   // Global Broadcast WebSocket (Real-time updates) - Listen for broadcast start/end
   useEffect(() => {
@@ -1690,13 +1719,13 @@ const BroadcastScreen: React.FC = () => {
     let connection: any = null;
 
     const setupGlobalBroadcastWebSocket = async () => {
+      if (!authToken) {
+        console.log('🌐 Skipping global broadcast WebSocket - no auth token');
+        return;
+      }
+      
       try {
         console.log('🌐 Setting up global broadcast WebSocket...');
-        
-        if (!authToken) {
-          console.error('❌ No auth token available for WebSocket');
-          return;
-        }
         
         // Use the existing WebSocket service to subscribe to global updates
         connection = await chatService.subscribeToGlobalBroadcastUpdates((update) => {
@@ -1768,66 +1797,66 @@ const BroadcastScreen: React.FC = () => {
     setSlowModeWaitSeconds(null); // Clear any previous slow mode wait
     
     try {
-      // Use chatService like frontend
-      console.log('🚀 Sending via chatService');
-      const result = await chatService.sendMessage(currentBroadcast.id, { content: messageToSend }, authToken);
-      
-      if ('error' in result) {
-        console.error('❌ Failed to send message:', result.error);
+        // Use chatService like frontend
+        console.log('🚀 Sending via chatService');
+        const result = await chatService.sendMessage(currentBroadcast.id, { content: messageToSend }, authToken);
         
-        // Enhanced error handling (matching website)
-        const errorMessage = result.error || "Failed to send message. Please try again.";
-        
-        // Check for slow mode error
-        if (errorMessage.toLowerCase().includes('slow mode')) {
-          const match = errorMessage.match(/(\d+)\s*second/i);
-          const waitSeconds = match ? parseInt(match[1], 10) : slowModeSeconds;
-          setSlowModeWaitSeconds(waitSeconds);
-          Alert.alert("Slow Mode", `Please wait ${waitSeconds} seconds before sending another message.`);
-        }
-        // Check for ban error
-        else if (errorMessage.toLowerCase().includes('banned')) {
-          setIsBanned(true);
-          setBanMessage(errorMessage);
-          Alert.alert("Banned from Chat", errorMessage);
-        }
-        // Check for profanity filter
-        else if (errorMessage.toLowerCase().includes('profanity') || errorMessage.toLowerCase().includes('inappropriate')) {
-          Alert.alert("Message Blocked", "Your message contains inappropriate content.");
-        }
-        // Generic error
-        else {
-          Alert.alert("Error", errorMessage);
-        }
-        
-        // Restore message to input on error
-        setChatInput(messageToSend);
-      } else if (result.data) {
-        // Update last message time for slow mode
-        setLastMessageTime(Date.now());
-        console.log('✅ Message sent successfully via chatService');
-        // Message will appear via WebSocket when server broadcasts it
-        // Track this as our own message FIRST to prevent left-side flicker
-        setUserMessageIds(prev => {
-          const newSet = new Set([...prev, result.data!.id]);
-          return newSet;
-        });
-        
-        // Then add the sent message to chat messages
-        setChatMessages(prev => {
-          // Check if message already exists (avoid duplicates)
-          const exists = prev.some(msg => msg.id === result.data!.id);
-          if (exists) {
-            return prev;
+        if ('error' in result) {
+          console.error('❌ Failed to send message:', result.error);
+          
+          // Enhanced error handling (matching website)
+          const errorMessage = result.error || "Failed to send message. Please try again.";
+          
+          // Check for slow mode error
+          if (errorMessage.toLowerCase().includes('slow mode')) {
+            const match = errorMessage.match(/(\d+)\s*second/i);
+            const waitSeconds = match ? parseInt(match[1], 10) : slowModeSeconds;
+            setSlowModeWaitSeconds(waitSeconds);
+            Alert.alert("Slow Mode", `Please wait ${waitSeconds} seconds before sending another message.`);
+          }
+          // Check for ban error
+          else if (errorMessage.toLowerCase().includes('banned')) {
+            setIsBanned(true);
+            setBanMessage(errorMessage);
+            Alert.alert("Banned from Chat", errorMessage);
+          }
+          // Check for profanity filter
+          else if (errorMessage.toLowerCase().includes('profanity') || errorMessage.toLowerCase().includes('inappropriate')) {
+            Alert.alert("Message Blocked", "Your message contains inappropriate content.");
+          }
+          // Generic error
+          else {
+            Alert.alert("Error", errorMessage);
           }
           
-          // Add new message and sort by timestamp
-          const newMessages = [...prev, result.data!];
-          return newMessages.sort((a, b) => 
-            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-          );
-        });
-      }
+          // Restore message to input on error
+          setChatInput(messageToSend);
+        } else if (result.data) {
+          // Update last message time for slow mode
+          setLastMessageTime(Date.now());
+          console.log('✅ Message sent successfully via chatService');
+          // Message will appear via WebSocket when server broadcasts it
+          // Track this as our own message FIRST to prevent left-side flicker
+          setUserMessageIds(prev => {
+            const newSet = new Set([...prev, result.data!.id]);
+            return newSet;
+          });
+          
+          // Then add the sent message to chat messages
+          setChatMessages(prev => {
+            // Check if message already exists (avoid duplicates)
+            const exists = prev.some(msg => msg.id === result.data!.id);
+            if (exists) {
+              return prev;
+            }
+            
+            // Add new message and sort by timestamp
+            const newMessages = [...prev, result.data!].filter((msg): msg is ChatMessageDTO => msg !== undefined);
+            return newMessages.sort((a, b) => 
+              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
+          });
+        }
     } catch (error) {
       console.error('❌ Error sending message:', error);
       setChatInput(messageToSend); // Restore the message
@@ -1882,7 +1911,7 @@ const BroadcastScreen: React.FC = () => {
     setIsRefreshingChat(true);
     try {
       const messagesResult = await chatService.getMessages(currentBroadcast.id, authToken);
-      if (!('error' in messagesResult)) {
+      if (!('error' in messagesResult) && messagesResult.data) {
         // Smart merge: preserve recent local messages that might not be on server yet
         setChatMessages(prevMessages => {
           const serverMessages = messagesResult.data || [];
@@ -2013,11 +2042,12 @@ const BroadcastScreen: React.FC = () => {
       if (userData && msg.sender?.name) {
         const senderName = msg.sender.name.toLowerCase().trim();
         
-        // Check all possible name variations using UserData properties
+        // Check all possible name variations
         const nameVariations = [
-          userData.firstname?.toLowerCase().trim(),
-          userData.lastname?.toLowerCase().trim(),
-          `${userData.firstname?.toLowerCase().trim()} ${userData.lastname?.toLowerCase().trim()}`.trim()
+          userData.name?.toLowerCase().trim(),
+          userData.fullName?.toLowerCase().trim(),
+          userData.firstName?.toLowerCase().trim(),
+          `${userData.firstName?.toLowerCase().trim()} ${userData.lastName?.toLowerCase().trim()}`.trim()
         ].filter(Boolean);
         
         if (nameVariations.some(variation => variation === senderName)) {

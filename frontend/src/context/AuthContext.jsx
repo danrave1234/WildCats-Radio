@@ -16,25 +16,47 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    // Check if user is already logged in by validating with the server
-    const checkAuthStatus = async () => {
-      try {
-        // The secure HttpOnly cookies will be automatically sent with this request
-        const response = await authService.getCurrentUser();
-        setCurrentUser(response.data);
-      } catch (err) {
-        // If the request fails, the user is not authenticated or token is invalid
-        setCurrentUser(null);
-        // Don't show error message on initial load - user might just not be logged in
-        if (err.response?.status !== 401 && err.response?.status !== 403) {
-          setError('Failed to verify authentication status.');
-        }
-      }
-
-      setLoading(false);
+  // Check if user is already logged in by validating with the server
+  const checkAuthStatus = async () => {
+    // Check if token exists before making API call
+    const getCookie = (name) => {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
+      return null;
     };
+    
+    const token = getCookie('token') || (window.location.hostname === 'localhost' ? localStorage.getItem('oauth_token') : null);
+    
+    // If no token, skip API call
+    if (!token) {
+      setCurrentUser(null);
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      const response = await authService.getCurrentUser();
+      setCurrentUser(response.data);
+      setError(null);
+    } catch (err) {
+      // If authentication fails, clear any OAuth tokens from localStorage
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        localStorage.removeItem('oauth_token');
+        localStorage.removeItem('oauth_userId');
+        localStorage.removeItem('oauth_userRole');
+      }
+      setCurrentUser(null);
+      if (err.response?.status !== 401 && err.response?.status !== 403) {
+        setError('Failed to verify authentication status.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     checkAuthStatus();
   }, []);
 
@@ -146,18 +168,18 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Logout function - now relies on backend to clear cookies
+  // Logout function - clears all authentication data
   const logout = async () => {
     try {
-      // Call backend logout endpoint to clear secure cookies
       await authService.logout();
     } catch (err) {
-      // Even if logout request fails, clear local state
-      console.error('Logout request failed:', err);
+      // Ignore logout errors - clear state anyway
     } finally {
-      // Clear local state regardless of backend response
       setCurrentUser(null);
       setError(null);
+      localStorage.removeItem('oauth_token');
+      localStorage.removeItem('oauth_userId');
+      localStorage.removeItem('oauth_userRole');
     }
   };
 
@@ -172,6 +194,7 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     changePassword,
     logout,
+    checkAuthStatus,
     isAuthenticated: !!currentUser
   };
 

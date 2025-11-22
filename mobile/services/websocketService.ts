@@ -1,7 +1,11 @@
 // STOMP + SockJS WebSocket implementation for React Native (matches backend)
+// Shared STOMP client manager for efficient connection multiplexing
 import SockJS from 'sockjs-client';
 import { Stomp } from '@stomp/stompjs';
 import ENV from '../config/environment';
+import { createLogger } from './logger';
+
+const logger = createLogger('StompClientManager');
 
 interface WebSocketMessage {
   type: 'chat' | 'poll' | 'broadcast_update';
@@ -21,8 +25,167 @@ interface WebSocketService {
   subscribe: (topic: string, callback: (message: any) => void) => { unsubscribe: () => void };
 }
 
-class WebSocketManager implements WebSocketService {
+/**
+ * Shared STOMP client manager for React Native (similar to web implementation)
+ * Ensures a single underlying WebSocket connection is reused across features
+ */
+class StompClientManager {
   private stompClient: any = null;
+  private connectPromise: Promise<any> | null = null;
+  private subscriptions: Map<string, any> = new Map();
+
+  private _getAuthHeaders(token?: string): any {
+    const headers: any = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+  }
+
+  /**
+   * Ensure we have a STOMP client instance
+   */
+  private _ensureClient(): any {
+    if (!this.stompClient) {
+      const wsUrl = `${ENV.BACKEND_BASE_URL}/ws-radio`;
+      logger.debug(`StompClientManager: Creating STOMP client for ${wsUrl}`);
+
+      const sockjs = new SockJS(wsUrl);
+      this.stompClient = Stomp.over(sockjs);
+
+      // Configure for mobile reliability
+      this.stompClient.debug = () => {}; // Disable debug logs
+      this.stompClient.reconnect_delay = 0; // Manual reconnect handling
+      this.stompClient.heartbeat = { outgoing: 20000, incoming: 20000 }; // 20s heartbeat
+    }
+    return this.stompClient;
+  }
+
+  /**
+   * Connect the shared STOMP client (idempotent)
+   */
+  async connect(token?: string): Promise<any> {
+    if (this.connectPromise) {
+      return this.connectPromise;
+    }
+
+    const client = this._ensureClient();
+
+    if (client.connected) {
+      logger.debug('StompClientManager: STOMP already connected');
+      this.connectPromise = Promise.resolve(client);
+      return this.connectPromise;
+    }
+
+    const headers = this._getAuthHeaders(token);
+
+    this.connectPromise = new Promise((resolve, reject) => {
+      try {
+        client.connect(
+          headers,
+          () => {
+            logger.debug('StompClientManager: STOMP connected successfully');
+            resolve(client);
+          },
+          (error: any) => {
+            logger.error('StompClientManager: STOMP connection failed:', error);
+            this.stompClient = null;
+            this.connectPromise = null;
+            reject(error);
+          }
+        );
+      } catch (e) {
+        logger.error('StompClientManager: STOMP connect threw error:', e);
+        this.stompClient = null;
+        this.connectPromise = null;
+        reject(e);
+      }
+    });
+
+    return this.connectPromise;
+  }
+
+  /**
+   * Subscribe to a topic
+   */
+  async subscribe(topic: string, onMessage: (message: any) => void, token?: string): Promise<{ unsubscribe: () => void }> {
+    const client = await this.connect(token);
+
+    const subscription = client.subscribe(topic, (message: any) => {
+      try {
+        onMessage(message);
+      } catch (e) {
+        logger.error('StompClientManager: Error in subscription handler for topic', topic, e);
+      }
+    });
+
+    this.subscriptions.set(topic, subscription);
+
+    const unsubscribe = () => {
+      try {
+        subscription.unsubscribe();
+      } catch (e) {
+        logger.error('StompClientManager: Error unsubscribing from topic', topic, e);
+      } finally {
+        this.subscriptions.delete(topic);
+      }
+    };
+
+    return { unsubscribe };
+  }
+
+  /**
+   * Publish a message to a destination
+   */
+  async publish(destination: string, body: any, token?: string): Promise<void> {
+    const client = await this.connect(token).catch((e) => {
+      logger.error('StompClientManager: Cannot publish, failed to connect', e);
+      return null;
+    });
+
+    if (!client || !client.connected) {
+      logger.warn('StompClientManager: Cannot publish, client not connected', { destination });
+      return;
+    }
+
+    try {
+      const headers = this._getAuthHeaders(token);
+      client.send(destination, headers, body != null ? JSON.stringify(body) : '{}');
+    } catch (e) {
+      logger.error('StompClientManager: Error publishing message', { destination, error: e });
+    }
+  }
+
+  /**
+   * Returns true if the shared client is connected
+   */
+  isConnected(): boolean {
+    return !!(this.stompClient?.connected);
+  }
+
+  /**
+   * Disconnect the shared client
+   */
+  disconnect(): void {
+    if (this.stompClient?.connected) {
+      try {
+        this.stompClient.disconnect(() => {
+          logger.debug('StompClientManager: STOMP disconnected');
+        });
+      } catch (e) {
+        logger.error('StompClientManager: Error disconnecting STOMP:', e);
+      }
+    }
+    this.stompClient = null;
+    this.connectPromise = null;
+    this.subscriptions.clear();
+  }
+}
+
+// Singleton instance
+const stompClientManager = new StompClientManager();
+
+class WebSocketManager implements WebSocketService {
   private subscriptions: Map<string, any> = new Map();
   private messageHandlers: ((message: WebSocketMessage) => void)[] = [];
   private connectHandlers: (() => void)[] = [];
@@ -35,11 +198,11 @@ class WebSocketManager implements WebSocketService {
   private isConnecting = false;
 
   connect(broadcastId: number, authToken: string): void {
-    // Skip if already connected to same broadcast
-    if (this.stompClient?.connected && 
-        this.currentBroadcastId === broadcastId && 
+    // Skip if already connected to same broadcast using shared manager
+    if (stompClientManager.isConnected() &&
+        this.currentBroadcastId === broadcastId &&
         this.currentAuthToken === authToken) {
-      console.log('📡 Already connected to broadcast', broadcastId);
+      console.log('📡 Already connected to broadcast', broadcastId, 'via shared STOMP client');
       this.connectHandlers.forEach(handler => handler());
       return;
     }
@@ -54,73 +217,45 @@ class WebSocketManager implements WebSocketService {
     this.currentBroadcastId = broadcastId;
     this.currentAuthToken = authToken;
 
-    // Disconnect existing connection
-    if (this.stompClient?.connected) {
-      console.log('📡 Disconnecting existing connection...');
-      this.disconnect();
-    }
+    // Disconnect existing subscriptions (but keep shared STOMP connection alive)
+    this.clearSubscriptions();
 
     try {
-      const wsUrl = `${ENV.BACKEND_BASE_URL}/ws-radio`;
-      console.log(`📡 Connecting to STOMP WebSocket: ${wsUrl}`);
-
-      // Create SockJS + STOMP client (matches backend configuration)
-      const sockjs = new SockJS(wsUrl);
-      this.stompClient = Stomp.over(sockjs);
-
-      // Configure STOMP client for better reliability
-      this.stompClient.debug = () => {}; // Disable debug logs
-      this.stompClient.reconnect_delay = 0; // Disable auto-reconnect (we handle it manually)
-      this.stompClient.heartbeat = { outgoing: 20000, incoming: 20000 }; // 20 second heartbeat
+      console.log(`📡 Connecting to shared STOMP WebSocket for broadcast ${broadcastId}`);
 
       // Set connection timeout (increased for slow mobile connections)
       const connectionTimeout = setTimeout(() => {
         console.error('❌ WebSocket connection timeout after 20 seconds');
         this.isConnecting = false;
         this.errorHandlers.forEach(handler => handler({ type: 'timeout' }));
-        if (this.stompClient) {
-          try {
-            this.stompClient.disconnect();
-          } catch (e) {
-            console.error('Error disconnecting timed out client:', e);
-          }
-        }
       }, 20000); // 20 second timeout for mobile
 
-      // Connect with auth headers
-      const headers: any = {};
-      if (authToken) {
-        headers['Authorization'] = `Bearer ${authToken}`;
-      }
-
-      this.stompClient.connect(
-        headers,
-        // Success callback
-        (frame: any) => {
+      // Connect using shared STOMP client manager
+      stompClientManager.connect(authToken).then(
+        () => {
           clearTimeout(connectionTimeout);
           this.isConnecting = false;
           this.reconnectAttempts = 0;
-          console.log('✅ STOMP WebSocket connected successfully to broadcast', broadcastId);
-          
+          console.log('✅ Shared STOMP WebSocket connected successfully to broadcast', broadcastId);
+
           // Subscribe to topics if broadcastId > 0
           if (broadcastId > 0) {
-            this.subscribeToTopics(broadcastId);
+            this.subscribeToTopics(broadcastId, authToken);
           }
-          
+
           console.log(`📡 Calling ${this.connectHandlers.length} connect handlers`);
           this.connectHandlers.forEach(handler => handler());
         },
-        // Error callback
         (error: any) => {
           clearTimeout(connectionTimeout);
           this.isConnecting = false;
-          
+
           const errorMsg = error?.message || error?.toString() || 'Unknown error';
-          console.error('❌ STOMP WebSocket connection failed:', errorMsg);
-          
+          console.error('❌ Shared STOMP WebSocket connection failed:', errorMsg);
+
           this.errorHandlers.forEach(handler => handler(error || new Error('Connection failed')));
           this.disconnectHandlers.forEach(handler => handler());
-          
+
           // Attempt reconnect
           this.attemptReconnect();
         }
@@ -128,18 +263,18 @@ class WebSocketManager implements WebSocketService {
 
     } catch (error) {
       this.isConnecting = false;
-      console.error('❌ Error creating STOMP WebSocket:', error);
+      console.error('❌ Error connecting to shared STOMP WebSocket:', error);
       this.errorHandlers.forEach(handler => handler(error));
       this.disconnectHandlers.forEach(handler => handler());
     }
   }
 
-  private subscribeToTopics(broadcastId: number): void {
-    if (!this.stompClient?.connected) return;
+  private async subscribeToTopics(broadcastId: number, authToken?: string): Promise<void> {
+    if (!stompClientManager.isConnected()) return;
 
     try {
-      // Subscribe to chat messages
-      const chatSub = this.stompClient.subscribe(
+      // Subscribe to chat messages using shared manager
+      const chatSub = await stompClientManager.subscribe(
         `/topic/broadcast/${broadcastId}/chat`,
         (message: any) => {
           try {
@@ -152,12 +287,13 @@ class WebSocketManager implements WebSocketService {
           } catch (error) {
             console.error('❌ Error parsing chat message:', error);
           }
-        }
+        },
+        authToken
       );
       this.subscriptions.set('chat', chatSub);
 
-      // Subscribe to polls
-      const pollSub = this.stompClient.subscribe(
+      // Subscribe to polls using shared manager
+      const pollSub = await stompClientManager.subscribe(
         `/topic/broadcast/${broadcastId}/polls`,
         (message: any) => {
           try {
@@ -170,12 +306,13 @@ class WebSocketManager implements WebSocketService {
           } catch (error) {
             console.error('❌ Error parsing poll message:', error);
           }
-        }
+        },
+        authToken
       );
       this.subscriptions.set('poll', pollSub);
 
-      // Subscribe to broadcast updates
-      const broadcastSub = this.stompClient.subscribe(
+      // Subscribe to broadcast updates using shared manager
+      const broadcastSub = await stompClientManager.subscribe(
         `/topic/broadcast/${broadcastId}`,
         (message: any) => {
           try {
@@ -188,11 +325,12 @@ class WebSocketManager implements WebSocketService {
           } catch (error) {
             console.error('❌ Error parsing broadcast update:', error);
           }
-        }
+        },
+        authToken
       );
       this.subscriptions.set('broadcast', broadcastSub);
 
-      console.log('✅ Subscribed to broadcast topics');
+      console.log('✅ Subscribed to broadcast topics via shared STOMP client');
     } catch (error) {
       console.error('❌ Error subscribing to topics:', error);
     }
@@ -222,42 +360,25 @@ class WebSocketManager implements WebSocketService {
   }
 
   disconnect(): void {
-    console.log('📡 Disconnecting STOMP WebSocket...');
+    console.log('📡 Disconnecting from shared STOMP WebSocket...');
 
-    // Unsubscribe from all topics
-    this.subscriptions.forEach((sub, key) => {
-      try {
-        sub.unsubscribe();
-      } catch (error) {
-        console.error(`❌ Error unsubscribing from ${key}:`, error);
-      }
-    });
-    this.subscriptions.clear();
+    // Unsubscribe from all topics (but keep shared connection alive)
+    this.clearSubscriptions();
 
-    // Disconnect STOMP client
-    if (this.stompClient?.connected) {
-      try {
-        this.stompClient.disconnect(() => {
-          console.log('✅ STOMP WebSocket disconnected');
-          this.disconnectHandlers.forEach(handler => handler());
-        });
-      } catch (error) {
-        console.error('❌ Error disconnecting STOMP:', error);
-        this.disconnectHandlers.forEach(handler => handler());
-      }
-    } else {
-      this.disconnectHandlers.forEach(handler => handler());
-    }
+    // Disconnect shared STOMP client completely
+    stompClientManager.disconnect();
 
-    this.stompClient = null;
+    console.log('✅ Shared STOMP WebSocket disconnected');
+    this.disconnectHandlers.forEach(handler => handler());
+
     this.currentBroadcastId = null;
     this.currentAuthToken = null;
     this.reconnectAttempts = 0;
     this.isConnecting = false;
   }
 
-  sendMessage(message: any): void {
-    if (!this.stompClient?.connected) {
+  async sendMessage(message: any): Promise<void> {
+    if (!stompClientManager.isConnected()) {
       throw new Error('WebSocket not connected');
     }
 
@@ -267,12 +388,7 @@ class WebSocketManager implements WebSocketService {
 
     try {
       const destination = `/app/broadcast/${this.currentBroadcastId}/chat`;
-      const headers: any = {};
-      if (this.currentAuthToken) {
-        headers['Authorization'] = `Bearer ${this.currentAuthToken}`;
-      }
-
-      this.stompClient.send(destination, headers, JSON.stringify(message));
+      await stompClientManager.publish(destination, message, this.currentAuthToken);
     } catch (error) {
       console.error('❌ Failed to send message:', error);
       throw error;
@@ -280,7 +396,7 @@ class WebSocketManager implements WebSocketService {
   }
 
   sendListenerStatus(action: 'START_LISTENING' | 'STOP_LISTENING', userId: number | null, userName: string): void {
-    if (!this.stompClient?.connected || !this.currentBroadcastId) {
+    if (!stompClientManager.isConnected() || !this.currentBroadcastId) {
       return;
     }
 
@@ -294,14 +410,22 @@ class WebSocketManager implements WebSocketService {
     };
 
     try {
-      const headers: any = {};
-      if (this.currentAuthToken) {
-        headers['Authorization'] = `Bearer ${this.currentAuthToken}`;
-      }
-      this.stompClient.send('/app/listener/status', headers, JSON.stringify(message));
+      stompClientManager.publish('/app/listener/status', message, this.currentAuthToken);
     } catch (error) {
       console.error(`❌ Failed to send listener ${action}:`, error);
     }
+  }
+
+  private clearSubscriptions(): void {
+    // Unsubscribe from all topics but keep shared STOMP connection alive
+    this.subscriptions.forEach((sub, key) => {
+      try {
+        sub.unsubscribe();
+      } catch (error) {
+        console.error(`❌ Error unsubscribing from ${key}:`, error);
+      }
+    });
+    this.subscriptions.clear();
   }
 
   onMessage(callback: (message: WebSocketMessage) => void): void {
@@ -329,7 +453,7 @@ class WebSocketManager implements WebSocketService {
   }
 
   isConnected(): boolean {
-    return !!(this.stompClient?.connected);
+    return stompClientManager.isConnected();
   }
 
   removeHandlers(): void {
@@ -340,27 +464,20 @@ class WebSocketManager implements WebSocketService {
   }
 
   subscribe(topic: string, callback: (message: any) => void): { unsubscribe: () => void } {
-    if (!this.stompClient?.connected) {
-      throw new Error('STOMP client not connected');
+    if (!stompClientManager.isConnected()) {
+      throw new Error('Shared STOMP client not connected');
     }
 
-    const subscription = this.stompClient.subscribe(topic, (message: any) => {
+    // Use shared manager for subscriptions
+    const subscription = stompClientManager.subscribe(topic, (message: any) => {
       try {
         callback(message);
       } catch (error) {
         console.error(`❌ Error handling message from ${topic}:`, error);
       }
-    });
+    }, this.currentAuthToken);
 
-    return {
-      unsubscribe: () => {
-        try {
-          subscription.unsubscribe();
-        } catch (error) {
-          console.error(`❌ Error unsubscribing from ${topic}:`, error);
-        }
-      }
-    };
+    return subscription;
   }
 }
 

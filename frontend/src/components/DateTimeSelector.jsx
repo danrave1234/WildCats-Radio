@@ -8,21 +8,33 @@ export function DateSelector({ value, onChange, label, required = false, id, min
   const [selectedDate, setSelectedDate] = useState(value ? new Date(value) : null);
   const containerRef = useRef(null);
   
+  // Get today's date as minimum (YYYY-MM-DD format)
+  const getTodayMinDate = () => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  };
+  
+  // Use today as minimum, or the provided min if it's later than today
+  const effectiveMinDate = (() => {
+    const todayMin = getTodayMinDate();
+    if (!min) return todayMin;
+    // Return whichever is later (today or provided min)
+    return min > todayMin ? min : todayMin;
+  })();
+  
   // Format displayed value
   const displayValue = selectedDate ? format(selectedDate, 'MMMM d, yyyy') : '';
   
-  // Check if a date is disabled (before minimum date) - using local date components to avoid timezone issues
+  // Check if a date is disabled (before minimum date or in the past) - using local date components to avoid timezone issues
   const isDateDisabled = (date) => {
-    if (!min) return false;
-    
-    // Parse the min date string (YYYY-MM-DD format) using local components
-    const [minYear, minMonth, minDay] = min.split('-').map(Number);
-    const minDate = new Date(minYear, minMonth - 1, minDay); // month is 0-indexed
-    
-    // Create date objects for comparison (set to start of day)
     const dateToCheck = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    
+    // Parse the effective min date
+    const [minYear, minMonth, minDay] = effectiveMinDate.split('-').map(Number);
+    const minDate = new Date(minYear, minMonth - 1, minDay);
     const minDateToCheck = new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate());
     
+    // Disable dates before the effective minimum date
     return dateToCheck < minDateToCheck;
   };
   
@@ -95,9 +107,9 @@ export function DateSelector({ value, onChange, label, required = false, id, min
   // Check if date is today
   const isToday = (date) => {
     const today = new Date();
-    return date.getDate() === today.getDate() &&
-           date.getMonth() === today.getMonth() &&
-           date.getFullYear() === today.getFullYear();
+    const dateToCheck = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const todayToCheck = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    return dateToCheck.getTime() === todayToCheck.getTime();
   };
   
   // Check if date is selected
@@ -121,7 +133,7 @@ export function DateSelector({ value, onChange, label, required = false, id, min
   };
   
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative" ref={containerRef} style={{ zIndex: isOpen ? 9999 : 'auto' }}>
       {label && (
         <label htmlFor={id} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {label} {required && <span className="text-red-500">*</span>}
@@ -144,7 +156,7 @@ export function DateSelector({ value, onChange, label, required = false, id, min
       </div>
       
       {isOpen && (
-        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-gray-800 rounded-md shadow-lg border border-gray-200 dark:border-gray-700">
+        <div className="absolute z-[10000] mt-1 w-full min-w-[280px] bg-white dark:bg-gray-800 rounded-md shadow-2xl border border-gray-200 dark:border-gray-700" style={{ position: 'absolute', top: '100%', left: 0 }}>
           <div className="p-2">
             <div className="flex items-center justify-between mb-2">
               <button
@@ -234,7 +246,7 @@ export function DateSelector({ value, onChange, label, required = false, id, min
   );
 }
 
-export function TimeSelector({ value, onChange, label, required = false, id, min, max, disabled = false }) {
+export function TimeSelector({ value, onChange, label, required = false, id, min, max, disabled = false, selectedDate = null }) {
   const [isOpen, setIsOpen] = useState(false);
   const [customHour, setCustomHour] = useState('');
   const [customMinute, setCustomMinute] = useState('');
@@ -244,18 +256,44 @@ export function TimeSelector({ value, onChange, label, required = false, id, min
   const containerRef = useRef(null);
   const formRef = useRef(null);
   
+  // Check if selected date is today
+  const isSelectedDateToday = () => {
+    if (!selectedDate) return false;
+    const today = new Date();
+    const [year, month, day] = selectedDate.split('-').map(Number);
+    const selected = new Date(year, month - 1, day);
+    return selected.getFullYear() === today.getFullYear() &&
+           selected.getMonth() === today.getMonth() &&
+           selected.getDate() === today.getDate();
+  };
+  
+  // Get minimum time (current time if date is today, otherwise min prop or undefined)
+  const getEffectiveMinTime = () => {
+    if (isSelectedDateToday()) {
+      const now = new Date();
+      // Round up to next 30-minute interval
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      const roundedMinutes = Math.ceil((currentMinutes + 1) / 30) * 30;
+      const minHours = Math.floor(roundedMinutes / 60);
+      const minMins = roundedMinutes % 60;
+      return `${String(minHours).padStart(2, '0')}:${String(minMins).padStart(2, '0')}`;
+    }
+    return min;
+  };
+  
   // Generate time options (30 minute intervals) within min/max range
   const generateTimeOptions = () => {
     const options = [];
+    const effectiveMin = getEffectiveMinTime();
 
     for (let hour = 0; hour < 24; hour++) {
       for (let minute = 0; minute < 60; minute += 30) {
         const time = new Date();
         time.setHours(hour, minute, 0);
         
-        // Filter by min/max if provided
-        if (min) {
-          const [minHour, minMinute] = min.split(':').map(Number);
+        // Filter by effective min time (current time if date is today)
+        if (effectiveMin) {
+          const [minHour, minMinute] = effectiveMin.split(':').map(Number);
           const minTime = new Date();
           minTime.setHours(minHour, minMinute, 0);
           if (time < minTime) continue;
@@ -275,12 +313,13 @@ export function TimeSelector({ value, onChange, label, required = false, id, min
     return options;
   };
   
-  const timeOptions = generateTimeOptions();
-  
   // Format displayed value
   const displayValue = value ? 
     new Date(`2000-01-01T${value}`).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }) : 
     '';
+  
+  // Generate time options - this will recalculate on every render when selectedDate or min changes
+  const timeOptions = generateTimeOptions();
   
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -345,6 +384,21 @@ export function TimeSelector({ value, onChange, label, required = false, id, min
   const handleTimeSelect = (date) => {
     // Format as HH:MM
     const formattedTime = format(date, 'HH:mm');
+    
+    // Validate that the time is not in the past if date is today
+    if (isSelectedDateToday()) {
+      const now = new Date();
+      const selectedTime = new Date();
+      selectedTime.setHours(date.getHours(), date.getMinutes(), 0, 0);
+      now.setSeconds(0, 0);
+      
+      // Round up to next minute for comparison
+      if (selectedTime <= now) {
+        // Time is in the past, don't set it
+        return;
+      }
+    }
+    
     onChange(formattedTime);
     setIsOpen(false);
     setShowCustomInput(false);
@@ -415,6 +469,22 @@ export function TimeSelector({ value, onChange, label, required = false, id, min
       
       // Format as HH:MM for the internal value
       const formattedTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+      
+      // Validate that the time is not in the past if date is today
+      const effectiveMin = getEffectiveMinTime();
+      if (effectiveMin) {
+        const [minHour, minMinute] = effectiveMin.split(':').map(Number);
+        const selectedTime = new Date();
+        selectedTime.setHours(hours, minutes, 0);
+        const minTime = new Date();
+        minTime.setHours(minHour, minMinute, 0);
+        
+        if (selectedTime < minTime) {
+          // Time is in the past, don't set it
+          return false;
+        }
+      }
+      
       onChange(formattedTime);
       
       // Close the dropdown after a small delay to prevent issues with event handling
@@ -436,7 +506,7 @@ export function TimeSelector({ value, onChange, label, required = false, id, min
   };
   
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative" ref={containerRef} style={{ zIndex: isOpen ? 9999 : 'auto' }}>
       {label && (
         <label htmlFor={id} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {label} {required && <span className="text-red-500">*</span>}
@@ -460,7 +530,7 @@ export function TimeSelector({ value, onChange, label, required = false, id, min
       </div>
       
       {isOpen && !disabled && (
-        <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto bg-white dark:bg-gray-800 rounded-md shadow-lg border border-gray-200 dark:border-gray-700">
+        <div className="absolute z-[10000] mt-1 w-full min-w-[200px] max-h-60 overflow-y-auto bg-white dark:bg-gray-800 rounded-md shadow-2xl border border-gray-200 dark:border-gray-700" style={{ position: 'absolute', top: '100%', left: 0 }}>
           <div className="p-1">
             {/* Custom time input */}
             {showCustomInput ? (
@@ -536,20 +606,34 @@ export function TimeSelector({ value, onChange, label, required = false, id, min
             )}
             
             {/* Preset time options */}
-            {!showCustomInput && timeOptions.map((time, index) => (
-              <button
-                type="button"
-                key={index}
-                onClick={() => handleTimeSelect(time)}
-                className={`w-full text-left px-3 py-2 text-sm ${
-                  isSelected(time)
-                    ? 'bg-maroon-600 text-white'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
-              >
-                {format(time, 'h:mm a')}
-              </button>
-            ))}
+            {!showCustomInput && timeOptions.map((time, index) => {
+              // Check if this time option is in the past (if date is today)
+              const isPastTime = isSelectedDateToday() && (() => {
+                const now = new Date();
+                const timeToCheck = new Date();
+                timeToCheck.setHours(time.getHours(), time.getMinutes(), 0, 0);
+                now.setSeconds(0, 0);
+                return timeToCheck <= now;
+              })();
+              
+              return (
+                <button
+                  type="button"
+                  key={index}
+                  onClick={() => handleTimeSelect(time)}
+                  disabled={isPastTime}
+                  className={`w-full text-left px-3 py-2 text-sm ${
+                    isPastTime
+                      ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50'
+                      : isSelected(time)
+                        ? 'bg-maroon-600 text-white'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  {format(time, 'h:mm a')}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

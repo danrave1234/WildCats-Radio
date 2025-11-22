@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext';
 import { useLocalBackend, config } from '../config';
 import { createLogger } from '../services/logger';
 import { globalWebSocketService } from '../services/globalWebSocketService';
+import stompClientManager from '../services/stompClientManager';
 
 const logger = createLogger('StreamingContext');
 
@@ -48,6 +49,13 @@ export function StreamingProvider({ children }) {
     return saved === 'true';
   });
 
+  // Live stream sync state
+  const [isStreamSyncing, setIsStreamSyncing] = useState(false);
+
+  // Pause tracking for live stream sync
+  const lastPauseTimeRef = useRef(null);
+  const PAUSE_THRESHOLD_MS = 10000; // 10 seconds - refresh stream if paused longer
+
   // Server Config
   const [serverConfig, setServerConfig] = useState(null);
 
@@ -57,12 +65,18 @@ export function StreamingProvider({ children }) {
   const audioStreamRef = useRef(null);
   const audioRef = useRef(null);
   const djReconnectTimerRef = useRef(null);
+  
+  // STOMP subscription reference for listener status
+  const listenerStatusSubscriptionRef = useRef(null);
 
   // Flag to prevent auto-reconnection during pipeline resets
   const pipelineResetInProgressRef = useRef(false);
 
   // WebSocket message size limits (based on backend configuration)
   const MAX_MESSAGE_SIZE = 60000; // 60KB - safety margin below the 64KB server buffer for low latency
+
+  // Circuit breaker status for stream checks
+  const [streamStatusCircuitBreakerOpen, setStreamStatusCircuitBreakerOpen] = useState(false);
 
   // Add new audio source state
   const [audioSource, setAudioSource] = useState(() => {
@@ -83,9 +97,48 @@ export function StreamingProvider({ children }) {
   const [streamHealth, setStreamHealth] = useState({ healthy: false, recovering: false, broadcastLive: false, listenerCount: 0, bitrate: 0, lastCheckedAt: null, errorMessage: null });
   const prevRecoveringRef = useRef(false);
 
+  // Health check polling - FALLBACK ONLY when WebSocket is unavailable
+  // Primary health updates come via WebSocket (STREAM_STATUS messages with health data)
   useEffect(() => {
     let cancelled = false;
     let intervalId;
+    
+    // Check if STOMP is connected - if so, use it as primary source (no polling needed)
+    // Use STOMP connection status for listener status updates
+    const isWebSocketConnected = stompClientManager.isConnected();
+    
+    // Only poll if WebSocket is not available (fallback mode)
+    if (isWebSocketConnected) {
+      // WebSocket is connected - health updates come via WebSocket, no polling needed
+      // Do an initial fetch to get current state, then rely on WebSocket
+      const fetchInitialHealth = async () => {
+        try {
+          const res = await broadcastService.getLiveHealth();
+          const data = res?.data || {};
+          const healthy = !!data.healthy;
+          const recovering = !!data.recovering;
+          const broadcastLive = !!data.broadcastLive;
+          const listenerCount = typeof data.listenerCount === 'number' ? data.listenerCount : streamHealth.listenerCount;
+          const bitrate = typeof data.bitrate === 'number' ? data.bitrate : streamHealth.bitrate;
+          const lastCheckedAt = data.lastCheckedAt || null;
+          const errorMessage = data.errorMessage || null;
+
+          if (!cancelled) {
+            setStreamHealth({ healthy, recovering, broadcastLive, listenerCount, bitrate, lastCheckedAt, errorMessage });
+            if (typeof listenerCount === 'number') {
+              setListenerCount(listenerCount);
+            }
+          }
+        } catch (e) {
+          // Silent fail for initial fetch
+        }
+      };
+      
+      fetchInitialHealth();
+      return () => { cancelled = true; };
+    }
+    
+    // Fallback: WebSocket not available, use HTTP polling (but less frequently)
     const fetchHealth = async () => {
       try {
         const res = await broadcastService.getLiveHealth();
@@ -115,10 +168,23 @@ export function StreamingProvider({ children }) {
       }
     };
 
+    // Only poll when the listener/status WebSocket is NOT connected.
+    // When `websocketConnected` is true, ListenerStatusHandler provides real-time health data.
+    if (websocketConnected) {
+      return () => {};
+    }
+
+    // When WebSocket is unavailable, poll less frequently (60s) as fallback
+    const pollInterval = 60000; // 60 seconds fallback polling
+
     fetchHealth();
-    intervalId = setInterval(fetchHealth, 15000);
-    return () => { cancelled = true; if (intervalId) clearInterval(intervalId); };
-  }, [serverConfig?.streamUrl]);
+    intervalId = setInterval(fetchHealth, pollInterval);
+    
+    return () => { 
+      cancelled = true; 
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [serverConfig?.streamUrl, isLive, isListening, streamHealth.broadcastLive, streamHealth.recovering, websocketConnected]);
 
   // Load persisted state on startup
   useEffect(() => {
@@ -152,15 +218,18 @@ export function StreamingProvider({ children }) {
         // Set up listener connections
         checkAndRestoreListenerState();
       }
-      // Authenticated users also receive status updates
-      connectListenerStatusWebSocket();
+      // Authenticated users also receive status updates via STOMP
+      setupListenerStatusSTOMP();
+      // Connect to global broadcast status updates
+      connectBroadcastStatusWebSocket();
       // Also refresh status once immediately
       refreshStreamStatus();
     } else {
       // When unauthenticated, disconnect any DJ or poll connections,
-      // but still connect to listener status WS and refresh status so guests can see live state
+      // but still connect to listener status via STOMP and broadcast status WS so guests can see live state
       disconnectAll();
-      connectListenerStatusWebSocket();
+      setupListenerStatusSTOMP();
+      connectBroadcastStatusWebSocket();
       refreshStreamStatus();
     }
 
@@ -191,27 +260,94 @@ export function StreamingProvider({ children }) {
         setAudioPlaying(parsed.audioPlaying || false);
       }
 
-      // Load current broadcast
+      // Load current broadcast - but only if it's recent (within last 5 minutes)
+      // This prevents loading stale broadcast data after broadcasts have ended
       const broadcast = localStorage.getItem(STORAGE_KEYS.CURRENT_BROADCAST);
       if (broadcast && !currentBroadcast) {
-        setCurrentBroadcast(JSON.parse(broadcast));
+        try {
+          const parsed = JSON.parse(broadcast);
+          // Check if broadcast data is recent (has actualStart and within reasonable time)
+          if (parsed.actualStart) {
+            const startTime = new Date(parsed.actualStart);
+            const now = new Date();
+            const minutesSinceStart = (now - startTime) / (1000 * 60);
+
+            // Only load if broadcast started within last 5 minutes
+            // This prevents loading stale data after broadcast has ended
+            if (minutesSinceStart < 5) {
+              setCurrentBroadcast(parsed);
+              logger.info('Loaded recent broadcast from localStorage:', parsed.title);
+            } else {
+              logger.info('Ignoring stale broadcast data from localStorage (started', Math.round(minutesSinceStart), 'minutes ago)');
+              localStorage.removeItem(STORAGE_KEYS.CURRENT_BROADCAST);
+            }
+          } else {
+            // No actualStart means broadcast never actually started, safe to load
+            setCurrentBroadcast(parsed);
+          }
+        } catch (e) {
+          logger.error('Error parsing stored broadcast:', e);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_BROADCAST);
+        }
       }
     } catch (error) {
       logger.error('Error loading persisted state:', error);
     }
   };
 
+  // Circuit breaker state for stream status checks
+  const streamStatusCircuitBreaker = useRef({
+    consecutiveFailures: 0,
+    lastFailureTime: 0,
+    isOpen: false,
+    nextRetryTime: 0
+  });
+
   const refreshStreamStatus = async () => {
+    const now = Date.now();
+    const breaker = streamStatusCircuitBreaker.current;
+
+    // Check if circuit breaker is open (too many failures)
+    if (breaker.isOpen && now < breaker.nextRetryTime) {
+      // Circuit is open, skip this call but don't log (to reduce spam)
+      return;
+    }
+
     try {
       const response = await streamService.getStatus();
       if (response.data && response.data.success) {
         const { listenerCount, isLive } = response.data.data;
         setListenerCount(listenerCount);
         setIsLive(isLive);
+
+        // Success! Reset circuit breaker
+        breaker.consecutiveFailures = 0;
+        breaker.isOpen = false;
+        breaker.lastFailureTime = 0;
+        breaker.nextRetryTime = 0;
+        setStreamStatusCircuitBreakerOpen(false);
+
         logger.info(`Refreshed stream status: isLive=${isLive}, listeners=${listenerCount}`);
       }
     } catch (error) {
-      logger.error('Error refreshing stream status:', error);
+      breaker.consecutiveFailures++;
+      breaker.lastFailureTime = now;
+
+      // Open circuit breaker after 3 consecutive failures
+      if (breaker.consecutiveFailures >= 3 && !breaker.isOpen) {
+        breaker.isOpen = true;
+        setStreamStatusCircuitBreakerOpen(true);
+        // Exponential backoff: wait 30 seconds, then 60, then 120, etc.
+        const backoffSeconds = Math.min(30 * Math.pow(2, breaker.consecutiveFailures - 3), 300); // Max 5 minutes
+        breaker.nextRetryTime = now + (backoffSeconds * 1000);
+
+        logger.warn(`Stream status circuit breaker opened after ${breaker.consecutiveFailures} failures. Next retry in ${backoffSeconds} seconds.`);
+      }
+
+      // Only log errors when circuit breaker opens or for the first few failures
+      if (breaker.consecutiveFailures <= 3 || breaker.consecutiveFailures % 5 === 0) {
+        logger.error(`Error refreshing stream status (${breaker.consecutiveFailures} consecutive failures):`, error);
+      }
     }
   };
 
@@ -378,7 +514,7 @@ export function StreamingProvider({ children }) {
       // Use diagnostic approach to identify and fix silent microphone issues
       return await getDiagnosticMicrophoneAudioStream();
     } catch (error) {
-      console.error('❌ Error getting microphone audio stream:', error);
+      console.error('[ERROR] Error getting microphone audio stream:', error);
       logger.error('Error getting microphone audio stream:', error);
       throw error;
     }
@@ -400,7 +536,7 @@ export function StreamingProvider({ children }) {
         }
       });
 
-      console.log('✅ Diagnostic microphone stream obtained');
+      console.log('[SUCCESS] Diagnostic microphone stream obtained');
 
       // Step 2: Test audio levels directly from raw stream
       const testContext = new AudioContext({ sampleRate: 48000 });
@@ -443,19 +579,19 @@ export function StreamingProvider({ children }) {
 
       // Step 4: Evaluate results
       if (maxLevel < 1) {
-        console.warn('⚠️ Raw microphone levels extremely low, trying fallback capture method');
+        console.warn('[WARNING] Raw microphone levels extremely low, trying fallback capture method');
         micStream.getTracks().forEach(track => track.stop());
         return await getFallbackMicrophoneAudioStream();
       }
 
-      console.log(`✅ Raw microphone working (max level: ${maxLevel.toFixed(2)}), proceeding with processing`);
+      console.log(`[SUCCESS] Raw microphone working (max level: ${maxLevel.toFixed(2)}), proceeding with processing`);
 
       // Step 5: Try direct stream first (no processing) to test Chrome WebRTC issues
-      console.log('🔧 Testing direct stream approach first...');
+      console.log('[INFO] Testing direct stream approach first...');
       try {
         // Test: return the raw stream directly without any processing
         // This will help identify if the issue is in the processing pipeline
-        console.log('⚠️ Using DIRECT STREAM mode (no processing) for testing');
+        console.log('[WARNING] Using DIRECT STREAM mode (no processing) for testing');
 
         // Set up basic references for audio level monitoring
         const testContext = new AudioContext({ sampleRate: 48000 });
@@ -468,11 +604,11 @@ export function StreamingProvider({ children }) {
         // Start basic monitoring
         startAudioLevelMonitoring();
 
-        console.log('✅ Direct stream mode active - no audio processing applied');
+        console.log('[SUCCESS] Direct stream mode active - no audio processing applied');
         return micStream; // Return raw stream directly
 
       } catch (directError) {
-        console.warn('⚠️ Direct stream failed, falling back to processing pipeline:', directError);
+        console.warn('[WARNING] Direct stream failed, falling back to processing pipeline:', directError);
 
         // Step 5b: Use direct stream as fallback
         console.log('Using direct microphone stream as fallback');
@@ -480,16 +616,16 @@ export function StreamingProvider({ children }) {
 
         // DON'T stop original stream immediately - let processed stream establish first
         setTimeout(() => {
-          console.log('🔧 Stopping original microphone stream after processed stream established');
+          console.log('[INFO] Stopping original microphone stream after processed stream established');
           micStream.getTracks().forEach(track => track.stop());
         }, 1000);
 
-        console.log('✅ Diagnostic microphone pipeline complete');
+        console.log('[SUCCESS] Diagnostic microphone pipeline complete');
         return processedStream;
       }
 
     } catch (error) {
-      console.error('❌ Error in diagnostic microphone capture:', error);
+      console.error('[ERROR] Error in diagnostic microphone capture:', error);
       throw error;
     }
   };
@@ -497,7 +633,7 @@ export function StreamingProvider({ children }) {
   // Fallback microphone audio stream with minimal processing
   const getFallbackMicrophoneAudioStream = async () => {
     try {
-      console.log('🔄 Attempting fallback microphone capture...');
+      console.log('[INFO] Attempting fallback microphone capture...');
 
       // Try different audio constraints
       const constraints = [
@@ -530,7 +666,7 @@ export function StreamingProvider({ children }) {
 
       for (let i = 0; i < constraints.length; i++) {
         try {
-          console.log(`🔄 Trying fallback constraint ${i + 1}:`, constraints[i]);
+          console.log(`[INFO] Trying fallback constraint ${i + 1}:`, constraints[i]);
 
           const stream = await navigator.mediaDevices.getUserMedia(constraints[i]);
 
@@ -553,10 +689,10 @@ export function StreamingProvider({ children }) {
 
           testCtx.close();
 
-          console.log(`🔄 Fallback constraint ${i + 1} average level: ${avgLevel.toFixed(2)}`);
+          console.log(`[INFO] Fallback constraint ${i + 1} average level: ${avgLevel.toFixed(2)}`);
 
           if (avgLevel > 0.5 || i === constraints.length - 1) { // Accept if any audio or last attempt
-            console.log(`✅ Fallback constraint ${i + 1} accepted, using direct stream`);
+            console.log(`[SUCCESS] Fallback constraint ${i + 1} accepted, using direct stream`);
 
             // Return the stream directly without complex processing
             return stream;
@@ -565,13 +701,13 @@ export function StreamingProvider({ children }) {
           }
 
         } catch (error) {
-          console.warn(`⚠️ Fallback constraint ${i + 1} failed:`, error.message);
+          console.warn(`[WARNING] Fallback constraint ${i + 1} failed:`, error.message);
         }
       }
 
       throw new Error('All fallback microphone capture methods failed');
     } catch (error) {
-      console.error('❌ Error in fallback microphone capture:', error);
+      console.error('[ERROR] Error in fallback microphone capture:', error);
       throw error;
     }
   };
@@ -1031,7 +1167,7 @@ export function StreamingProvider({ children }) {
 
             // Log timing info every 10th chunk to track regularity
             if (chunkCount % 10 === 0) {
-              console.log(`🎵 Audio chunk #${chunkCount}: ${event.data.size} bytes, ${timeSinceLastChunk}ms since last chunk`);
+              console.log(`[AUDIO] Audio chunk #${chunkCount}: ${event.data.size} bytes, ${timeSinceLastChunk}ms since last chunk`);
             }
 
             lastChunkTime = currentTime;
@@ -1125,9 +1261,9 @@ export function StreamingProvider({ children }) {
         // Only restore listening state if it was recently active (within 1 hour)
         const oneHour = 60 * 60 * 1000;
         if (parsed.timestamp && (Date.now() - parsed.timestamp) < oneHour) {
-          if (parsed.isListening) {
-            // Restore listening state
-            connectListenerStatusWebSocket();
+            if (parsed.isListening) {
+            // Restore listening state via STOMP
+            setupListenerStatusSTOMP();
 
             if (parsed.audioPlaying && serverConfig?.streamUrl) {
               // Attempt to restore audio playback
@@ -1143,54 +1279,15 @@ export function StreamingProvider({ children }) {
     }
   };
 
-  // Restore audio playback
+  // Restore audio playback - simplified since toggleAudio handles creation
   const restoreAudioPlayback = () => {
-    if (!audioRef.current && serverConfig?.streamUrl) {
-      audioRef.current = new Audio();
-      attachAudioEventHandlers();
-
-      // Improve URL handling and add fallback formats
-      let streamUrl = serverConfig.streamUrl;
-
-      // Ensure proper protocol (force HTTPS for listener stream)
-      if (!/^https?:\/\//i.test(streamUrl)) {
-        streamUrl = `https://${streamUrl}`;
-      }
-
-      // Set CORS mode for external streams
-      audioRef.current.crossOrigin = 'anonymous';
-      audioRef.current.preload = 'none';
-      audioRef.current.src = streamUrl;
-      audioRef.current.volume = isMuted ? 0 : volume / 100;
-
-      // Add error handling for format issues
-      audioRef.current.addEventListener('error', (e) => {
-        console.error('Audio restore error:', e);
-        const error = audioRef.current.error;
-        if (error && error.code === error.MEDIA_ERR_SRC_NOT_SUPPORTED && streamUrl.includes('.ogg')) {
-          console.log('OGG format not supported during restore, trying fallback...');
-          const fallbackUrl = streamUrl.replace('.ogg', '');
-          audioRef.current.src = fallbackUrl;
-          audioRef.current.load();
-        }
-      });
-
-      audioRef.current.play().then(() => {
-        setAudioPlaying(true);
-        console.log('Audio playback restored successfully');
-      }).catch(error => {
-        console.log('Could not auto-restore audio playback (user interaction required):', error);
-        setAudioPlaying(false);
-
-        // Try fallback format if it's a format issue
-        if (error.name === 'NotSupportedError' && streamUrl.includes('.ogg')) {
-          console.log('Trying fallback format for restoration...');
-          const fallbackUrl = streamUrl.replace('.ogg', '');
-          audioRef.current.src = fallbackUrl;
-          audioRef.current.load();
-        }
-      });
+    if (!audioRef.current) {
+      logger.warn('restoreAudioPlayback called but no audio element exists');
+      return;
     }
+
+    // Just ensure volume is set correctly
+    audioRef.current.volume = isMuted ? 0 : volume / 100;
   };
 
   // Connect DJ WebSocket for streaming
@@ -1317,60 +1414,142 @@ export function StreamingProvider({ children }) {
     });
   }, [isLive]);
 
-  // Connect listener/status WebSocket
-  const connectListenerStatusWebSocket = useCallback(() => {
-    // Use the global service to manage the connection
-    const wsUrl = getWebSocketUrl('listener'); // Assuming 'listener' endpoint handles both
-    globalWebSocketService.connectListenerStatusWebSocket(wsUrl);
-
-    // Register callbacks for messages, errors, and close events
-    globalWebSocketService.onListenerStatusMessage((event) => {
+  // Setup listener status via STOMP (replaces raw WebSocket)
+  const setupListenerStatusSTOMP = useCallback(async () => {
+    // Unsubscribe from previous subscription if exists
+    if (listenerStatusSubscriptionRef.current) {
       try {
-        // Some servers send heartbeat 'pong' strings; ignore non-JSON frames
-        if (typeof event.data === 'string' && event.data.trim() === 'pong') {
-          return;
-        }
-        const data = JSON.parse(event.data);
-        if (data.type === 'STREAM_STATUS') {
-          console.log('Stream status update received via Listener/Status WebSocket:', data);
-          setListenerCount(typeof data.listenerCount === 'number' ? data.listenerCount : 0);
-          // Update peak from server if present; keep max to avoid regressions on out-of-order messages
-          const incomingPeak = typeof data.peakListenerCount === 'number' ? data.peakListenerCount
-                            : (typeof data.peakListeners === 'number' ? data.peakListeners : null);
-          if (incomingPeak !== null) {
-            setPeakListenerCount((prev) => Math.max(prev || 0, incomingPeak));
-          }
-          if (data.isLive !== undefined) {
-            setIsLive(data.isLive);
-          }
-          // Expose last stream status globally for other components (read-only usage)
-          try {
-            window.__wildcats_stream_state__ = {
-              isLive: !!data.isLive,
-              broadcastId: data.broadcastId || null,
-              peakListeners: incomingPeak,
-              listenerCount: data.listenerCount || 0,
-              timestamp: data.timestamp || Date.now()
-            };
-          } catch (_e) { /* noop for SSR safety */ }
-        }
-      } catch (error) {
-        console.error('Error parsing listener/status WebSocket message:', error);
+        listenerStatusSubscriptionRef.current.unsubscribe();
+      } catch (e) {
+        logger.warn('Error unsubscribing from previous listener status subscription:', e);
       }
-    });
+      listenerStatusSubscriptionRef.current = null;
+    }
 
-    globalWebSocketService.onListenerStatusError((error) => {
-      console.error('Listener/Status WebSocket error:', error);
-    });
+    try {
+      // Subscribe to listener status topic via STOMP
+      const subscription = await stompClientManager.subscribe(
+        '/topic/listener-status',
+        (message) => {
+          try {
+            const data = JSON.parse(message.body);
+            
+            if (data.type === 'STREAM_STATUS') {
+              logger.debug('Stream status update received via STOMP:', data);
+              
+              setListenerCount(typeof data.listenerCount === 'number' ? data.listenerCount : 0);
+              
+              // Update peak from server if present; keep max to avoid regressions on out-of-order messages
+              const incomingPeak = typeof data.peakListenerCount === 'number' ? data.peakListenerCount
+                                : (typeof data.peakListeners === 'number' ? data.peakListeners : null);
+              if (incomingPeak !== null) {
+                setPeakListenerCount((prev) => Math.max(prev || 0, incomingPeak));
+              }
+              
+              if (data.isLive !== undefined) {
+                setIsLive(data.isLive);
+              }
+              
+              // Update health status from STOMP (replaces polling when available)
+              if (data.health) {
+                const health = data.health;
+                const healthy = !!health.healthy;
+                const recovering = !!health.recovering;
+                const broadcastLive = !!health.broadcastLive;
+                const bitrate = typeof health.bitrate === 'number' ? health.bitrate : streamHealth.bitrate;
+                const errorMessage = health.errorMessage || null;
+                
+                setStreamHealth(prev => ({
+                  ...prev,
+                  healthy,
+                  recovering,
+                  broadcastLive,
+                  bitrate,
+                  errorMessage,
+                  lastCheckedAt: data.timestamp ? new Date(data.timestamp).toISOString() : null
+                }));
+                
+                // Auto-resume playback when recovering -> healthy
+                if (prevRecoveringRef.current && healthy && audioRef.current) {
+                  audioRef.current.play().catch(() => {});
+                }
+                prevRecoveringRef.current = recovering && broadcastLive;
+              }
+              
+              // Expose last stream status globally for other components (read-only usage)
+              try {
+                window.__wildcats_stream_state__ = {
+                  isLive: !!data.isLive,
+                  broadcastId: data.broadcastId || null,
+                  peakListeners: incomingPeak,
+                  listenerCount: data.listenerCount || 0,
+                  timestamp: data.timestamp || Date.now()
+                };
+              } catch (_e) { /* noop for SSR safety */ }
+            }
+          } catch (error) {
+            logger.error('Error parsing listener status STOMP message:', error);
+          }
+        }
+      );
 
-    globalWebSocketService.onListenerStatusClose((event) => {
-      console.log('Listener/Status WebSocket disconnected:', event.code, event.reason);
-      setIsListening(false); // Assuming listener status implies listening
-    });
+      listenerStatusSubscriptionRef.current = subscription;
 
-    globalWebSocketService.onListenerStatusOpen(() => {
-      console.log('Listener/Status WebSocket connected successfully');
-      setIsListening(true);
+      // Send listener start message if we have a current broadcast
+      if (currentBroadcast?.id) {
+        try {
+          await stompClientManager.publish('/app/listener/status', {
+            action: 'START_LISTENING',
+            broadcastId: currentBroadcast.id,
+            userId: currentUser?.id || null,
+            userName: currentUser?.email || null
+          });
+        } catch (e) {
+          logger.warn('Failed to send START_LISTENING message:', e);
+        }
+      }
+
+      logger.info('Listener status STOMP subscription established');
+    } catch (error) {
+      logger.error('Failed to subscribe to listener status via STOMP:', error);
+    }
+  }, [currentBroadcast, currentUser, streamHealth.bitrate]);
+
+  // Connect broadcast status WebSocket
+  const connectBroadcastStatusWebSocket = useCallback(() => {
+    broadcastService.subscribeToGlobalBroadcastStatus((message) => {
+      logger.info('Broadcast status message received in StreamingContext:', message);
+
+      switch (message.type) {
+        case 'BROADCAST_STARTED':
+          logger.info('Broadcast started via StreamingContext WebSocket');
+          // Update current broadcast if provided
+          if (message.broadcast) {
+            setCurrentBroadcast(message.broadcast);
+            setIsLive(true);
+          }
+          break;
+
+        case 'BROADCAST_ENDED':
+          logger.info('Broadcast ended via StreamingContext WebSocket');
+          // Clear broadcast state for DJs immediately
+          setCurrentBroadcast(null);
+          setIsLive(false);
+          setWebsocketConnected(false);
+          // Clear ALL persisted state to prevent any stale data
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_BROADCAST);
+          localStorage.removeItem(STORAGE_KEYS.DJ_BROADCASTING_STATE);
+          localStorage.removeItem(STORAGE_KEYS.LISTENER_STATE);
+          // Also clear any streaming-related persisted data
+          localStorage.removeItem('wildcats_volume');
+          localStorage.removeItem('wildcats_muted');
+          break;
+
+        default:
+          logger.debug('Unhandled broadcast message type:', message.type);
+      }
+    }).catch(error => {
+      logger.error('Failed to connect broadcast status WebSocket:', error);
     });
   }, []);
 
@@ -1478,7 +1657,7 @@ export function StreamingProvider({ children }) {
 
               // Log timing info every 10th chunk to track regularity
               if (chunkCount % 10 === 0) {
-                console.log(`🎵 Audio chunk #${chunkCount}: ${event.data.size} bytes, ${timeSinceLastChunk}ms since last chunk`);
+                console.log(`[AUDIO] Audio chunk #${chunkCount}: ${event.data.size} bytes, ${timeSinceLastChunk}ms since last chunk`);
               }
 
               lastChunkTime = currentTime;
@@ -1658,6 +1837,33 @@ export function StreamingProvider({ children }) {
     }
   }, [isListening, audioPlaying, serverConfig?.streamUrl, streamHealth.broadcastLive, streamHealth.recovering]);
 
+  // Refresh audio stream when broadcast goes live
+  useEffect(() => {
+    if (streamHealth.broadcastLive && audioRef.current) {
+      logger.info('Broadcast went live, refreshing audio stream...');
+      const baseUrl = serverConfig?.streamUrl || config.icecastUrl;
+      if (baseUrl) {
+        const streamUrl = `${baseUrl}?_=${Date.now()}`;
+        const wasPlaying = !audioRef.current.paused && !audioRef.current.ended;
+
+        audioRef.current.src = streamUrl;
+
+        // If user was already trying to listen, resume playback
+        if (wasPlaying || (isListening && audioPlaying)) {
+          audioRef.current.play().catch(e => logger.error('Error refreshing live stream:', e));
+        }
+      }
+    }
+  }, [streamHealth.broadcastLive]);
+
+  // Notify user when stream syncing occurs
+  useEffect(() => {
+    if (isStreamSyncing) {
+      logger.info('Stream sync started - jumping to live position');
+      // Could add toast notification here if desired
+    }
+  }, [isStreamSyncing]);
+
   const attachAudioEventHandlers = () => {
     if (!audioRef.current || audioHandlersAttachedRef.current) return;
     const a = audioRef.current;
@@ -1687,24 +1893,24 @@ export function StreamingProvider({ children }) {
     const baseUrl = serverConfig?.streamUrl || config.icecastUrl;
     if (!baseUrl) return;
 
-    logger.info('Attempting to start listening...');
-    setIsListening(true);
-    setAudioPlaying(true); // Optimistically set to true
+      logger.info('Attempting to start listening...');
+      setIsListening(true);
+      setAudioPlaying(true); // Optimistically set to true
 
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
-      audioRef.current.crossOrigin = 'anonymous';
-      audioRef.current.preload = 'auto';
-      attachAudioEventHandlers();
-    }
+      if (!audioRef.current) {
+        audioRef.current = new Audio();
+        audioRef.current.crossOrigin = 'anonymous';
+        audioRef.current.preload = 'auto';
+        attachAudioEventHandlers();
+      }
 
-    try {
-      const streamUrl = `${baseUrl}?_=${Date.now()}`;
-      audioRef.current.src = streamUrl;
-      await audioRef.current.play();
-      logger.info('Audio playback started successfully.');
-      connectListenerStatusWebSocket();
-      await refreshStreamStatus();
+      try {
+        const streamUrl = `${baseUrl}?_=${Date.now()}`;
+        audioRef.current.src = streamUrl;
+        await audioRef.current.play();
+        logger.info('Audio playback started successfully.');
+        setupListenerStatusSTOMP();
+        await refreshStreamStatus();
     } catch (error) {
       logger.error('Failed to start audio playback:', error);
       setIsListening(false);
@@ -1731,22 +1937,58 @@ export function StreamingProvider({ children }) {
       audioRef.current.src = '';
     }
 
-    globalWebSocketService.disconnectListenerStatusWebSocket();
+    // Unsubscribe from listener status STOMP subscription
+    if (listenerStatusSubscriptionRef.current) {
+      try {
+        listenerStatusSubscriptionRef.current.unsubscribe();
+        listenerStatusSubscriptionRef.current = null;
+      } catch (e) {
+        logger.warn('Error unsubscribing from listener status:', e);
+      }
+    }
     refreshStreamStatus();
   };
 
   // Toggle audio playback for listeners
   const toggleAudio = async () => {
     try {
-      // If there's no audio element or no src yet, initialize listening first
-      if (!audioRef.current || !audioRef.current.src) {
-        await startListening();
-        return;
+      logger.info('Toggle audio called. Current state:', {
+        hasAudioElement: !!audioRef.current,
+        hasSrc: audioRef.current?.src,
+        audioPlaying,
+        isListening,
+        streamHealth: streamHealth.broadcastLive
+      });
+
+      // Ensure audio element exists and has a source
+      if (!audioRef.current) {
+        logger.info('No audio element, creating one...');
+        audioRef.current = new Audio();
+        audioRef.current.crossOrigin = 'anonymous';
+        audioRef.current.preload = 'auto';
+        attachAudioEventHandlers();
+      }
+
+      if (!audioRef.current.src) {
+        logger.info('No audio src, setting stream URL...');
+        const baseUrl = serverConfig?.streamUrl || config.icecastUrl;
+        if (baseUrl) {
+          const streamUrl = `${baseUrl}?_=${Date.now()}`;
+          audioRef.current.src = streamUrl;
+          audioRef.current.load(); // Load the audio
+          logger.info('Set audio src to:', streamUrl);
+        } else {
+          logger.error('No stream URL available');
+          return;
+        }
       }
 
       if (audioPlaying) {
+        logger.info('Pausing audio playback');
         if (audioRef.current) {
           audioRef.current.pause();
+          // Track pause time for live stream sync
+          lastPauseTimeRef.current = Date.now();
         }
         // Clear any pending recovery since user paused intentionally
         clearRecoveryTimer();
@@ -1754,20 +1996,82 @@ export function StreamingProvider({ children }) {
         setIsStreamRecovering(false);
         retryAttemptRef.current = 0;
         setAudioPlaying(false);
-        if (globalWebSocketService.isListenerStatusWebSocketConnected()) {
-          globalWebSocketService.sendListenerStatusMessage(
-            JSON.stringify({ type: 'LISTENER_STATUS', action: 'STOP_LISTENING' })
-          );
+        // Send STOP_LISTENING message via STOMP
+        try {
+          await stompClientManager.publish('/app/listener/status', {
+            action: 'STOP_LISTENING'
+          });
+        } catch (e) {
+          logger.warn('Failed to send STOP_LISTENING message:', e);
         }
       } else {
+        logger.info('Starting audio playback');
+
+        // Check if we need to refresh stream due to long pause (live stream sync)
+        const shouldRefreshStream = lastPauseTimeRef.current &&
+          (Date.now() - lastPauseTimeRef.current) > PAUSE_THRESHOLD_MS &&
+          streamHealth.broadcastLive; // Only sync for live broadcasts
+
+        if (shouldRefreshStream) {
+          const pauseDuration = Date.now() - lastPauseTimeRef.current;
+          logger.info(`Long pause detected (${Math.round(pauseDuration/1000)}s), refreshing live stream to sync with current broadcast`);
+          setIsStreamSyncing(true);
+
+          const baseUrl = serverConfig?.streamUrl || config.icecastUrl;
+          if (baseUrl && audioRef.current) {
+            const freshStreamUrl = `${baseUrl}?_=${Date.now()}`;
+            audioRef.current.src = freshStreamUrl;
+            audioRef.current.load();
+            // Reset pause time since we're refreshing
+            lastPauseTimeRef.current = null;
+            // Small delay to ensure fresh stream is loaded
+            await new Promise(resolve => setTimeout(resolve, 300));
+            setIsStreamSyncing(false);
+          } else {
+            setIsStreamSyncing(false);
+          }
+        } else {
+          // Clear pause time for fresh plays (not resumes)
+          lastPauseTimeRef.current = null;
+          setIsStreamSyncing(false);
+        }
+
         if (audioRef.current) {
-          await audioRef.current.play().catch(e => logger.error('Error resuming playback:', e));
+          // Small delay to ensure audio is loaded
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          try {
+            await audioRef.current.play();
+            logger.info('Audio play() succeeded');
+            setIsListening(true); // Mark as actively listening
+          } catch (e) {
+            logger.error('Error starting playback:', e);
+            // If autoplay fails, try to refresh the stream
+            if (e.name === 'NotAllowedError' && streamHealth.broadcastLive) {
+              logger.info('Autoplay blocked, but broadcast is live - refreshing stream');
+              const baseUrl = serverConfig?.streamUrl || config.icecastUrl;
+              if (baseUrl) {
+                const streamUrl = `${baseUrl}?_=${Date.now()}`;
+                audioRef.current.src = streamUrl;
+                audioRef.current.load();
+                setTimeout(() => {
+                  audioRef.current.play().catch(e2 => logger.error('Retry play failed:', e2));
+                }, 200);
+              }
+            }
+          }
         }
         setAudioPlaying(true);
-        if (globalWebSocketService.isListenerStatusWebSocketConnected()) {
-          globalWebSocketService.sendListenerStatusMessage(
-            JSON.stringify({ type: 'LISTENER_STATUS', action: 'START_LISTENING' })
-          );
+        // Send START_LISTENING message via STOMP
+        try {
+          await stompClientManager.publish('/app/listener/status', {
+            action: 'START_LISTENING',
+            broadcastId: currentBroadcast?.id || null,
+            userId: currentUser?.id || null,
+            userName: currentUser?.email || null
+          });
+        } catch (e) {
+          logger.warn('Failed to send START_LISTENING message:', e);
         }
       }
     } catch (error) {
@@ -1877,10 +2181,10 @@ export function StreamingProvider({ children }) {
               connectDJWebSocket();
             }
           }
-          // Always ensure listener status WebSocket is connected
-          if (!globalWebSocketService.isListenerStatusWebSocketConnected()) {
-            console.log('Reconnecting listener status WebSocket after page visibility change');
-            connectListenerStatusWebSocket();
+          // Always ensure listener status STOMP subscription is active
+          if (!listenerStatusSubscriptionRef.current || !stompClientManager.isConnected()) {
+            console.log('Reconnecting listener status STOMP subscription after page visibility change');
+            setupListenerStatusSTOMP();
           }
 
           // Try to resume audio if stream is live or recovering
@@ -1936,7 +2240,7 @@ export function StreamingProvider({ children }) {
 
     const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
 
-    console.log('🎵 Starting audio level monitoring for status display');
+    console.log('[AUDIO] Starting audio level monitoring for status display');
 
     audioLevelIntervalRef.current = setInterval(() => {
       if (!analyserRef.current) return;
@@ -1956,7 +2260,7 @@ export function StreamingProvider({ children }) {
 
       // Less frequent logging to reduce console noise
       if (Date.now() % 2000 < 100) {
-        console.log('🎵 Audio levels (status display):', {
+        console.log('[AUDIO] Audio levels (status display):', {
           rms: rms.toFixed(2),
           dB: dB.toFixed(1)
         });
@@ -1988,6 +2292,7 @@ export function StreamingProvider({ children }) {
     audioSource,
     audioLevel,
     qualityError,
+    streamStatusCircuitBreakerOpen,
 
     // Health monitoring
     streamHealth,
@@ -1995,6 +2300,7 @@ export function StreamingProvider({ children }) {
     recovering: streamHealth.recovering,
     healthBroadcastLive: streamHealth.broadcastLive,
     isStreamRecovering,
+    isStreamSyncing,
 
     // DJ Functions
     startBroadcast,
@@ -2002,13 +2308,14 @@ export function StreamingProvider({ children }) {
     connectDJWebSocket,
     restoreDJStreaming,
 
-    // Listener Functions  
+    // Listener Functions
     startListening,
     stopListening,
     toggleAudio,
     updateVolume,
     toggleMute,
-    connectListenerStatusWebSocket,
+    setupListenerStatusSTOMP,
+    connectBroadcastStatusWebSocket,
 
     // Audio Source Functions
     setAudioSource,

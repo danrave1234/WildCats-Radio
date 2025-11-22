@@ -15,7 +15,9 @@ import {
   UserPlus,
   LogIn,
   Moon,
-  Sun
+  Sun,
+  Download,
+  Smartphone
 } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import { Button } from "./ui/button";
@@ -27,6 +29,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./ui/popover";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,6 +48,7 @@ import { cn } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
 import { useStreaming } from "../context/StreamingContext";
 import { useTheme } from "../context/ThemeContext.jsx";
+import QRCode from "react-qr-code";
 
 const Header = ({ onMobileMenuToggle }) => {
   const { currentUser, isAuthenticated, logout } = useAuth();
@@ -238,37 +246,6 @@ const Header = ({ onMobileMenuToggle }) => {
       {/* Theme-friendly overlays */}
       <div className="absolute inset-0 pointer-events-none"></div>
 
-      {/* Floating orbs for premium effect - desktop only */}
-      <motion.div 
-        className="absolute -top-20 -left-20 w-40 h-40 bg-gradient-to-br from-wildcats-yellow/20 to-amber-300/10 rounded-full blur-3xl hidden sm:block"
-        animate={{ 
-          x: [0, 30, 0],
-          y: [0, -20, 0],
-          scale: [1, 1.1, 1]
-        }}
-        transition={{ 
-          duration: 20,
-          repeat: Infinity,
-          repeatType: "reverse",
-          ease: "easeInOut"
-        }}
-      ></motion.div>
-
-      <motion.div 
-        className="absolute -top-16 -right-16 w-32 h-32 bg-gradient-to-br from-wildcats-maroon/15 to-red-400/10 rounded-full blur-2xl hidden sm:block"
-        animate={{ 
-          x: [0, -25, 0],
-          y: [0, 15, 0],
-          scale: [1, 0.9, 1]
-        }}
-        transition={{ 
-          duration: 15,
-          repeat: Infinity,
-          repeatType: "reverse",
-          ease: "easeInOut",
-          delay: 2
-        }}
-      ></motion.div>
 
               {/* Temporarily disabled "Reconnecting to stream..." banner
                   TODO: Investigate why this shows even when Liquidsoap/Icecast are running properly
@@ -356,52 +333,14 @@ const Header = ({ onMobileMenuToggle }) => {
           >
             {/* Ultra Premium Maroon Background Container */}
             <div className="bg-transparent px-4 py-3 flex items-center justify-end space-x-4 h-16 relative overflow-hidden">
-              {/* Luxury animated accent line - desktop only */}
+              {/* Animated accent line - desktop only */}
               <motion.div 
-                className="absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-b from-wildcats-yellow via-yellow-400 to-amber-400 shadow-xl shadow-yellow-400/40 sm:block hidden"
+                className="absolute left-0 top-0 bottom-0 w-1 bg-gold-500 sm:block hidden"
                 initial={{ scaleY: 0, opacity: 0 }}
                 animate={{ scaleY: 1, opacity: 1 }}
                 transition={{ delay: 0.6, duration: 1, ease: "easeOut" }}
-              >
-                <motion.div 
-                  className="absolute inset-0 bg-gradient-to-b from-white/30 via-transparent to-white/10"
-                  animate={{ 
-                    opacity: [0.3, 0.7, 0.3]
-                  }}
-                  transition={{ 
-                    duration: 3,
-                    repeat: Infinity,
-                    ease: "easeInOut"
-                  }}
-                ></motion.div>
-              </motion.div>
+              />
 
-              {/* Theme-friendly inner effects */}
-              <div className="absolute inset-0 pointer-events-none"></div>
-
-              {/* Floating particles effect - desktop only */}
-              {[...Array(3)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  className="absolute w-1 h-1 bg-white/20 rounded-full hidden sm:block"
-                  animate={{
-                    x: [0, Math.random() * 100 - 50],
-                    y: [0, Math.random() * 60 - 30],
-                    opacity: [0, 0.6, 0],
-                    scale: [0, 1, 0]
-                  }}
-                  transition={{
-                    duration: 4 + Math.random() * 2,
-                    repeat: Infinity,
-                    delay: Math.random() * 2,
-                    ease: "easeInOut"
-                  }}
-                  style={{
-                    left: `${20 + Math.random() * 60}%`,
-                    top: `${20 + Math.random() * 60}%`,
-                  }}
-                />
-              ))}
 
               {/* Theme toggle */}
               <motion.div
@@ -423,6 +362,49 @@ const Header = ({ onMobileMenuToggle }) => {
                 >
                   {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
                 </Button>
+              </motion.div>
+
+              {/* Mobile Download with QR Code */}
+              <motion.div 
+                className="relative z-20"
+                whileHover={{ scale: 1.05 }}
+                transition={{ type: "spring", stiffness: 400, damping: 17 }}
+              >
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className={cn(
+                        "transition-colors duration-200",
+                        "flex items-center p-2 rounded-md",
+                        "bg-transparent text-foreground",
+                        "hover:bg-muted"
+                      )}
+                      aria-label="Download mobile app"
+                    >
+                      <Smartphone className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-6" align="end" sideOffset={8}>
+                    <div className="flex flex-col items-center space-y-4">
+                      <div className="text-center">
+                        <h3 className="text-lg font-semibold text-foreground mb-1">Download Mobile App</h3>
+                        <p className="text-sm text-muted-foreground">Scan QR code to download</p>
+                      </div>
+                      <div className="bg-white p-4 rounded-lg border-2 border-border">
+                        <QRCode
+                          value={typeof window !== 'undefined' ? window.location.origin : 'https://wildcatsradio.com'}
+                          size={200}
+                          style={{ height: "auto", maxWidth: "100%", width: "100%" }}
+                          viewBox={`0 0 200 200`}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground text-center max-w-[200px]">
+                        Scan with your mobile device to open WildCats Radio
+                      </p>
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </motion.div>
 
               {/* Notifications with enhanced styling */}
@@ -459,7 +441,7 @@ const Header = ({ onMobileMenuToggle }) => {
                           isDropdownOpen && "sm:ring-1 sm:ring-border"
                         )}
                       >
-                        <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center text-foreground shadow-sm">
+                        <div className="h-9 w-9 rounded-full bg-maroon-600 dark:bg-maroon-700 flex items-center justify-center text-white shadow-md border border-maroon-700">
                           {currentUser.role?.toLowerCase() === 'admin' || currentUser.role?.toLowerCase() === 'dj' ? (
                             <User className="h-4 w-4" />
                           ) : (
@@ -490,7 +472,7 @@ const Header = ({ onMobileMenuToggle }) => {
                       {/* User Profile Header */}
                       <div className="px-4 py-4 bg-muted border-b border-border">
                         <div className="flex items-center space-x-3">
-                          <div className="h-12 w-12 rounded-full bg-wildcats-maroon text-white flex items-center justify-center shadow-lg">
+                          <div className="h-12 w-12 rounded-full bg-maroon-700 dark:bg-maroon-800 text-white flex items-center justify-center shadow-lg border border-maroon-800">
                             {currentUser.role?.toLowerCase() === 'admin' || currentUser.role?.toLowerCase() === 'dj' ? (
                               <User className="h-5 w-5" />
                             ) : (
@@ -507,7 +489,7 @@ const Header = ({ onMobileMenuToggle }) => {
                               {currentUser.email || "user@example.com"}
                             </p>
                             <div className="mt-1.5">
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-wildcats-yellow/20 text-amber-700 border border-wildcats-yellow/30">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gold-100 dark:bg-gold-900/30 text-maroon-900 dark:text-gold-400 border border-gold-400">
                                 {formatRole(currentUser.role)}
                               </span>
                             </div>
@@ -595,12 +577,12 @@ const Header = ({ onMobileMenuToggle }) => {
                         "transition-all duration-300",
                         // Desktop styling
                         "sm:flex sm:items-center sm:space-x-2 sm:px-4 sm:py-2",
-                        "sm:bg-gradient-to-br sm:from-white/95 sm:via-white sm:to-slate-50/90 sm:backdrop-blur-xl sm:text-wildcats-maroon",
-                        "sm:hover:from-white sm:hover:via-white sm:hover:to-white sm:hover:shadow-xl sm:hover:shadow-black/10",
-                        "sm:border sm:border-white/40 sm:shadow-lg sm:shadow-black/5 sm:rounded-xl",
+                        "sm:bg-white dark:sm:bg-slate-800 sm:text-maroon-700 dark:sm:text-maroon-400",
+                        "sm:hover:bg-slate-50 dark:sm:hover:bg-slate-700 sm:hover:shadow-lg",
+                        "sm:border sm:border-slate-200 dark:sm:border-slate-700 sm:shadow-md sm:rounded-lg",
                         // Mobile styling
-                        "flex items-center justify-center p-2 bg-white/10 border border-white/20 rounded-lg",
-                        "hover:bg-white/20 text-white sm:text-wildcats-maroon",
+                        "flex items-center justify-center p-2 bg-maroon-600 border border-maroon-700 rounded-lg",
+                        "hover:bg-maroon-700 text-white",
                         "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
                       )}
                     >
@@ -621,12 +603,12 @@ const Header = ({ onMobileMenuToggle }) => {
                         "transition-all duration-300",
                         // Desktop styling
                         "sm:flex sm:items-center sm:space-x-2 sm:px-4 sm:py-2",
-                        "sm:bg-gradient-to-br sm:from-wildcats-yellow sm:via-yellow-400 sm:to-amber-400 sm:text-black",
-                        "sm:hover:from-yellow-300 sm:hover:via-yellow-400 sm:hover:to-amber-500 sm:hover:shadow-xl sm:hover:shadow-yellow-400/20",
-                        "sm:border sm:border-yellow-300/40 sm:shadow-lg sm:shadow-yellow-400/10 sm:rounded-xl",
+                        "sm:bg-gold-500 sm:text-maroon-900",
+                        "sm:hover:bg-gold-600 sm:hover:shadow-lg",
+                        "sm:border sm:border-gold-400 sm:shadow-md sm:rounded-lg",
                         // Mobile styling
-                        "flex items-center justify-center p-2 bg-wildcats-yellow border border-yellow-300/40 rounded-lg",
-                        "hover:bg-yellow-300 text-black",
+                        "flex items-center justify-center p-2 bg-gold-500 border border-gold-400 rounded-lg",
+                        "hover:bg-gold-600 text-maroon-900",
                         "focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
                       )}
                     >
@@ -654,7 +636,7 @@ const Header = ({ onMobileMenuToggle }) => {
             <AlertDialogCancel onClick={handleLogoutCancel} className="rounded-none">Cancel</AlertDialogCancel>
             <AlertDialogAction 
               onClick={handleLogoutConfirm}
-              className="bg-wildcats-maroon hover:bg-red-800 text-white rounded-none"
+              className="bg-maroon-700 hover:bg-maroon-800 text-white rounded-lg"
             >
               Sign Out
             </AlertDialogAction>

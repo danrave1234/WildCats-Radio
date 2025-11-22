@@ -297,13 +297,11 @@ const CustomHeader = React.memo(({
       paddingBottom: 8,
       paddingHorizontal: 16,
       backgroundColor: '#F5F5F7', // Light grayish white color
-      borderBottomWidth: 3, // Increased border width for more emphasis
-      borderBottomColor: '#91403E', // Cordovan color border
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.1,
-      shadowRadius: 2,
-      elevation: 3,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 6,
+      elevation: 8,
         zIndex: 10,
     }}>
       <View style={{

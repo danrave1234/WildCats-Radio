@@ -33,7 +33,7 @@ class ApiProxyBase {
    * Log current environment and configuration info
    */
   logEnvironmentInfo() {
-    this.logger.info('🚀 API Proxy Base Initialized');
+    this.logger.info('[INFO] API Proxy Base Initialized');
     this.logger.info(`Environment: ${this.config.environment.toUpperCase()}`);
     this.logger.info(`API Base URL: ${this.config.apiBaseUrl}`);
     this.logger.info(`WebSocket Base URL: ${this.config.wsBaseUrl}`);
@@ -45,8 +45,14 @@ class ApiProxyBase {
    * Create enhanced axios instance with retry logic
    */
   createAxiosInstance() {
+    // In local mode, use undefined baseURL so axios makes relative requests that Vite proxy can intercept
+    // Empty string can cause issues, so explicitly convert to undefined
+    const baseURL = this.config.apiBaseUrl && this.config.apiBaseUrl.trim() !== '' 
+      ? this.config.apiBaseUrl 
+      : undefined;
+    
     const instance = axios.create({
-      baseURL: this.config.apiBaseUrl || undefined,
+      baseURL: baseURL,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -97,7 +103,14 @@ class ApiProxyBase {
     // Request interceptor for authentication
     this.axiosInstance.interceptors.request.use(
       (config) => {
-        const token = this.getCookie('token');
+        // Try to get token from cookie first (production)
+        let token = this.getCookie('token');
+        
+        // Fallback to localStorage for localhost OAuth (cookies don't work across ports)
+        if (!token && window.location.hostname === 'localhost') {
+          token = localStorage.getItem('oauth_token');
+        }
+        
         if (token) {
           config.headers['Authorization'] = `Bearer ${token}`;
         }
@@ -116,9 +129,15 @@ class ApiProxyBase {
           }
         }
 
+        // Ensure URL is relative (starts with /) when baseURL is undefined
+        if (!config.baseURL && config.url && !config.url.startsWith('/')) {
+          config.url = '/' + config.url;
+        }
+
         // Log request in debug mode
         if (this.config.enableDebugLogs) {
-          this.logger.debug(`🔄 API Request: ${config.method?.toUpperCase()} ${config.url}`);
+          const fullUrl = config.baseURL ? `${config.baseURL}${config.url}` : config.url;
+          this.logger.debug(`[REQUEST] API Request: ${config.method?.toUpperCase()} ${fullUrl} (baseURL: ${config.baseURL || 'undefined'})`);
         }
 
         return config;
@@ -130,13 +149,13 @@ class ApiProxyBase {
     this.axiosInstance.interceptors.response.use(
       (response) => {
         if (this.config.enableDebugLogs) {
-          this.logger.debug(`✅ API Response: ${response.status} ${response.config.url}`);
+          this.logger.debug(`[SUCCESS] API Response: ${response.status} ${response.config.url}`);
         }
         return response;
       },
       (error) => {
         if (this.config.enableDebugLogs) {
-          this.logger.error(`❌ API Error: ${error.response?.status || 'Network'} ${error.config?.url}`);
+          this.logger.error(`[ERROR] API Error: ${error.response?.status || 'Network'} ${error.config?.url}`);
         }
         return Promise.reject(error);
       }

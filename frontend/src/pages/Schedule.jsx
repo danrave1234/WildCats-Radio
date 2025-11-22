@@ -1,6 +1,8 @@
 "use client"
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
+import SEO from '../components/SEO';
 import {
   CalendarDaysIcon,
   ViewColumnsIcon,
@@ -37,8 +39,33 @@ const formatTimeTo12h = (timeString) => {
   return format(dateObj, 'hh:mm a');
 };
 
+// Parse 12-hour format (e.g., "09:30 AM") back to 24-hour format (e.g., "09:30")
+const parse12hTo24h = (time12h) => {
+  if (!time12h) return '';
+
+  // If already in 24-hour format (HH:mm), return as-is
+  if (/^(\d{2}):(\d{2})$/.test(time12h)) return time12h;
+
+  // If in 12-hour format (hh:mm a), convert to 24-hour
+  if (/^(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)$/i.test(time12h)) {
+    const [time, period] = time12h.split(/\s+/);
+    let [hours, minutes] = time.split(':').map(Number);
+
+    if (period.toUpperCase() === 'PM' && hours !== 12) {
+      hours += 12;
+    } else if (period.toUpperCase() === 'AM' && hours === 12) {
+      hours = 0;
+    }
+
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }
+
+  return time12h; // Return as-is if format not recognized
+};
+
 export default function Schedule() {
   const [viewType, setViewType] = useState("calendar") // 'calendar' or 'list'
+  const location = useLocation()
   const [showScheduleForm, setShowScheduleForm] = useState(false)
   const [selectedBroadcast, setSelectedBroadcast] = useState(null)
   const [showBroadcastDetails, setShowBroadcastDetails] = useState(false)
@@ -68,13 +95,14 @@ export default function Schedule() {
   // Function to enter edit mode with a selected broadcast
   const handleEditBroadcast = (broadcast) => {
     // Populate form with the broadcast details
+    // Convert 12-hour display format back to 24-hour form format
     setBroadcastDetails({
       id: broadcast.id,
       title: broadcast.title,
       description: broadcast.description,
       date: broadcast.date,
-      startTime: broadcast.startTime.length === 7 ? broadcast.startTime.substring(0, 5) : broadcast.startTime,
-      endTime: broadcast.endTime.length === 7 ? broadcast.endTime.substring(0, 5) : broadcast.endTime,
+      startTime: parse12hTo24h(broadcast.startTime),
+      endTime: parse12hTo24h(broadcast.endTime),
       details: broadcast.details || '',
     })
 
@@ -191,8 +219,32 @@ export default function Schedule() {
     return endTime > startTime
   }
 
-  // Allowed scheduling window: 06:00 - 22:00
-  const ALLOWED_START = "06:00"
+  // Helper to get minimum end time (1 hour after start time if start time is set)
+  const getMinEndTimeForStartTime = () => {
+    if (!broadcastDetails.startTime) {
+      // If no start time, use same logic as start time min
+      return broadcastDetails.date && !isSelectedDateInPast() ? getMinStartTimeForSelectedDate() : undefined
+    }
+    
+    // Calculate 1 hour after start time
+    const [startHour, startMinute] = broadcastDetails.startTime.split(':').map(Number)
+    let newHour = startHour + 1
+    const newMinute = startMinute
+    
+    if (newHour >= 24) return ALLOWED_END // Can't exceed 24 hours, use max allowed
+    
+    const oneHourAfter = `${String(newHour).padStart(2, '0')}:${String(newMinute).padStart(2, '0')}`
+    
+    // If 1 hour after exceeds allowed end, use allowed end
+    if (compareTimes(oneHourAfter, ALLOWED_END) > 0) {
+      return ALLOWED_END
+    }
+    
+    return oneHourAfter
+  }
+
+  // Allowed scheduling window: 07:00 - 22:00 (server-enforced)
+  const ALLOWED_START = "07:00"
   const ALLOWED_END = "22:00"
 
   const compareTimes = (a, b) => {
@@ -435,39 +487,34 @@ const canScheduleBroadcasts = !!currentUser && (
         sentEnd: broadcastData.scheduledEnd
       })
 
-      let response
-      let successMessage
-
       if (isEditMode) {
-        // Update existing broadcast
-        response = await broadcastService.update(broadcastDetails.id, broadcastData)
-        successMessage = "Broadcast updated successfully!"
+        await broadcastService.update(broadcastDetails.id, broadcastData)
       } else {
-        // Create new scheduled broadcast (this creates both schedule and broadcast entities)
-        response = await broadcastService.schedule(broadcastData)
-        successMessage = "Broadcast scheduled successfully!"
+        await broadcastService.create(broadcastData)
       }
 
-      // Transform the API response data to match our local format
-      const updatedBroadcast = {
-        id: response.data.id,
-        title: response.data.title,
-        description: response.data.description,
-        date: date, // Use the original date directly
-        startTime: formatTimeTo12h(broadcastDetails.startTime),
-        endTime: formatTimeTo12h(broadcastDetails.endTime),
-        dj: response.data.createdBy?.name || (currentUser?.role === "DJ" ? "You (DJ)" : "Admin"),
-        details: broadcastDetails.details,
-      }
-
-      // Update the broadcasts list accordingly
-      if (isEditMode) {
-        setUpcomingBroadcasts(upcomingBroadcasts.map(broadcast =>
-            broadcast.id === updatedBroadcast.id ? updatedBroadcast : broadcast
-        ))
-      } else {
-        setUpcomingBroadcasts([...upcomingBroadcasts, updatedBroadcast])
-      }
+      // Refresh upcoming broadcasts from server to avoid stale data
+      try {
+        const refreshed = await broadcastService.getUpcoming()
+        const broadcasts = refreshed.data.map(b => {
+          const startDateTime = parseBackendTimestamp(b.scheduledStart)
+          const endDateTime = parseBackendTimestamp(b.scheduledEnd)
+          const dateStr = b.scheduledStart.split('T')[0]
+          const startTime = startDateTime ? formatInTimeZone(startDateTime, 'Asia/Manila', 'hh:mm a') : ''
+          const endTime = endDateTime ? formatInTimeZone(endDateTime, 'Asia/Manila', 'hh:mm a') : ''
+          return {
+            id: b.id,
+            title: b.title,
+            description: b.description,
+            date: dateStr,
+            startTime,
+            endTime,
+            dj: (b.createdByName || '').trim() || 'Unknown DJ',
+            details: b.details || ''
+          }
+        })
+        setUpcomingBroadcasts(broadcasts)
+      } catch (_) {}
 
       // Reset the form
       resetToCreateMode()
@@ -476,11 +523,13 @@ const canScheduleBroadcasts = !!currentUser && (
       setShowScheduleForm(false)
 
       // Show success toast
-      showToast(successMessage)
+      showToast(isEditMode ? "Broadcast updated successfully!" : "Broadcast scheduled successfully!")
     } catch (error) {
       logger.error(`Error ${isEditMode ? "updating" : "scheduling"} broadcast:`, error)
-      // Show error toast
-      showToast(`Failed to ${isEditMode ? "update" : "schedule"} broadcast. Please try again.`, "error")
+      // Show error toast with backend message if available
+      const errorMessage = error.response?.data?.message ||
+                          `Failed to ${isEditMode ? "update" : "schedule"} broadcast. Please try again.`
+      showToast(errorMessage, "error")
     } finally {
       setIsLoading(false)
     }
@@ -617,10 +666,17 @@ const canScheduleBroadcasts = !!currentUser && (
   }
 
   return (
-      <div className="container mx-auto px-4">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex justify-between items-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Broadcast Schedule</h1>
+      <React.Fragment>
+        <SEO
+          title="Broadcast Schedule"
+          description="View upcoming broadcasts and schedule your own on Wildcat Radio. Browse calendar and list views of all scheduled campus radio shows."
+          url={location.pathname}
+          keywords="broadcast schedule, radio schedule, upcoming shows, campus radio schedule, wildcat radio schedule"
+        />
+        <div className="container mx-auto px-4">
+          <div className="max-w-5xl mx-auto">
+            <div className="flex justify-between items-center mb-8">
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Broadcast Schedule</h1>
 
             <div className="flex items-center space-x-4">
               <div className="inline-flex rounded-md shadow-sm" role="group">
@@ -662,7 +718,6 @@ const canScheduleBroadcasts = !!currentUser && (
               )}
             </div>
           </div>
-
 
           {/* DJ/Admin Broadcast Scheduling Form */}
           {canScheduleBroadcasts && showScheduleForm && (
@@ -844,8 +899,22 @@ const canScheduleBroadcasts = !!currentUser && (
                             <p className="mt-1 text-sm text-red-600">Start time cannot be in the past</p>
                           )}
                           {broadcastDetails.startTime && compareTimes(broadcastDetails.startTime, ALLOWED_START) < 0 && (
-                            <p className="mt-1 text-sm text-red-600">Start time must be at or after 6:00 AM</p>
+                            <p className="mt-1 text-sm text-red-600">Start time must be at or after 7:00 AM</p>
                           )}
+                          {/* Note: When scheduling for today after 7am, only future times are shown */}
+                          {broadcastDetails.date === getMinDate() && !isSelectedDateInPast() && (() => {
+                            const now = new Date();
+                            const currentTime = now.toTimeString().slice(0, 5); // HH:MM format
+                            // Show note if current time is past 7am
+                            if (compareTimes(currentTime, ALLOWED_START) > 0) {
+                              return (
+                                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 italic">
+                                  Note: Since today is selected and the current time is past 7:00 AM, only future times are shown.
+                                </p>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                         <div>
                           <TimeSelector
@@ -854,7 +923,7 @@ const canScheduleBroadcasts = !!currentUser && (
                               label="End Time"
                               id="endTime"
                               required={true}
-                              min={broadcastDetails.startTime || (broadcastDetails.date && !isSelectedDateInPast() ? getMinStartTimeForSelectedDate() : undefined)}
+                              min={getMinEndTimeForStartTime()}
                               max={ALLOWED_END}
                               disabled={isSelectedDateInPast()}
                           />
@@ -869,6 +938,12 @@ const canScheduleBroadcasts = !!currentUser && (
                           )}
                           {broadcastDetails.endTime && compareTimes(broadcastDetails.endTime, ALLOWED_END) > 0 && (
                             <p className="mt-1 text-sm text-red-600">End time must be at or before 10:00 PM</p>
+                          )}
+                          {/* Note: End time must be at least 1 hour after start time */}
+                          {broadcastDetails.startTime && (
+                            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 italic">
+                              Note: End time must be at least 1 hour after start time ({formatTimeTo12h(broadcastDetails.startTime)}).
+                            </p>
                           )}
                         </div>
                         <div className="sm:col-span-2">
@@ -1226,16 +1301,16 @@ const canScheduleBroadcasts = !!currentUser && (
                 )}
               </div>
           )}
+          </div>
+          {/* Toast notification */}
+          {toast.visible && (
+              <Toast
+                  message={toast.message}
+                  type={toast.type}
+                  onClose={() => setToast({ ...toast, visible: false })}
+              />
+          )}
         </div>
-
-        {/* Toast notification */}
-        {toast.visible && (
-            <Toast
-                message={toast.message}
-                type={toast.type}
-                onClose={() => setToast({ ...toast, visible: false })}
-            />
-        )}
-      </div>
+      </React.Fragment>
   )
 }

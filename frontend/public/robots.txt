@@ -1,5 +1,4 @@
 # robots.txt for Wildcat Radio
-# Update the Sitemap URL to your production domain before deploying.
 
 User-agent: *
 Allow: /
@@ -7,15 +6,38 @@ Allow: /
 # Disallow sensitive or non-indexable routes
 Disallow: /admin
 Disallow: /dj-dashboard
+Disallow: /moderator
 Disallow: /profile
 Disallow: /settings
 Disallow: /notifications
 Disallow: /logout
+Disallow: /api/
+Disallow: /ws/
+Disallow: /ws-radio/
 
-# Allow these SPA public routes
+# Allow public routes for SEO
+Allow: /
+Allow: /schedule
+Allow: /announcements
+Allow: /privacy-policy
+Allow: /terms-of-service
+Allow: /contact
+Allow: /login
+Allow: /register
 Allow: /dashboard
 Allow: /broadcast-history
-Allow: /analytics
-Allow: /schedule
 
-Sitemap: https://YOUR_DOMAIN_HERE/sitemap.xml
+# Allow images and assets
+Allow: /wildcat_logo.png
+Allow: /assets/
+Allow: /*.png$
+Allow: /*.jpg$
+Allow: /*.jpeg$
+Allow: /*.svg$
+Allow: /*.webp$
+
+# Crawl-delay (optional, adjust as needed)
+Crawl-delay: 1
+
+# Sitemap location
+Sitemap: https://wildcats-radio.live/sitemap.xml

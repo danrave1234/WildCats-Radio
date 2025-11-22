@@ -35,7 +35,7 @@ public class AnnouncementImageController {
     }
 
     @PostMapping("/upload-url")
-    @PreAuthorize("hasAnyRole('DJ','MODERATOR','ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<UploadUrlResponse> getSignedUploadUrl(@RequestBody SignedUrlRequest req) {
         UploadUrlResponse resp = gcsStorageService.createSignedUploadUrl(req.getFileName(), req.getContentType());
         return ResponseEntity.ok(resp);

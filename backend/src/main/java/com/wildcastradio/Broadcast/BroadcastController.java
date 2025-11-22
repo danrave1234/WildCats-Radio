@@ -24,8 +24,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 import com.wildcastradio.Broadcast.DTO.CreateBroadcastRequest;
-import com.wildcastradio.Schedule.ScheduleEntity;
-import com.wildcastradio.Schedule.ScheduleService;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
 
@@ -40,9 +38,6 @@ public class BroadcastController {
     private BroadcastService broadcastService;
 
     @Autowired
-    private ScheduleService scheduleService;
-
-    @Autowired
     private UserService userService;
 
     @Autowired
@@ -50,7 +45,7 @@ public class BroadcastController {
 
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')") // DJ role can create broadcasts
     public ResponseEntity<BroadcastDTO> createBroadcast(
             @Valid @RequestBody CreateBroadcastRequest request,
             Authentication authentication) {
@@ -60,7 +55,7 @@ public class BroadcastController {
         }
 
         UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         BroadcastDTO broadcast = broadcastService.createBroadcast(request, user);
         return new ResponseEntity<>(broadcast, HttpStatus.CREATED);
@@ -97,40 +92,12 @@ public class BroadcastController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/schedule")
-    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
-    public ResponseEntity<BroadcastDTO> scheduleBroadcast(
-            @Valid @RequestBody CreateBroadcastRequest request,
-            Authentication authentication) {
-
-        if (authentication == null) {
-            return ResponseEntity.status(401).build();
-        }
-
-        UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        // Create the schedule first
-        ScheduleEntity schedule = scheduleService.createSchedule(
-            request.getScheduledStart(),
-            request.getScheduledEnd(),
-            user
-        );
-
-        // Create the broadcast with the schedule
-        BroadcastEntity broadcast = new BroadcastEntity();
-        broadcast.setTitle(request.getTitle());
-        broadcast.setDescription(request.getDescription());
-        broadcast.setSchedule(schedule);
-
-        BroadcastEntity scheduled = broadcastService.scheduleBroadcast(broadcast, user);
-        return ResponseEntity.ok(BroadcastDTO.fromEntity(scheduled));
-    }
 
     @PostMapping("/{id}/start")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN') or hasRole('LISTENER')") // Temporarily allow LISTENER role for development
+    @PreAuthorize("hasAnyRole('DJ','ADMIN')") // LISTENER access removed - use proper DJ/ADMIN roles
     public ResponseEntity<BroadcastDTO> startBroadcast(
             @PathVariable Long id,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication) {
 
         if (authentication == null) {
@@ -138,9 +105,9 @@ public class BroadcastController {
         }
 
         UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        BroadcastEntity broadcast = broadcastService.startBroadcast(id, user);
+        BroadcastEntity broadcast = broadcastService.startBroadcast(id, user, idempotencyKey);
         return ResponseEntity.ok(BroadcastDTO.fromEntity(broadcast));
     }
 
@@ -148,6 +115,7 @@ public class BroadcastController {
     @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<BroadcastDTO> endBroadcast(
             @PathVariable Long id,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication) {
 
         if (authentication == null) {
@@ -155,18 +123,17 @@ public class BroadcastController {
         }
 
         UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        BroadcastEntity broadcast = broadcastService.endBroadcast(id, user);
+        BroadcastEntity broadcast = broadcastService.endBroadcast(id, user, idempotencyKey);
         return ResponseEntity.ok(BroadcastDTO.fromEntity(broadcast));
     }
 
     @GetMapping("/upcoming")
     public ResponseEntity<List<com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO>> getUpcomingBroadcasts() {
-        List<BroadcastEntity> upcomingBroadcasts = broadcastService.getUpcomingBroadcasts();
-        List<com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO> broadcasts = upcomingBroadcasts.stream()
-                .map(com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO::fromEntity)
-                .collect(java.util.stream.Collectors.toList());
+        // Use optimized DTO projection query - eliminates N+1 queries
+        // Returns only SCHEDULED broadcasts (excludes COMPLETED, CANCELLED)
+        List<com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO> broadcasts = broadcastService.getUpcomingBroadcastsDTO();
         return ResponseEntity.ok(broadcasts);
     }
 
@@ -250,7 +217,7 @@ public class BroadcastController {
         }
 
         UserEntity user = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         BroadcastEntity broadcast = broadcastService.startBroadcastTestMode(id, user);
         return ResponseEntity.ok(BroadcastDTO.fromEntity(broadcast));
@@ -292,7 +259,7 @@ public class BroadcastController {
     }
 
     @PutMapping("/{id}/slowmode")
-    @PreAuthorize("hasRole('DJ') or hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN')")
     public ResponseEntity<BroadcastDTO> updateSlowMode(
             @PathVariable Long id,
             @RequestBody SlowModeRequest request) {

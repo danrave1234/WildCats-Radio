@@ -78,10 +78,9 @@ public class StartupValidator implements CommandLineRunner {
             
             // Validate URLs (bare-bones)
             String webSocketUrl = networkConfig.getWebSocketUrl();
-            String listenerWebSocketUrl = networkConfig.getListenerWebSocketUrl();
             
             logger.info("✓ DJ WebSocket URL: {}", webSocketUrl);
-            logger.info("✓ Listener WebSocket URL: {}", listenerWebSocketUrl);
+            // Listener WebSocket URL removed - listener status now via STOMP /topic/listener-status
             
         } catch (Exception e) {
             logger.error("✗ Error validating network configuration: {}", e.getMessage());
@@ -123,10 +122,9 @@ public class StartupValidator implements CommandLineRunner {
         
         try {
             String djWebSocketUrl = icecastService.getWebSocketUrl();
-            String listenerWebSocketUrl = icecastService.getListenerWebSocketUrl();
             
             logger.info("✓ DJ WebSocket endpoint: {}", djWebSocketUrl);
-            logger.info("✓ Listener WebSocket endpoint: {}", listenerWebSocketUrl);
+            // Listener WebSocket endpoint removed - listener status now via STOMP /topic/listener-status
             
             // Validate WebSocket paths
             if (djWebSocketUrl.contains("/ws/live")) {
@@ -135,11 +133,7 @@ public class StartupValidator implements CommandLineRunner {
                 logger.warn("⚠ DJ WebSocket path may be incorrect");
             }
             
-            if (listenerWebSocketUrl.contains("/ws/listener")) {
-                logger.info("✓ Listener WebSocket path configured correctly");
-            } else {
-                logger.warn("⚠ Listener WebSocket path may be incorrect");
-            }
+            logger.info("✓ Listener status now handled via STOMP /topic/listener-status");
             
         } catch (Exception e) {
             logger.error("✗ Error validating WebSocket configuration: {}", e.getMessage());

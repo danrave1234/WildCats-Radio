@@ -26,7 +26,10 @@ public class UpcomingBroadcastDTO {
         this.description = description;
         this.scheduledStart = scheduledStart;
         this.scheduledEnd = scheduledEnd;
-        this.createdByName = createdByName;
+        // Trim and clean up name (CONCAT may produce extra spaces)
+        this.createdByName = (createdByName != null && !createdByName.trim().isEmpty()) 
+            ? createdByName.trim() 
+            : null;
     }
 
     public static UpcomingBroadcastDTO fromEntity(BroadcastEntity broadcast) {

@@ -3,7 +3,6 @@ package com.wildcastradio.Broadcast.DTO;
 import java.time.LocalDateTime;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 
 public class CreateBroadcastRequest {
     
@@ -13,10 +12,10 @@ public class CreateBroadcastRequest {
     @NotBlank(message = "Description is required")
     private String description;
     
-    @NotNull(message = "Scheduled start time is required")
+    // Optional: null for immediate broadcasts, required for scheduled broadcasts
     private LocalDateTime scheduledStart;
     
-    @NotNull(message = "Scheduled end time is required")
+    // Optional: null for immediate broadcasts, required for scheduled broadcasts
     private LocalDateTime scheduledEnd;
     
     // Default constructor
