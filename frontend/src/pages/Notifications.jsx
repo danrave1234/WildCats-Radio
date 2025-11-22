@@ -1,7 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useNotifications } from '../context/NotificationContext';
-import { getAllAnnouncements } from '../services/announcementService';
-import { formatDistanceToNow, format } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import { parseISO } from 'date-fns';
 import { 
@@ -56,9 +55,11 @@ export default function Notifications() {
     markAsRead, 
     markAllAsRead, 
     fetchNotifications,
+    refreshAnnouncements,
     isConnected,
     hasMore,
-    loadMoreNotifications
+    loadMoreNotifications,
+    combinedNotifications
   } = useNotifications();
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -66,14 +67,15 @@ export default function Notifications() {
   const [sortBy, setSortBy] = useState('newest');
   const [selectedNotifications, setSelectedNotifications] = useState([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [announcementItems, setAnnouncementItems] = useState([]);
 
   // Manual refresh function
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await fetchNotifications();
-      await loadAnnouncements(true);
+      await Promise.all([
+        fetchNotifications(),
+        refreshAnnouncements()
+      ]);
     } finally {
       setIsRefreshing(false);
     }
@@ -152,33 +154,6 @@ export default function Notifications() {
   const formatNotificationType = (type) => {
     return type.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase());
   };
-
-  // Load recent announcements (last 7 days) and map to notification-like items
-  const loadAnnouncements = async (reset = false) => {
-    try {
-      const resp = await getAllAnnouncements(0, 20);
-      const content = resp?.content || resp?.data?.content || [];
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const items = content
-        .filter(a => a?.publishedAt && new Date(a.publishedAt) >= sevenDaysAgo)
-        .map(a => ({
-          id: `ann-${a.id}`,
-          message: a.title,
-          type: 'ANNOUNCEMENT',
-          timestamp: a.publishedAt,
-          read: true, // Do not count toward unread
-          link: '/announcements'
-        }));
-      setAnnouncementItems(reset ? items : items);
-    } catch (_e) {
-      setAnnouncementItems([]);
-    }
-  };
-
-  useEffect(() => {
-    loadAnnouncements(true);
-  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -295,10 +270,8 @@ export default function Notifications() {
           {/* Notifications List (includes recent announcements from last 7 days) */}
         <div className="space-y-3">
           {(() => {
-            const combined = [...notifications, ...announcementItems]
-              .sort((a,b) => new Date((b.timestamp||b.createdAt)) - new Date((a.timestamp||a.createdAt)));
             const list = (() => {
-              let arr = combined;
+              let arr = [...combinedNotifications];
               if (searchTerm) {
                 arr = arr.filter(n => (n.message||'').toLowerCase().includes(searchTerm.toLowerCase()) || (n.type||'').toLowerCase().includes(searchTerm.toLowerCase()));
               }
