@@ -135,10 +135,9 @@ export default function Login() {
                 <Button
                   type="button"
                   onClick={() => {
-                    // Use backend URL from config - works for both localhost (via proxy) and production
-                    const backendUrl = config.backendBaseUrl || config.apiBaseUrl || (config.isLocal ? '' : 'https://api.wildcat-radio.live');
-                    const oauthUrl = backendUrl ? `${backendUrl}/oauth2/authorization/google` : '/oauth2/authorization/google';
-                    window.location.href = oauthUrl;
+                    // Always use relative URL - Vercel rewrites will proxy to backend
+                    // This keeps user on wildcat-radio.live domain throughout OAuth flow
+                    window.location.href = '/oauth2/authorization/google';
                   }}
                   className="w-full h-11 bg-white dark:bg-slate-600 hover:bg-gray-50 dark:hover:bg-slate-500 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-slate-500 font-semibold shadow-sm hover:shadow-md transition-all duration-300 !rounded-none focus:outline-none focus-visible:ring-0"
                 >
