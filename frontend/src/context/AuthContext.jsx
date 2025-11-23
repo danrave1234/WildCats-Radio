@@ -1,5 +1,7 @@
 import { createContext, useState, useEffect, useContext } from 'react';
 import { authService } from '../services/api/index.js';
+import authStorage from '../services/authStorage.js';
+import { createLogger } from '../services/logger.js';
 
 // Create the context
 export const AuthContext = createContext();
@@ -16,77 +18,92 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Check if user is already logged in by validating with the server
+  // Check authentication status with optimistic restoration
+  // PHASE 1: IMMEDIATE OPTIMISTIC RESTORE (prevents logout during page refresh)
+  // PHASE 2: BACKGROUND VERIFICATION (non-blocking server check)
   const checkAuthStatus = async () => {
-    // For localhost: Check localStorage immediately for instant initial state
-    // This gives instant feedback before API call completes
+    const logger = createLogger('AuthContext');
     const isLocalhost = window.location.hostname === 'localhost';
-    let optimisticUser = null;
-    
-    if (isLocalhost) {
-      const localToken = localStorage.getItem('oauth_token');
-      if (localToken) {
-        // Create optimistic user object from localStorage
-        // This allows UI to show logged-in state immediately
-        const userId = localStorage.getItem('oauth_userId');
-        const userRole = localStorage.getItem('oauth_userRole');
-        optimisticUser = {
-          id: userId ? parseInt(userId) : null,
-          role: userRole || 'LISTENER',
-          // Minimal user object - will be replaced by API response
-        };
-        setCurrentUser(optimisticUser);
-        setLoading(false); // Show logged-in UI immediately
-      } else {
-        // No token, definitely not logged in
+
+    // PHASE 1: IMMEDIATE OPTIMISTIC RESTORE
+    // Load stored user immediately to prevent UI flicker and logout during refresh
+    try {
+      const storedUser = await authStorage.getUser();
+      const sessionValid = await authStorage.isSessionValid(12 * 60 * 60 * 1000); // 12 hours
+
+      if (storedUser && sessionValid) {
+        logger.info('AuthContext: Optimistic restore successful for user:', storedUser.email);
+        setCurrentUser(storedUser); // Show logged-in UI immediately
+        setLoading(false); // Allow UI to render
+      } else if (storedUser && !sessionValid) {
+        logger.info('AuthContext: Stored session expired, clearing data');
+        await authStorage.clear();
         setCurrentUser(null);
-        setLoading(false); // Show logged-out UI immediately
+        setLoading(false);
         return null;
+      } else {
+        // No stored session
+        setCurrentUser(null);
+        setLoading(false);
       }
+    } catch (storageError) {
+      logger.warn('AuthContext: Storage access failed, falling back to server check:', storageError);
+      setCurrentUser(null);
+      setLoading(false);
     }
 
+    // PHASE 2: BACKGROUND VERIFICATION (non-blocking)
+    // Verify with server without blocking UI or causing logout
     try {
-      // Make API call to verify authentication (runs in background for localhost)
-      // In production, HttpOnly cookies are sent automatically by the browser
-      // In localhost, localStorage token will be sent via Authorization header (see apiBase.js)
-      // Use very short timeout to prevent blocking UI
-      // For production, use aggressive timeout to show UI quickly
-      const timeoutMs = isLocalhost ? 3000 : 1000; // 3s local, 1s prod (very fast - fail fast)
+      const timeoutMs = isLocalhost ? 10000 : 2000; // More generous timeouts
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Auth check timeout')), timeoutMs);
+        setTimeout(() => reject(new Error('Auth verification timeout')), timeoutMs);
       });
-      
+
       const authPromise = authService.getCurrentUser();
       const response = await Promise.race([authPromise, timeoutPromise]);
-      
-      // Update with real user data from API
-      const user = response.data;
-      setCurrentUser(user);
-      setError(null);
-      setLoading(false);
-      return user;
-    } catch (err) {
-      // If authentication fails, clear state
-      if (err.response?.status === 401 || err.response?.status === 403 || err.message === 'Auth check timeout') {
-        if (isLocalhost) {
-          localStorage.removeItem('oauth_token');
-          localStorage.removeItem('oauth_userId');
-          localStorage.removeItem('oauth_userRole');
-        }
-        setCurrentUser(null);
-        setLoading(false);
-      } else {
-        // Network or other errors - for localhost, keep optimistic state
-        // For production with timeout, assume not authenticated (show login buttons)
-        if (!isLocalhost || err.message === 'Auth check timeout') {
-          setCurrentUser(null);
-        }
-        setLoading(false);
-        if (err.response?.status !== 401 && err.response?.status !== 403 && err.message !== 'Auth check timeout') {
-          setError('Failed to verify authentication status.');
-        }
+
+      const serverUser = response.data;
+
+      // Update with verified server data
+      const currentUserId = currentUser?.id;
+      if (serverUser.id !== currentUserId) {
+        logger.info('AuthContext: Server verification updated user:', serverUser.email);
+        setCurrentUser(serverUser);
+        await authStorage.setUser(serverUser); // Persist verified user
       }
-      return null;
+
+      setError(null);
+      return serverUser;
+
+    } catch (verificationError) {
+      // Handle verification failures gracefully
+      const isAuthFailure = verificationError.response?.status === 401 ||
+                           verificationError.response?.status === 403;
+
+      if (isAuthFailure) {
+        logger.warn('AuthContext: Server verification failed - user not authenticated');
+        setCurrentUser(null);
+        await authStorage.clear();
+        return null;
+      }
+
+      // For network/server issues, keep optimistic state if we have one
+      const hasOptimisticState = !!currentUser;
+      if (hasOptimisticState) {
+        logger.info('AuthContext: Keeping optimistic state due to network/server issue');
+      } else {
+        logger.info('AuthContext: No optimistic state available');
+      }
+
+      // Only set error for non-timeout, non-network errors
+      if (verificationError.response?.status &&
+          verificationError.response.status !== 401 &&
+          verificationError.response.status !== 403) {
+        setError('Unable to verify authentication status. Some features may be limited.');
+      }
+
+      return currentUser; // Return current (optimistic) user if available
     }
   };
 
@@ -110,12 +127,35 @@ export const AuthProvider = ({ children }) => {
       const { user } = response.data;
       
       // The secure HttpOnly cookies are now set by the backend
-      // We only need to update the user state
+      // Persist user for optimistic auth and update state
+      await authStorage.setUser(user);
       setCurrentUser(user);
 
       return user;
     } catch (err) {
       setError(err.response?.data?.message || 'Login failed. Please try again.');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handover login function - for account switching during DJ handover
+  const handoverLogin = async (handoverData) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await authService.handoverLogin(handoverData);
+      const { user } = response.data;
+
+      // Persist user for optimistic auth and update state
+      await authStorage.setUser(user);
+      setCurrentUser(user);
+
+      return response.data;
+    } catch (err) {
+      setError(err.response?.data?.error || err.response?.data?.message || 'Account switch failed');
       throw err;
     } finally {
       setLoading(false);
@@ -212,9 +252,8 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setCurrentUser(null);
       setError(null);
-      localStorage.removeItem('oauth_token');
-      localStorage.removeItem('oauth_userId');
-      localStorage.removeItem('oauth_userRole');
+      // Clear all auth storage (IndexedDB + legacy localStorage)
+      await authStorage.clear();
     }
   };
 
@@ -223,6 +262,7 @@ export const AuthProvider = ({ children }) => {
     loading,
     error,
     login,
+    handoverLogin,
     register,
     verifyEmail,
     sendVerificationCode,

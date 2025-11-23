@@ -115,7 +115,7 @@ const WORKFLOW_STATES = {
 
 export default function DJDashboard() {
   // Authentication context
-  const { currentUser } = useAuth()
+  const { currentUser, handoverLogin, checkAuthStatus } = useAuth()
 
   // Check if user has proper role for DJ dashboard
   if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
@@ -390,6 +390,12 @@ export default function DJDashboard() {
   // Check for existing active broadcast and radio server state on component mount
   // This enables recovery if the DJ refreshes the page or browser crashes during a live broadcast
   useEffect(() => {
+    // Only run recovery if we have a user (authentication completed)
+    if (!currentUser) {
+      logger.debug("DJ Dashboard: Skipping recovery - user not authenticated yet")
+      return
+    }
+
     const checkActiveBroadcastAndServerState = async () => {
       try {
         logger.debug("DJ Dashboard: Checking for active broadcast and radio server state on mount")
@@ -412,9 +418,11 @@ export default function DJDashboard() {
         logger.debug("DJ Dashboard: Recovery check results:", {
           broadcastFound: !!activeBroadcast,
           broadcastStatus: activeBroadcast?.status,
-          serverState: serverState
+          serverState: serverState,
+          streamingBroadcast: streamingBroadcast?.id
         })
 
+        // Check if we found an active broadcast that we should recover
         if (activeBroadcast) {
           logger.debug("DJ Dashboard: Found active broadcast:", activeBroadcast)
           
@@ -481,10 +489,10 @@ export default function DJDashboard() {
       }
     }
 
-    if (currentUser && !streamingBroadcast) {
-      checkActiveBroadcastAndServerState()
-    }
-  }, [currentUser, streamingBroadcast])
+    // Always check for active broadcasts when user is authenticated
+    // Don't depend on streamingBroadcast since it might be null during recovery
+    checkActiveBroadcastAndServerState()
+  }, [currentUser]) // Only depend on currentUser, not streamingBroadcast
 
   // Track analytics when streaming starts
   useEffect(() => {
@@ -1596,9 +1604,6 @@ export default function DJDashboard() {
       setSongRequests([])
       setPolls([])
       setActivePoll(null)
-
-      // Clear reconnection status
-      setReconnectionStatus(null)
     } catch (error) {
       logger.error("Error ending broadcast:", error)
 
@@ -1657,9 +1662,6 @@ export default function DJDashboard() {
       // Reset state back to create new broadcast
       setCurrentBroadcast(null)
       setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
-
-      // Clear reconnection status
-      setReconnectionStatus(null)
     } catch (error) {
       logger.error("Error canceling broadcast:", error)
       setStreamError(`Error canceling broadcast: ${error.message}`)
@@ -1987,14 +1989,21 @@ export default function DJDashboard() {
               broadcastId={currentBroadcast.id}
               currentDJ={currentActiveDJ}
               loggedInUser={currentUser}
-              onHandoverSuccess={async () => {
-                // Refresh current active DJ after handover
+              onHandoverSuccess={async (handoverData) => {
+                // After account switch handover, update auth context and refresh data
                 try {
+                  // The handoverLogin already updated AuthContext, but refresh to ensure sync
+                  await checkAuthStatus();
+                  
+                  // Refresh current active DJ after handover
                   const response = await broadcastApi.getCurrentActiveDJ(currentBroadcast.id);
                   setCurrentActiveDJ(response.data);
+                  
                   // Refresh broadcast data
                   const updated = await broadcastService.getById(currentBroadcast.id);
                   setCurrentBroadcast(updated.data);
+                  
+                  logger.info('Handover completed successfully. Account switched to:', handoverData?.user?.email);
                 } catch (error) {
                   logger.error('Error refreshing after handover:', error);
                 }

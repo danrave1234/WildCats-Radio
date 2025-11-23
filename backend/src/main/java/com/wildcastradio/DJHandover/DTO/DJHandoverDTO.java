@@ -15,6 +15,7 @@ public class DJHandoverDTO {
     private String reason;
     private Long durationSeconds;
     private LocalDateTime createdAt;
+    private String authMethod; // STANDARD or ACCOUNT_SWITCH
 
     // Constructors
     public DJHandoverDTO() {
@@ -22,7 +23,7 @@ public class DJHandoverDTO {
 
     public DJHandoverDTO(Long id, Long broadcastId, UserDTO previousDJ, UserDTO newDJ,
                         LocalDateTime handoverTime, UserDTO initiatedBy, String reason,
-                        Long durationSeconds, LocalDateTime createdAt) {
+                        Long durationSeconds, LocalDateTime createdAt, String authMethod) {
         this.id = id;
         this.broadcastId = broadcastId;
         this.previousDJ = previousDJ;
@@ -32,6 +33,7 @@ public class DJHandoverDTO {
         this.reason = reason;
         this.durationSeconds = durationSeconds;
         this.createdAt = createdAt;
+        this.authMethod = authMethod;
     }
 
     // Convert from Entity to DTO
@@ -56,7 +58,8 @@ public class DJHandoverDTO {
             initiatedByDTO,
             handover.getReason(),
             handover.getDurationSeconds(),
-            handover.getCreatedAt()
+            handover.getCreatedAt(),
+            handover.getAuthMethod() != null ? handover.getAuthMethod().name() : "STANDARD"
         );
     }
 
@@ -131,6 +134,14 @@ public class DJHandoverDTO {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getAuthMethod() {
+        return authMethod;
+    }
+
+    public void setAuthMethod(String authMethod) {
+        this.authMethod = authMethod;
     }
 }
 

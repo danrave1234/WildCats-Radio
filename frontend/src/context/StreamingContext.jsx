@@ -2199,23 +2199,11 @@ export function StreamingProvider({ children }) {
       }
     };
 
-    const handleBeforeUnload = (event) => {
-      // Only show warning if actively broadcasting
-      if (isLive && websocketConnected) {
-        const message = 'You are currently broadcasting. Leaving this page will end your broadcast. Are you sure you want to leave?';
-        event.preventDefault();
-        event.returnValue = message;
-        return message;
-      }
-    };
-
     // Add event listeners
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [isAuthenticated, currentUser, isLive, websocketConnected]);
 

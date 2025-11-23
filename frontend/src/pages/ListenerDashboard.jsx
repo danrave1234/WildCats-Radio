@@ -338,6 +338,13 @@ export default function ListenerDashboard() {
     return () => clearInterval(interval);
   }, [currentBroadcast?.id, currentBroadcast?.status]);
 
+  // Clear current active DJ when broadcast ends (real-time via WebSocket)
+  useEffect(() => {
+    if (currentBroadcast && currentBroadcast.status !== 'LIVE') {
+      setCurrentActiveDJ(null);
+    }
+  }, [currentBroadcast?.status]);
+
   // Handle play/pause
   const handlePlayPause = () => {
     try {
@@ -764,28 +771,14 @@ export default function ListenerDashboard() {
               broadcastEndedRef.current = true; // Mark broadcast as explicitly ended
               // Fresh clear
               resetForNewBroadcast(null);
+              // Clear current active DJ immediately when broadcast ends
+              setCurrentActiveDJ(null);
               break;
 
             case 'LISTENER_COUNT_UPDATE':
               logger.debug('Listener count updated via WebSocket:', message.data?.listenerCount || 0);
               if (message.data?.listenerCount !== undefined) {
                 setLocalListenerCount(message.data.listenerCount);
-              }
-              break;
-
-            case 'BROADCAST_STATUS_UPDATE':
-              logger.debug('Broadcast status updated via WebSocket:', message.broadcast?.status === 'LIVE');
-              if (message.broadcast) {
-                if (message.broadcast.status === 'LIVE') {
-                  // Fresh start when status flips to LIVE (and ID may change)
-                  resetForNewBroadcast(message.broadcast.id);
-                  setCurrentBroadcast(message.broadcast);
-                  logger.debug('Fetching complete broadcast information after status update to LIVE');
-                  fetchCurrentBroadcastInfo();
-                } else {
-                  // Non-live; clear
-                  resetForNewBroadcast(null);
-                }
               }
               break;
 
@@ -1266,24 +1259,26 @@ export default function ListenerDashboard() {
               }
               break;
 
-            case 'BROADCAST_STATUS_UPDATE':
-              logger.debug('Broadcast status updated via global WebSocket:', message.broadcast?.status);
-              if (message.broadcast && message.broadcast.status === 'LIVE') {
-                // New broadcast went live
-                logger.debug('New broadcast went live via global status update:', message.broadcast);
-                logger.debug('Updating broadcast ID from', currentBroadcastId, 'to', message.broadcast.id, 'via global status update');
-                setCurrentBroadcast(message.broadcast);
-                setCurrentBroadcastId(message.broadcast.id);
-                // This will immediately trigger WebSocket setup for chat and song requests
-                logger.debug('Broadcast went live, WebSocket connections will be established immediately');
-                setBroadcastSession((s) => s + 1); // <--- increment session when broadcast goes live
-              } else if (message.broadcast && message.broadcast.status !== 'LIVE') {
-                // If this was the current broadcast and it's no longer live
-                if (currentBroadcastId === message.broadcast.id) {
-                  setCurrentBroadcast(null);
-                  setCurrentBroadcastId(null);
-                  logger.debug('Current broadcast ended via global status update');
+            case 'BROADCAST_RECOVERY':
+              logger.info('Listener Dashboard: Broadcast recovery notification via global WebSocket:', message);
+              
+              // Show recovery notification to listeners
+              if (message.broadcast) {
+                setRecoveryNotification({
+                  message: message.message || 'Broadcast recovered after brief interruption',
+                  timestamp: message.timestamp
+                });
+                
+                // Update broadcast state if it matches current broadcast
+                if (!currentBroadcastId || message.broadcast.id === currentBroadcastId) {
+                  setCurrentBroadcast(message.broadcast);
+                  setCurrentBroadcastId(message.broadcast.id);
                 }
+                
+                // Hide notification after 5 seconds
+                setTimeout(() => {
+                  setRecoveryNotification(null);
+                }, 5000);
               }
               break;
 
@@ -1475,7 +1470,7 @@ export default function ListenerDashboard() {
       return;
     }
     // Allow voting only if poll is active
-    if (!activePoll || !selectedPollOption || activePoll.userVoted || !activePoll.active || !isLive) return;
+    if (!activePoll || !selectedPollOption || activePoll.userVoted || !activePoll.active || currentBroadcast?.status !== 'LIVE') return;
 
     try {
       setPollLoading(true);
@@ -1724,7 +1719,7 @@ export default function ListenerDashboard() {
               ? "border-yellow-400 bg-yellow-50/50 dark:bg-yellow-900/10 dark:border-yellow-500 focus:ring-yellow-400 focus:border-yellow-400" 
               : "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 focus:ring-maroon-500 focus:border-maroon-500"
           }`}
-          disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id)}
+          disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id)}
           maxLength={1500}
         />
 
@@ -1734,9 +1729,9 @@ export default function ListenerDashboard() {
             <button
               type="button"
               onClick={handleSongRequest}
-              disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id) || !songRequestText.trim()}
+              disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id) || !songRequestText.trim()}
               className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
-                isLive && songRequestText.trim() 
+                currentBroadcast?.status === 'LIVE' && songRequestText.trim() 
                   ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
                   : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
               }`}
@@ -1748,7 +1743,7 @@ export default function ListenerDashboard() {
             <button
               type="button"
               onClick={handleCancelSongRequest}
-              disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id)}
+              disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id)}
               className="flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap"
               aria-label="Cancel song request"
             >
@@ -1760,7 +1755,7 @@ export default function ListenerDashboard() {
             <button
               type="button"
               onClick={handleSongRequest}
-              disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id)}
+              disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id)}
               className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
                 isLive 
                   ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
@@ -1773,9 +1768,9 @@ export default function ListenerDashboard() {
             </button>
             <button
               type="submit"
-              disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id) || !chatMessage.trim()}
+              disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id) || !chatMessage.trim()}
               className={`flex-shrink-0 p-2 rounded-lg transition-all ${
-                isLive && chatMessage.trim()
+                currentBroadcast?.status === 'LIVE' && chatMessage.trim()
                   ? "bg-maroon-600 hover:bg-maroon-700 active:bg-maroon-800 text-white shadow-sm hover:shadow-md"
                   : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
               }`}
@@ -1976,7 +1971,7 @@ export default function ListenerDashboard() {
         {/* Desktop Left Column - Broadcast + Poll */}
         <div className="lg:col-span-2 space-y-6">
           {/* Spotify-style Music Player */}
-          <SpotifyPlayer />
+          <SpotifyPlayer broadcast={currentBroadcast} />
 
           {/* Desktop Poll section */}
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden flex-grow">
@@ -2014,7 +2009,7 @@ export default function ListenerDashboard() {
             <div className="bg-white dark:bg-slate-800 flex-grow flex flex-col h-[450px]">
               {activeTab === "poll" && (
                 <div className="p-8 flex-grow flex flex-col h-full">
-                  {isLive ? (
+                  {currentBroadcast?.status === 'LIVE' ? (
                     <>
                       {pollLoading && !activePoll ? (
                         <div className="text-center py-8 flex-grow flex items-center justify-center">
@@ -2223,7 +2218,7 @@ export default function ListenerDashboard() {
           </div>
 
           <div className="bg-white dark:bg-slate-800 border border-t-0 border-slate-200 dark:border-slate-700 rounded-b-xl flex-grow flex flex-col h-[494px] shadow-lg">
-            {isLive ? (
+            {currentBroadcast?.status === 'LIVE' ? (
               <>
                 <div 
                   ref={chatContainerRef}
@@ -2311,7 +2306,7 @@ export default function ListenerDashboard() {
                             ? "border-gold-400 bg-gold-50 dark:bg-gold-900/20 dark:border-gold-500 focus:ring-gold-500 shadow-md" 
                             : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 focus:ring-maroon-500"
                         }`}
-                        disabled={!isLive}
+                        disabled={currentBroadcast?.status !== 'LIVE'}
                         maxLength={1500}
                       />
 
@@ -2321,9 +2316,9 @@ export default function ListenerDashboard() {
                           <button
                             type="button"
                             onClick={handleSongRequest}
-                            disabled={!isLive || !songRequestText.trim()}
+                            disabled={currentBroadcast?.status !== 'LIVE' || !songRequestText.trim()}
                             className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-md whitespace-nowrap ${
-                              isLive && songRequestText.trim() 
+                              currentBroadcast?.status === 'LIVE' && songRequestText.trim() 
                                 ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105' 
                                 : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                             }`}
@@ -2335,7 +2330,7 @@ export default function ListenerDashboard() {
                           <button
                             type="button"
                             onClick={handleCancelSongRequest}
-                            disabled={!isLive}
+                            disabled={currentBroadcast?.status !== 'LIVE'}
                             className="flex-shrink-0 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap"
                             aria-label="Cancel song request"
                           >
@@ -2347,7 +2342,7 @@ export default function ListenerDashboard() {
                           <button
                             type="button"
                             onClick={handleSongRequest}
-                            disabled={!isLive}
+                            disabled={currentBroadcast?.status !== 'LIVE'}
                             className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
                               isLive 
                                 ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
@@ -2362,7 +2357,7 @@ export default function ListenerDashboard() {
                             type="submit"
                             disabled={!isLive || !chatMessage.trim()}
                             className={`flex-shrink-0 p-2.5 rounded-lg transition-all ${
-                              isLive && chatMessage.trim()
+                              currentBroadcast?.status === 'LIVE' && chatMessage.trim()
                                 ? "bg-maroon-600 hover:bg-maroon-700 text-white shadow-sm hover:shadow-md"
                                 : "bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed"
                             }`}
@@ -2398,7 +2393,7 @@ export default function ListenerDashboard() {
       {/* Mobile: Single column layout */}
       <div className="lg:hidden space-y-6">
         {/* Mobile Spotify-style Music Player */}
-        <SpotifyPlayer />
+        <SpotifyPlayer broadcast={currentBroadcast} />
 
         {/* Mobile Recovery Notification Banner */}
         {recoveryNotification && (

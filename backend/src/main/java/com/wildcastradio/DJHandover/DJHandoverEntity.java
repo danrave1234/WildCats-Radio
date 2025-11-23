@@ -7,6 +7,8 @@ import com.wildcastradio.User.UserEntity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.EnumType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -20,9 +22,15 @@ import jakarta.persistence.Table;
     @Index(name = "idx_handover_broadcast", columnList = "broadcast_id"),
     @Index(name = "idx_handover_new_dj", columnList = "new_dj_id"),
     @Index(name = "idx_handover_time", columnList = "handover_time"),
-    @Index(name = "idx_handover_broadcast_time", columnList = "broadcast_id, handover_time")
+    @Index(name = "idx_handover_broadcast_time", columnList = "broadcast_id, handover_time"),
+    @Index(name = "idx_handover_auth_method", columnList = "auth_method")
 })
 public class DJHandoverEntity {
+
+    public enum AuthMethod {
+        STANDARD,        // Original handover (no auth required)
+        ACCOUNT_SWITCH   // New DJ authenticated during handover
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -55,6 +63,10 @@ public class DJHandoverEntity {
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+    @Column(name = "auth_method", length = 50)
+    @Enumerated(EnumType.STRING)
+    private AuthMethod authMethod = AuthMethod.STANDARD;
 
     // Default constructor
     public DJHandoverEntity() {
@@ -142,6 +154,14 @@ public class DJHandoverEntity {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public AuthMethod getAuthMethod() {
+        return authMethod;
+    }
+
+    public void setAuthMethod(AuthMethod authMethod) {
+        this.authMethod = authMethod;
     }
 
     // Helper method to get broadcast ID

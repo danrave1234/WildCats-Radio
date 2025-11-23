@@ -13,20 +13,45 @@ export default function DJHandoverModal({
 }) {
   const [djs, setDjs] = useState([]);
   const [selectedDJId, setSelectedDJId] = useState('');
+  const [selectedDJ, setSelectedDJ] = useState(null);
+  const [password, setPassword] = useState('');
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [loadingDJs, setLoadingDJs] = useState(false);
+  const [isSwitchingAccounts, setIsSwitchingAccounts] = useState(false);
 
   // Fetch DJs when modal opens
   useEffect(() => {
     if (isOpen) {
       fetchDJs();
       setSelectedDJId('');
+      setSelectedDJ(null);
+      setPassword('');
       setReason('');
       setError(null);
+      setIsSwitchingAccounts(false);
     }
   }, [isOpen]);
+
+  // Show password field when DJ is selected and it's not the logged-in user
+  useEffect(() => {
+    if (selectedDJId) {
+      const dj = djs.find(d => d.id === parseInt(selectedDJId));
+      // Show password field if:
+      // 1. DJ is selected AND
+      // 2. Either loggedInUser is null OR selectedDJ is different from loggedInUser
+      if (dj && (!loggedInUser || dj.id !== loggedInUser.id)) {
+        setSelectedDJ(dj);
+      } else {
+        setSelectedDJ(null);
+        setPassword('');
+      }
+    } else {
+      setSelectedDJ(null);
+      setPassword('');
+    }
+  }, [selectedDJId, loggedInUser, djs]);
 
   const fetchDJs = async () => {
     setLoadingDJs(true);
@@ -53,20 +78,40 @@ export default function DJHandoverModal({
       return;
     }
 
+    // Only require password if selected DJ is different from logged-in user
+    if (!selectedDJ || (loggedInUser && selectedDJ.id === loggedInUser.id)) {
+      setError('Cannot handover to yourself. Please select a different DJ.');
+      return;
+    }
+
+    if (!password) {
+      setError('Please enter the selected DJ\'s password to switch accounts');
+      return;
+    }
+
+    setIsSwitchingAccounts(true);
     setLoading(true);
     setError(null);
 
     try {
-      await broadcastApi.initiateHandover(broadcastId, selectedDJId, reason || null);
+      // Use new handover-login endpoint for account switching
+      const response = await authApi.handoverLogin({
+        broadcastId,
+        newDJId: parseInt(selectedDJId),
+        password,
+        reason: reason || null
+      });
+
       if (onHandoverSuccess) {
-        onHandoverSuccess();
+        onHandoverSuccess(response.data);
       }
       onClose();
     } catch (err) {
-      console.error('Error initiating handover:', err);
-      setError(err.response?.data?.message || 'Failed to initiate handover. Please try again.');
+      console.error('Error initiating handover with account switch:', err);
+      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to switch accounts. Please verify password and try again.');
     } finally {
       setLoading(false);
+      setIsSwitchingAccounts(false);
     }
   };
 
@@ -88,10 +133,10 @@ export default function DJHandoverModal({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={loading || !selectedDJId || loadingDJs}
+            disabled={loading || !selectedDJId || !password || loadingDJs}
             className="px-4 py-2 text-sm font-medium text-white bg-maroon-600 rounded-lg hover:bg-maroon-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-maroon-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Handing Over...' : 'Handover'}
+            {loading ? (isSwitchingAccounts ? 'Switching Accounts...' : 'Handing Over...') : 'Switch Accounts'}
           </button>
         </div>
       }
@@ -134,6 +179,27 @@ export default function DJHandoverModal({
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Loading DJs...</p>
           )}
         </div>
+
+        {selectedDJ && selectedDJId !== loggedInUser?.id && (
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Enter {selectedDJ.email || 'Selected DJ'}'s Password
+            </label>
+            <input
+              type="password"
+              id="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading || isSwitchingAccounts}
+              placeholder="Enter password to switch accounts"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 disabled:opacity-50"
+              required
+            />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              The selected DJ must be present to enter their password. This ensures secure account switching.
+            </p>
+          </div>
+        )}
 
         <div>
           <label htmlFor="reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
