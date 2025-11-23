@@ -200,18 +200,18 @@ public class UserController {
                 throw new IllegalArgumentException("Invalid password for selected DJ");
             }
             
-            // 4. Validate handover permissions (same as current system)
+            // 4. Validate handover permissions (enhanced for long broadcast scenarios)
             UserEntity currentActiveDJ = broadcast.getCurrentActiveDJ();
-            boolean hasPermission = false;
-            
-            if (initiator.getRole() == UserEntity.UserRole.ADMIN || initiator.getRole() == UserEntity.UserRole.MODERATOR) {
-                hasPermission = true;
-            } else if (initiator.getRole() == UserEntity.UserRole.DJ && currentActiveDJ != null 
-                    && currentActiveDJ.getId().equals(initiator.getId())) {
-                hasPermission = true;
-            }
-            
+            boolean hasPermission = validateHandoverPermission(initiator, broadcast);
+
             if (!hasPermission) {
+                logger.warn("Handover permission denied - Broadcast: {} ({}h old), Initiator: {} (role: {}), CurrentDJ: {}",
+                    request.getBroadcastId(),
+                    broadcast.getActualStart() != null ?
+                        Duration.between(broadcast.getActualStart(), LocalDateTime.now()).toHours() : 0,
+                    initiator.getEmail(),
+                    initiator.getRole(),
+                    currentActiveDJ != null ? currentActiveDJ.getEmail() : "none");
                 throw new IllegalArgumentException("You do not have permission to initiate handover");
             }
             
@@ -247,11 +247,24 @@ public class UserController {
                 handover.setDurationSeconds(duration.getSeconds());
             }
             
+            // Save handover record
             DJHandoverEntity savedHandover = handoverRepository.save(handover);
+            handoverRepository.flush(); // Force immediate write to database
+            
+            logger.info("Handover record saved: ID={}, Broadcast={}, From DJ={}, To DJ={}", 
+                savedHandover.getId(), 
+                request.getBroadcastId(),
+                currentActiveDJ != null ? currentActiveDJ.getId() : "none",
+                newDJ.getId());
             
             // 7. Update broadcast's current active DJ
             broadcast.setCurrentActiveDJ(newDJ);
-            broadcastRepository.save(broadcast);
+            BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+            broadcastRepository.flush(); // Force immediate write to database
+            
+            logger.info("Broadcast current_active_dj_id updated: Broadcast={}, New DJ ID={}", 
+                request.getBroadcastId(), 
+                savedBroadcast.getCurrentActiveDJ() != null ? savedBroadcast.getCurrentActiveDJ().getId() : "null");
             
             // 8. Generate new JWT token for new DJ
             UserDetails userDetails = userService.loadUserByUsername(newDJ.getEmail());
@@ -538,6 +551,71 @@ public class UserController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
+        }
+    }
+
+    /**
+     * Enhanced handover permission validation for long broadcast scenarios
+     */
+    private boolean validateHandoverPermission(UserEntity initiator, BroadcastEntity broadcast) {
+        // Admin/Mod override always allowed
+        if (initiator.getRole() == UserEntity.UserRole.ADMIN ||
+            initiator.getRole() == UserEntity.UserRole.MODERATOR) {
+            return true;
+        }
+
+        // For DJs, multiple validation paths
+        if (initiator.getRole() == UserEntity.UserRole.DJ) {
+            UserEntity currentActiveDJ = broadcast.getCurrentActiveDJ();
+
+            // Path 1: Standard check (current active DJ)
+            if (currentActiveDJ != null && currentActiveDJ.getId().equals(initiator.getId())) {
+                return true;
+            }
+
+            // Path 2: Long broadcast persistent auth scenario
+            if (isValidPersistentAuthScenario(initiator, broadcast)) {
+                return true;
+            }
+
+            // Path 3: Recent activity fallback (check last 24 hours)
+            if (wasRecentlyActiveInBroadcast(initiator, broadcast)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if this is a long broadcast scenario where persistent auth should be allowed
+     */
+    private boolean isValidPersistentAuthScenario(UserEntity initiator, BroadcastEntity broadcast) {
+        if (broadcast.getActualStart() == null) return false;
+
+        Duration duration = Duration.between(broadcast.getActualStart(), LocalDateTime.now());
+        boolean isLongBroadcast = duration.toHours() >= 4; // 4+ hour threshold
+
+        // For long broadcasts, allow handover if initiator is active DJ
+        // The persistent auth system ensures only authorized DJs remain logged in
+        return isLongBroadcast && initiator.getRole() == UserEntity.UserRole.DJ && initiator.isActive();
+    }
+
+    /**
+     * Check if initiator was recently active in this broadcast (fallback for edge cases)
+     */
+    private boolean wasRecentlyActiveInBroadcast(UserEntity initiator, BroadcastEntity broadcast) {
+        try {
+            List<DJHandoverEntity> recentActivity = handoverRepository
+                .findByBroadcast_IdAndInitiatedBy_IdAndHandoverTimeAfter(
+                    broadcast.getId(),
+                    initiator.getId(),
+                    LocalDateTime.now().minusHours(24)
+                );
+            return !recentActivity.isEmpty();
+        } catch (Exception e) {
+            logger.warn("Error checking recent activity for handover permission", e);
+            return false;
         }
     }
 

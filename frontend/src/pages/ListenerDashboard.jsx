@@ -687,7 +687,32 @@ export default function ListenerDashboard() {
               case 'NEW_POLL': {
                 const p = pollUpdate.poll;
                 if (p && p.active) {
-                  setActivePoll(p);
+                  // Set poll immediately for real-time display (optimistic update)
+                  setActivePoll({
+                    ...p,
+                    userVoted: false,
+                    userVotedFor: null
+                  });
+                  
+                  // Check user vote status in background (non-blocking)
+                  if (currentUser) {
+                    pollService.getUserVote(p.id)
+                      .then(userVoteResponse => {
+                        setActivePoll(prev => (
+                          prev && prev.id === p.id
+                            ? {
+                                ...prev,
+                                userVoted: !!userVoteResponse.data,
+                                userVotedFor: userVoteResponse.data || null
+                              }
+                            : prev
+                        ));
+                      })
+                      .catch(error => {
+                        logger.debug('Could not fetch user vote status for new poll:', error);
+                        // Keep poll displayed, vote status will remain false
+                      });
+                  }
                 }
                 break;
               }
@@ -710,7 +735,38 @@ export default function ListenerDashboard() {
                   // Only clear if poll has no votes and is not active
                   const hasVotes = p.options?.some(opt => (opt.votes || 0) > 0) || p.totalVotes > 0;
                   if (p.active || hasVotes) {
-                    setActivePoll(p);
+                    // Set poll immediately for real-time display (optimistic update)
+                    setActivePoll(prev => {
+                      // Preserve existing userVoted status if poll ID matches (prevents flicker)
+                      const existingVoteStatus = prev && prev.id === p.id 
+                        ? { userVoted: prev.userVoted, userVotedFor: prev.userVotedFor }
+                        : { userVoted: false, userVotedFor: null };
+                      
+                      return {
+                        ...p,
+                        ...existingVoteStatus
+                      };
+                    });
+                    
+                    // Check user vote status in background (non-blocking) when poll is reposted
+                    if (currentUser) {
+                      pollService.getUserVote(p.id)
+                        .then(userVoteResponse => {
+                          setActivePoll(prev => (
+                            prev && prev.id === p.id
+                              ? {
+                                  ...prev,
+                                  userVoted: !!userVoteResponse.data,
+                                  userVotedFor: userVoteResponse.data || null
+                                }
+                              : prev
+                          ));
+                        })
+                        .catch(error => {
+                          logger.debug('Could not fetch user vote status for updated poll:', error);
+                          // Keep poll displayed, vote status will remain as-is
+                        });
+                    }
                   } else {
                     setActivePoll(null);
                   }
@@ -1082,7 +1138,7 @@ export default function ListenerDashboard() {
       setChatMessages(updatedMessages.data);
       // Always scroll to bottom after sending message
       setTimeout(() => {
-        scrollToBottom();
+      scrollToBottom();
         setShowScrollBottom(false);
       }, 100);
     } catch (error) {
@@ -1371,18 +1427,45 @@ export default function ListenerDashboard() {
           // Fetch results for active poll
           try {
             const resultsResponse = await pollService.getPollResults(firstActive.id);
+            // Check if user has already voted
+            let userVoted = false;
+            let userVotedFor = null;
+            if (currentUser) {
+              try {
+                const userVoteResponse = await pollService.getUserVote(firstActive.id);
+                userVoted = !!userVoteResponse.data;
+                userVotedFor = userVoteResponse.data || null;
+              } catch (error) {
+                // If getUserVote fails, assume user hasn't voted
+                logger.debug('Could not fetch user vote status:', error);
+              }
+            }
             setActivePoll({
               ...firstActive,
               options: resultsResponse.data.options || firstActive.options,
               totalVotes: resultsResponse.data.totalVotes || firstActive.options.reduce((sum, option) => sum + (option.votes || 0), 0),
-              userVoted: false
+              userVoted,
+              userVotedFor
             });
           } catch (error) {
             // Fallback if results fetch fails
+            // Still check user vote status
+            let userVoted = false;
+            let userVotedFor = null;
+            if (currentUser) {
+              try {
+                const userVoteResponse = await pollService.getUserVote(firstActive.id);
+                userVoted = !!userVoteResponse.data;
+                userVotedFor = userVoteResponse.data || null;
+              } catch (error) {
+                logger.debug('Could not fetch user vote status:', error);
+              }
+            }
             setActivePoll({
               ...firstActive,
               totalVotes: firstActive.options.reduce((sum, option) => sum + (option.votes || 0), 0),
-              userVoted: false
+              userVoted,
+              userVotedFor
             });
           }
           return;
@@ -1630,7 +1713,7 @@ export default function ListenerDashboard() {
       const formattedTime = (() => {
         try {
           return messageDate && !isNaN(messageDate.getTime())
-            ? format(messageDate, 'hh:mm a')
+        ? format(messageDate, 'hh:mm a')
             : "";
         } catch (error) {
           return "";
@@ -1645,7 +1728,7 @@ export default function ListenerDashboard() {
             }`}
           >
             {isDJ ? "DJ" : initials}
-          </div>
+            </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center flex-wrap gap-1 sm:gap-2 mb-1">
               <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white truncate">
@@ -2207,17 +2290,21 @@ export default function ListenerDashboard() {
                         </div>
                       ) : (
                         <div className="flex items-center justify-center h-full">
-                          <div className="text-center w-full">
+                          <div className="text-center w-full px-4">
                             <div className="mb-8">
-                              <div className="w-20 h-20 mx-auto mb-4 rounded-xl bg-maroon-700 flex items-center justify-center shadow-lg mb-6 border border-maroon-600">
-                                <svg className="w-10 h-10 text-gold-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <div className="w-20 h-20 mx-auto mb-6 rounded-xl bg-gradient-to-br from-maroon-600 to-maroon-700 flex items-center justify-center shadow-lg border border-maroon-500">
+                                <svg className="w-10 h-10 text-gold-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                 </svg>
                               </div>
-                              <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2 font-montserrat">Vote</h3>
-                              <p className="text-base text-slate-600 dark:text-slate-400">Select which you prefer the most?</p>
+                              <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-3 font-montserrat">No Poll Available</h3>
+                              <p className="text-base text-slate-600 dark:text-slate-400 mb-2 font-medium">
+                                Waiting for the DJ to create a poll
+                              </p>
+                              <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Polls will appear here automatically when created
+                              </p>
                             </div>
-                            <p className="text-slate-500 dark:text-slate-400">Polls are only available during live broadcasts</p>
                           </div>
                         </div>
                       )}
@@ -2253,31 +2340,31 @@ export default function ListenerDashboard() {
                   {renderChatMessages()}
 
                   {/* Scroll to bottom button - Minimalist design matching DJDashboard */}
-                  {showScrollBottom && (
+                {showScrollBottom && (
                     <div className="absolute bottom-4 right-4 z-10">
-                      <button
-                        onClick={scrollToBottom}
+                    <button
+                      onClick={scrollToBottom}
                         className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full w-10 h-10 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
-                        aria-label="Scroll to bottom"
+                      aria-label="Scroll to bottom"
                         title="Scroll to latest messages"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          className="h-5 w-5"
+                    >
+                      <svg 
+                        xmlns="http://www.w3.org/2000/svg" 
+                        className="h-5 w-5" 
                           viewBox="0 0 24 24"
                           fill="none"
                           stroke="currentColor"
                           strokeWidth="2.5"
-                        >
-                          <path
+                      >
+                        <path 
                             strokeLinecap="round"
                             strokeLinejoin="round"
                             d="M19 9l-7 7-7-7"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-                  )}
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                )}
                 </div>
                 <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800 overflow-hidden">
                   {!currentUser ? (
@@ -2326,8 +2413,8 @@ export default function ListenerDashboard() {
                         }}
                         placeholder={isSongRequestMode ? "Song title - optional artist" : "Type your message..."}
                         className={`flex-1 min-w-0 max-w-full px-3 py-2.5 border rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:border-transparent transition-all duration-200 text-sm ${
-                          isSongRequestMode
-                            ? "border-gold-400 bg-gold-50 dark:bg-gold-900/20 dark:border-gold-500 focus:ring-gold-500 shadow-md"
+                          isSongRequestMode 
+                            ? "border-gold-400 bg-gold-50 dark:bg-gold-900/20 dark:border-gold-500 focus:ring-gold-500 shadow-md" 
                             : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 focus:ring-maroon-500"
                         }`}
                         disabled={currentBroadcast?.status !== 'LIVE'}
@@ -2342,8 +2429,8 @@ export default function ListenerDashboard() {
                             onClick={handleSongRequest}
                             disabled={currentBroadcast?.status !== 'LIVE' || !songRequestText.trim()}
                             className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-md whitespace-nowrap ${
-                              currentBroadcast?.status === 'LIVE' && songRequestText.trim()
-                                ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105'
+                              currentBroadcast?.status === 'LIVE' && songRequestText.trim() 
+                                ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105' 
                                 : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                             }`}
                             aria-label="Send song request"
@@ -2368,8 +2455,8 @@ export default function ListenerDashboard() {
                             onClick={handleSongRequest}
                             disabled={currentBroadcast?.status !== 'LIVE'}
                             className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
-                              isLive
-                                ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md'
+                              isLive 
+                                ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
                                 : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
                             }`}
                             aria-label="Request a song"
@@ -2464,7 +2551,7 @@ export default function ListenerDashboard() {
             {activeTab === "chat" && (
               <div className="animate-fade-in flex flex-col h-full">
                 <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
-                  {renderChatMessages()}
+                {renderChatMessages()}
 
                   {/* Scroll to bottom button - Minimalist design */}
                   {showScrollBottom && (
@@ -2494,13 +2581,216 @@ export default function ListenerDashboard() {
                   )}
                 </div>
                 <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800">
-                  {renderChatInput()}
+                {renderChatInput()}
                 </div>
               </div>
             )}
             {activeTab === "poll" && (
-              <div className="animate-fade-in">
-                {/* Poll content will be rendered here */}
+              <div className="animate-fade-in p-6 flex flex-col h-full">
+                {currentBroadcast?.status === 'LIVE' ? (
+                  <>
+                    {pollLoading && !activePoll ? (
+                      <div className="text-center py-8 flex-grow flex items-center justify-center">
+                        <p className="text-gray-500 dark:text-gray-400 animate-pulse">Loading polls...</p>
+                      </div>
+                    ) : activePoll ? (
+                      <div className="flex-grow flex flex-col">
+                        {/* Poll Question */}
+                        <div className="mb-6">
+                          <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-3 font-montserrat">
+                            {activePoll.question || activePoll.title}
+                          </h3>
+                          <div className="text-sm text-slate-600 dark:text-slate-400 font-medium">
+                            {!activePoll.active ? (
+                              <span className="text-orange-600 dark:text-orange-400 font-semibold">Poll has ended - View results below</span>
+                            ) : !currentUser 
+                              ? 'Login to participate in the poll'
+                              : activePoll.userVoted 
+                                ? 'You have voted' 
+                                : 'Choose your answer and click Vote'
+                            }
+                          </div>
+                        </div>
+
+                        {/* Poll Options */}
+                        <div className="space-y-3 mb-6 flex-grow">
+                          {activePoll.options.map((option) => {
+                            const showResults = !activePoll.active || (activePoll.userVoted && currentUser);
+                            const percentage = (activePoll.totalVotes > 0 && showResults)
+                              ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 
+                              : 0;
+                            const isSelected = selectedPollOption === option.id;
+                            const isUserChoice = activePoll.userVotedFor === option.id;
+                            const canInteract = currentUser && !activePoll.userVoted && activePoll.active;
+
+                            return (
+                              <div key={option.id} className="space-y-2">
+                                <div 
+                                  className={`w-full border-2 rounded-lg overflow-hidden transition-all duration-200 ${
+                                    !currentUser
+                                      ? 'border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 cursor-not-allowed opacity-75'
+                                      : activePoll.userVoted 
+                                        ? isUserChoice
+                                          ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30 shadow-md'
+                                          : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700'
+                                        : isSelected
+                                          ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20 cursor-pointer shadow-md'
+                                          : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 hover:border-maroon-300 dark:hover:border-maroon-600 hover:bg-maroon-50/50 dark:hover:bg-maroon-900/20 cursor-pointer transition-all'
+                                  }`}
+                                  onClick={() => canInteract && handlePollOptionSelect(option.id)}
+                                >
+                                  <div className="p-4">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-sm font-semibold text-slate-900 dark:text-white">
+                                        {option.optionText || option.text}
+                                      </span>
+                                      <div className="flex items-center">
+                                        {showResults && (
+                                          <span className="text-xs text-gray-600 dark:text-gray-400 mr-2">
+                                            {option.votes || 0} votes
+                                          </span>
+                                        )}
+                                        {isSelected && canInteract && (
+                                          <div className="w-4 h-4 bg-maroon-500 rounded-full flex items-center justify-center">
+                                            <div className="w-2 h-2 bg-white rounded-full"></div>
+                                          </div>
+                                        )}
+                                        {isUserChoice && (activePoll.userVoted && currentUser) && (
+                                          <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                                            <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                            </svg>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Progress bar */}
+                                    {showResults && (
+                                      <div className="mt-3">
+                                        <div className="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-2.5 overflow-hidden">
+                                          <div 
+                                            className={`h-2.5 rounded-full transition-all duration-300 ${
+                                              isUserChoice ? 'bg-emerald-500' : 'bg-slate-400'
+                                            }`}
+                                            style={{ width: `${percentage}%` }}
+                                          />
+                                        </div>
+                                        <div className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1.5">
+                                          {percentage}% • {option.votes || 0} {option.votes === 1 ? 'vote' : 'votes'}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Vote Button */}
+                        <div className="mt-auto flex justify-center">
+                          {!currentUser ? (
+                            <div className="text-center">
+                              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 font-medium">
+                                Login to participate in polls
+                              </p>
+                              <div className="flex space-x-3 justify-center">
+                                <button
+                                  onClick={handleLoginRedirect}
+                                  className="flex items-center px-5 py-2.5 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-semibold rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
+                                >
+                                  <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
+                                  Login
+                                </button>
+                                <button
+                                  onClick={handleRegisterRedirect}
+                                  className="flex items-center px-5 py-2.5 bg-gold-500 hover:bg-gold-600 text-maroon-900 text-sm font-semibold rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
+                                >
+                                  <UserPlusIcon className="h-4 w-4 mr-2" />
+                                  Register
+                                </button>
+                              </div>
+                            </div>
+                          ) : activePoll.userVoted ? (
+                            <div className="text-center">
+                              <div className="text-sm text-slate-600 dark:text-slate-400 mb-3 font-semibold">
+                                Total votes: {activePoll.totalVotes || 0}
+                              </div>
+                              <span className="inline-flex items-center px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg shadow-md font-semibold transition-colors">
+                                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                                You have voted
+                              </span>
+                            </div>
+                          ) : !activePoll.active ? (
+                            <div className="text-center">
+                              <div className="text-sm text-slate-600 dark:text-slate-400 mb-3 font-semibold">
+                                Total votes: {activePoll.totalVotes || 0}
+                              </div>
+                              <span className="inline-flex items-center px-6 py-3 bg-orange-500 text-white rounded-lg shadow-md font-semibold">
+                                Poll Ended
+                              </span>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={handlePollVote}
+                              disabled={!selectedPollOption || pollLoading || !activePoll.active}
+                              className={`px-10 py-3 rounded-lg font-semibold transition-all duration-200 shadow-md ${
+                                selectedPollOption && !pollLoading && activePoll.active
+                                  ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105' 
+                                  : 'bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed'
+                              }`}
+                            >
+                              {pollLoading ? (
+                                <span className="flex items-center gap-2">
+                                  <div className="w-4 h-4 border-2 border-maroon-900 border-t-transparent rounded-full animate-spin"></div>
+                                  Voting...
+                                </span>
+                              ) : 'Vote'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center h-full">
+                        <div className="text-center w-full px-4">
+                          <div className="mb-8">
+                            <div className="w-20 h-20 mx-auto mb-6 rounded-xl bg-gradient-to-br from-maroon-600 to-maroon-700 flex items-center justify-center shadow-lg border border-maroon-500">
+                              <svg className="w-10 h-10 text-gold-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                              </svg>
+                            </div>
+                            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-3 font-montserrat">No Poll Available</h3>
+                            <p className="text-sm text-slate-600 dark:text-slate-400 mb-2 font-medium">
+                              Waiting for the DJ to create a poll
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              Polls will appear here automatically when created
+                            </p>
+                          </div>
+                          <div className="inline-flex items-center px-4 py-2 rounded-lg bg-maroon-50 dark:bg-maroon-900/20 border border-maroon-200 dark:border-maroon-700">
+                            <svg className="w-5 h-5 text-maroon-600 dark:text-maroon-400 mr-2 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span className="text-xs font-medium text-maroon-700 dark:text-maroon-300">Live broadcast active</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center w-full px-4">
+                      <div className="mb-8">
+                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Vote</h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Select which you prefer the most?</p>
+                      </div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Polls are only available during live broadcasts</p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

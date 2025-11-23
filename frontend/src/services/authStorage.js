@@ -162,7 +162,7 @@ class AuthStorage {
   }
 
   // Check if a stored session is still valid
-  async isSessionValid(maxAgeMs = 12 * 60 * 60 * 1000) { // 12 hours default
+  async isSessionValid(maxAgeMs) { // Use config value instead of hardcoded default
     const session = await this.getSession();
 
     if (!session || !session.user || !session.lastVerified) {

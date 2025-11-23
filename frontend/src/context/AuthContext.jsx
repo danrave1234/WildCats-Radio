@@ -2,6 +2,7 @@ import { createContext, useState, useEffect, useContext } from 'react';
 import { authService } from '../services/api/index.js';
 import authStorage from '../services/authStorage.js';
 import { createLogger } from '../services/logger.js';
+import { config } from '../config.js';
 
 // Create the context
 export const AuthContext = createContext();
@@ -25,11 +26,18 @@ export const AuthProvider = ({ children }) => {
     const logger = createLogger('AuthContext');
     const isLocalhost = window.location.hostname === 'localhost';
 
+    // Check if optimistic authentication is enabled
+    if (!config.enableOptimisticAuth) {
+      logger.info('AuthContext: Optimistic authentication disabled, using server-only auth');
+      await checkServerAuthOnly();
+      return;
+    }
+
     // PHASE 1: IMMEDIATE OPTIMISTIC RESTORE
     // Load stored user immediately to prevent UI flicker and logout during refresh
     try {
       const storedUser = await authStorage.getUser();
-      const sessionValid = await authStorage.isSessionValid(12 * 60 * 60 * 1000); // 12 hours
+      const sessionValid = await authStorage.isSessionValid(config.authSessionTimeoutHours * 60 * 60 * 1000); // Configurable hours
 
       if (storedUser && sessionValid) {
         logger.info('AuthContext: Optimistic restore successful for user:', storedUser.email);
@@ -104,6 +112,47 @@ export const AuthProvider = ({ children }) => {
       }
 
       return currentUser; // Return current (optimistic) user if available
+    }
+  };
+
+  // Fallback authentication check when optimistic auth is disabled
+  const checkServerAuthOnly = async () => {
+    const logger = createLogger('AuthContext');
+    const isLocalhost = window.location.hostname === 'localhost';
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const timeoutMs = isLocalhost ? 10000 : 2000;
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Auth verification timeout')), timeoutMs);
+      });
+
+      const authPromise = authService.getCurrentUser();
+      const response = await Promise.race([authPromise, timeoutPromise]);
+
+      const serverUser = response.data;
+      setCurrentUser(serverUser);
+      setLoading(false);
+
+      logger.info('AuthContext: Server-only auth successful for user:', serverUser.email);
+      return serverUser;
+
+    } catch (verificationError) {
+      const isAuthFailure = verificationError.response?.status === 401 ||
+                           verificationError.response?.status === 403;
+
+      if (isAuthFailure) {
+        logger.warn('AuthContext: Server-only auth failed - user not authenticated');
+        setCurrentUser(null);
+        await authStorage.clear();
+      } else {
+        setError('Unable to verify authentication status. Some features may be limited.');
+      }
+
+      setLoading(false);
+      return null;
     }
   };
 

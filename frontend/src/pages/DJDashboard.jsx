@@ -2068,11 +2068,11 @@ export default function DJDashboard() {
                 try {
                   // The handoverLogin already updated AuthContext, but refresh to ensure sync
                   await checkAuthStatus();
-
+                  
                   // Refresh current active DJ after handover
                   const response = await broadcastApi.getCurrentActiveDJ(currentBroadcast.id);
                   setCurrentActiveDJ(response.data);
-
+                  
                   // Refresh broadcast data
                   const updated = await broadcastService.getById(currentBroadcast.id);
                   setCurrentBroadcast(updated.data);
@@ -2084,7 +2084,7 @@ export default function DJDashboard() {
                       : handoverData?.user?.email || 'Unknown DJ');
                   setSuccessNotificationMessage(`✓ Successfully switched to ${djName}`);
                   setShowSuccessNotification(true);
-
+                  
                   logger.info('Handover completed successfully. Account switched to:', handoverData?.user?.email);
                 } catch (error) {
                   logger.error('Error refreshing after handover:', error);
@@ -2521,122 +2521,122 @@ export default function DJDashboard() {
                           <div className="flex items-center space-x-2 sm:space-x-3 flex-wrap">
                             <span className="text-xs sm:text-sm bg-white bg-opacity-20 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full font-bold">
                               {chatMessages.length} {chatMessages.length === 1 ? 'message' : 'messages'}
-                            </span>
-                            <button
-                              onClick={handleDownloadChat}
-                              disabled={isDownloadingChat || !currentBroadcast?.id}
+                          </span>
+                          <button
+                            onClick={handleDownloadChat}
+                            disabled={isDownloadingChat || !currentBroadcast?.id}
                               className="inline-flex items-center text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
-                              title="Download chat messages as Excel (available for 7 days)"
-                            >
+                            title="Download chat messages as Excel (available for 7 days)"
+                          >
                               <ArrowDownTrayIcon className={`h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-1.5 ${isDownloadingChat ? "animate-pulse" : ""}`} />
                               <span className="hidden sm:inline">{isDownloadingChat ? "Downloading..." : "Download"}</span>
-                            </button>
-                          </div>
+                          </button>
                         </div>
                       </div>
+                    </div>
 
                       {/* Messages Area - Flex to fill remaining space in 777px card */}
                       <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
                         <div className="h-full overflow-y-auto p-3 sm:p-4 space-y-3 custom-scrollbar chat-messages-container" ref={chatContainerRef}>
-                          {chatMessages.length === 0 ? (
+                        {chatMessages.length === 0 ? (
                             <div className="text-center text-gray-500 dark:text-gray-400 py-8 sm:py-12">
                               <ChatBubbleLeftRightIcon className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-3 opacity-30" />
                               <p className="text-sm sm:text-base">No messages yet</p>
                               <p className="text-xs sm:text-sm text-gray-400 dark:text-gray-500 mt-1">Start the conversation!</p>
                             </div>
-                          ) : (
+                        ) : (
                             chatMessages
-                              .slice()
-                              .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
-                              .map((msg) => {
-                                if (!msg || !msg.sender) return null
+                                .slice()
+                                .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+                                .map((msg) => {
+                                  if (!msg || !msg.sender) return null
 
-                                const firstName = msg.sender?.firstname || ""
-                                const lastName = msg.sender?.lastname || ""
-                                const fullName = `${firstName} ${lastName}`.trim()
-                                const senderName = fullName || msg.sender?.email || "Unknown User"
+                                  const firstName = msg.sender?.firstname || ""
+                                  const lastName = msg.sender?.lastname || ""
+                                  const fullName = `${firstName} ${lastName}`.trim()
+                                  const senderName = fullName || msg.sender?.email || "Unknown User"
 
-                                const isDJ =
-                                    (msg.sender?.role && msg.sender.role.includes("DJ")) ||
-                                    senderName.includes("DJ") ||
-                                    firstName.includes("DJ") ||
-                                    lastName.includes("DJ")
+                                  const isDJ =
+                                      (msg.sender?.role && msg.sender.role.includes("DJ")) ||
+                                      senderName.includes("DJ") ||
+                                      firstName.includes("DJ") ||
+                                      lastName.includes("DJ")
 
-                                const initials = (() => {
-                                  try {
-                                    return (
-                                        senderName
-                                            .split(" ")
-                                            .map((part) => part[0] || "")
-                                            .join("")
-                                            .toUpperCase()
-                                            .slice(0, 2) || "U"
-                                    )
-                                  } catch (error) {
-                                    return "U"
-                                  }
-                                })()
+                                  const initials = (() => {
+                                    try {
+                                      return (
+                                          senderName
+                                              .split(" ")
+                                              .map((part) => part[0] || "")
+                                              .join("")
+                                              .toUpperCase()
+                                              .slice(0, 2) || "U"
+                                      )
+                                    } catch (error) {
+                                      return "U"
+                                    }
+                                  })()
 
                                 // Handle date parsing more robustly (same as ListenerDashboard)
-                                let messageDate;
-                                try {
+                                  let messageDate;
+                                  try {
                                   const ts = msg.createdAt || msg.timestamp || msg.sentAt || msg.time || msg.date;
                                   messageDate = ts ? new Date(ts) : null;
-                                } catch (error) {
+                                  } catch (error) {
                                   logger.error('Error parsing message date:', error);
-                                  messageDate = new Date();
-                                }
+                                    messageDate = new Date();
+                                  }
 
                                 const formattedTime = (() => {
-                                  try {
-                                    return messageDate && !isNaN(messageDate.getTime())
+                                    try {
+                                      return messageDate && !isNaN(messageDate.getTime())
                                         ? format(messageDate, 'hh:mm a')
                                         : ""
-                                  } catch (error) {
+                                    } catch (error) {
                                     return ""
-                                  }
-                                })()
+                                    }
+                                  })()
 
-                                return (
+                                  return (
                                   <div key={msg.id} className="flex items-start space-x-2 sm:space-x-3">
-                                    <div
+                                        <div
                                       className={`flex-shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-xs sm:text-sm text-white font-bold ${
-                                            isDJ ? "bg-maroon-600" : "bg-gray-500"
-                                        }`}
-                                    >
-                                      {isDJ ? "DJ" : initials}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
+                                                isDJ ? "bg-maroon-600" : "bg-gray-500"
+                                            }`}
+                                        >
+                                          {isDJ ? "DJ" : initials}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
                                       <div className="flex items-center flex-wrap gap-1 sm:gap-2 mb-1">
                                         <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white truncate">
-                                          {senderName}
-                                        </span>
+                                    {senderName}
+                                  </span>
                                         {formattedTime && (
                                           <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
                                             {formattedTime}
                                           </span>
                                         )}
-                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
-                                          <button
-                                            type="button"
-                                            onClick={() => handleBanUser(msg.sender.id, senderName)}
+                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
+                                                                                          <button
+                                                                                            type="button"
+                                                                                            onClick={() => handleBanUser(msg.sender.id, senderName)}
                                             className="text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800 flex-shrink-0"
-                                            title="Ban this user from chat"
-                                          >
-                                            Ban
-                                          </button>
-                                        )}
-                                      </div>
+                                                                                            title="Ban this user from chat"
+                                                                                          >
+                                                                                            Ban
+                                                                                          </button>
+                                                                                        )}
+                                          </div>
                                       <p className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 break-words">
-                                        {msg.content || "No content"}
-                                      </p>
-                                    </div>
-                                  </div>
-                                )
-                              })
-                              .filter(Boolean)
-                          )}
-                        </div>
+                                            {msg.content || "No content"}
+                                          </p>
+                                        </div>
+                                      </div>
+                                  )
+                                })
+                                .filter(Boolean)
+                        )}
+                      </div>
                         
                         {/* Scroll to bottom button - Minimalist design */}
                         {showScrollBottom && (
@@ -2670,16 +2670,16 @@ export default function DJDashboard() {
                       <div className="border-t border-gray-200 dark:border-gray-700 p-3 sm:p-4 bg-gray-50 dark:bg-gray-900/50 flex-shrink-0">
                         <form onSubmit={handleChatSubmit} className="flex space-x-2 sm:space-x-3">
                           <input
-                            type="text"
-                            value={chatMessage}
-                            onChange={(e) => setChatMessage(e.target.value)}
-                            placeholder="Type your message..."
+                              type="text"
+                              value={chatMessage}
+                              onChange={(e) => setChatMessage(e.target.value)}
+                              placeholder="Type your message..."
                             className="flex-1 min-w-0 px-3 sm:px-4 py-2 sm:py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                            maxLength={1500}
+                              maxLength={1500}
                           />
                           <button
-                            type="submit"
-                            disabled={!chatMessage.trim()}
+                              type="submit"
+                              disabled={!chatMessage.trim()}
                             className="px-4 sm:px-5 py-2 sm:py-2.5 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium flex-shrink-0"
                             aria-label="Send message"
                           >
