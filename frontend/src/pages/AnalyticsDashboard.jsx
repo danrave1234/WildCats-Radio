@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAnalytics } from '../context/AnalyticsContext';
 import { useAuth } from '../context/AuthContext';
 import { authService, analyticsService } from '../services/api/index';
+import { analyticsApi } from '../services/api/analyticsApi';
+import { broadcastService } from '../services/api/index';
 import { Spinner } from '../components/ui/spinner';
 import { EnhancedScrollArea } from '../components/ui/enhanced-scroll-area';
 import { format, subDays, subWeeks, subMonths, subYears, startOfDay, startOfWeek, startOfMonth, startOfYear, endOfDay, endOfWeek, endOfMonth, endOfYear, parseISO } from 'date-fns';
@@ -116,6 +118,9 @@ export default function AnalyticsDashboard() {
   const [filteredStats, setFilteredStats] = useState(null); // Store filtered stats when a DJ is selected
   const [loadingFilteredStats, setLoadingFilteredStats] = useState(false); // Loading state for filtered stats
   const [filteredStatsError, setFilteredStatsError] = useState(null); // Error state for filtered stats
+  const [selectedBroadcastId, setSelectedBroadcastId] = useState(null); // Selected broadcast for DJ period breakdown
+  const [djPeriodAnalytics, setDJPeriodAnalytics] = useState(null); // DJ period analytics for selected broadcast
+  const [loadingDJPeriods, setLoadingDJPeriods] = useState(false);
 
   // Fetch DJs list on mount
   useEffect(() => {
@@ -864,6 +869,158 @@ export default function AnalyticsDashboard() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* DJ Period Breakdown Section */}
+              <div className="mt-6">
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-4">DJ Period Breakdown</h3>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Select Broadcast to View DJ Periods
+                  </label>
+                  <select
+                    value={selectedBroadcastId || ''}
+                    onChange={async (e) => {
+                      const broadcastId = e.target.value ? Number(e.target.value) : null;
+                      setSelectedBroadcastId(broadcastId);
+                      if (broadcastId) {
+                        setLoadingDJPeriods(true);
+                        try {
+                          const response = await analyticsApi.getDJPeriodAnalytics(broadcastId);
+                          setDJPeriodAnalytics(response.data);
+                        } catch (error) {
+                          console.error('Error fetching DJ period analytics:', error);
+                          setDJPeriodAnalytics(null);
+                        } finally {
+                          setLoadingDJPeriods(false);
+                        }
+                      } else {
+                        setDJPeriodAnalytics(null);
+                      }
+                    }}
+                    className="w-full max-w-md px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500"
+                  >
+                    <option value="">-- Select Broadcast --</option>
+                    {displayMostPopularBroadcasts && displayMostPopularBroadcasts.length > 0 && displayMostPopularBroadcasts.map(broadcast => (
+                      <option key={broadcast.id} value={broadcast.id}>
+                        {broadcast.title || 'Untitled'} ({broadcast.status || 'COMPLETED'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {loadingDJPeriods && (
+                  <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+                    Loading DJ period analytics...
+                  </div>
+                )}
+
+                {djPeriodAnalytics && djPeriodAnalytics.djPeriods && djPeriodAnalytics.djPeriods.length > 0 && (
+                  <div className="space-y-4">
+                    <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4">
+                      <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+                        DJ Periods Breakdown
+                      </h4>
+                      <div className="space-y-3">
+                        {djPeriodAnalytics.djPeriods.map((period, index) => (
+                          <div
+                            key={index}
+                            className="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <div>
+                                <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                  {period.djName || period.djEmail}
+                                </p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                  {period.startTime && format(new Date(period.startTime), 'MMM d, h:mm a')} - {' '}
+                                  {period.endTime ? format(new Date(period.endTime), 'MMM d, h:mm a') : 'Ongoing'}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-sm font-semibold text-maroon-600 dark:text-maroon-400">
+                                  {period.durationMinutes || 0} min
+                                </p>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">Messages:</span>
+                                <span className="ml-1 font-medium text-gray-900 dark:text-white">
+                                  {period.chatMessages || 0}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">Requests:</span>
+                                <span className="ml-1 font-medium text-gray-900 dark:text-white">
+                                  {period.songRequests || 0}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">Engagement:</span>
+                                <span className="ml-1 font-medium text-gray-900 dark:text-white">
+                                  {formatDecimal(period.engagementRate || 0, 2)}/min
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Chart visualization */}
+                    <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-4">
+                      <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
+                        Duration by DJ
+                      </h4>
+                      <div className="h-64">
+                        <Bar
+                          data={{
+                            labels: djPeriodAnalytics.djPeriods.map(p => p.djName || p.djEmail),
+                            datasets: [{
+                              label: 'Duration (minutes)',
+                              data: djPeriodAnalytics.djPeriods.map(p => p.durationMinutes || 0),
+                              backgroundColor: 'rgba(139, 69, 19, 0.8)',
+                              borderColor: 'rgb(139, 69, 19)',
+                              borderWidth: 2,
+                              borderRadius: 8,
+                            }],
+                          }}
+                          options={{
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                              legend: { display: false },
+                              tooltip: {
+                                backgroundColor: 'rgba(17, 24, 39, 0.95)',
+                                padding: 12,
+                                titleColor: 'rgb(243, 244, 246)',
+                                bodyColor: 'rgb(209, 213, 219)',
+                              }
+                            },
+                            scales: {
+                              y: {
+                                beginAtZero: true,
+                                ticks: { color: 'rgb(107, 114, 128)' },
+                                grid: { color: 'rgba(156,163,175,0.1)' }
+                              },
+                              x: {
+                                ticks: { color: 'rgb(107, 114, 128)', maxRotation: 45, minRotation: 45 },
+                                grid: { display: false }
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {selectedBroadcastId && !loadingDJPeriods && djPeriodAnalytics && (!djPeriodAnalytics.djPeriods || djPeriodAnalytics.djPeriods.length === 0) && (
+                  <div className="p-4 text-center text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
+                    No DJ periods found for this broadcast (no handovers recorded).
+                  </div>
+                )}
               </div>
             </div>
           </div>

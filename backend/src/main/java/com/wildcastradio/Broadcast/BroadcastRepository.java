@@ -19,6 +19,14 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
     
     List<BroadcastEntity> findByCreatedBy(UserEntity dj);
     
+    // Find broadcasts where DJ was active (as creator, startedBy, currentActiveDJ, or via handovers)
+    @Query("SELECT DISTINCT b FROM BroadcastEntity b " +
+           "WHERE b.createdBy = :dj " +
+           "OR b.startedBy = :dj " +
+           "OR b.currentActiveDJ = :dj " +
+           "OR EXISTS (SELECT 1 FROM DJHandoverEntity h WHERE h.broadcast = b AND h.newDJ = :dj)")
+    List<BroadcastEntity> findByActiveDJ(@Param("dj") UserEntity dj);
+    
     List<BroadcastEntity> findByStatusOrderByActualStartDesc(BroadcastStatus status);
     
     // Backward compatibility method - returns broadcasts ordered by actual start time (newest first)

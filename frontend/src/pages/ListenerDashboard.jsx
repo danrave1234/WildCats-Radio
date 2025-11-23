@@ -14,8 +14,10 @@ import {
   ArrowRightOnRectangleIcon,
   ExclamationTriangleIcon,
 } from "@heroicons/react/24/solid";
+import { UserIcon } from "@heroicons/react/24/outline";
 import Toast from "../components/Toast";
 import { broadcastService, chatService, songRequestService, pollService, streamService, authService, radioService } from "../services/api/index.js";
+import { broadcastApi } from "../services/api/broadcastApi";
 import { format, formatDistanceToNow } from 'date-fns';
 import { useAuth } from "../context/AuthContext";
 import { useStreaming } from "../context/StreamingContext";
@@ -127,6 +129,9 @@ export default function ListenerDashboard() {
 
   // Chat timestamp update state
   const [_chatTimestampTick, _setChatTimestampTick] = useState(0);
+
+  // Current active DJ state
+  const [currentActiveDJ, setCurrentActiveDJ] = useState(null);
 
   // WebSocket connection status
   const [wsConnected, setWsConnected] = useState(false);
@@ -307,6 +312,38 @@ export default function ListenerDashboard() {
 
     fetchCurrentBroadcast();
   }, [targetBroadcastId]);
+
+  // Fetch current active DJ when broadcast is live
+  useEffect(() => {
+    const fetchCurrentActiveDJ = async () => {
+      if (currentBroadcast?.status === 'LIVE' && currentBroadcast?.id) {
+        try {
+          const response = await broadcastApi.getCurrentActiveDJ(currentBroadcast.id);
+          setCurrentActiveDJ(response.data);
+        } catch (error) {
+          logger.error('Error fetching current active DJ:', error);
+          // Fallback to startedBy if available
+          if (currentBroadcast?.startedBy) {
+            setCurrentActiveDJ(currentBroadcast.startedBy);
+          }
+        }
+      } else {
+        setCurrentActiveDJ(null);
+      }
+    };
+
+    fetchCurrentActiveDJ();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchCurrentActiveDJ, 30000);
+    return () => clearInterval(interval);
+  }, [currentBroadcast?.id, currentBroadcast?.status]);
+
+  // Clear current active DJ when broadcast ends (real-time via WebSocket)
+  useEffect(() => {
+    if (currentBroadcast && currentBroadcast.status !== 'LIVE') {
+      setCurrentActiveDJ(null);
+    }
+  }, [currentBroadcast?.status]);
 
   // Handle play/pause
   const handlePlayPause = () => {
@@ -734,28 +771,14 @@ export default function ListenerDashboard() {
               broadcastEndedRef.current = true; // Mark broadcast as explicitly ended
               // Fresh clear
               resetForNewBroadcast(null);
+              // Clear current active DJ immediately when broadcast ends
+              setCurrentActiveDJ(null);
               break;
 
             case 'LISTENER_COUNT_UPDATE':
               logger.debug('Listener count updated via WebSocket:', message.data?.listenerCount || 0);
               if (message.data?.listenerCount !== undefined) {
                 setLocalListenerCount(message.data.listenerCount);
-              }
-              break;
-
-            case 'BROADCAST_STATUS_UPDATE':
-              logger.debug('Broadcast status updated via WebSocket:', message.broadcast?.status === 'LIVE');
-              if (message.broadcast) {
-                if (message.broadcast.status === 'LIVE') {
-                  // Fresh start when status flips to LIVE (and ID may change)
-                  resetForNewBroadcast(message.broadcast.id);
-                  setCurrentBroadcast(message.broadcast);
-                  logger.debug('Fetching complete broadcast information after status update to LIVE');
-                  fetchCurrentBroadcastInfo();
-                } else {
-                  // Non-live; clear
-                  resetForNewBroadcast(null);
-                }
               }
               break;
 
@@ -808,6 +831,59 @@ export default function ListenerDashboard() {
       }
     };
 
+    // Setup Handover WebSocket for current DJ updates
+    const setupHandoverWebSocket = async () => {
+      try {
+        const subscribedBroadcastId = currentBroadcastId;
+        
+        // Subscribe to current DJ updates
+        const currentDJSubscription = await stompClientManager.subscribe(
+          `/topic/broadcast/${subscribedBroadcastId}/current-dj`,
+          (message) => {
+            try {
+              const data = JSON.parse(message.body);
+              if (data.type === "CURRENT_DJ_UPDATE" && data.broadcastId === subscribedBroadcastId) {
+                logger.info('Listener Dashboard: Current DJ update received:', data);
+                if (data.currentDJ) {
+                  setCurrentActiveDJ(data.currentDJ);
+                }
+              }
+            } catch (error) {
+              logger.error('Error parsing current DJ message:', error);
+            }
+          }
+        );
+
+        // Subscribe to handover events
+        const handoverSubscription = await stompClientManager.subscribe(
+          `/topic/broadcast/${subscribedBroadcastId}/handover`,
+          (message) => {
+            try {
+              const data = JSON.parse(message.body);
+              if (data.type === "DJ_HANDOVER" && data.broadcastId === subscribedBroadcastId) {
+                logger.info('Listener Dashboard: Handover event received:', data);
+                // Update current active DJ
+                if (data.handover?.newDJ) {
+                  setCurrentActiveDJ(data.handover.newDJ);
+                }
+              }
+            } catch (error) {
+              logger.error('Error parsing handover message:', error);
+            }
+          }
+        );
+
+        // Store subscriptions for cleanup
+        if (!broadcastWsRef.current) {
+          broadcastWsRef.current = {};
+        }
+        broadcastWsRef.current.handoverSubscriptions = { currentDJSubscription, handoverSubscription };
+        logger.debug('Listener Dashboard: Handover WebSocket connected successfully for broadcast:', currentBroadcastId);
+      } catch (error) {
+        logger.error('Listener Dashboard: Failed to connect handover WebSocket:', error);
+      }
+    };
+
     // Setup WebSockets immediately - no delay needed with proper guards
     logger.debug('Listener Dashboard: Setting up WebSocket connections for broadcast:', currentBroadcastId, 'session:', broadcastSession);
     
@@ -843,6 +919,7 @@ export default function ListenerDashboard() {
       setupSongRequestWebSocket();
       setupBroadcastWebSocket();
       setupPollWebSocket();
+      setupHandoverWebSocket();
     } else {
       logger.warn('Listener Dashboard: Skipping WebSocket setup - invalid broadcast ID:', currentBroadcastId);
     }
@@ -865,7 +942,18 @@ export default function ListenerDashboard() {
       }
       if (broadcastWsRef.current) {
         logger.debug('Listener Dashboard: Disconnecting broadcast WebSocket');
-        broadcastWsRef.current.disconnect();
+        // Clean up handover subscriptions if they exist
+        if (broadcastWsRef.current.handoverSubscriptions) {
+          if (broadcastWsRef.current.handoverSubscriptions.currentDJSubscription?.unsubscribe) {
+            broadcastWsRef.current.handoverSubscriptions.currentDJSubscription.unsubscribe();
+          }
+          if (broadcastWsRef.current.handoverSubscriptions.handoverSubscription?.unsubscribe) {
+            broadcastWsRef.current.handoverSubscriptions.handoverSubscription.unsubscribe();
+          }
+        }
+        if (typeof broadcastWsRef.current.disconnect === 'function') {
+          broadcastWsRef.current.disconnect();
+        }
         broadcastWsRef.current = null;
         broadcastWsBroadcastIdRef.current = null;
       }
@@ -1171,24 +1259,26 @@ export default function ListenerDashboard() {
               }
               break;
 
-            case 'BROADCAST_STATUS_UPDATE':
-              logger.debug('Broadcast status updated via global WebSocket:', message.broadcast?.status);
-              if (message.broadcast && message.broadcast.status === 'LIVE') {
-                // New broadcast went live
-                logger.debug('New broadcast went live via global status update:', message.broadcast);
-                logger.debug('Updating broadcast ID from', currentBroadcastId, 'to', message.broadcast.id, 'via global status update');
-                setCurrentBroadcast(message.broadcast);
-                setCurrentBroadcastId(message.broadcast.id);
-                // This will immediately trigger WebSocket setup for chat and song requests
-                logger.debug('Broadcast went live, WebSocket connections will be established immediately');
-                setBroadcastSession((s) => s + 1); // <--- increment session when broadcast goes live
-              } else if (message.broadcast && message.broadcast.status !== 'LIVE') {
-                // If this was the current broadcast and it's no longer live
-                if (currentBroadcastId === message.broadcast.id) {
-                  setCurrentBroadcast(null);
-                  setCurrentBroadcastId(null);
-                  logger.debug('Current broadcast ended via global status update');
+            case 'BROADCAST_RECOVERY':
+              logger.info('Listener Dashboard: Broadcast recovery notification via global WebSocket:', message);
+              
+              // Show recovery notification to listeners
+              if (message.broadcast) {
+                setRecoveryNotification({
+                  message: message.message || 'Broadcast recovered after brief interruption',
+                  timestamp: message.timestamp
+                });
+                
+                // Update broadcast state if it matches current broadcast
+                if (!currentBroadcastId || message.broadcast.id === currentBroadcastId) {
+                  setCurrentBroadcast(message.broadcast);
+                  setCurrentBroadcastId(message.broadcast.id);
                 }
+                
+                // Hide notification after 5 seconds
+                setTimeout(() => {
+                  setRecoveryNotification(null);
+                }, 5000);
               }
               break;
 
@@ -1380,7 +1470,7 @@ export default function ListenerDashboard() {
       return;
     }
     // Allow voting only if poll is active
-    if (!activePoll || !selectedPollOption || activePoll.userVoted || !activePoll.active || !isLive) return;
+    if (!activePoll || !selectedPollOption || activePoll.userVoted || !activePoll.active || currentBroadcast?.status !== 'LIVE') return;
 
     try {
       setPollLoading(true);
@@ -1629,7 +1719,7 @@ export default function ListenerDashboard() {
               ? "border-yellow-400 bg-yellow-50/50 dark:bg-yellow-900/10 dark:border-yellow-500 focus:ring-yellow-400 focus:border-yellow-400" 
               : "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 focus:ring-maroon-500 focus:border-maroon-500"
           }`}
-          disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id)}
+          disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id)}
           maxLength={1500}
         />
 
@@ -1639,9 +1729,9 @@ export default function ListenerDashboard() {
             <button
               type="button"
               onClick={handleSongRequest}
-              disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id) || !songRequestText.trim()}
+              disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id) || !songRequestText.trim()}
               className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
-                isLive && songRequestText.trim() 
+                currentBroadcast?.status === 'LIVE' && songRequestText.trim() 
                   ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
                   : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
               }`}
@@ -1653,7 +1743,7 @@ export default function ListenerDashboard() {
             <button
               type="button"
               onClick={handleCancelSongRequest}
-              disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id)}
+              disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id)}
               className="flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap"
               aria-label="Cancel song request"
             >
@@ -1665,7 +1755,7 @@ export default function ListenerDashboard() {
             <button
               type="button"
               onClick={handleSongRequest}
-              disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id)}
+              disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id)}
               className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
                 isLive 
                   ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
@@ -1678,9 +1768,9 @@ export default function ListenerDashboard() {
             </button>
             <button
               type="submit"
-              disabled={!isLive || !(currentBroadcastId || currentBroadcast?.id) || !chatMessage.trim()}
+              disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id) || !chatMessage.trim()}
               className={`flex-shrink-0 p-2 rounded-lg transition-all ${
-                isLive && chatMessage.trim()
+                currentBroadcast?.status === 'LIVE' && chatMessage.trim()
                   ? "bg-maroon-600 hover:bg-maroon-700 active:bg-maroon-800 text-white shadow-sm hover:shadow-md"
                   : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
               }`}
@@ -1847,6 +1937,19 @@ export default function ListenerDashboard() {
         <div className="mb-4 pt-4">
           <h2 className="text-xl font-semibold text-maroon-700 dark:text-maroon-400 mb-1">Broadcast Stream</h2>
           <p className="text-slate-600 dark:text-slate-400 text-xs">Tune in to live broadcasts and connect with listeners</p>
+          {/* Current DJ Display */}
+          {currentBroadcast && currentBroadcast.status === 'LIVE' && (
+            <div className="mt-3 inline-flex items-center px-3 py-1.5 bg-maroon-50 dark:bg-maroon-900/20 border border-maroon-200 dark:border-maroon-800 rounded-lg">
+              <UserIcon className="h-4 w-4 text-maroon-600 dark:text-maroon-400 mr-2" />
+              <span className="text-sm font-medium text-maroon-700 dark:text-maroon-300">
+                {currentActiveDJ ? (
+                  <>Now Playing: <span className="font-semibold">{currentActiveDJ.name || currentActiveDJ.email || currentActiveDJ.firstname + ' ' + currentActiveDJ.lastname}</span></>
+                ) : (
+                  <>Loading DJ info...</>
+                )}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Recovery Notification Banner */}
@@ -1868,7 +1971,7 @@ export default function ListenerDashboard() {
         {/* Desktop Left Column - Broadcast + Poll */}
         <div className="lg:col-span-2 space-y-6">
           {/* Spotify-style Music Player */}
-          <SpotifyPlayer />
+          <SpotifyPlayer broadcast={currentBroadcast} />
 
           {/* Desktop Poll section */}
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden flex-grow">
@@ -1906,7 +2009,7 @@ export default function ListenerDashboard() {
             <div className="bg-white dark:bg-slate-800 flex-grow flex flex-col h-[450px]">
               {activeTab === "poll" && (
                 <div className="p-8 flex-grow flex flex-col h-full">
-                  {isLive ? (
+                  {currentBroadcast?.status === 'LIVE' ? (
                     <>
                       {pollLoading && !activePoll ? (
                         <div className="text-center py-8 flex-grow flex items-center justify-center">
@@ -2115,7 +2218,7 @@ export default function ListenerDashboard() {
           </div>
 
           <div className="bg-white dark:bg-slate-800 border border-t-0 border-slate-200 dark:border-slate-700 rounded-b-xl flex-grow flex flex-col h-[494px] shadow-lg">
-            {isLive ? (
+            {currentBroadcast?.status === 'LIVE' ? (
               <>
                 <div 
                   ref={chatContainerRef}
@@ -2203,7 +2306,7 @@ export default function ListenerDashboard() {
                             ? "border-gold-400 bg-gold-50 dark:bg-gold-900/20 dark:border-gold-500 focus:ring-gold-500 shadow-md" 
                             : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 focus:ring-maroon-500"
                         }`}
-                        disabled={!isLive}
+                        disabled={currentBroadcast?.status !== 'LIVE'}
                         maxLength={1500}
                       />
 
@@ -2213,9 +2316,9 @@ export default function ListenerDashboard() {
                           <button
                             type="button"
                             onClick={handleSongRequest}
-                            disabled={!isLive || !songRequestText.trim()}
+                            disabled={currentBroadcast?.status !== 'LIVE' || !songRequestText.trim()}
                             className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-md whitespace-nowrap ${
-                              isLive && songRequestText.trim() 
+                              currentBroadcast?.status === 'LIVE' && songRequestText.trim() 
                                 ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105' 
                                 : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                             }`}
@@ -2227,7 +2330,7 @@ export default function ListenerDashboard() {
                           <button
                             type="button"
                             onClick={handleCancelSongRequest}
-                            disabled={!isLive}
+                            disabled={currentBroadcast?.status !== 'LIVE'}
                             className="flex-shrink-0 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap"
                             aria-label="Cancel song request"
                           >
@@ -2239,7 +2342,7 @@ export default function ListenerDashboard() {
                           <button
                             type="button"
                             onClick={handleSongRequest}
-                            disabled={!isLive}
+                            disabled={currentBroadcast?.status !== 'LIVE'}
                             className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
                               isLive 
                                 ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
@@ -2254,7 +2357,7 @@ export default function ListenerDashboard() {
                             type="submit"
                             disabled={!isLive || !chatMessage.trim()}
                             className={`flex-shrink-0 p-2.5 rounded-lg transition-all ${
-                              isLive && chatMessage.trim()
+                              currentBroadcast?.status === 'LIVE' && chatMessage.trim()
                                 ? "bg-maroon-600 hover:bg-maroon-700 text-white shadow-sm hover:shadow-md"
                                 : "bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed"
                             }`}
@@ -2290,7 +2393,7 @@ export default function ListenerDashboard() {
       {/* Mobile: Single column layout */}
       <div className="lg:hidden space-y-6">
         {/* Mobile Spotify-style Music Player */}
-        <SpotifyPlayer />
+        <SpotifyPlayer broadcast={currentBroadcast} />
 
         {/* Mobile Recovery Notification Banner */}
         {recoveryNotification && (

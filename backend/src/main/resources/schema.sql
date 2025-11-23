@@ -91,6 +91,61 @@ CREATE INDEX IF NOT EXISTS idx_notification_created_at ON notifications(created_
 
 -- Fix activity_logs table to allow null user_id for system events (health checks, recovery, etc.)
 -- This allows logging system-level events that don't have an associated user
-ALTER TABLE IF EXISTS activity_logs
-    ALTER COLUMN user_id DROP NOT NULL;
+-- Note: PostgreSQL doesn't support IF EXISTS with ALTER COLUMN, but this is safe to run multiple times
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns 
+               WHERE table_name = 'activity_logs' 
+               AND column_name = 'user_id' 
+               AND is_nullable = 'NO') THEN
+        ALTER TABLE activity_logs ALTER COLUMN user_id DROP NOT NULL;
+    END IF;
+END $$;
+
+-- DJ Handover Feature: Add current_active_dj_id to broadcasts table
+ALTER TABLE IF EXISTS broadcasts
+    ADD COLUMN IF NOT EXISTS current_active_dj_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_broadcast_current_dj ON broadcasts(current_active_dj_id);
+
+-- Migrate existing data: set current_active_dj_id to started_by_id for LIVE broadcasts
+UPDATE broadcasts 
+SET current_active_dj_id = started_by_id 
+WHERE status = 'LIVE' AND started_by_id IS NOT NULL AND current_active_dj_id IS NULL;
+
+-- For ended broadcasts, set to started_by_id if available
+UPDATE broadcasts 
+SET current_active_dj_id = started_by_id 
+WHERE status = 'ENDED' AND started_by_id IS NOT NULL AND current_active_dj_id IS NULL;
+
+-- Create DJ handovers table
+CREATE TABLE IF NOT EXISTS dj_handovers (
+    id BIGSERIAL PRIMARY KEY,
+    broadcast_id BIGINT NOT NULL REFERENCES broadcasts(id) ON DELETE CASCADE,
+    previous_dj_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    new_dj_id BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    handover_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    initiated_by_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    reason VARCHAR(500),
+    duration_seconds BIGINT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Add indexes for performance
+CREATE INDEX IF NOT EXISTS idx_handover_broadcast ON dj_handovers(broadcast_id);
+CREATE INDEX IF NOT EXISTS idx_handover_new_dj ON dj_handovers(new_dj_id);
+CREATE INDEX IF NOT EXISTS idx_handover_time ON dj_handovers(handover_time);
+CREATE INDEX IF NOT EXISTS idx_handover_broadcast_time ON dj_handovers(broadcast_id, handover_time);
+
+-- DJ Handover Account Switching Feature: Add auth_method column to dj_handovers table
+-- This column tracks whether handover used STANDARD (no auth) or ACCOUNT_SWITCH (password auth) method
+ALTER TABLE IF EXISTS dj_handovers 
+    ADD COLUMN IF NOT EXISTS auth_method VARCHAR(50) DEFAULT 'STANDARD';
+
+CREATE INDEX IF NOT EXISTS idx_handover_auth_method ON dj_handovers(auth_method);
+
+-- Update existing records to have STANDARD auth method (for backward compatibility)
+UPDATE dj_handovers 
+SET auth_method = 'STANDARD' 
+WHERE auth_method IS NULL;
 

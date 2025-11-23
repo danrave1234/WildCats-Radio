@@ -32,6 +32,8 @@ import { profanityService } from "../services/api"
 import EnhancedScheduleForm from "../components/EnhancedScheduleForm"
 import { CalendarIcon } from "@heroicons/react/24/outline"
 import { getBroadcastErrorMessage, handleStateMachineError } from "../utils/errorHandler"
+import DJHandoverModal from "../components/DJHandover/DJHandoverModal"
+import { broadcastApi } from "../services/api/broadcastApi"
 
 const logger = createLogger("DJDashboard")
 
@@ -113,7 +115,7 @@ const WORKFLOW_STATES = {
 
 export default function DJDashboard() {
   // Authentication context
-  const { currentUser } = useAuth()
+  const { currentUser, handoverLogin, checkAuthStatus } = useAuth()
 
   // Check if user has proper role for DJ dashboard
   if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
@@ -186,6 +188,8 @@ export default function DJDashboard() {
   const [isStoppingBroadcast, setIsStoppingBroadcast] = useState(false)
   const [confirmEndOpen, setConfirmEndOpen] = useState(false)
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false)
+  const [showHandoverModal, setShowHandoverModal] = useState(false)
+  const [currentActiveDJ, setCurrentActiveDJ] = useState(null)
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 })
   // Grace period to suppress transient unhealthy/isLive=false immediately after going live
   const [graceUntilMs, setGraceUntilMs] = useState(0)
@@ -245,6 +249,8 @@ export default function DJDashboard() {
   const chatWsRef = useRef(null)
   const songRequestWsRef = useRef(null)
   const pollWsRef = useRef(null)
+  const handoverWsRef = useRef(null)
+  const reconnectionWsRef = useRef(null)
 
   // Add abort controller ref for managing HTTP requests
   const abortControllerRef = useRef(null)
@@ -256,8 +262,6 @@ export default function DJDashboard() {
   const [radioServerError, setRadioServerError] = useState(null)
   const radioStatusPollRef = useRef(null)
   const [isRecoveringBroadcast, setIsRecoveringBroadcast] = useState(false)
-  const [reconnectionStatus, setReconnectionStatus] = useState(null) // { status, attemptNumber, maxAttempts, nextDelayMs, disconnectionType }
-  const reconnectionWsRef = useRef(null)
 
   // Analytics State
   const [broadcastStartTime, setBroadcastStartTime] = useState(null)
@@ -386,6 +390,12 @@ export default function DJDashboard() {
   // Check for existing active broadcast and radio server state on component mount
   // This enables recovery if the DJ refreshes the page or browser crashes during a live broadcast
   useEffect(() => {
+    // Only run recovery if we have a user (authentication completed)
+    if (!currentUser) {
+      logger.debug("DJ Dashboard: Skipping recovery - user not authenticated yet")
+      return
+    }
+
     const checkActiveBroadcastAndServerState = async () => {
       try {
         logger.debug("DJ Dashboard: Checking for active broadcast and radio server state on mount")
@@ -408,9 +418,11 @@ export default function DJDashboard() {
         logger.debug("DJ Dashboard: Recovery check results:", {
           broadcastFound: !!activeBroadcast,
           broadcastStatus: activeBroadcast?.status,
-          serverState: serverState
+          serverState: serverState,
+          streamingBroadcast: streamingBroadcast?.id
         })
 
+        // Check if we found an active broadcast that we should recover
         if (activeBroadcast) {
           logger.debug("DJ Dashboard: Found active broadcast:", activeBroadcast)
           
@@ -477,10 +489,10 @@ export default function DJDashboard() {
       }
     }
 
-    if (currentUser && !streamingBroadcast) {
-      checkActiveBroadcastAndServerState()
-    }
-  }, [currentUser, streamingBroadcast])
+    // Always check for active broadcasts when user is authenticated
+    // Don't depend on streamingBroadcast since it might be null during recovery
+    checkActiveBroadcastAndServerState()
+  }, [currentUser]) // Only depend on currentUser, not streamingBroadcast
 
   // Track analytics when streaming starts
   useEffect(() => {
@@ -585,6 +597,31 @@ export default function DJDashboard() {
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [showSettingsDropdown])
+
+  // Fetch current active DJ when broadcast is live
+  useEffect(() => {
+    const fetchCurrentActiveDJ = async () => {
+      if (currentBroadcast?.status === 'LIVE' && currentBroadcast?.id) {
+        try {
+          const response = await broadcastApi.getCurrentActiveDJ(currentBroadcast.id);
+          setCurrentActiveDJ(response.data);
+        } catch (error) {
+          logger.error('Error fetching current active DJ:', error);
+          // Fallback to startedBy if available
+          if (currentBroadcast?.startedBy) {
+            setCurrentActiveDJ(currentBroadcast.startedBy);
+          }
+        }
+      } else {
+        setCurrentActiveDJ(null);
+      }
+    };
+
+    fetchCurrentActiveDJ();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchCurrentActiveDJ, 30000);
+    return () => clearInterval(interval);
+  }, [currentBroadcast?.id, currentBroadcast?.status]);
 
   // Fetch initial data when broadcast becomes available
   useEffect(() => {
@@ -974,33 +1011,8 @@ export default function DJDashboard() {
 
         // Subscribe to broadcast-specific reconnection topic
         const connection = await broadcastService.subscribeToBroadcastUpdates(currentBroadcast.id, (message) => {
-          if (message.type === "RECONNECTION_STATUS") {
-            logger.debug("DJ Dashboard: Received reconnection status:", message)
-            setReconnectionStatus({
-              status: message.status, // STARTED, ATTEMPTING, SUCCESS, FAILED
-              attemptNumber: message.attemptNumber || 0,
-              maxAttempts: message.maxAttempts || 5,
-              nextDelayMs: message.nextDelayMs || 0,
-              disconnectionType: message.disconnectionType || "UNKNOWN",
-              timestamp: message.timestamp
-            })
-
-            // Clear status after success or failure
-            if (message.status === "SUCCESS" || message.status === "FAILED") {
-              setTimeout(() => {
-                setReconnectionStatus(null)
-              }, 5000) // Clear after 5 seconds
-            }
-          } else if (message.type === "BROADCAST_RECOVERY") {
+          if (message.type === "BROADCAST_RECOVERY") {
             logger.info("DJ Dashboard: Broadcast recovery notification received:", message)
-
-            setReconnectionStatus({
-              status: 'RECOVERED',
-              message: message.message || 'Broadcast recovered after server restart',
-              checkpointTime: message.checkpointTime,
-              duration: message.duration,
-              timestamp: message.timestamp
-            })
 
             // Update broadcast state if provided
             if (message.broadcast) {
@@ -1009,43 +1021,14 @@ export default function DJDashboard() {
                 setBroadcastStartTime(new Date(message.broadcast.actualStart))
               }
             }
-
-            // Hide recovery notification after 5 seconds
-            setTimeout(() => {
-              setReconnectionStatus(null)
-            }, 5000)
           }
         })
 
         // Also subscribe to global broadcast status topic for reconnection updates
         const globalConnection = await stompClientManager.subscribe("/topic/broadcast/status", (message) => {
           const data = JSON.parse(message.body)
-          if (data.type === "RECONNECTION_STATUS" && data.broadcastId === currentBroadcast.id) {
-            logger.debug("DJ Dashboard: Received reconnection status from global topic:", data)
-            setReconnectionStatus({
-              status: data.status,
-              attemptNumber: data.attemptNumber || 0,
-              maxAttempts: data.maxAttempts || 5,
-              nextDelayMs: data.nextDelayMs || 0,
-              disconnectionType: data.disconnectionType || "UNKNOWN",
-              timestamp: data.timestamp
-            })
-
-            if (data.status === "SUCCESS" || data.status === "FAILED") {
-              setTimeout(() => {
-                setReconnectionStatus(null)
-              }, 5000)
-            }
-          } else if (data.type === "BROADCAST_RECOVERY" && data.broadcastId === currentBroadcast.id) {
+          if (data.type === "BROADCAST_RECOVERY" && data.broadcastId === currentBroadcast.id) {
             logger.info("DJ Dashboard: Broadcast recovery notification received from global topic:", data)
-
-            setReconnectionStatus({
-              status: 'RECOVERED',
-              message: data.message || 'Broadcast recovered after server restart',
-              checkpointTime: data.checkpointTime,
-              duration: data.duration,
-              timestamp: data.timestamp
-            })
 
             // Update broadcast state if provided
             if (data.broadcast) {
@@ -1054,11 +1037,6 @@ export default function DJDashboard() {
                 setBroadcastStartTime(new Date(data.broadcast.actualStart))
               }
             }
-
-            // Hide recovery notification after 5 seconds
-            setTimeout(() => {
-              setReconnectionStatus(null)
-            }, 5000)
           }
         })
 
@@ -1094,11 +1072,71 @@ export default function DJDashboard() {
     }
 
 
+    // Setup Handover WebSocket
+    const setupHandoverWebSocket = async () => {
+      try {
+        // Clean up any existing connection first
+        if (handoverWsRef.current) {
+          handoverWsRef.current.unsubscribe()
+          handoverWsRef.current = null
+        }
+
+        logger.debug("DJ Dashboard: Setting up handover WebSocket for broadcast:", currentBroadcast.id)
+
+        // Subscribe to handover events
+        const handoverSubscription = await stompClientManager.subscribe(
+          `/topic/broadcast/${currentBroadcast.id}/handover`,
+          (message) => {
+            try {
+              const data = JSON.parse(message.body)
+              if (data.type === "DJ_HANDOVER" && data.broadcastId === currentBroadcast.id) {
+                logger.info("DJ Dashboard: Handover event received:", data)
+                // Update current active DJ
+                if (data.handover?.newDJ) {
+                  setCurrentActiveDJ(data.handover.newDJ)
+                }
+                // Refresh broadcast data
+                broadcastService.getById(currentBroadcast.id)
+                  .then(response => setCurrentBroadcast(response.data))
+                  .catch(error => logger.error('Error refreshing broadcast after handover:', error))
+              }
+            } catch (error) {
+              logger.error('Error parsing handover message:', error)
+            }
+          }
+        )
+
+        // Subscribe to current DJ updates
+        const currentDJSubscription = await stompClientManager.subscribe(
+          `/topic/broadcast/${currentBroadcast.id}/current-dj`,
+          (message) => {
+            try {
+              const data = JSON.parse(message.body)
+              if (data.type === "CURRENT_DJ_UPDATE" && data.broadcastId === currentBroadcast.id) {
+                logger.info("DJ Dashboard: Current DJ update received:", data)
+                if (data.currentDJ) {
+                  setCurrentActiveDJ(data.currentDJ)
+                }
+              }
+            } catch (error) {
+              logger.error('Error parsing current DJ message:', error)
+            }
+          }
+        )
+
+        handoverWsRef.current = { handoverSubscription, currentDJSubscription }
+        logger.debug("DJ Dashboard: Handover WebSocket connected successfully")
+      } catch (error) {
+        logger.error("DJ Dashboard: Failed to connect handover WebSocket:", error)
+      }
+    }
+
     // Setup WebSockets immediately - no delay needed with proper guards
     setupChatWebSocket()
     setupSongRequestWebSocket()
     setupPollWebSocket()
     setupReconnectionWebSocket()
+    setupHandoverWebSocket()
 
     return () => {
       logger.debug("DJ Dashboard: Cleaning up WebSocket connections for broadcast:", currentBroadcast.id)
@@ -1129,6 +1167,16 @@ export default function DJDashboard() {
           reconnectionWsRef.current.checkpointConnection.unsubscribe()
         }
         reconnectionWsRef.current = null
+      }
+
+      if (handoverWsRef.current) {
+        if (handoverWsRef.current.handoverSubscription && handoverWsRef.current.handoverSubscription.unsubscribe) {
+          handoverWsRef.current.handoverSubscription.unsubscribe()
+        }
+        if (handoverWsRef.current.currentDJSubscription && handoverWsRef.current.currentDJSubscription.unsubscribe) {
+          handoverWsRef.current.currentDJSubscription.unsubscribe()
+        }
+        handoverWsRef.current = null
       }
     }
   }, [workflowState, currentBroadcast?.id]) // Removed unnecessary dependencies to prevent re-runs
@@ -1932,6 +1980,36 @@ export default function DJDashboard() {
               </div>
             </div>
           )}
+
+          {/* DJ Handover Modal */}
+          {currentBroadcast && (
+            <DJHandoverModal
+              isOpen={showHandoverModal}
+              onClose={() => setShowHandoverModal(false)}
+              broadcastId={currentBroadcast.id}
+              currentDJ={currentActiveDJ}
+              loggedInUser={currentUser}
+              onHandoverSuccess={async (handoverData) => {
+                // After account switch handover, update auth context and refresh data
+                try {
+                  // The handoverLogin already updated AuthContext, but refresh to ensure sync
+                  await checkAuthStatus();
+                  
+                  // Refresh current active DJ after handover
+                  const response = await broadcastApi.getCurrentActiveDJ(currentBroadcast.id);
+                  setCurrentActiveDJ(response.data);
+                  
+                  // Refresh broadcast data
+                  const updated = await broadcastService.getById(currentBroadcast.id);
+                  setCurrentBroadcast(updated.data);
+                  
+                  logger.info('Handover completed successfully. Account switched to:', handoverData?.user?.email);
+                } catch (error) {
+                  logger.error('Error refreshing after handover:', error);
+                }
+              }}
+            />
+          )}
           {/* Live Streaming Status Bar - Fixed at top when live */}
           {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
               <div className="bg-red-600 text-white rounded-lg shadow-lg mb-6 sticky top-4 z-50">
@@ -1946,8 +2024,14 @@ export default function DJDashboard() {
                         <h2 className="text-lg font-bold truncate">{currentBroadcast.title}</h2>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs opacity-90">
                           <div className="flex items-center">
-                            <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${radioServerState === 'running' ? 'bg-green-300' : 'bg-red-300'}`}></span>
-                            <span>Server: {radioServerState === 'running' ? 'Running' : 'Offline'}</span>
+                            <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${
+                              radioServerState === 'running' ? 'bg-green-300' :
+                              radioServerState === 'unknown' ? 'bg-yellow-300' : 'bg-red-300'
+                            }`}></span>
+                            <span>Server: {
+                              radioServerState === 'running' ? 'Running' :
+                              radioServerState === 'unknown' ? 'Checking...' : 'Offline'
+                            }</span>
                           </div>
                           <div className="flex items-center">
                             <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${websocketConnected ? "bg-green-300" : "bg-yellow-300"}`}></span>
@@ -1999,6 +2083,19 @@ export default function DJDashboard() {
                           </button>
                         </div>
                       )}
+                      {/* Handover Button - Show for any DJ on live broadcasts, or Admin/Moderator */}
+                      {currentBroadcast?.status === 'LIVE' &&
+                       (currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR' ||
+                        currentUser?.role === 'DJ') && (
+                        <button
+                          onClick={() => setShowHandoverModal(true)}
+                          className="flex items-center px-4 py-1.5 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-md transition-all duration-200 text-sm font-medium"
+                          title="Handover broadcast to another DJ"
+                        >
+                          <UserIcon className="h-3.5 w-3.5 mr-1.5" />
+                          Handover
+                        </button>
+                      )}
                       <button
                           onClick={() => setConfirmEndOpen(true)}
                           disabled={isStoppingBroadcast || currentBroadcast?.status !== 'LIVE'}
@@ -2027,52 +2124,6 @@ export default function DJDashboard() {
               </div>
           )}
 
-          {/* Reconnection Status Notification */}
-          {reconnectionStatus && (
-              <div className={`mb-6 p-4 rounded-md border ${
-                reconnectionStatus.status === "SUCCESS" 
-                  ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 border-green-300 dark:border-green-800"
-                  : reconnectionStatus.status === "FAILED"
-                  ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200 border-red-300 dark:border-red-800"
-                  : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 border-yellow-300 dark:border-yellow-800"
-              }`}>
-                <div className="flex items-start space-x-3">
-                  {reconnectionStatus.status === "SUCCESS" ? (
-                    <CheckIcon className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                  ) : reconnectionStatus.status === "FAILED" ? (
-                    <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
-                  ) : (
-                    <ClockIcon className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0 animate-spin" />
-                  )}
-                  <div className="flex-1">
-                    <h3 className="font-semibold mb-1">
-                      {reconnectionStatus.status === "SUCCESS" 
-                        ? "✅ Stream Reconnected Successfully"
-                        : reconnectionStatus.status === "FAILED"
-                        ? "❌ Reconnection Failed"
-                        : "🔄 Reconnecting Stream..."}
-                    </h3>
-                    <p className="text-sm mb-2">
-                      {reconnectionStatus.status === "SUCCESS" 
-                        ? "Your audio stream has been successfully reconnected. Broadcasting is now active."
-                        : reconnectionStatus.status === "FAILED"
-                        ? `Failed to reconnect after ${reconnectionStatus.attemptNumber} attempts. Please check your audio source and try again manually.`
-                        : `Attempt ${reconnectionStatus.attemptNumber} of ${reconnectionStatus.maxAttempts}...`}
-                    </p>
-                    {reconnectionStatus.status === "ATTEMPTING" && reconnectionStatus.nextDelayMs > 0 && (
-                      <p className="text-xs opacity-75">
-                        Next attempt in {Math.ceil(reconnectionStatus.nextDelayMs / 1000)} seconds
-                      </p>
-                    )}
-                    {reconnectionStatus.disconnectionType && (
-                      <p className="text-xs opacity-75 mt-1">
-                        Issue type: {reconnectionStatus.disconnectionType.replace(/_/g, " ")}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-          )}
 
           {/* Error Display */}
           {streamError && (
@@ -2981,8 +3032,12 @@ export default function DJDashboard() {
                           <div className="flex items-center gap-2 mb-4">
                             <span className={`h-3 w-3 rounded-full ${radioServerState === 'running' ? 'bg-green-500 animate-pulse' : radioServerState === 'stopped' ? 'bg-gray-400' : 'bg-yellow-500'}`}></span>
                             <span className="text-sm font-medium text-gray-900 dark:text-white">
-                              Server Status: <span className={radioServerState === 'running' ? 'text-green-600 dark:text-green-400 font-semibold' : radioServerState === 'stopped' ? 'text-gray-600 dark:text-gray-400' : 'text-yellow-600 dark:text-yellow-400'}>
-                                {radioServerState === 'running' ? '✓ Running' : radioServerState === 'stopped' ? 'Offline' : 'Unknown'}
+                              Server Status: <span className={
+                                radioServerState === 'running' ? 'text-green-600 dark:text-green-400 font-semibold' :
+                                radioServerState === 'unknown' ? 'text-yellow-600 dark:text-yellow-400' :
+                                'text-red-600 dark:text-red-400'
+                              }>
+                                {radioServerState === 'running' ? '✓ Running' : radioServerState === 'stopped' ? 'Offline' : 'Checking...'}
                               </span>
                             </span>
                           </div>

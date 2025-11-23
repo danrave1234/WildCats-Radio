@@ -11,6 +11,7 @@ export const authApi = {
   register: (userData) => api.post('/api/auth/register', userData),
   verify: (email, code) => api.post(`/api/auth/verify?email=${email}&code=${code}`),
   sendCode: (email) => api.post(`/api/auth/send-code?email=${email}`),
+  handoverLogin: (data) => api.post('/api/auth/handover-login', data),
   
   // User profile operations
   getProfile: (id) => api.get(`/api/auth/${id}`),

@@ -199,6 +199,16 @@ export const broadcastApi = {
         });
     });
   },
+
+  // DJ Handover operations
+  initiateHandover: (broadcastId, newDJId, reason) => 
+    api.post(`/api/broadcasts/${broadcastId}/handover`, { newDJId, reason }),
+  
+  getHandoverHistory: (broadcastId) => 
+    api.get(`/api/broadcasts/${broadcastId}/handovers`),
+  
+  getCurrentActiveDJ: (broadcastId) => 
+    api.get(`/api/broadcasts/${broadcastId}/current-dj`),
 };
 
 export default broadcastApi;

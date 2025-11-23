@@ -80,16 +80,14 @@ public class ActivityLogService {
                 ? objectMapper.writeValueAsString(metadata)
                 : null;
 
-            // For system events, pass null user (entity should handle this)
-            ActivityLogEntity activityLog = new ActivityLogEntity(activityType, description, null);
-            activityLog.setBroadcastId(broadcastId);
-            activityLog.setMetadata(metadataJson);
+            // Use constructor that sets all fields properly for system events
+            ActivityLogEntity activityLog = new ActivityLogEntity(activityType, description, null, broadcastId, metadataJson);
             activityLog.setIsSystemEvent(true); // Explicitly mark as system event
             return activityLogRepository.save(activityLog);
         } catch (JsonProcessingException e) {
-            // Fallback to simple logging if JSON serialization fails
-            ActivityLogEntity activityLog = new ActivityLogEntity(activityType, description);
-            activityLog.setBroadcastId(broadcastId);
+            // Fallback to simple logging if JSON serialization fails - use proper constructor
+            ActivityLogEntity activityLog = new ActivityLogEntity(activityType, description, null, broadcastId, null);
+            activityLog.setIsSystemEvent(true);
             return activityLogRepository.save(activityLog);
         }
     }
