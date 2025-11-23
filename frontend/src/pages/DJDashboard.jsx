@@ -33,6 +33,7 @@ import EnhancedScheduleForm from "../components/EnhancedScheduleForm"
 import { CalendarIcon } from "@heroicons/react/24/outline"
 import { getBroadcastErrorMessage, handleStateMachineError } from "../utils/errorHandler"
 import DJHandoverModal from "../components/DJHandover/DJHandoverModal"
+import SuccessNotification from "../components/SuccessNotification"
 import { broadcastApi } from "../services/api/broadcastApi"
 
 const logger = createLogger("DJDashboard")
@@ -189,6 +190,8 @@ export default function DJDashboard() {
   const [confirmEndOpen, setConfirmEndOpen] = useState(false)
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false)
   const [showHandoverModal, setShowHandoverModal] = useState(false)
+  const [showSuccessNotification, setShowSuccessNotification] = useState(false)
+  const [successNotificationMessage, setSuccessNotificationMessage] = useState('')
   const [currentActiveDJ, setCurrentActiveDJ] = useState(null)
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 })
   // Grace period to suppress transient unhealthy/isLive=false immediately after going live
@@ -208,6 +211,7 @@ export default function DJDashboard() {
   const [chatMessages, setChatMessages] = useState([])
   const [chatMessage, setChatMessage] = useState("")
   const [isDownloadingChat, setIsDownloadingChat] = useState(false)
+  const [showScrollBottom, setShowScrollBottom] = useState(false)
 
   // Song Requests State
   const [songRequests, setSongRequests] = useState([])
@@ -247,6 +251,7 @@ export default function DJDashboard() {
 
   // WebSocket References for interactions
   const chatWsRef = useRef(null)
+  const chatContainerRef = useRef(null)
   const songRequestWsRef = useRef(null)
   const pollWsRef = useRef(null)
   const handoverWsRef = useRef(null)
@@ -767,7 +772,22 @@ export default function DJDashboard() {
                 return prev
               }
 
+              // Check if user was at bottom before adding message (for auto-scrolling)
+              const wasAtBottom = isAtBottom(chatContainerRef.current);
+              // Always scroll if it's the current user's message
+              const isOwnMessage = currentUser && newMessage.userId === currentUser.id;
+
               const updated = [...prev, newMessage].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+
+              // Auto-scroll logic:
+              // - Always scroll if it's the user's own message
+              // - Only scroll if user was already at bottom for other messages
+              if (isOwnMessage || wasAtBottom) {
+                setTimeout(() => {
+                  scrollToBottom();
+                  setShowScrollBottom(false);
+                }, 50);
+              }
 
               logger.debug("DJ Dashboard: Updated chat messages count:", updated.length)
               return updated
@@ -1237,6 +1257,46 @@ export default function DJDashboard() {
 
     return () => clearInterval(interval)
   }, [currentBroadcast?.id, currentBroadcast?.status])
+
+  // Chat scrolling helpers (matching ListenerDashboard implementation)
+  const isAtBottom = (container) => {
+    if (!container) return true;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    return Math.abs(scrollHeight - clientHeight - scrollTop) < 10;
+  };
+
+  const scrollToBottom = () => {
+    const container = chatContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+      setShowScrollBottom(false);
+    }
+  };
+
+  // Scroll detection: Show/hide scroll-to-bottom button
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      setShowScrollBottom(!isAtBottom(container));
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    // Check initial state
+    handleScroll();
+
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [chatMessages.length]); // Re-check when messages change
+
+  // Auto-scroll to bottom on initial load
+  useEffect(() => {
+    if (chatMessages.length > 0) {
+      setTimeout(() => {
+        scrollToBottom();
+      }, 100);
+    }
+  }, [currentBroadcast?.id]); // Scroll when broadcast changes
 
   // Form handling functions
   const handleFormChange = (e) => {
@@ -1731,6 +1791,13 @@ export default function DJDashboard() {
 
       await send()
       setChatMessage("")
+      
+      // Always auto-scroll to bottom after sending message (wait for message to appear in UI via WebSocket)
+      // The WebSocket handler will also scroll, but we ensure it happens here too
+      setTimeout(() => {
+        scrollToBottom();
+        setShowScrollBottom(false);
+      }, 300)
     } catch (error) {
       logger.error("Error sending chat message:", error)
       const status = error?.response?.status
@@ -1949,7 +2016,14 @@ export default function DJDashboard() {
 
   return (
       <div className="relative min-h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="container mx-auto px-4 py-4">
+        {/* Success Notification Banner */}
+        <SuccessNotification
+          message={successNotificationMessage}
+          isVisible={showSuccessNotification}
+          onClose={() => setShowSuccessNotification(false)}
+        />
+
+        <div className="container mx-auto px-4 pt-0 pb-4">
           {/* End Broadcast Confirmation Modal */}
           {confirmEndOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -1994,15 +2068,23 @@ export default function DJDashboard() {
                 try {
                   // The handoverLogin already updated AuthContext, but refresh to ensure sync
                   await checkAuthStatus();
-                  
+
                   // Refresh current active DJ after handover
                   const response = await broadcastApi.getCurrentActiveDJ(currentBroadcast.id);
                   setCurrentActiveDJ(response.data);
-                  
+
                   // Refresh broadcast data
                   const updated = await broadcastService.getById(currentBroadcast.id);
                   setCurrentBroadcast(updated.data);
-                  
+
+                  // Show success notification
+                  const djName = handoverData?.user?.name ||
+                    (handoverData?.user?.firstname && handoverData?.user?.lastname
+                      ? `${handoverData.user.firstname} ${handoverData.user.lastname}`
+                      : handoverData?.user?.email || 'Unknown DJ');
+                  setSuccessNotificationMessage(`✓ Successfully switched to ${djName}`);
+                  setShowSuccessNotification(true);
+
                   logger.info('Handover completed successfully. Account switched to:', handoverData?.user?.email);
                 } catch (error) {
                   logger.error('Error refreshing after handover:', error);
@@ -2319,12 +2401,17 @@ export default function DJDashboard() {
                 </div>
 
                 {/* Main Content Area - Three Column Layout */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Cards are responsive: max 777px, adapt to viewport height accounting for sticky header, min 400px */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
                   {/* Left Column: Song Requests */}
-                  <div className="lg:col-span-3 space-y-4">
+                  <div className="lg:col-span-3">
                     {/* Song Requests Card */}
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                      <div className="bg-gold-500 text-maroon-900 px-4 py-3 border-b border-gold-400">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out" style={{ 
+                      height: 'min(777px, calc(100vh - 16rem))', 
+                      maxHeight: '777px', 
+                      minHeight: 'clamp(400px, 50vh, 777px)' 
+                    }}>
+                      <div className="bg-gold-500 text-maroon-900 px-4 py-3 border-b border-gold-400 flex-shrink-0">
                       <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <MusicalNoteIcon className="h-5 w-5" />
@@ -2335,7 +2422,7 @@ export default function DJDashboard() {
                           </span>
                         </div>
                       </div>
-                      <EnhancedScrollArea className="h-[500px]">
+                      <EnhancedScrollArea className="flex-1 min-h-0 flex-shrink-0">
                         <div className="p-3 space-y-2.5">
                           {songRequests.length === 0 ? (
                             <div className="text-center text-gray-500 dark:text-gray-400 py-12 px-4">
@@ -2418,151 +2505,199 @@ export default function DJDashboard() {
                   </div>
 
                   {/* Center Column: Live Chat - Main Focus */}
-                  <div className="lg:col-span-6">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden h-full flex flex-col">
-                      <div className="bg-maroon-600 text-white px-5 py-4 border-b border-maroon-700">
-                        <div className="flex items-center justify-between">
+                  <div className="lg:col-span-6 w-full">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out" style={{ 
+                      height: 'min(777px, calc(100vh - 16rem))', 
+                      maxHeight: '777px', 
+                      minHeight: 'clamp(400px, 50vh, 777px)' 
+                    }}>
+                      {/* Header */}
+                      <div className="bg-maroon-600 text-white px-3 sm:px-5 py-3 sm:py-4 border-b border-maroon-700 flex-shrink-0">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
                           <div className="flex items-center gap-2">
-                            <ChatBubbleLeftRightIcon className="h-6 w-6" />
-                            <h3 className="font-bold text-lg">Live Chat</h3>
+                            <ChatBubbleLeftRightIcon className="h-5 w-5 sm:h-6 sm:w-6" />
+                            <h3 className="font-bold text-base sm:text-lg">Live Chat</h3>
                           </div>
-                          <div className="flex items-center space-x-3">
-                            <span className="text-sm bg-white bg-opacity-20 px-3 py-1.5 rounded-full font-bold">
-                            {chatMessages.length} messages
-                          </span>
-                          <button
-                            onClick={handleDownloadChat}
-                            disabled={isDownloadingChat || !currentBroadcast?.id}
-                              className="inline-flex items-center text-sm px-3 py-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
-                            title="Download chat messages as Excel (available for 7 days)"
-                          >
-                              <ArrowDownTrayIcon className={`h-4 w-4 mr-1.5 ${isDownloadingChat ? "animate-pulse" : ""}`} />
-                            {isDownloadingChat ? "Downloading..." : "Download"}
-                          </button>
+                          <div className="flex items-center space-x-2 sm:space-x-3 flex-wrap">
+                            <span className="text-xs sm:text-sm bg-white bg-opacity-20 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full font-bold">
+                              {chatMessages.length} {chatMessages.length === 1 ? 'message' : 'messages'}
+                            </span>
+                            <button
+                              onClick={handleDownloadChat}
+                              disabled={isDownloadingChat || !currentBroadcast?.id}
+                              className="inline-flex items-center text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                              title="Download chat messages as Excel (available for 7 days)"
+                            >
+                              <ArrowDownTrayIcon className={`h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-1.5 ${isDownloadingChat ? "animate-pulse" : ""}`} />
+                              <span className="hidden sm:inline">{isDownloadingChat ? "Downloading..." : "Download"}</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                      <div className="flex-1 flex flex-col min-h-0">
-                        <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-                        {chatMessages.length === 0 ? (
-                            <div className="text-center text-gray-500 dark:text-gray-400 py-12">
-                              <ChatBubbleLeftRightIcon className="h-16 w-16 mx-auto mb-3 opacity-30" />
-                              <p className="text-base">No messages yet</p>
-                              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Start the conversation!</p>
+
+                      {/* Messages Area - Flex to fill remaining space in 777px card */}
+                      <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
+                        <div className="h-full overflow-y-auto p-3 sm:p-4 space-y-3 custom-scrollbar chat-messages-container" ref={chatContainerRef}>
+                          {chatMessages.length === 0 ? (
+                            <div className="text-center text-gray-500 dark:text-gray-400 py-8 sm:py-12">
+                              <ChatBubbleLeftRightIcon className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-3 opacity-30" />
+                              <p className="text-sm sm:text-base">No messages yet</p>
+                              <p className="text-xs sm:text-sm text-gray-400 dark:text-gray-500 mt-1">Start the conversation!</p>
                             </div>
-                        ) : (
+                          ) : (
                             chatMessages
-                                .slice()
-                                .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
-                                .map((msg) => {
-                                  if (!msg || !msg.sender) return null
+                              .slice()
+                              .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+                              .map((msg) => {
+                                if (!msg || !msg.sender) return null
 
-                                  const firstName = msg.sender?.firstname || ""
-                                  const lastName = msg.sender?.lastname || ""
-                                  const fullName = `${firstName} ${lastName}`.trim()
-                                  const senderName = fullName || msg.sender?.email || "Unknown User"
+                                const firstName = msg.sender?.firstname || ""
+                                const lastName = msg.sender?.lastname || ""
+                                const fullName = `${firstName} ${lastName}`.trim()
+                                const senderName = fullName || msg.sender?.email || "Unknown User"
 
-                                  const isDJ =
-                                      (msg.sender?.role && msg.sender.role.includes("DJ")) ||
-                                      senderName.includes("DJ") ||
-                                      firstName.includes("DJ") ||
-                                      lastName.includes("DJ")
+                                const isDJ =
+                                    (msg.sender?.role && msg.sender.role.includes("DJ")) ||
+                                    senderName.includes("DJ") ||
+                                    firstName.includes("DJ") ||
+                                    lastName.includes("DJ")
 
-                                  const initials = (() => {
-                                    try {
-                                      return (
-                                          senderName
-                                              .split(" ")
-                                              .map((part) => part[0] || "")
-                                              .join("")
-                                              .toUpperCase()
-                                              .slice(0, 2) || "U"
-                                      )
-                                    } catch (error) {
-                                      return "U"
-                                    }
-                                  })()
-
-                                  let messageDate;
+                                const initials = (() => {
                                   try {
-                                    messageDate = msg.createdAt ? new Date(msg.createdAt) : null;
+                                    return (
+                                        senderName
+                                            .split(" ")
+                                            .map((part) => part[0] || "")
+                                            .join("")
+                                            .toUpperCase()
+                                            .slice(0, 2) || "U"
+                                    )
                                   } catch (error) {
-                                    messageDate = new Date();
+                                    return "U"
                                   }
+                                })()
 
-                                  const timeAgo = (() => {
-                                    try {
-                                      return messageDate && !isNaN(messageDate.getTime())
-                                          ? formatDistanceToNow(messageDate, { addSuffix: true })
-                                          : "just now"
-                                    } catch (error) {
-                                      return "just now"
-                                    }
-                                  })()
+                                // Handle date parsing more robustly (same as ListenerDashboard)
+                                let messageDate;
+                                try {
+                                  const ts = msg.createdAt || msg.timestamp || msg.sentAt || msg.time || msg.date;
+                                  messageDate = ts ? new Date(ts) : null;
+                                } catch (error) {
+                                  logger.error('Error parsing message date:', error);
+                                  messageDate = new Date();
+                                }
 
-                                  return (
-                                    <div key={msg.id} className="flex items-start space-x-3">
-                                        <div
-                                          className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-sm text-white font-bold ${
-                                                isDJ ? "bg-maroon-600" : "bg-gray-500"
-                                            }`}
-                                        >
-                                          {isDJ ? "DJ" : initials}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                        <div className="flex items-center space-x-2 mb-1">
-                                          <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                                    {senderName}
-                                  </span>
-                                            <span className="text-xs text-gray-500 dark:text-gray-400">{timeAgo}</span>
-                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
-                                                                                          <button
-                                                                                            type="button"
-                                                                                            onClick={() => handleBanUser(msg.sender.id, senderName)}
-                                              className="ml-2 text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800"
-                                                                                            title="Ban this user from chat"
-                                                                                          >
-                                                                                            Ban
-                                                                                          </button>
-                                                                                        )}
-                                          </div>
-                                        <p className="text-sm text-gray-700 dark:text-gray-300 break-words">
-                                            {msg.content || "No content"}
-                                          </p>
-                                        </div>
+                                const formattedTime = (() => {
+                                  try {
+                                    return messageDate && !isNaN(messageDate.getTime())
+                                        ? format(messageDate, 'hh:mm a')
+                                        : ""
+                                  } catch (error) {
+                                    return ""
+                                  }
+                                })()
+
+                                return (
+                                  <div key={msg.id} className="flex items-start space-x-2 sm:space-x-3">
+                                    <div
+                                      className={`flex-shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-xs sm:text-sm text-white font-bold ${
+                                            isDJ ? "bg-maroon-600" : "bg-gray-500"
+                                        }`}
+                                    >
+                                      {isDJ ? "DJ" : initials}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center flex-wrap gap-1 sm:gap-2 mb-1">
+                                        <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white truncate">
+                                          {senderName}
+                                        </span>
+                                        {formattedTime && (
+                                          <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                                            {formattedTime}
+                                          </span>
+                                        )}
+                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleBanUser(msg.sender.id, senderName)}
+                                            className="text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800 flex-shrink-0"
+                                            title="Ban this user from chat"
+                                          >
+                                            Ban
+                                          </button>
+                                        )}
                                       </div>
-                                  )
-                                })
-                                .filter(Boolean)
+                                      <p className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 break-words">
+                                        {msg.content || "No content"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                )
+                              })
+                              .filter(Boolean)
+                          )}
+                        </div>
+                        
+                        {/* Scroll to bottom button - Minimalist design */}
+                        {showScrollBottom && (
+                          <div className="absolute bottom-4 right-4 z-10">
+                            <button
+                              onClick={scrollToBottom}
+                              className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full w-10 h-10 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
+                              aria-label="Scroll to bottom"
+                              title="Scroll to latest messages"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="h-5 w-5"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M19 9l-7 7-7-7"
+                                />
+                              </svg>
+                            </button>
+                          </div>
                         )}
                       </div>
-                        <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900/50">
-                          <form onSubmit={handleChatSubmit} className="flex space-x-3">
+
+                      {/* Input Area - Outside messages container, at bottom of card */}
+                      <div className="border-t border-gray-200 dark:border-gray-700 p-3 sm:p-4 bg-gray-50 dark:bg-gray-900/50 flex-shrink-0">
+                        <form onSubmit={handleChatSubmit} className="flex space-x-2 sm:space-x-3">
                           <input
-                              type="text"
-                              value={chatMessage}
-                              onChange={(e) => setChatMessage(e.target.value)}
-                              placeholder="Type your message..."
-                                className="flex-1 px-4 py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                              maxLength={1500}
+                            type="text"
+                            value={chatMessage}
+                            onChange={(e) => setChatMessage(e.target.value)}
+                            placeholder="Type your message..."
+                            className="flex-1 min-w-0 px-3 sm:px-4 py-2 sm:py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                            maxLength={1500}
                           />
                           <button
-                              type="submit"
-                              disabled={!chatMessage.trim()}
-                                className="px-5 py-2.5 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+                            type="submit"
+                            disabled={!chatMessage.trim()}
+                            className="px-4 sm:px-5 py-2 sm:py-2.5 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium flex-shrink-0"
+                            aria-label="Send message"
                           >
-                              <PaperAirplaneIcon className="h-5 w-5" />
+                            <PaperAirplaneIcon className="h-4 w-4 sm:h-5 sm:w-5" />
                           </button>
                         </form>
-                        </div>
                       </div>
                     </div>
                   </div>
 
                   {/* Right Column: Polls */}
                   <div className="lg:col-span-3">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                      <div className="bg-maroon-700 text-white px-4 py-3 border-b border-maroon-800">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out" style={{ 
+                      height: 'min(777px, calc(100vh - 16rem))', 
+                      maxHeight: '777px', 
+                      minHeight: 'clamp(400px, 50vh, 777px)' 
+                    }}>
+                      <div className="bg-maroon-700 text-white px-4 py-3 border-b border-maroon-800 flex-shrink-0">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <ChartBarIcon className="h-5 w-5" />
@@ -2651,7 +2786,7 @@ export default function DJDashboard() {
                         </div>
                     )}
 
-                      <EnhancedScrollArea className="h-[500px]">
+                      <EnhancedScrollArea className="flex-1 min-h-0 flex-shrink-0">
                       {polls.length === 0 ? (
                           <div className="p-4 text-center text-gray-500 dark:text-gray-400">
                             <ChartBarIcon className="h-12 w-12 mx-auto mb-3 opacity-30" />

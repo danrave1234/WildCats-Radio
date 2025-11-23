@@ -14,7 +14,7 @@ import {
   ArrowRightOnRectangleIcon,
   ExclamationTriangleIcon,
 } from "@heroicons/react/24/solid";
-import { UserIcon } from "@heroicons/react/24/outline";
+import { UserIcon, ChatBubbleLeftRightIcon } from "@heroicons/react/24/outline";
 import Toast from "../components/Toast";
 import { broadcastService, chatService, songRequestService, pollService, streamService, authService, radioService } from "../services/api/index.js";
 import { broadcastApi } from "../services/api/broadcastApi";
@@ -596,14 +596,22 @@ export default function ListenerDashboard() {
 
               // Create a new array instead of modifying the existing one
               const wasAtBottom = isAtBottom(chatContainerRef.current);
+              // Always scroll if it's the current user's message
+              const isOwnMessage = currentUser && newMessage.userId === currentUser.id;
 
               // Use spread operator for a new array and sort properly
               const updated = [...prev, newMessage].sort((a, b) =>
                   new Date(a.createdAt) - new Date(b.createdAt)
               );
 
-              if (wasAtBottom) {
-                setTimeout(scrollToBottom, 50);
+              // Auto-scroll logic:
+              // - Always scroll if it's the user's own message
+              // - Only scroll if user was already at bottom for other messages
+              if (isOwnMessage || wasAtBottom) {
+                setTimeout(() => {
+                  scrollToBottom();
+                  setShowScrollBottom(false);
+                }, 50);
               }
               return updated;
             });
@@ -987,6 +995,7 @@ export default function ListenerDashboard() {
   }, []);
 
   // Update the scroll event listener
+  // Scroll detection: Show/hide scroll-to-bottom button
   useEffect(() => {
     const container = chatContainerRef.current;
     if (!container) return;
@@ -996,8 +1005,21 @@ export default function ListenerDashboard() {
     };
 
     container.addEventListener('scroll', handleScroll);
+    // Check initial state
+    handleScroll();
+
     return () => container.removeEventListener('scroll', handleScroll);
-  }, []);
+  }, [chatMessages.length]); // Re-check when messages change
+
+  // Auto-scroll to bottom on initial load
+  useEffect(() => {
+    if (chatMessages.length > 0) {
+      setTimeout(() => {
+        scrollToBottom();
+        setShowScrollBottom(false);
+      }, 100);
+    }
+  }, [currentBroadcastId]); // Scroll when broadcast changes
 
   // Handle chat submission
   const handleChatSubmit = async (e) => {
@@ -1058,7 +1080,11 @@ export default function ListenerDashboard() {
       // Refresh messages to reflect the sent message immediately
       const updatedMessages = await chatService.getMessages(broadcastIdToUse);
       setChatMessages(updatedMessages.data);
-      scrollToBottom();
+      // Always scroll to bottom after sending message
+      setTimeout(() => {
+        scrollToBottom();
+        setShowScrollBottom(false);
+      }, 100);
     } catch (error) {
       logger.error("Error sending chat message:", error);
       if (error.response?.data?.message?.includes("1500 characters")) {
@@ -1555,7 +1581,7 @@ export default function ListenerDashboard() {
     }
   };
 
-  // Safe chat message renderer with comprehensive error handling
+  // Safe chat message renderer - matching DJDashboard design
   const renderSafeChatMessage = (msg) => {
     try {
       // Validate message data
@@ -1564,20 +1590,34 @@ export default function ListenerDashboard() {
       }
 
       // Construct name from firstname and lastname fields (backend sends these, not a single 'name' field)
-      const firstName = msg.sender.firstname || '';
-      const lastName = msg.sender.lastname || '';
+      const firstName = msg.sender?.firstname || "";
+      const lastName = msg.sender?.lastname || "";
       const fullName = `${firstName} ${lastName}`.trim();
-      const senderName = fullName || msg.sender.email || 'Unknown User';
+      const senderName = fullName || msg.sender?.email || "Unknown User";
 
       // Check if user is a DJ based on their role or name
-      const isDJ = (msg.sender.role && msg.sender.role.includes("DJ")) || 
-                   (senderName.includes("DJ")) ||
-                   (firstName.includes("DJ")) ||
-                   (lastName.includes("DJ"));
+      const isDJ =
+        (msg.sender?.role && msg.sender.role.includes("DJ")) ||
+        senderName.includes("DJ") ||
+        firstName.includes("DJ") ||
+        lastName.includes("DJ");
 
-      const initials = senderName.split(' ').map(part => part[0] || '').join('').toUpperCase().slice(0, 2) || 'U';
+      const initials = (() => {
+        try {
+          return (
+            senderName
+              .split(" ")
+              .map((part) => part[0] || "")
+              .join("")
+              .toUpperCase()
+              .slice(0, 2) || "U"
+          );
+        } catch (error) {
+          return "U";
+        }
+      })();
 
-      // Handle date parsing more robustly
+      // Handle date parsing more robustly (same as ListenerDashboard)
       let messageDate;
       try {
         const ts = msg.createdAt || msg.timestamp || msg.sentAt || msg.time || msg.date;
@@ -1587,25 +1627,34 @@ export default function ListenerDashboard() {
         messageDate = new Date();
       }
 
-      // Absolute local time for display
-      const formattedTime = messageDate && !isNaN(messageDate.getTime())
-        ? format(messageDate, 'hh:mm a')
-        : '';
+      const formattedTime = (() => {
+        try {
+          return messageDate && !isNaN(messageDate.getTime())
+            ? format(messageDate, 'hh:mm a')
+            : "";
+        } catch (error) {
+          return "";
+        }
+      })();
 
       return (
-        <div key={msg.id} className="mb-5">
-          <div className="flex items-center mb-2">
-            <div className={`h-10 w-10 min-w-[2.5rem] rounded-lg flex items-center justify-center text-xs text-white font-bold shadow-md ${
-              isDJ 
-                ? 'bg-maroon-600 dark:bg-maroon-700 border border-maroon-700' 
-                : 'bg-slate-500 dark:bg-slate-600 border border-slate-600'
-            }`}>
-              {isDJ ? 'DJ' : initials}
-            </div>
-            <div className="ml-2 overflow-hidden flex items-center gap-2">
-              <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{senderName}</span>
+        <div key={msg.id} className="flex items-start space-x-2 sm:space-x-3 mb-3">
+          <div
+            className={`flex-shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-xs sm:text-sm text-white font-bold ${
+              isDJ ? "bg-maroon-600" : "bg-gray-500"
+            }`}
+          >
+            {isDJ ? "DJ" : initials}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center flex-wrap gap-1 sm:gap-2 mb-1">
+              <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white truncate">
+                {senderName}
+              </span>
               {formattedTime && (
-                <span className="text-sm text-gray-600 dark:text-gray-300 font-medium">{formattedTime}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                  {formattedTime}
+                </span>
               )}
               {currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR') && msg.sender?.id !== currentUser.id && msg.sender?.role !== 'ADMIN' && (
                 <button
@@ -1617,18 +1666,7 @@ export default function ListenerDashboard() {
                 </button>
               )}
             </div>
-          </div>
-          <div className="ml-14 space-y-1">
-            <div className={`rounded-lg p-4 message-bubble shadow-sm border ${
-              isDJ 
-                ? 'bg-maroon-50 dark:bg-maroon-900/30 border-maroon-200 dark:border-maroon-700/50' 
-                : 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600'
-            }`}>
-              <p className="text-sm text-slate-800 dark:text-slate-200 chat-message leading-relaxed" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content || 'No content'}</p>
-            </div>
-            {false && (
-              <div className="text-xs text-gray-500 dark:text-gray-400 pl-1" />
-            )}
+            <p className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 break-words">{msg.content || 'No content'}</p>
           </div>
         </div>
       );
@@ -1638,15 +1676,19 @@ export default function ListenerDashboard() {
     }
   };
 
-  // Render chat messages
+  // Render chat messages - matching DJDashboard structure
   const renderChatMessages = () => (
-    <div className="max-h-60 overflow-y-auto space-y-3 mb-4 chat-messages-container custom-scrollbar" ref={chatContainerRef}>
+    <div className="h-full overflow-y-auto p-3 sm:p-4 space-y-3 custom-scrollbar chat-messages-container" ref={chatContainerRef}>
       {chatMessages.length === 0 ? (
-        <p className="text-center text-gray-500 dark:text-gray-400 py-4">No messages yet</p>
+        <div className="text-center text-gray-500 dark:text-gray-400 py-8 sm:py-12">
+          <ChatBubbleLeftRightIcon className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-3 opacity-30" />
+          <p className="text-sm sm:text-base">No messages yet</p>
+          <p className="text-xs sm:text-sm text-gray-400 dark:text-gray-500 mt-1">Start the conversation!</p>
+        </div>
       ) : (
         chatMessages
           .slice()
-          .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
           .map(renderSafeChatMessage)
           .filter(Boolean) // Remove any null values from failed renders
       )}
@@ -1937,19 +1979,6 @@ export default function ListenerDashboard() {
         <div className="mb-4 pt-4">
           <h2 className="text-xl font-semibold text-maroon-700 dark:text-maroon-400 mb-1">Broadcast Stream</h2>
           <p className="text-slate-600 dark:text-slate-400 text-xs">Tune in to live broadcasts and connect with listeners</p>
-          {/* Current DJ Display */}
-          {currentBroadcast && currentBroadcast.status === 'LIVE' && (
-            <div className="mt-3 inline-flex items-center px-3 py-1.5 bg-maroon-50 dark:bg-maroon-900/20 border border-maroon-200 dark:border-maroon-800 rounded-lg">
-              <UserIcon className="h-4 w-4 text-maroon-600 dark:text-maroon-400 mr-2" />
-              <span className="text-sm font-medium text-maroon-700 dark:text-maroon-300">
-                {currentActiveDJ ? (
-                  <>Now Playing: <span className="font-semibold">{currentActiveDJ.name || currentActiveDJ.email || currentActiveDJ.firstname + ' ' + currentActiveDJ.lastname}</span></>
-                ) : (
-                  <>Loading DJ info...</>
-                )}
-              </span>
-            </div>
-          )}
         </div>
 
         {/* Recovery Notification Banner */}
@@ -1971,7 +2000,7 @@ export default function ListenerDashboard() {
         {/* Desktop Left Column - Broadcast + Poll */}
         <div className="lg:col-span-2 space-y-6">
           {/* Spotify-style Music Player */}
-          <SpotifyPlayer broadcast={currentBroadcast} />
+          <SpotifyPlayer broadcast={currentBroadcast} currentDJ={currentActiveDJ} />
 
           {/* Desktop Poll section */}
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden flex-grow">
@@ -2219,43 +2248,38 @@ export default function ListenerDashboard() {
 
           <div className="bg-white dark:bg-slate-800 border border-t-0 border-slate-200 dark:border-slate-700 rounded-b-xl flex-grow flex flex-col h-[494px] shadow-lg">
             {currentBroadcast?.status === 'LIVE' ? (
-              <>
-                <div 
-                  ref={chatContainerRef}
-                  className="flex-grow overflow-y-auto p-5 space-y-4 chat-messages-container relative"
-                >
-                  {chatMessages
-                    .slice()
-                    .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
-                    .map(renderSafeChatMessage)
-                    .filter(Boolean)}
-                </div>
+              <div className="flex flex-col h-full">
+                <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
+                  {renderChatMessages()}
 
-                {/* Scroll to bottom button */}
-                {showScrollBottom && (
-                  <div className="absolute bottom-20 right-4 z-10">
-                    <button
-                      onClick={scrollToBottom}
-                      className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full p-3 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
-                      aria-label="Scroll to bottom"
-                    >
-                      <svg 
-                        xmlns="http://www.w3.org/2000/svg" 
-                        className="h-5 w-5" 
-                        viewBox="0 0 20 20" 
-                        fill="currentColor"
+                  {/* Scroll to bottom button - Minimalist design matching DJDashboard */}
+                  {showScrollBottom && (
+                    <div className="absolute bottom-4 right-4 z-10">
+                      <button
+                        onClick={scrollToBottom}
+                        className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full w-10 h-10 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
+                        aria-label="Scroll to bottom"
+                        title="Scroll to latest messages"
                       >
-                        <path 
-                          fillRule="evenodd" 
-                          d="M16.707 10.293a1 1 0 010 1.414l-6 6a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" 
-                          clipRule="evenodd" 
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                )}
-
-                <div className="p-4 border-t border-slate-200 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800 overflow-hidden">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-5 w-5"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M19 9l-7 7-7-7"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800 overflow-hidden">
                   {!currentUser ? (
                     <div className="p-4 text-center">
                       <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 font-medium">
@@ -2286,7 +2310,7 @@ export default function ListenerDashboard() {
                       {(typeof slowModeWaitSeconds === 'number' && slowModeWaitSeconds > 0) && (
                         <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">Please wait {slowModeWaitSeconds} second{slowModeWaitSeconds === 1 ? '' : 's'} before sending another message.</p>
                       )}
-                    <form onSubmit={handleChatSubmit} className="flex items-center space-x-2 w-full min-w-0 overflow-hidden">
+                    <form onSubmit={handleChatSubmit} className="flex items-center space-x-2 w-full min-w-0 overflow-hidden p-4">
                       <input
                         type="text"
                         value={isSongRequestMode ? songRequestText : chatMessage}
@@ -2302,8 +2326,8 @@ export default function ListenerDashboard() {
                         }}
                         placeholder={isSongRequestMode ? "Song title - optional artist" : "Type your message..."}
                         className={`flex-1 min-w-0 max-w-full px-3 py-2.5 border rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:border-transparent transition-all duration-200 text-sm ${
-                          isSongRequestMode 
-                            ? "border-gold-400 bg-gold-50 dark:bg-gold-900/20 dark:border-gold-500 focus:ring-gold-500 shadow-md" 
+                          isSongRequestMode
+                            ? "border-gold-400 bg-gold-50 dark:bg-gold-900/20 dark:border-gold-500 focus:ring-gold-500 shadow-md"
                             : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 focus:ring-maroon-500"
                         }`}
                         disabled={currentBroadcast?.status !== 'LIVE'}
@@ -2318,8 +2342,8 @@ export default function ListenerDashboard() {
                             onClick={handleSongRequest}
                             disabled={currentBroadcast?.status !== 'LIVE' || !songRequestText.trim()}
                             className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-md whitespace-nowrap ${
-                              currentBroadcast?.status === 'LIVE' && songRequestText.trim() 
-                                ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105' 
+                              currentBroadcast?.status === 'LIVE' && songRequestText.trim()
+                                ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105'
                                 : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed'
                             }`}
                             aria-label="Send song request"
@@ -2344,8 +2368,8 @@ export default function ListenerDashboard() {
                             onClick={handleSongRequest}
                             disabled={currentBroadcast?.status !== 'LIVE'}
                             className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
-                              isLive 
-                                ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
+                              isLive
+                                ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md'
                                 : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
                             }`}
                             aria-label="Request a song"
@@ -2372,7 +2396,7 @@ export default function ListenerDashboard() {
                     </>
                   )}
                 </div>
-              </>
+              </div>
             ) : (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
@@ -2436,11 +2460,42 @@ export default function ListenerDashboard() {
           </div>
 
           {/* Mobile Tab content */}
-          <div className="bg-gradient-to-br from-white/80 to-slate-50/50 dark:from-slate-800/80 dark:to-slate-900/50 p-6 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-800 flex-grow flex flex-col h-[500px]">
             {activeTab === "chat" && (
-              <div className="animate-fade-in">
-                {renderChatMessages()}
-                {renderChatInput()}
+              <div className="animate-fade-in flex flex-col h-full">
+                <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
+                  {renderChatMessages()}
+
+                  {/* Scroll to bottom button - Minimalist design */}
+                  {showScrollBottom && (
+                    <div className="absolute bottom-4 right-4 z-10">
+                      <button
+                        onClick={scrollToBottom}
+                        className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full w-10 h-10 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
+                        aria-label="Scroll to bottom"
+                        title="Scroll to latest messages"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-5 w-5"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M19 9l-7 7-7-7"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800">
+                  {renderChatInput()}
+                </div>
               </div>
             )}
             {activeTab === "poll" && (

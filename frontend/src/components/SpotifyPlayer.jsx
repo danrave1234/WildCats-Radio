@@ -10,7 +10,7 @@ import {
 import { useStreaming } from '../context/StreamingContext';
 import { broadcastService } from '../services/api/index.js';
 
-const SpotifyPlayer = ({ broadcast: propBroadcast }) => {
+const SpotifyPlayer = ({ broadcast: propBroadcast, currentDJ }) => {
   const {
     isLive: streamingIsLive,
     currentBroadcast: streamingCurrentBroadcast,
@@ -155,9 +155,25 @@ const SpotifyPlayer = ({ broadcast: propBroadcast }) => {
             <h2 className="text-white text-xl font-bold mb-1.5 truncate font-montserrat">
               {currentBroadcast?.title || 'Live Broadcast'}
             </h2>
-            <p className="text-white/80 text-sm mb-2 font-medium">
-              {currentBroadcast?.dj?.name || currentBroadcast?.host?.name || 'Live Stream'}
-            </p>
+
+            {/* Enhanced DJ Display */}
+            {currentDJ && (
+              <div className="flex items-center mb-2">
+                <span className="text-gold-400 text-sm font-semibold">
+                  Hosted by: {(() => {
+                    // Priority: firstname + lastname → name → email
+                    if (currentDJ.firstname && currentDJ.lastname) {
+                      return `${currentDJ.firstname} ${currentDJ.lastname}`;
+                    }
+                    if (currentDJ.name) {
+                      return currentDJ.name;
+                    }
+                    return currentDJ.email || 'Unknown DJ';
+                  })()}
+                </span>
+              </div>
+            )}
+
             {currentBroadcast?.description && (
               <p className="text-white/80 text-xs leading-relaxed max-w-2xl line-clamp-2">
                 {currentBroadcast.description}
