@@ -250,6 +250,7 @@ export default function DJDashboard() {
   const songRequestWsRef = useRef(null)
   const pollWsRef = useRef(null)
   const handoverWsRef = useRef(null)
+  const reconnectionWsRef = useRef(null)
 
   // Add abort controller ref for managing HTTP requests
   const abortControllerRef = useRef(null)
@@ -261,8 +262,6 @@ export default function DJDashboard() {
   const [radioServerError, setRadioServerError] = useState(null)
   const radioStatusPollRef = useRef(null)
   const [isRecoveringBroadcast, setIsRecoveringBroadcast] = useState(false)
-  const [reconnectionStatus, setReconnectionStatus] = useState(null) // { status, attemptNumber, maxAttempts, nextDelayMs, disconnectionType }
-  const reconnectionWsRef = useRef(null)
 
   // Analytics State
   const [broadcastStartTime, setBroadcastStartTime] = useState(null)
@@ -1004,33 +1003,8 @@ export default function DJDashboard() {
 
         // Subscribe to broadcast-specific reconnection topic
         const connection = await broadcastService.subscribeToBroadcastUpdates(currentBroadcast.id, (message) => {
-          if (message.type === "RECONNECTION_STATUS") {
-            logger.debug("DJ Dashboard: Received reconnection status:", message)
-            setReconnectionStatus({
-              status: message.status, // STARTED, ATTEMPTING, SUCCESS, FAILED
-              attemptNumber: message.attemptNumber || 0,
-              maxAttempts: message.maxAttempts || 5,
-              nextDelayMs: message.nextDelayMs || 0,
-              disconnectionType: message.disconnectionType || "UNKNOWN",
-              timestamp: message.timestamp
-            })
-
-            // Clear status after success or failure
-            if (message.status === "SUCCESS" || message.status === "FAILED") {
-              setTimeout(() => {
-                setReconnectionStatus(null)
-              }, 5000) // Clear after 5 seconds
-            }
-          } else if (message.type === "BROADCAST_RECOVERY") {
+          if (message.type === "BROADCAST_RECOVERY") {
             logger.info("DJ Dashboard: Broadcast recovery notification received:", message)
-
-            setReconnectionStatus({
-              status: 'RECOVERED',
-              message: message.message || 'Broadcast recovered after server restart',
-              checkpointTime: message.checkpointTime,
-              duration: message.duration,
-              timestamp: message.timestamp
-            })
 
             // Update broadcast state if provided
             if (message.broadcast) {
@@ -1039,43 +1013,14 @@ export default function DJDashboard() {
                 setBroadcastStartTime(new Date(message.broadcast.actualStart))
               }
             }
-
-            // Hide recovery notification after 5 seconds
-            setTimeout(() => {
-              setReconnectionStatus(null)
-            }, 5000)
           }
         })
 
         // Also subscribe to global broadcast status topic for reconnection updates
         const globalConnection = await stompClientManager.subscribe("/topic/broadcast/status", (message) => {
           const data = JSON.parse(message.body)
-          if (data.type === "RECONNECTION_STATUS" && data.broadcastId === currentBroadcast.id) {
-            logger.debug("DJ Dashboard: Received reconnection status from global topic:", data)
-            setReconnectionStatus({
-              status: data.status,
-              attemptNumber: data.attemptNumber || 0,
-              maxAttempts: data.maxAttempts || 5,
-              nextDelayMs: data.nextDelayMs || 0,
-              disconnectionType: data.disconnectionType || "UNKNOWN",
-              timestamp: data.timestamp
-            })
-
-            if (data.status === "SUCCESS" || data.status === "FAILED") {
-              setTimeout(() => {
-                setReconnectionStatus(null)
-              }, 5000)
-            }
-          } else if (data.type === "BROADCAST_RECOVERY" && data.broadcastId === currentBroadcast.id) {
+          if (data.type === "BROADCAST_RECOVERY" && data.broadcastId === currentBroadcast.id) {
             logger.info("DJ Dashboard: Broadcast recovery notification received from global topic:", data)
-
-            setReconnectionStatus({
-              status: 'RECOVERED',
-              message: data.message || 'Broadcast recovered after server restart',
-              checkpointTime: data.checkpointTime,
-              duration: data.duration,
-              timestamp: data.timestamp
-            })
 
             // Update broadcast state if provided
             if (data.broadcast) {
@@ -1084,11 +1029,6 @@ export default function DJDashboard() {
                 setBroadcastStartTime(new Date(data.broadcast.actualStart))
               }
             }
-
-            // Hide recovery notification after 5 seconds
-            setTimeout(() => {
-              setReconnectionStatus(null)
-            }, 5000)
           }
         })
 
@@ -1656,6 +1596,9 @@ export default function DJDashboard() {
       setSongRequests([])
       setPolls([])
       setActivePoll(null)
+
+      // Clear reconnection status
+      setReconnectionStatus(null)
     } catch (error) {
       logger.error("Error ending broadcast:", error)
 
@@ -1714,6 +1657,9 @@ export default function DJDashboard() {
       // Reset state back to create new broadcast
       setCurrentBroadcast(null)
       setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
+
+      // Clear reconnection status
+      setReconnectionStatus(null)
     } catch (error) {
       logger.error("Error canceling broadcast:", error)
       setStreamError(`Error canceling broadcast: ${error.message}`)
@@ -2040,6 +1986,7 @@ export default function DJDashboard() {
               onClose={() => setShowHandoverModal(false)}
               broadcastId={currentBroadcast.id}
               currentDJ={currentActiveDJ}
+              loggedInUser={currentUser}
               onHandoverSuccess={async () => {
                 // Refresh current active DJ after handover
                 try {
@@ -2068,8 +2015,14 @@ export default function DJDashboard() {
                         <h2 className="text-lg font-bold truncate">{currentBroadcast.title}</h2>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs opacity-90">
                           <div className="flex items-center">
-                            <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${radioServerState === 'running' ? 'bg-green-300' : 'bg-red-300'}`}></span>
-                            <span>Server: {radioServerState === 'running' ? 'Running' : 'Offline'}</span>
+                            <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${
+                              radioServerState === 'running' ? 'bg-green-300' :
+                              radioServerState === 'unknown' ? 'bg-yellow-300' : 'bg-red-300'
+                            }`}></span>
+                            <span>Server: {
+                              radioServerState === 'running' ? 'Running' :
+                              radioServerState === 'unknown' ? 'Checking...' : 'Offline'
+                            }</span>
                           </div>
                           <div className="flex items-center">
                             <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${websocketConnected ? "bg-green-300" : "bg-yellow-300"}`}></span>
@@ -2121,10 +2074,10 @@ export default function DJDashboard() {
                           </button>
                         </div>
                       )}
-                      {/* Handover Button - Only show if user is current active DJ or Admin/Moderator */}
-                      {currentBroadcast?.status === 'LIVE' && 
-                       (currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR' || 
-                        (currentActiveDJ && currentActiveDJ.id === currentUser?.id)) && (
+                      {/* Handover Button - Show for any DJ on live broadcasts, or Admin/Moderator */}
+                      {currentBroadcast?.status === 'LIVE' &&
+                       (currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR' ||
+                        currentUser?.role === 'DJ') && (
                         <button
                           onClick={() => setShowHandoverModal(true)}
                           className="flex items-center px-4 py-1.5 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-md transition-all duration-200 text-sm font-medium"
@@ -2162,52 +2115,6 @@ export default function DJDashboard() {
               </div>
           )}
 
-          {/* Reconnection Status Notification */}
-          {reconnectionStatus && (
-              <div className={`mb-6 p-4 rounded-md border ${
-                reconnectionStatus.status === "SUCCESS" 
-                  ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 border-green-300 dark:border-green-800"
-                  : reconnectionStatus.status === "FAILED"
-                  ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200 border-red-300 dark:border-red-800"
-                  : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 border-yellow-300 dark:border-yellow-800"
-              }`}>
-                <div className="flex items-start space-x-3">
-                  {reconnectionStatus.status === "SUCCESS" ? (
-                    <CheckIcon className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                  ) : reconnectionStatus.status === "FAILED" ? (
-                    <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
-                  ) : (
-                    <ClockIcon className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0 animate-spin" />
-                  )}
-                  <div className="flex-1">
-                    <h3 className="font-semibold mb-1">
-                      {reconnectionStatus.status === "SUCCESS" 
-                        ? "✅ Stream Reconnected Successfully"
-                        : reconnectionStatus.status === "FAILED"
-                        ? "❌ Reconnection Failed"
-                        : "🔄 Reconnecting Stream..."}
-                    </h3>
-                    <p className="text-sm mb-2">
-                      {reconnectionStatus.status === "SUCCESS" 
-                        ? "Your audio stream has been successfully reconnected. Broadcasting is now active."
-                        : reconnectionStatus.status === "FAILED"
-                        ? `Failed to reconnect after ${reconnectionStatus.attemptNumber} attempts. Please check your audio source and try again manually.`
-                        : `Attempt ${reconnectionStatus.attemptNumber} of ${reconnectionStatus.maxAttempts}...`}
-                    </p>
-                    {reconnectionStatus.status === "ATTEMPTING" && reconnectionStatus.nextDelayMs > 0 && (
-                      <p className="text-xs opacity-75">
-                        Next attempt in {Math.ceil(reconnectionStatus.nextDelayMs / 1000)} seconds
-                      </p>
-                    )}
-                    {reconnectionStatus.disconnectionType && (
-                      <p className="text-xs opacity-75 mt-1">
-                        Issue type: {reconnectionStatus.disconnectionType.replace(/_/g, " ")}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-          )}
 
           {/* Error Display */}
           {streamError && (
@@ -3116,8 +3023,12 @@ export default function DJDashboard() {
                           <div className="flex items-center gap-2 mb-4">
                             <span className={`h-3 w-3 rounded-full ${radioServerState === 'running' ? 'bg-green-500 animate-pulse' : radioServerState === 'stopped' ? 'bg-gray-400' : 'bg-yellow-500'}`}></span>
                             <span className="text-sm font-medium text-gray-900 dark:text-white">
-                              Server Status: <span className={radioServerState === 'running' ? 'text-green-600 dark:text-green-400 font-semibold' : radioServerState === 'stopped' ? 'text-gray-600 dark:text-gray-400' : 'text-yellow-600 dark:text-yellow-400'}>
-                                {radioServerState === 'running' ? '✓ Running' : radioServerState === 'stopped' ? 'Offline' : 'Unknown'}
+                              Server Status: <span className={
+                                radioServerState === 'running' ? 'text-green-600 dark:text-green-400 font-semibold' :
+                                radioServerState === 'unknown' ? 'text-yellow-600 dark:text-yellow-400' :
+                                'text-red-600 dark:text-red-400'
+                              }>
+                                {radioServerState === 'running' ? '✓ Running' : radioServerState === 'stopped' ? 'Offline' : 'Checking...'}
                               </span>
                             </span>
                           </div>

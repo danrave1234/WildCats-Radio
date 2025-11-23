@@ -3,12 +3,13 @@ import Modal from '../Modal';
 import { broadcastApi } from '../../services/api/broadcastApi';
 import { authApi } from '../../services/api/authApi';
 
-export default function DJHandoverModal({ 
-  isOpen, 
-  onClose, 
-  broadcastId, 
+export default function DJHandoverModal({
+  isOpen,
+  onClose,
+  broadcastId,
   currentDJ,
-  onHandoverSuccess 
+  loggedInUser,
+  onHandoverSuccess
 }) {
   const [djs, setDjs] = useState([]);
   const [selectedDJId, setSelectedDJId] = useState('');
@@ -31,8 +32,8 @@ export default function DJHandoverModal({
     setLoadingDJs(true);
     try {
       const response = await authApi.getUsersByRole('DJ');
-      // Filter out current DJ
-      const filteredDJs = (response.data || []).filter(dj => 
+      // Filter out current DJ but keep logged-in user (will be greyed out)
+      const filteredDJs = (response.data || []).filter(dj =>
         !currentDJ || dj.id !== currentDJ.id
       );
       setDjs(filteredDJs);
@@ -75,7 +76,7 @@ export default function DJHandoverModal({
       onClose={onClose}
       title="Handover Broadcast"
       type="info"
-      maxWidth="md"
+      maxWidth="lg"
       footer={
         <div className="flex justify-end space-x-3">
           <button
@@ -114,11 +115,20 @@ export default function DJHandoverModal({
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 disabled:opacity-50"
           >
             <option value="">-- Select DJ --</option>
-            {djs.map(dj => (
-              <option key={dj.id} value={dj.id}>
-                {dj.name || dj.email} {dj.firstname && dj.lastname ? `(${dj.firstname} ${dj.lastname})` : ''}
-              </option>
-            ))}
+            {djs.map(dj => {
+              const isLoggedInUser = loggedInUser && dj.id === loggedInUser.id;
+              return (
+                <option
+                  key={dj.id}
+                  value={dj.id}
+                  disabled={isLoggedInUser}
+                  className={isLoggedInUser ? 'text-gray-400 dark:text-gray-500' : ''}
+                >
+                  {dj.name || dj.email} {dj.firstname && dj.lastname ? `(${dj.firstname} ${dj.lastname})` : ''}
+                  {isLoggedInUser && ' (Current User Account)'}
+                </option>
+              );
+            })}
           </select>
           {loadingDJs && (
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Loading DJs...</p>
@@ -149,6 +159,11 @@ export default function DJHandoverModal({
             <p className="text-sm text-blue-800 dark:text-blue-200">
               <strong>Current DJ:</strong> {currentDJ.name || currentDJ.email}
             </p>
+            {loggedInUser && currentDJ.id !== loggedInUser.id && (
+              <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                <strong>You are:</strong> {loggedInUser.name || loggedInUser.email}
+              </p>
+            )}
           </div>
         )}
       </form>
