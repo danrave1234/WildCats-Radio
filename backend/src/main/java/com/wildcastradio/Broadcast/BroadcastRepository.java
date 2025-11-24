@@ -35,6 +35,8 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
     }
     
     List<BroadcastEntity> findByCreatedByAndStatus(UserEntity dj, BroadcastStatus status);
+
+    Optional<BroadcastEntity> findByCurrentActiveDJAndStatus(UserEntity dj, BroadcastStatus status);
     
     // Query methods that work with embedded schedule fields
     @Query("SELECT b FROM BroadcastEntity b WHERE b.scheduledStart > :date")
@@ -105,4 +107,10 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
     Optional<BroadcastEntity> findByStartIdempotencyKey(String startIdempotencyKey);
     
     Optional<BroadcastEntity> findByEndIdempotencyKey(String endIdempotencyKey);
+
+    // Search broadcasts by title (paginated)
+    Page<BroadcastEntity> findByTitleContainingIgnoreCase(String title, Pageable pageable);
+
+    // Search broadcasts by title and status (paginated)
+    Page<BroadcastEntity> findByTitleContainingIgnoreCaseAndStatus(String title, BroadcastStatus status, Pageable pageable);
 } 

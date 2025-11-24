@@ -117,6 +117,9 @@ public class BroadcastEntity {
     @Column(name = "current_duration_seconds")
     private Long currentDurationSeconds;
 
+    @Column(name = "active_session_id")
+    private String activeSessionId;
+
     // Broadcast status enum with state machine validation
     public enum BroadcastStatus {
         SCHEDULED, LIVE, ENDED, TESTING, CANCELLED;
@@ -349,5 +352,13 @@ public class BroadcastEntity {
 
     public void setHandovers(List<DJHandoverEntity> handovers) {
         this.handovers = handovers;
+    }
+
+    public String getActiveSessionId() {
+        return activeSessionId;
+    }
+
+    public void setActiveSessionId(String activeSessionId) {
+        this.activeSessionId = activeSessionId;
     }
 }

@@ -291,7 +291,7 @@ const AppRoutes = () => {
                 <DJDashboard />
               </ErrorBoundary>
             } 
-            allowedRoles={['DJ', 'ADMIN']} 
+            allowedRoles={['DJ', 'ADMIN', 'MODERATOR']} 
           />
         </Layout>
       } />

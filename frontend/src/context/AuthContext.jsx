@@ -1,5 +1,5 @@
 import { createContext, useState, useEffect, useContext } from 'react';
-import { authService } from '../services/api/index.js';
+import { authService, broadcastService } from '../services/api/index.js';
 import authStorage from '../services/authStorage.js';
 import { createLogger } from '../services/logger.js';
 import { config } from '../config.js';
@@ -294,16 +294,42 @@ export const AuthProvider = ({ children }) => {
 
   // Logout function - clears all authentication data
   const logout = async () => {
-    try {
-      await authService.logout();
-    } catch (err) {
-      // Ignore logout errors - clear state anyway
-    } finally {
-      setCurrentUser(null);
-      setError(null);
-      // Clear all auth storage (IndexedDB + legacy localStorage)
-      await authStorage.clear();
-    }
+      try {
+          if (currentUser?.role === 'DJ') {
+              try {
+                  const res = await broadcastService.getActiveBroadcast();
+                  const activeBroadcast = res.data;
+                  if (activeBroadcast?.status === 'LIVE' && 
+                      (activeBroadcast?.currentActiveDJ?.id === currentUser?.id || 
+                       activeBroadcast?.startedBy?.id === currentUser?.id)) {
+                      const msg = 'Cannot logout while actively broadcasting. Please hand over the broadcast first.';
+                      setError(msg);
+                      throw new Error(msg);
+                  }
+              } catch (checkErr) {
+                  if (checkErr.message.includes('Cannot logout')) {
+                      throw checkErr;
+                  }
+                  // Ignore network errors during check
+              }
+          }
+          
+          try {
+              await authService.logout();
+          } catch (e) { /* ignore */ }
+          
+          setCurrentUser(null);
+          setError(null);
+          await authStorage.clear();
+      } catch (err) {
+          if (err.message.includes('Cannot logout')) {
+              throw err;
+          }
+          // For other errors, force cleanup
+          setCurrentUser(null);
+          setError(null);
+          await authStorage.clear();
+      }
   };
 
   const value = {

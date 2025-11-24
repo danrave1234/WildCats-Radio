@@ -56,6 +56,28 @@ export function StreamingProvider({ children }) {
   const lastPauseTimeRef = useRef(null);
   const PAUSE_THRESHOLD_MS = 10000; // 10 seconds - refresh stream if paused longer
 
+  // Session state for multi-device handling
+  const [activeSessionId, setActiveSessionId] = useState(() => {
+    return localStorage.getItem('wildcats_active_session_id');
+  });
+  
+  const [isBroadcastingDevice, setIsBroadcastingDevice] = useState(false);
+
+  // Update isBroadcastingDevice whenever currentBroadcast or activeSessionId changes
+  useEffect(() => {
+    if (currentBroadcast?.activeSessionId && activeSessionId) {
+      setIsBroadcastingDevice(currentBroadcast.activeSessionId === activeSessionId);
+    } else {
+      setIsBroadcastingDevice(false);
+    }
+  }, [currentBroadcast?.activeSessionId, activeSessionId]);
+
+  // Update active session ID when starting broadcast
+  const updateActiveSessionId = (sessionId) => {
+    setActiveSessionId(sessionId);
+    localStorage.setItem('wildcats_active_session_id', sessionId);
+  };
+
   // Server Config
   const [serverConfig, setServerConfig] = useState(null);
 
@@ -1598,10 +1620,16 @@ export function StreamingProvider({ children }) {
       // Create broadcast on server
       const response = await broadcastService.create(broadcastDataWithSchedule);
       const createdBroadcast = response.data;
-      setCurrentBroadcast(createdBroadcast);
-
+      
       // Start the broadcast
-      await broadcastService.start(createdBroadcast.id);
+      const startResponse = await broadcastService.start(createdBroadcast.id);
+      
+      // Update session ID if provided by backend
+      if (startResponse.data && startResponse.data.activeSessionId) {
+        updateActiveSessionId(startResponse.data.activeSessionId);
+      }
+
+      setCurrentBroadcast(createdBroadcast);
 
       // After starting, fetch updated broadcast to get actualStart and other live fields
       try {
@@ -2281,6 +2309,8 @@ export function StreamingProvider({ children }) {
     audioLevel,
     qualityError,
     streamStatusCircuitBreakerOpen,
+    isBroadcastingDevice,
+    updateActiveSessionId,
 
     // Health monitoring
     streamHealth,

@@ -15,9 +15,11 @@ import {
   UserPlus as UserPlusIcon,
   X,
   Megaphone,
+  Lock,
 } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useStreaming } from "../context/StreamingContext";
 import { cn } from "../lib/utils";
 import { SidebarBody, SidebarLink, useSidebar } from "./ui/sidebar";
 import wildcatradioLogo from "../assets/wildcatradio_logo.png";
@@ -84,6 +86,16 @@ const navigationSections = {
           label: "Announcements",
           href: "/announcements",
           icon: <Megaphone className="h-5 w-5" />,
+        },
+      ]
+    },
+    {
+      title: "LISTENING",
+      items: [
+        {
+          label: "Listen",
+          href: "/dashboard",
+          icon: <Music className="h-5 w-5" />,
         },
       ]
     },
@@ -168,6 +180,16 @@ const navigationSections = {
           label: "Announcements",
           href: "/announcements",
           icon: <Megaphone className="h-5 w-5" />,
+        },
+      ]
+    },
+    {
+      title: "BROADCASTING",
+      items: [
+        {
+          label: "DJ Dashboard",
+          href: "/dj-dashboard",
+          icon: <Radio className="h-5 w-5" />,
         },
       ]
     },
@@ -290,6 +312,19 @@ const SectionHeader = ({ title }) => {
 const NewSidebar = ({ userRole }) => {
   const { isAuthenticated, currentUser, logout } = useAuth();
   const { open, animate } = useSidebar();
+  const { currentBroadcast, isLive } = useStreaming();
+  const navigate = useNavigate();
+
+  // Determine if the current user is the active DJ of a live broadcast
+  // Checks:
+  // 1. System reports live status
+  // 2. Broadcast object exists and is LIVE
+  // 3. Current user is the creator/owner/active DJ of the broadcast
+  const isActiveDJ = isLive && 
+                     currentBroadcast?.status === 'LIVE' && 
+                     (currentBroadcast?.currentActiveDJ?.id === currentUser?.id || 
+                      currentBroadcast?.startedBy?.id === currentUser?.id ||
+                      currentBroadcast?.createdBy?.id === currentUser?.id);
 
   // Get the appropriate navigation sections based on authentication and role
   const getNavigationSections = () => {
@@ -433,12 +468,42 @@ const NewSidebar = ({ userRole }) => {
               <div key={section.title}>
                 <SectionHeader title={section.title} />
                 <div className="space-y-1">
-                  {section.items.map((link) => (
-                    <SidebarLink 
-                      key={link.label} 
-                      link={link} 
-                    />
-                  ))}
+                  {section.items.map((link) => {
+                    // Active DJ can navigate anywhere EXCEPT Listener Dashboard
+                    const isListenerDashboard = link.href === '/dashboard';
+                    const isRestricted = isActiveDJ && isListenerDashboard;
+                    
+                    const linkProps = isRestricted ? {
+                      onClick: (e) => {
+                        e.preventDefault();
+                        // Trigger shake animation here if we had a ref, or rely on visual feedback
+                        showToast("Cannot access Listener Dashboard while actively broadcasting. Please end or hand over the broadcast first.", "error");
+                      },
+                      className: "opacity-50 cursor-not-allowed",
+                    } : {};
+
+                    // Only show lock icon for the restricted Listener Dashboard link
+                    const displayLink = isRestricted ? {
+                      ...link,
+                      icon: (
+                        <motion.div
+                          whileTap={{ x: [0, -5, 5, -5, 5, 0] }}
+                          transition={{ duration: 0.4 }}
+                        >
+                          <Lock className="h-5 w-5 text-red-500" />
+                        </motion.div>
+                      ),
+                      label: "Locked" // Optional: Change label to indicate locked state clearly
+                    } : link;
+
+                    return (
+                      <SidebarLink 
+                        key={link.label} 
+                        link={displayLink}
+                        {...linkProps}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             ))}

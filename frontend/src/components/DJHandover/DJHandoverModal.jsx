@@ -3,6 +3,8 @@ import Modal from '../Modal';
 import { broadcastApi } from '../../services/api/broadcastApi';
 import { authApi } from '../../services/api/authApi';
 
+import { useStreaming } from '../../context/StreamingContext';
+
 export default function DJHandoverModal({
   isOpen,
   onClose,
@@ -11,6 +13,7 @@ export default function DJHandoverModal({
   loggedInUser,
   onHandoverSuccess
 }) {
+  const { updateActiveSessionId } = useStreaming();
   const [djs, setDjs] = useState([]);
   const [selectedDJId, setSelectedDJId] = useState('');
   const [selectedDJ, setSelectedDJ] = useState(null);
@@ -101,6 +104,11 @@ export default function DJHandoverModal({
         password,
         reason: reason || null
       });
+
+      // If this is the device performing the handover, mark it as the broadcasting device
+      if (response.data.activeSessionId) {
+        updateActiveSessionId(response.data.activeSessionId);
+      }
 
       if (onHandoverSuccess) {
         onHandoverSuccess(response.data);

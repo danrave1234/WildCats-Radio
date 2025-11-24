@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { motion } from "framer-motion"
 import {
   MicrophoneIcon,
   StopIcon,
@@ -35,6 +36,9 @@ import { getBroadcastErrorMessage, handleStateMachineError } from "../utils/erro
 import DJHandoverModal from "../components/DJHandover/DJHandoverModal"
 import SuccessNotification from "../components/SuccessNotification"
 import { broadcastApi } from "../services/api/broadcastApi"
+import ReadOnlyView from "../components/ReadOnlyView"
+import Toast from "../components/Toast"
+import { LockClosedIcon } from "@heroicons/react/24/solid"
 
 const logger = createLogger("DJDashboard")
 
@@ -165,6 +169,7 @@ export default function DJDashboard() {
     setAudioSource,
     getAudioStream,
     streamStatusCircuitBreakerOpen,
+    isBroadcastingDevice
   } = useStreaming()
 
   // Core workflow state
@@ -196,6 +201,12 @@ export default function DJDashboard() {
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 })
   // Grace period to suppress transient unhealthy/isLive=false immediately after going live
   const [graceUntilMs, setGraceUntilMs] = useState(0)
+  
+  // Toast state
+  const [toastState, setToastState] = useState({ show: false, message: '', type: 'success' })
+  const showToast = (message, type = 'success') => {
+    setToastState({ show: true, message, type })
+  }
 
   // WebSocket and MediaRecorder refs
   const websocketRef = useRef(null)
@@ -1746,7 +1757,7 @@ export default function DJDashboard() {
       }
     } catch (error) {
       logger.error('Error updating slow mode:', error)
-      alert('Failed to update slow mode. Please try again.')
+      showToast('Failed to update slow mode. Please try again.', 'error')
     } finally {
       setIsSavingSlowMode(false)
     }
@@ -1758,17 +1769,17 @@ export default function DJDashboard() {
       if (!userId) return;
       // Only allow DJs and Admins to ban from the DJ dashboard
       if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
-        alert('You do not have permission to ban users.');
+        showToast('You do not have permission to ban users.', 'error');
         return;
       }
       const confirmed = window.confirm(`Ban ${displayName || 'this user'} from chat permanently?`);
       if (!confirmed) return;
       await authService.banUser(userId, { unit: 'PERMANENT', reason: `Banned by ${currentUser.firstname || ''} ${currentUser.lastname || ''}`.trim() });
-      alert(`${displayName || 'User'} has been banned.`);
+      showToast(`${displayName || 'User'} has been banned.`, 'success');
     } catch (error) {
       logger.error('Failed to ban user from chat:', error);
       const msg = (error && (error.response?.data?.message || error.message)) || 'Unknown error';
-      alert(`Failed to ban user: ${msg}`);
+      showToast(`Failed to ban user: ${msg}`, 'error');
     }
   };
 
@@ -1781,7 +1792,7 @@ export default function DJDashboard() {
 
     try {
       if (messageText.length > 1500) {
-        alert("Message cannot exceed 1500 characters")
+        showToast("Message cannot exceed 1500 characters", 'warning')
         return
       }
       // Always send via REST (WS is receive-only). Use the WS wrapper if present (it now calls REST).
@@ -1802,17 +1813,17 @@ export default function DJDashboard() {
       logger.error("Error sending chat message:", error)
       const status = error?.response?.status
       if (status === 401) {
-        alert("Your session expired. Please log in again.")
+        showToast("Your session expired. Please log in again.", 'error')
       } else if (status === 429) {
         const headers = error.response?.headers || {}
         const retryAfter = headers['retry-after'] || headers['Retry-After'] || headers['Retry-after']
         const sec = parseInt(retryAfter, 10)
         const waitMsg = Number.isFinite(sec) ? `${sec} second${sec === 1 ? '' : 's'}` : 'a few seconds'
-        alert(`Slow mode is enabled. Please wait ${waitMsg} before sending another message.`)
+        showToast(`Slow mode is enabled. Please wait ${waitMsg} before sending another message.`, 'warning')
       } else if (error.response?.data?.message?.includes("1500 characters")) {
-        alert("Message cannot exceed 1500 characters")
+        showToast("Message cannot exceed 1500 characters", 'warning')
       } else {
-        alert("Failed to send message. Please try again.")
+        showToast("Failed to send message. Please try again.", 'error')
       }
       // Restore message if sending failed
       setChatMessage(messageText)
@@ -1843,7 +1854,7 @@ export default function DJDashboard() {
       window.URL.revokeObjectURL(url)
     } catch (error) {
       logger.error("Error downloading chat messages:", error)
-      alert("Failed to download chat messages. Please try again.")
+      showToast("Failed to download chat messages. Please try again.", 'error')
     } finally {
       setIsDownloadingChat(false)
     }
@@ -1862,7 +1873,7 @@ export default function DJDashboard() {
       logger.debug("Song request deleted successfully")
     } catch (error) {
       logger.error("Error deleting song request:", error)
-      alert("Failed to delete song request. Please try again.")
+      showToast("Failed to delete song request. Please try again.", 'error')
     }
   }
 
@@ -2014,6 +2025,27 @@ export default function DJDashboard() {
     return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
   }
 
+  // Check if another DJ is broadcasting and show read-only view
+  const effectiveBroadcast = currentBroadcast || streamingBroadcast;
+  const isActiveDJ = effectiveBroadcast?.status === 'LIVE' && 
+                     (effectiveBroadcast?.currentActiveDJ?.id === currentUser?.id || 
+                      effectiveBroadcast?.startedBy?.id === currentUser?.id || 
+                      effectiveBroadcast?.createdBy?.id === currentUser?.id);
+
+  if (effectiveBroadcast?.status === 'LIVE' && !isActiveDJ && 
+      (currentUser.role === 'DJ' || currentUser.role === 'MODERATOR' || currentUser.role === 'ADMIN')) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pt-6">
+        <div className="container mx-auto px-4">
+          <ReadOnlyView 
+            message="Another DJ is currently broadcasting"
+            activeDJ={effectiveBroadcast.currentActiveDJ || effectiveBroadcast.startedBy}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
       <div className="relative min-h-screen bg-gray-50 dark:bg-gray-900">
         {/* Success Notification Banner */}
@@ -2022,6 +2054,14 @@ export default function DJDashboard() {
           isVisible={showSuccessNotification}
           onClose={() => setShowSuccessNotification(false)}
         />
+        
+        {toastState.show && (
+          <Toast
+            message={toastState.message}
+            type={toastState.type}
+            onClose={() => setToastState(prev => ({ ...prev, show: false }))}
+          />
+        )}
 
         <div className="container mx-auto px-4 pt-0 pb-4">
           {/* End Broadcast Confirmation Modal */}
