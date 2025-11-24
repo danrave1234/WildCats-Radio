@@ -14,7 +14,7 @@ import {
   ArrowRightOnRectangleIcon,
   ExclamationTriangleIcon,
 } from "@heroicons/react/24/solid";
-import { UserIcon } from "@heroicons/react/24/outline";
+import { UserIcon, ChatBubbleLeftRightIcon } from "@heroicons/react/24/outline";
 import Toast from "../components/Toast";
 import { broadcastService, chatService, songRequestService, pollService, streamService, authService, radioService } from "../services/api/index.js";
 import { broadcastApi } from "../services/api/broadcastApi";
@@ -596,14 +596,22 @@ export default function ListenerDashboard() {
 
               // Create a new array instead of modifying the existing one
               const wasAtBottom = isAtBottom(chatContainerRef.current);
+              // Always scroll if it's the current user's message
+              const isOwnMessage = currentUser && newMessage.userId === currentUser.id;
 
               // Use spread operator for a new array and sort properly
               const updated = [...prev, newMessage].sort((a, b) =>
                   new Date(a.createdAt) - new Date(b.createdAt)
               );
 
-              if (wasAtBottom) {
-                setTimeout(scrollToBottom, 50);
+              // Auto-scroll logic:
+              // - Always scroll if it's the user's own message
+              // - Only scroll if user was already at bottom for other messages
+              if (isOwnMessage || wasAtBottom) {
+                setTimeout(() => {
+                  scrollToBottom();
+                  setShowScrollBottom(false);
+                }, 50);
               }
               return updated;
             });
@@ -679,7 +687,32 @@ export default function ListenerDashboard() {
               case 'NEW_POLL': {
                 const p = pollUpdate.poll;
                 if (p && p.active) {
-                  setActivePoll(p);
+                  // Set poll immediately for real-time display (optimistic update)
+                  setActivePoll({
+                    ...p,
+                    userVoted: false,
+                    userVotedFor: null
+                  });
+                  
+                  // Check user vote status in background (non-blocking)
+                  if (currentUser) {
+                    pollService.getUserVote(p.id)
+                      .then(userVoteResponse => {
+                        setActivePoll(prev => (
+                          prev && prev.id === p.id
+                            ? {
+                                ...prev,
+                                userVoted: !!userVoteResponse.data,
+                                userVotedFor: userVoteResponse.data || null
+                              }
+                            : prev
+                        ));
+                      })
+                      .catch(error => {
+                        logger.debug('Could not fetch user vote status for new poll:', error);
+                        // Keep poll displayed, vote status will remain false
+                      });
+                  }
                 }
                 break;
               }
@@ -702,7 +735,38 @@ export default function ListenerDashboard() {
                   // Only clear if poll has no votes and is not active
                   const hasVotes = p.options?.some(opt => (opt.votes || 0) > 0) || p.totalVotes > 0;
                   if (p.active || hasVotes) {
-                    setActivePoll(p);
+                    // Set poll immediately for real-time display (optimistic update)
+                    setActivePoll(prev => {
+                      // Preserve existing userVoted status if poll ID matches (prevents flicker)
+                      const existingVoteStatus = prev && prev.id === p.id 
+                        ? { userVoted: prev.userVoted, userVotedFor: prev.userVotedFor }
+                        : { userVoted: false, userVotedFor: null };
+                      
+                      return {
+                        ...p,
+                        ...existingVoteStatus
+                      };
+                    });
+                    
+                    // Check user vote status in background (non-blocking) when poll is reposted
+                    if (currentUser) {
+                      pollService.getUserVote(p.id)
+                        .then(userVoteResponse => {
+                          setActivePoll(prev => (
+                            prev && prev.id === p.id
+                              ? {
+                                  ...prev,
+                                  userVoted: !!userVoteResponse.data,
+                                  userVotedFor: userVoteResponse.data || null
+                                }
+                              : prev
+                          ));
+                        })
+                        .catch(error => {
+                          logger.debug('Could not fetch user vote status for updated poll:', error);
+                          // Keep poll displayed, vote status will remain as-is
+                        });
+                    }
                   } else {
                     setActivePoll(null);
                   }
@@ -987,6 +1051,7 @@ export default function ListenerDashboard() {
   }, []);
 
   // Update the scroll event listener
+  // Scroll detection: Show/hide scroll-to-bottom button
   useEffect(() => {
     const container = chatContainerRef.current;
     if (!container) return;
@@ -996,8 +1061,21 @@ export default function ListenerDashboard() {
     };
 
     container.addEventListener('scroll', handleScroll);
+    // Check initial state
+    handleScroll();
+
     return () => container.removeEventListener('scroll', handleScroll);
-  }, []);
+  }, [chatMessages.length]); // Re-check when messages change
+
+  // Auto-scroll to bottom on initial load
+  useEffect(() => {
+    if (chatMessages.length > 0) {
+      setTimeout(() => {
+        scrollToBottom();
+        setShowScrollBottom(false);
+      }, 100);
+    }
+  }, [currentBroadcastId]); // Scroll when broadcast changes
 
   // Handle chat submission
   const handleChatSubmit = async (e) => {
@@ -1058,7 +1136,11 @@ export default function ListenerDashboard() {
       // Refresh messages to reflect the sent message immediately
       const updatedMessages = await chatService.getMessages(broadcastIdToUse);
       setChatMessages(updatedMessages.data);
+      // Always scroll to bottom after sending message
+      setTimeout(() => {
       scrollToBottom();
+        setShowScrollBottom(false);
+      }, 100);
     } catch (error) {
       logger.error("Error sending chat message:", error);
       if (error.response?.data?.message?.includes("1500 characters")) {
@@ -1345,18 +1427,45 @@ export default function ListenerDashboard() {
           // Fetch results for active poll
           try {
             const resultsResponse = await pollService.getPollResults(firstActive.id);
+            // Check if user has already voted
+            let userVoted = false;
+            let userVotedFor = null;
+            if (currentUser) {
+              try {
+                const userVoteResponse = await pollService.getUserVote(firstActive.id);
+                userVoted = !!userVoteResponse.data;
+                userVotedFor = userVoteResponse.data || null;
+              } catch (error) {
+                // If getUserVote fails, assume user hasn't voted
+                logger.debug('Could not fetch user vote status:', error);
+              }
+            }
             setActivePoll({
               ...firstActive,
               options: resultsResponse.data.options || firstActive.options,
               totalVotes: resultsResponse.data.totalVotes || firstActive.options.reduce((sum, option) => sum + (option.votes || 0), 0),
-              userVoted: false
+              userVoted,
+              userVotedFor
             });
           } catch (error) {
             // Fallback if results fetch fails
+            // Still check user vote status
+            let userVoted = false;
+            let userVotedFor = null;
+            if (currentUser) {
+              try {
+                const userVoteResponse = await pollService.getUserVote(firstActive.id);
+                userVoted = !!userVoteResponse.data;
+                userVotedFor = userVoteResponse.data || null;
+              } catch (error) {
+                logger.debug('Could not fetch user vote status:', error);
+              }
+            }
             setActivePoll({
               ...firstActive,
               totalVotes: firstActive.options.reduce((sum, option) => sum + (option.votes || 0), 0),
-              userVoted: false
+              userVoted,
+              userVotedFor
             });
           }
           return;
@@ -1555,7 +1664,7 @@ export default function ListenerDashboard() {
     }
   };
 
-  // Safe chat message renderer with comprehensive error handling
+  // Safe chat message renderer - matching DJDashboard design
   const renderSafeChatMessage = (msg) => {
     try {
       // Validate message data
@@ -1564,20 +1673,34 @@ export default function ListenerDashboard() {
       }
 
       // Construct name from firstname and lastname fields (backend sends these, not a single 'name' field)
-      const firstName = msg.sender.firstname || '';
-      const lastName = msg.sender.lastname || '';
+      const firstName = msg.sender?.firstname || "";
+      const lastName = msg.sender?.lastname || "";
       const fullName = `${firstName} ${lastName}`.trim();
-      const senderName = fullName || msg.sender.email || 'Unknown User';
+      const senderName = fullName || msg.sender?.email || "Unknown User";
 
       // Check if user is a DJ based on their role or name
-      const isDJ = (msg.sender.role && msg.sender.role.includes("DJ")) || 
-                   (senderName.includes("DJ")) ||
-                   (firstName.includes("DJ")) ||
-                   (lastName.includes("DJ"));
+      const isDJ =
+        (msg.sender?.role && msg.sender.role.includes("DJ")) ||
+        senderName.includes("DJ") ||
+        firstName.includes("DJ") ||
+        lastName.includes("DJ");
 
-      const initials = senderName.split(' ').map(part => part[0] || '').join('').toUpperCase().slice(0, 2) || 'U';
+      const initials = (() => {
+        try {
+          return (
+            senderName
+              .split(" ")
+              .map((part) => part[0] || "")
+              .join("")
+              .toUpperCase()
+              .slice(0, 2) || "U"
+          );
+        } catch (error) {
+          return "U";
+        }
+      })();
 
-      // Handle date parsing more robustly
+      // Handle date parsing more robustly (same as ListenerDashboard)
       let messageDate;
       try {
         const ts = msg.createdAt || msg.timestamp || msg.sentAt || msg.time || msg.date;
@@ -1587,25 +1710,34 @@ export default function ListenerDashboard() {
         messageDate = new Date();
       }
 
-      // Absolute local time for display
-      const formattedTime = messageDate && !isNaN(messageDate.getTime())
+      const formattedTime = (() => {
+        try {
+          return messageDate && !isNaN(messageDate.getTime())
         ? format(messageDate, 'hh:mm a')
-        : '';
+            : "";
+        } catch (error) {
+          return "";
+        }
+      })();
 
       return (
-        <div key={msg.id} className="mb-5">
-          <div className="flex items-center mb-2">
-            <div className={`h-10 w-10 min-w-[2.5rem] rounded-lg flex items-center justify-center text-xs text-white font-bold shadow-md ${
-              isDJ 
-                ? 'bg-maroon-600 dark:bg-maroon-700 border border-maroon-700' 
-                : 'bg-slate-500 dark:bg-slate-600 border border-slate-600'
-            }`}>
-              {isDJ ? 'DJ' : initials}
+        <div key={msg.id} className="flex items-start space-x-2 sm:space-x-3 mb-3">
+          <div
+            className={`flex-shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-xs sm:text-sm text-white font-bold ${
+              isDJ ? "bg-maroon-600" : "bg-gray-500"
+            }`}
+          >
+            {isDJ ? "DJ" : initials}
             </div>
-            <div className="ml-2 overflow-hidden flex items-center gap-2">
-              <span className="font-medium text-sm text-gray-900 dark:text-white truncate">{senderName}</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center flex-wrap gap-1 sm:gap-2 mb-1">
+              <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white truncate">
+                {senderName}
+              </span>
               {formattedTime && (
-                <span className="text-sm text-gray-600 dark:text-gray-300 font-medium">{formattedTime}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                  {formattedTime}
+                </span>
               )}
               {currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR') && msg.sender?.id !== currentUser.id && msg.sender?.role !== 'ADMIN' && (
                 <button
@@ -1617,18 +1749,7 @@ export default function ListenerDashboard() {
                 </button>
               )}
             </div>
-          </div>
-          <div className="ml-14 space-y-1">
-            <div className={`rounded-lg p-4 message-bubble shadow-sm border ${
-              isDJ 
-                ? 'bg-maroon-50 dark:bg-maroon-900/30 border-maroon-200 dark:border-maroon-700/50' 
-                : 'bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600'
-            }`}>
-              <p className="text-sm text-slate-800 dark:text-slate-200 chat-message leading-relaxed" style={{ wordBreak: 'break-word', wordWrap: 'break-word', overflowWrap: 'break-word', maxWidth: '100%' }}>{msg.content || 'No content'}</p>
-            </div>
-            {false && (
-              <div className="text-xs text-gray-500 dark:text-gray-400 pl-1" />
-            )}
+            <p className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 break-words">{msg.content || 'No content'}</p>
           </div>
         </div>
       );
@@ -1638,15 +1759,19 @@ export default function ListenerDashboard() {
     }
   };
 
-  // Render chat messages
+  // Render chat messages - matching DJDashboard structure
   const renderChatMessages = () => (
-    <div className="max-h-60 overflow-y-auto space-y-3 mb-4 chat-messages-container custom-scrollbar" ref={chatContainerRef}>
+    <div className="h-full overflow-y-auto p-3 sm:p-4 space-y-3 custom-scrollbar chat-messages-container" ref={chatContainerRef}>
       {chatMessages.length === 0 ? (
-        <p className="text-center text-gray-500 dark:text-gray-400 py-4">No messages yet</p>
+        <div className="text-center text-gray-500 dark:text-gray-400 py-8 sm:py-12">
+          <ChatBubbleLeftRightIcon className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-3 opacity-30" />
+          <p className="text-sm sm:text-base">No messages yet</p>
+          <p className="text-xs sm:text-sm text-gray-400 dark:text-gray-500 mt-1">Start the conversation!</p>
+        </div>
       ) : (
         chatMessages
           .slice()
-          .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
           .map(renderSafeChatMessage)
           .filter(Boolean) // Remove any null values from failed renders
       )}
@@ -1937,19 +2062,6 @@ export default function ListenerDashboard() {
         <div className="mb-4 pt-4">
           <h2 className="text-xl font-semibold text-maroon-700 dark:text-maroon-400 mb-1">Broadcast Stream</h2>
           <p className="text-slate-600 dark:text-slate-400 text-xs">Tune in to live broadcasts and connect with listeners</p>
-          {/* Current DJ Display */}
-          {currentBroadcast && currentBroadcast.status === 'LIVE' && (
-            <div className="mt-3 inline-flex items-center px-3 py-1.5 bg-maroon-50 dark:bg-maroon-900/20 border border-maroon-200 dark:border-maroon-800 rounded-lg">
-              <UserIcon className="h-4 w-4 text-maroon-600 dark:text-maroon-400 mr-2" />
-              <span className="text-sm font-medium text-maroon-700 dark:text-maroon-300">
-                {currentActiveDJ ? (
-                  <>Now Playing: <span className="font-semibold">{currentActiveDJ.name || currentActiveDJ.email || currentActiveDJ.firstname + ' ' + currentActiveDJ.lastname}</span></>
-                ) : (
-                  <>Loading DJ info...</>
-                )}
-              </span>
-            </div>
-          )}
         </div>
 
         {/* Recovery Notification Banner */}
@@ -1971,7 +2083,7 @@ export default function ListenerDashboard() {
         {/* Desktop Left Column - Broadcast + Poll */}
         <div className="lg:col-span-2 space-y-6">
           {/* Spotify-style Music Player */}
-          <SpotifyPlayer broadcast={currentBroadcast} />
+          <SpotifyPlayer broadcast={currentBroadcast} currentDJ={currentActiveDJ} />
 
           {/* Desktop Poll section */}
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden flex-grow">
@@ -2178,17 +2290,21 @@ export default function ListenerDashboard() {
                         </div>
                       ) : (
                         <div className="flex items-center justify-center h-full">
-                          <div className="text-center w-full">
+                          <div className="text-center w-full px-4">
                             <div className="mb-8">
-                              <div className="w-20 h-20 mx-auto mb-4 rounded-xl bg-maroon-700 flex items-center justify-center shadow-lg mb-6 border border-maroon-600">
-                                <svg className="w-10 h-10 text-gold-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <div className="w-20 h-20 mx-auto mb-6 rounded-xl bg-gradient-to-br from-maroon-600 to-maroon-700 flex items-center justify-center shadow-lg border border-maroon-500">
+                                <svg className="w-10 h-10 text-gold-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                                 </svg>
                               </div>
-                              <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2 font-montserrat">Vote</h3>
-                              <p className="text-base text-slate-600 dark:text-slate-400">Select which you prefer the most?</p>
+                              <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-3 font-montserrat">No Poll Available</h3>
+                              <p className="text-base text-slate-600 dark:text-slate-400 mb-2 font-medium">
+                                Waiting for the DJ to create a poll
+                              </p>
+                              <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Polls will appear here automatically when created
+                              </p>
                             </div>
-                            <p className="text-slate-500 dark:text-slate-400">Polls are only available during live broadcasts</p>
                           </div>
                         </div>
                       )}
@@ -2219,43 +2335,38 @@ export default function ListenerDashboard() {
 
           <div className="bg-white dark:bg-slate-800 border border-t-0 border-slate-200 dark:border-slate-700 rounded-b-xl flex-grow flex flex-col h-[494px] shadow-lg">
             {currentBroadcast?.status === 'LIVE' ? (
-              <>
-                <div 
-                  ref={chatContainerRef}
-                  className="flex-grow overflow-y-auto p-5 space-y-4 chat-messages-container relative"
-                >
-                  {chatMessages
-                    .slice()
-                    .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
-                    .map(renderSafeChatMessage)
-                    .filter(Boolean)}
-                </div>
+              <div className="flex flex-col h-full">
+                <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
+                  {renderChatMessages()}
 
-                {/* Scroll to bottom button */}
+                  {/* Scroll to bottom button - Minimalist design matching DJDashboard */}
                 {showScrollBottom && (
-                  <div className="absolute bottom-20 right-4 z-10">
+                    <div className="absolute bottom-4 right-4 z-10">
                     <button
                       onClick={scrollToBottom}
-                      className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full p-3 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
+                        className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full w-10 h-10 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
                       aria-label="Scroll to bottom"
+                        title="Scroll to latest messages"
                     >
                       <svg 
                         xmlns="http://www.w3.org/2000/svg" 
                         className="h-5 w-5" 
-                        viewBox="0 0 20 20" 
-                        fill="currentColor"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
                       >
                         <path 
-                          fillRule="evenodd" 
-                          d="M16.707 10.293a1 1 0 010 1.414l-6 6a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" 
-                          clipRule="evenodd" 
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M19 9l-7 7-7-7"
                         />
                       </svg>
                     </button>
                   </div>
                 )}
-
-                <div className="p-4 border-t border-slate-200 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800 overflow-hidden">
+                </div>
+                <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800 overflow-hidden">
                   {!currentUser ? (
                     <div className="p-4 text-center">
                       <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 font-medium">
@@ -2286,7 +2397,7 @@ export default function ListenerDashboard() {
                       {(typeof slowModeWaitSeconds === 'number' && slowModeWaitSeconds > 0) && (
                         <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">Please wait {slowModeWaitSeconds} second{slowModeWaitSeconds === 1 ? '' : 's'} before sending another message.</p>
                       )}
-                    <form onSubmit={handleChatSubmit} className="flex items-center space-x-2 w-full min-w-0 overflow-hidden">
+                    <form onSubmit={handleChatSubmit} className="flex items-center space-x-2 w-full min-w-0 overflow-hidden p-4">
                       <input
                         type="text"
                         value={isSongRequestMode ? songRequestText : chatMessage}
@@ -2372,7 +2483,7 @@ export default function ListenerDashboard() {
                     </>
                   )}
                 </div>
-              </>
+              </div>
             ) : (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
@@ -2436,16 +2547,250 @@ export default function ListenerDashboard() {
           </div>
 
           {/* Mobile Tab content */}
-          <div className="bg-gradient-to-br from-white/80 to-slate-50/50 dark:from-slate-800/80 dark:to-slate-900/50 p-6 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-800 flex-grow flex flex-col h-[500px]">
             {activeTab === "chat" && (
-              <div className="animate-fade-in">
+              <div className="animate-fade-in flex flex-col h-full">
+                <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
                 {renderChatMessages()}
+
+                  {/* Scroll to bottom button - Minimalist design */}
+                  {showScrollBottom && (
+                    <div className="absolute bottom-4 right-4 z-10">
+                      <button
+                        onClick={scrollToBottom}
+                        className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full w-10 h-10 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
+                        aria-label="Scroll to bottom"
+                        title="Scroll to latest messages"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-5 w-5"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M19 9l-7 7-7-7"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800">
                 {renderChatInput()}
+                </div>
               </div>
             )}
             {activeTab === "poll" && (
-              <div className="animate-fade-in">
-                {/* Poll content will be rendered here */}
+              <div className="animate-fade-in p-6 flex flex-col h-full">
+                {currentBroadcast?.status === 'LIVE' ? (
+                  <>
+                    {pollLoading && !activePoll ? (
+                      <div className="text-center py-8 flex-grow flex items-center justify-center">
+                        <p className="text-gray-500 dark:text-gray-400 animate-pulse">Loading polls...</p>
+                      </div>
+                    ) : activePoll ? (
+                      <div className="flex-grow flex flex-col">
+                        {/* Poll Question */}
+                        <div className="mb-6">
+                          <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-3 font-montserrat">
+                            {activePoll.question || activePoll.title}
+                          </h3>
+                          <div className="text-sm text-slate-600 dark:text-slate-400 font-medium">
+                            {!activePoll.active ? (
+                              <span className="text-orange-600 dark:text-orange-400 font-semibold">Poll has ended - View results below</span>
+                            ) : !currentUser 
+                              ? 'Login to participate in the poll'
+                              : activePoll.userVoted 
+                                ? 'You have voted' 
+                                : 'Choose your answer and click Vote'
+                            }
+                          </div>
+                        </div>
+
+                        {/* Poll Options */}
+                        <div className="space-y-3 mb-6 flex-grow">
+                          {activePoll.options.map((option) => {
+                            const showResults = !activePoll.active || (activePoll.userVoted && currentUser);
+                            const percentage = (activePoll.totalVotes > 0 && showResults)
+                              ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 
+                              : 0;
+                            const isSelected = selectedPollOption === option.id;
+                            const isUserChoice = activePoll.userVotedFor === option.id;
+                            const canInteract = currentUser && !activePoll.userVoted && activePoll.active;
+
+                            return (
+                              <div key={option.id} className="space-y-2">
+                                <div 
+                                  className={`w-full border-2 rounded-lg overflow-hidden transition-all duration-200 ${
+                                    !currentUser
+                                      ? 'border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 cursor-not-allowed opacity-75'
+                                      : activePoll.userVoted 
+                                        ? isUserChoice
+                                          ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30 shadow-md'
+                                          : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700'
+                                        : isSelected
+                                          ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20 cursor-pointer shadow-md'
+                                          : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 hover:border-maroon-300 dark:hover:border-maroon-600 hover:bg-maroon-50/50 dark:hover:bg-maroon-900/20 cursor-pointer transition-all'
+                                  }`}
+                                  onClick={() => canInteract && handlePollOptionSelect(option.id)}
+                                >
+                                  <div className="p-4">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-sm font-semibold text-slate-900 dark:text-white">
+                                        {option.optionText || option.text}
+                                      </span>
+                                      <div className="flex items-center">
+                                        {showResults && (
+                                          <span className="text-xs text-gray-600 dark:text-gray-400 mr-2">
+                                            {option.votes || 0} votes
+                                          </span>
+                                        )}
+                                        {isSelected && canInteract && (
+                                          <div className="w-4 h-4 bg-maroon-500 rounded-full flex items-center justify-center">
+                                            <div className="w-2 h-2 bg-white rounded-full"></div>
+                                          </div>
+                                        )}
+                                        {isUserChoice && (activePoll.userVoted && currentUser) && (
+                                          <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                                            <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                            </svg>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Progress bar */}
+                                    {showResults && (
+                                      <div className="mt-3">
+                                        <div className="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-2.5 overflow-hidden">
+                                          <div 
+                                            className={`h-2.5 rounded-full transition-all duration-300 ${
+                                              isUserChoice ? 'bg-emerald-500' : 'bg-slate-400'
+                                            }`}
+                                            style={{ width: `${percentage}%` }}
+                                          />
+                                        </div>
+                                        <div className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1.5">
+                                          {percentage}% • {option.votes || 0} {option.votes === 1 ? 'vote' : 'votes'}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Vote Button */}
+                        <div className="mt-auto flex justify-center">
+                          {!currentUser ? (
+                            <div className="text-center">
+                              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 font-medium">
+                                Login to participate in polls
+                              </p>
+                              <div className="flex space-x-3 justify-center">
+                                <button
+                                  onClick={handleLoginRedirect}
+                                  className="flex items-center px-5 py-2.5 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-semibold rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
+                                >
+                                  <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
+                                  Login
+                                </button>
+                                <button
+                                  onClick={handleRegisterRedirect}
+                                  className="flex items-center px-5 py-2.5 bg-gold-500 hover:bg-gold-600 text-maroon-900 text-sm font-semibold rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
+                                >
+                                  <UserPlusIcon className="h-4 w-4 mr-2" />
+                                  Register
+                                </button>
+                              </div>
+                            </div>
+                          ) : activePoll.userVoted ? (
+                            <div className="text-center">
+                              <div className="text-sm text-slate-600 dark:text-slate-400 mb-3 font-semibold">
+                                Total votes: {activePoll.totalVotes || 0}
+                              </div>
+                              <span className="inline-flex items-center px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg shadow-md font-semibold transition-colors">
+                                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                                You have voted
+                              </span>
+                            </div>
+                          ) : !activePoll.active ? (
+                            <div className="text-center">
+                              <div className="text-sm text-slate-600 dark:text-slate-400 mb-3 font-semibold">
+                                Total votes: {activePoll.totalVotes || 0}
+                              </div>
+                              <span className="inline-flex items-center px-6 py-3 bg-orange-500 text-white rounded-lg shadow-md font-semibold">
+                                Poll Ended
+                              </span>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={handlePollVote}
+                              disabled={!selectedPollOption || pollLoading || !activePoll.active}
+                              className={`px-10 py-3 rounded-lg font-semibold transition-all duration-200 shadow-md ${
+                                selectedPollOption && !pollLoading && activePoll.active
+                                  ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105' 
+                                  : 'bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed'
+                              }`}
+                            >
+                              {pollLoading ? (
+                                <span className="flex items-center gap-2">
+                                  <div className="w-4 h-4 border-2 border-maroon-900 border-t-transparent rounded-full animate-spin"></div>
+                                  Voting...
+                                </span>
+                              ) : 'Vote'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center h-full">
+                        <div className="text-center w-full px-4">
+                          <div className="mb-8">
+                            <div className="w-20 h-20 mx-auto mb-6 rounded-xl bg-gradient-to-br from-maroon-600 to-maroon-700 flex items-center justify-center shadow-lg border border-maroon-500">
+                              <svg className="w-10 h-10 text-gold-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                              </svg>
+                            </div>
+                            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-3 font-montserrat">No Poll Available</h3>
+                            <p className="text-sm text-slate-600 dark:text-slate-400 mb-2 font-medium">
+                              Waiting for the DJ to create a poll
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              Polls will appear here automatically when created
+                            </p>
+                          </div>
+                          <div className="inline-flex items-center px-4 py-2 rounded-lg bg-maroon-50 dark:bg-maroon-900/20 border border-maroon-200 dark:border-maroon-700">
+                            <svg className="w-5 h-5 text-maroon-600 dark:text-maroon-400 mr-2 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span className="text-xs font-medium text-maroon-700 dark:text-maroon-300">Live broadcast active</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center w-full px-4">
+                      <div className="mb-8">
+                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Vote</h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Select which you prefer the most?</p>
+                      </div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Polls are only available during live broadcasts</p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

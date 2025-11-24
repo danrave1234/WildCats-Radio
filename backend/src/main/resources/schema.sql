@@ -45,7 +45,9 @@ SET scheduled_start = created_at - INTERVAL '1 minute',
 WHERE scheduled_start IS NULL;
 
 -- Now safe to drop the foreign key and column
+-- First, make schedule_id nullable to avoid constraint violations during migration
 ALTER TABLE broadcasts DROP CONSTRAINT IF EXISTS fk_broadcast_schedule;
+ALTER TABLE broadcasts ALTER COLUMN schedule_id DROP NOT NULL;
 ALTER TABLE broadcasts DROP COLUMN IF EXISTS schedule_id;
 
 -- Drop the schedule table if it exists
