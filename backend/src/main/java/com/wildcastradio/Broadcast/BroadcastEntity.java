@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.wildcastradio.ChatMessage.ChatMessageEntity;
+import com.wildcastradio.DJHandover.DJHandoverEntity;
 import com.wildcastradio.SongRequest.SongRequestEntity;
 import com.wildcastradio.User.UserEntity;
 
@@ -31,7 +32,8 @@ import jakarta.persistence.Table;
     @Index(name = "idx_broadcast_actual_start", columnList = "actual_start"),
     @Index(name = "idx_broadcast_actual_end", columnList = "actual_end"),
     @Index(name = "idx_broadcast_status_start", columnList = "status, actual_start"),
-    @Index(name = "idx_broadcast_started_by", columnList = "started_by_id")
+    @Index(name = "idx_broadcast_started_by", columnList = "started_by_id"),
+    @Index(name = "idx_broadcast_current_dj", columnList = "current_active_dj_id")
 })
 public class BroadcastEntity {
 
@@ -88,12 +90,18 @@ public class BroadcastEntity {
     @JoinColumn(name = "started_by_id")
     private UserEntity startedBy;
 
+    @ManyToOne
+    @JoinColumn(name = "current_active_dj_id")
+    private UserEntity currentActiveDJ; // Currently broadcasting DJ
 
     @OneToMany(mappedBy = "broadcast", cascade = CascadeType.ALL)
     private List<ChatMessageEntity> chatMessages = new ArrayList<>();
 
     @OneToMany(mappedBy = "broadcast", cascade = CascadeType.ALL)
     private List<SongRequestEntity> songRequests = new ArrayList<>();
+
+    @OneToMany(mappedBy = "broadcast", cascade = CascadeType.ALL)
+    private List<DJHandoverEntity> handovers = new ArrayList<>();
 
     // Idempotency keys for preventing duplicate operations
     @Column(name = "start_idempotency_key", unique = true)
@@ -108,6 +116,9 @@ public class BroadcastEntity {
 
     @Column(name = "current_duration_seconds")
     private Long currentDurationSeconds;
+
+    @Column(name = "active_session_id")
+    private String activeSessionId;
 
     // Broadcast status enum with state machine validation
     public enum BroadcastStatus {
@@ -325,5 +336,29 @@ public class BroadcastEntity {
 
     public void setCurrentDurationSeconds(Long currentDurationSeconds) {
         this.currentDurationSeconds = currentDurationSeconds;
+    }
+
+    public UserEntity getCurrentActiveDJ() {
+        return currentActiveDJ;
+    }
+
+    public void setCurrentActiveDJ(UserEntity currentActiveDJ) {
+        this.currentActiveDJ = currentActiveDJ;
+    }
+
+    public List<DJHandoverEntity> getHandovers() {
+        return handovers;
+    }
+
+    public void setHandovers(List<DJHandoverEntity> handovers) {
+        this.handovers = handovers;
+    }
+
+    public String getActiveSessionId() {
+        return activeSessionId;
+    }
+
+    public void setActiveSessionId(String activeSessionId) {
+        this.activeSessionId = activeSessionId;
     }
 }

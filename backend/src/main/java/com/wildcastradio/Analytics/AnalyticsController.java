@@ -23,6 +23,7 @@ import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.Broadcast.BroadcastService;
 import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 import com.wildcastradio.ChatMessage.ChatMessageRepository;
+import com.wildcastradio.DJHandover.DJHandoverRepository;
 import com.wildcastradio.SongRequest.SongRequestRepository;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
@@ -53,6 +54,12 @@ public class AnalyticsController {
 
     @Autowired
     private SongRequestRepository songRequestRepository;
+
+    @Autowired
+    private DJPeriodAnalyticsService djPeriodAnalyticsService;
+
+    @Autowired
+    private DJHandoverRepository djHandoverRepository;
 
     /**
      * Helper method to get current authenticated user
@@ -722,5 +729,83 @@ public class AnalyticsController {
         }
 
         return keywords.toArray(new String[0]);
+    }
+
+    /**
+     * Get time-based analytics per DJ for a broadcast
+     * GET /api/analytics/broadcasts/{id}/dj-periods
+     */
+    @GetMapping("/broadcasts/{id}/dj-periods")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
+    public ResponseEntity<Map<String, Object>> getDJPeriodAnalytics(@PathVariable Long id) {
+        try {
+            Map<String, Object> analytics = djPeriodAnalyticsService.getDJPeriodAnalytics(id);
+            return ResponseEntity.ok(analytics);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            logger.error("Error getting DJ period analytics for broadcast {}: ", id, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * Get handover statistics for a specific DJ
+     * GET /api/analytics/dj/{djId}/handover-stats
+     */
+    @GetMapping("/dj/{djId}/handover-stats")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
+    public ResponseEntity<Map<String, Object>> getDJHandoverStats(@PathVariable Long djId) {
+        try {
+            UserEntity dj = userService.getUserById(djId)
+                    .orElseThrow(() -> new IllegalArgumentException("DJ not found"));
+
+            // Get handovers where this DJ was the new DJ
+            List<com.wildcastradio.DJHandover.DJHandoverEntity> handovers =
+                    djHandoverRepository.findByNewDJ_IdOrderByHandoverTimeDesc(djId);
+
+            Map<String, Object> stats = new HashMap<>();
+            stats.put("djId", djId);
+            stats.put("djName", dj.getFullName());
+            stats.put("totalHandovers", handovers.size());
+            
+            // Calculate average session duration
+            double avgDurationSeconds = handovers.stream()
+                    .filter(h -> h.getDurationSeconds() != null)
+                    .mapToLong(h -> h.getDurationSeconds())
+                    .average()
+                    .orElse(0.0);
+            stats.put("averageSessionDurationSeconds", avgDurationSeconds);
+            stats.put("averageSessionDurationMinutes", avgDurationSeconds / 60.0);
+
+            // Get handover count per broadcast
+            Map<Long, Long> handoversPerBroadcast = handovers.stream()
+                    .collect(java.util.stream.Collectors.groupingBy(
+                            h -> h.getBroadcastId(),
+                            java.util.stream.Collectors.counting()));
+            stats.put("handoversPerBroadcast", handoversPerBroadcast);
+
+            return ResponseEntity.ok(stats);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            logger.error("Error getting handover stats for DJ {}: ", djId, e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * Get handover statistics by authentication method
+     * GET /api/analytics/handovers/auth-methods
+     */
+    @GetMapping("/handovers/auth-methods")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
+    public ResponseEntity<Map<String, Object>> getHandoverAuthMethodStats() {
+        try {
+            return ResponseEntity.ok(analyticsService.getHandoverAuthMethodStats());
+        } catch (Exception e) {
+            logger.error("Error getting handover auth method stats: ", e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
 } 

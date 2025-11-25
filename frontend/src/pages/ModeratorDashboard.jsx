@@ -17,17 +17,13 @@ const ModeratorDashboardContent = () => {
   const [totalElements, setTotalElements] = useState(0);
   const [rolesLoading, setRolesLoading] = useState(false);
   const [newUser, setNewUser] = useState({ firstname: '', lastname: '', email: '', password: '', role: 'LISTENER', birthdate: '' });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('ALL');
 
   // Live broadcasts state
   const [liveBroadcasts, setLiveBroadcasts] = useState([]);
   const [loadingLive, setLoadingLive] = useState(false);
 
-  // User moderation state
-  const [searchEmail, setSearchEmail] = useState('');
-  const [searching, setSearching] = useState(false);
-  const [foundUser, setFoundUser] = useState(null);
-  const [moderationLoading, setModerationLoading] = useState(false);
-  const [error, setError] = useState(null);
 
   // Profanity management state
   const [profanityWords, setProfanityWords] = useState([]);
@@ -56,7 +52,7 @@ const ModeratorDashboardContent = () => {
     setRolesLoading(true);
     setError(null);
     try {
-      const response = await authService.getUsersPaged(page, pageSize);
+      const response = await authService.getUsersPaged(page, pageSize, searchQuery, roleFilter);
       const data = response.data;
       const content = Array.isArray(data?.content) ? data.content : [];
       
@@ -80,13 +76,14 @@ const ModeratorDashboardContent = () => {
       fetchLive();
     }
     if (activeTab === 'moderation') {
+      fetchLive(); // Also fetch live broadcasts for moderator controls
       setProfMsg(null);
       setProfLoading(true);
       profanityService.listWords()
         .then((data) => setProfanityWords(Array.isArray(data) ? data : []))
         .catch(() => {})
         .finally(() => setProfLoading(false));
-      
+
       fetchUsers();
     }
   }, [activeTab, page]);
@@ -96,70 +93,8 @@ const ModeratorDashboardContent = () => {
     navigate(`/broadcast/${broadcastId}`);
   };
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!searchEmail || !searchEmail.includes('@')) {
-      setError('Enter a valid email');
-      return;
-    }
-    setError(null);
-    setSearching(true);
-    setFoundUser(null);
-    try {
-      const resp = await authService.getUserByEmail(searchEmail);
-      if (resp.data?.role === 'ADMIN') {
-        throw new Error('Not permitted to view admin users.');
-      }
-      setFoundUser(resp.data || null);
-    } catch (e) {
-      setFoundUser(null);
-      setError(e.message || 'User not found or not permitted');
-    } finally {
-      setSearching(false);
-    }
-  };
 
-  const handleBan = async (user) => {
-    if (!user || user.role === 'ADMIN') return;
-    const unit = (window.prompt('Ban duration unit (DAYS, WEEKS, YEARS, PERMANENT):', 'DAYS') || '').toUpperCase().trim();
-    if (!unit) return;
-    if (!['DAYS','WEEKS','YEARS','PERMANENT'].includes(unit)) { alert('Invalid unit'); return; }
-    let amount = null;
-    if (unit !== 'PERMANENT') {
-      const amtStr = window.prompt(`Amount for ${unit.toLowerCase()}:`, '1');
-      if (amtStr == null) return;
-      const parsed = parseInt(amtStr, 10);
-      if (!(parsed > 0)) { alert('Amount must be positive'); return; }
-      amount = parsed;
-    }
-    const reason = window.prompt('Reason (optional):', '') || null;
-    setModerationLoading(true);
-    try {
-      await authService.banUser(user.id, { unit, amount, reason });
-      alert('User banned');
-      const resp = await authService.getUserByEmail(user.email);
-      setFoundUser(resp.data || null);
-    } catch (e) {
-      alert('Failed to ban user');
-    } finally {
-      setModerationLoading(false);
-    }
-  };
 
-  const handleUnban = async (user) => {
-    if (!user) return;
-    setModerationLoading(true);
-    try {
-      await authService.unbanUser(user.id);
-      alert('User unbanned');
-      const resp = await authService.getUserByEmail(user.email);
-      setFoundUser(resp.data || null);
-    } catch (e) {
-      alert('Failed to unban user');
-    } finally {
-      setModerationLoading(false);
-    }
-  };
 
   const handleNewUserChange = (e) => {
     const { name, value } = e.target;
@@ -194,17 +129,37 @@ const ModeratorDashboardContent = () => {
     }
   };
 
-  const handleChangeRole = async (userId, currentRole, nextRole) => {
-    if (nextRole === 'ADMIN' || currentRole === 'ADMIN') { alert('Not permitted'); return; }
+  // Update user role
+  const handleChangeRole = async (userId, oldRole, newRole) => {
+    if (newRole === oldRole) return; // No change
+
+    const userEmail = users.find(u => u.id === userId)?.email || 'this user';
+    if (!window.confirm(`Are you sure you want to change the role of user ${userEmail} from ${oldRole} to ${newRole}?`)) {
+      return;
+    }
+
+    setRolesLoading(true);
     try {
-      setRolesLoading(true);
-      await authService.updateUserRoleByActor(userId, nextRole);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: nextRole } : u));
+      // Use updateUserRoleByActor as it's designed for actor-based role changes
+      await authService.updateUserRoleByActor(userId, newRole); 
+
+      // Update local state
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+      alert('User role updated successfully!');
     } catch (e) {
-      alert('Failed to change role');
+      console.error('Error changing role:', e);
+      alert(e.response?.data?.error || e.message || 'Failed to change role. Please verify permissions.');
     } finally {
       setRolesLoading(false);
     }
+  };
+
+
+
+  const handleEditRole = (user) => {
+    setEditingUser(user);
+    setSelectedRole(user.role);
+    setShowRoleModal(true);
   };
 
   const handleAddProfanity = async (e) => {
@@ -255,17 +210,13 @@ const ModeratorDashboardContent = () => {
               </div>
               <nav className="p-2">
                 <button
-                  onClick={() => setActiveTab('overview')}
-                  className={`w-full text-left px-4 py-2 rounded-md text-sm font-medium ${activeTab==='overview' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'}`}
-                >Overview</button>
+                  onClick={() => setActiveTab('moderation')}
+                  className={`w-full text-left px-4 py-2 rounded-md text-sm font-medium ${activeTab==='moderation' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'}`}
+                >Moderator Controls</button>
                 <button
                   onClick={() => setActiveTab('live')}
                   className={`w-full text-left px-4 py-2 rounded-md text-sm font-medium ${activeTab==='live' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'}`}
                 >Live Broadcasts</button>
-                <button
-                  onClick={() => setActiveTab('moderation')}
-                  className={`w-full text-left px-4 py-2 rounded-md text-sm font-medium ${activeTab==='moderation' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'}`}
-                >Moderation Tools</button>
                 <div className="my-2 border-t border-gray-200 dark:border-gray-700" />
                 <button
                   onClick={() => navigate('/dashboard')}
@@ -278,13 +229,6 @@ const ModeratorDashboardContent = () => {
           {/* Main */}
           <div className="flex-1">
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
-              {activeTab === 'overview' && (
-                <div className="p-6">
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Quick Actions</h2>
-                  <p className="text-gray-600 dark:text-gray-300">Use the tabs to monitor live broadcasts, manage user bans, add profanity words, create Listener/DJ/Moderator users, and toggle roles between Listener and DJ. Moderators cannot assign or create Admin roles.</p>
-                </div>
-              )}
-
               {activeTab === 'live' && (
                 <div className="p-6">
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Currently Live Broadcasts</h2>
@@ -321,54 +265,8 @@ const ModeratorDashboardContent = () => {
 
               {activeTab === 'moderation' && (
                 <div className="p-6">
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Find User by Email</h2>
-                  <form onSubmit={handleSearch} className="flex gap-2 mb-4">
-                    <input value={searchEmail} onChange={e=>setSearchEmail(e.target.value)} placeholder="user@example.com" className="flex-1 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-                    <button type="submit" disabled={searching} className={`px-4 py-2 rounded-md text-white ${searching ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}>{searching ? 'Searching...' : 'Search'}</button>
-                  </form>
-                  {error && <div className="mb-4 text-sm text-red-600 dark:text-red-400">{error}</div>}
-                  {foundUser && (
-                    <div className="border rounded-lg p-4 dark:border-gray-700">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="text-gray-900 dark:text-white font-medium">{(foundUser.firstname||'') + ' ' + (foundUser.lastname||'')}</div>
-                          <div className="text-gray-600 dark:text-gray-300 text-sm">{foundUser.email}</div>
-                          <div className="text-xs mt-2">
-                            <span className={`px-2 py-0.5 rounded-full ${
-                              foundUser.role==='ADMIN'
-                                ?'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
-                                :foundUser.role==='MODERATOR'
-                                  ?'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
-                                  :foundUser.role==='DJ'
-                                    ?'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-                                    :'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                            }`}>{foundUser.role}</span>
-                          </div>
-                        </div>
-                        <div className="text-sm text-gray-700 dark:text-gray-300">
-                          {foundUser.banned ? (
-                            <div>
-                              <div>Banned {foundUser.bannedUntil ? `until ${new Date(foundUser.bannedUntil).toLocaleString()}` : '(permanent)'}</div>
-                              {foundUser.banReason && <div className="text-xs text-gray-500">Reason: {foundUser.banReason}</div>}
-                            </div>
-                          ) : (
-                            <div>Not banned</div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="mt-4 flex gap-2">
-                        {!foundUser.banned && foundUser.role !== 'ADMIN' && (
-                          <button disabled={moderationLoading} onClick={()=>handleBan(foundUser)} className={`px-4 py-2 rounded-md text-white ${moderationLoading?'bg-gray-400':'bg-red-600 hover:bg-red-700'}`}>{moderationLoading?'Please wait...':'Ban User'}</button>
-                        )}
-                        {foundUser.banned && (
-                          <button disabled={moderationLoading} onClick={()=>handleUnban(foundUser)} className={`px-4 py-2 rounded-md text-white ${moderationLoading?'bg-gray-400':'bg-green-600 hover:bg-green-700'}`}>{moderationLoading?'Please wait...':'Unban User'}</button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="mt-8">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Create User (Listener, DJ, or Moderator)</h3>
+                  <div className="mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Create User</h3>
                     <form onSubmit={handleCreateUser} className="space-y-3">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <input name="firstname" value={newUser.firstname} onChange={handleNewUserChange} placeholder="First name" className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
@@ -379,7 +277,6 @@ const ModeratorDashboardContent = () => {
                         <select name="role" value={newUser.role} onChange={handleNewUserChange} className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                           <option value="LISTENER">Listener</option>
                           <option value="DJ">DJ</option>
-                          <option value="MODERATOR">Moderator</option>
                         </select>
                       </div>
                       <div className="text-right">
@@ -389,7 +286,46 @@ const ModeratorDashboardContent = () => {
                   </div>
 
                   <div className="mt-8">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Manage User Roles</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Manage Users</h3>
+                    {/* Search and Filter Users */}
+                    <div className="mb-4 flex flex-col sm:flex-row gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="Search users by name or email..." 
+                        className="flex-1 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            setPage(0);
+                            fetchUsers();
+                          }
+                        }}
+                      />
+                      <select
+                        className="px-4 py-2 border border-gray-300 rounded-md shadow-sm bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        value={roleFilter}
+                        onChange={(e) => {
+                          setRoleFilter(e.target.value);
+                          setPage(0); // Reset page when filter changes
+                        }}
+                      >
+                        <option value="ALL">All Roles</option>
+                        <option value="LISTENER">Listener</option>
+                        <option value="DJ">DJ</option>
+                        <option value="MODERATOR">Moderator</option>
+                      </select>
+                      <button 
+                        onClick={() => {
+                          setPage(0);
+                          fetchUsers();
+                        }} 
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                      >
+                        Filter/Search
+                      </button>
+                    </div>
+
                     {rolesLoading && users.length === 0 ? (
                       <div className="text-sm text-gray-500">Loading users...</div>
                     ) : (
@@ -398,7 +334,6 @@ const ModeratorDashboardContent = () => {
                           <table className="min-w-full text-sm">
                             <thead className="bg-gray-50 dark:bg-gray-700">
                               <tr className="text-left">
-                                <th className="p-2">ID</th>
                                 <th className="p-2">Name</th>
                                 <th className="p-2">Email</th>
                                 <th className="p-2">Role</th>
@@ -408,14 +343,19 @@ const ModeratorDashboardContent = () => {
                             <tbody>
                               {users.map(u => (
                                 <tr key={u.id} className="border-t dark:border-gray-700">
-                                  <td className="p-2">{u.id}</td>
                                   <td className="p-2">{(u.firstname||'') + ' ' + (u.lastname||'')}</td>
                                   <td className="p-2">{u.email}</td>
                                   <td className="p-2">{u.role}</td>
                                   <td className="p-2">
-                                    {u.role !== 'ADMIN' && (
-                                      <button onClick={()=>handleChangeRole(u.id, u.role, u.role==='LISTENER'?'DJ':'LISTENER')} className="px-3 py-1 text-xs rounded bg-purple-600 text-white hover:bg-purple-700">Toggle DJ/Listener</button>
-                                    )}
+                                    <select
+                                      value={u.role}
+                                      onChange={(e) => handleRoleUpdate(u.id, u.role, e.target.value)}
+                                      className="p-1 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white text-xs"
+                                      disabled={rolesLoading || u.role === 'ADMIN' || u.role === 'MODERATOR'}
+                                    >
+                                      <option value="LISTENER">Listener</option>
+                                      <option value="DJ">DJ</option>
+                                    </select>
                                   </td>
                                 </tr>
                               ))}
@@ -425,8 +365,11 @@ const ModeratorDashboardContent = () => {
                         {/* Pagination Controls */}
                         <div className="mt-4 flex items-center justify-between">
                           <div className="text-sm text-gray-600 dark:text-gray-300">
-                            Page {totalPages > 0 ? page + 1 : 0} of {totalPages}
-                            {totalElements ? ` • ${totalElements} users total` : ''}
+                            {totalElements > 0 ? (
+                              `Showing ${page * pageSize + 1} to ${Math.min((page + 1) * pageSize, totalElements)} of ${totalElements} users`
+                            ) : (
+                              'No users to display'
+                            )}
                           </div>
                           <div className="flex gap-2">
                             <button

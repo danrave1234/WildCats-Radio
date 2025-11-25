@@ -10,10 +10,10 @@ import {
 import { useStreaming } from '../context/StreamingContext';
 import { broadcastService } from '../services/api/index.js';
 
-const SpotifyPlayer = () => {
+const SpotifyPlayer = ({ broadcast: propBroadcast, currentDJ }) => {
   const {
-    isLive,
-    currentBroadcast: streamingBroadcast,
+    isLive: streamingIsLive,
+    currentBroadcast: streamingCurrentBroadcast,
     audioPlaying,
     volume,
     isMuted,
@@ -25,7 +25,11 @@ const SpotifyPlayer = () => {
     refreshStream
   } = useStreaming();
 
-  const [currentBroadcast, setCurrentBroadcast] = useState(null);
+  // Use prop broadcast if provided, otherwise use streaming context broadcast, otherwise use internal state
+  const currentBroadcast = propBroadcast || streamingCurrentBroadcast;
+  const isLive = propBroadcast ? (propBroadcast.status === 'LIVE') : streamingIsLive;
+
+  const [internalCurrentBroadcast, setInternalCurrentBroadcast] = useState(null);
   const [currentTrack, setCurrentTrack] = useState({
     title: 'No songs played',
     artist: 'WildCat Radio',
@@ -38,17 +42,17 @@ const SpotifyPlayer = () => {
     try {
       const activeBroadcast = await broadcastService.getActiveBroadcast();
       if (activeBroadcast) {
-        setCurrentBroadcast(activeBroadcast);
+        setInternalCurrentBroadcast(activeBroadcast);
         return;
       }
 
       const liveResponse = await broadcastService.getLive();
       if (liveResponse.data && liveResponse.data.length > 0) {
-        setCurrentBroadcast(liveResponse.data[0]);
+        setInternalCurrentBroadcast(liveResponse.data[0]);
         return;
       }
 
-      setCurrentBroadcast(null);
+      setInternalCurrentBroadcast(null);
     } catch (error) {
       console.error('Error fetching broadcast:', error);
     }
@@ -58,7 +62,7 @@ const SpotifyPlayer = () => {
     if (isLive) {
       fetchCurrentBroadcast();
     } else {
-      setCurrentBroadcast(null);
+      setInternalCurrentBroadcast(null);
     }
   }, [isLive]);
 
@@ -151,9 +155,25 @@ const SpotifyPlayer = () => {
             <h2 className="text-white text-xl font-bold mb-1.5 truncate font-montserrat">
               {currentBroadcast?.title || 'Live Broadcast'}
             </h2>
-            <p className="text-white/80 text-sm mb-2 font-medium">
-              {currentBroadcast?.dj?.name || currentBroadcast?.host?.name || 'Live Stream'}
-            </p>
+
+            {/* Enhanced DJ Display */}
+            {currentDJ && (
+              <div className="flex items-center mb-2">
+                <span className="text-gold-400 text-sm font-semibold">
+                  Hosted by: {(() => {
+                    // Priority: firstname + lastname → name → email
+                    if (currentDJ.firstname && currentDJ.lastname) {
+                      return `${currentDJ.firstname} ${currentDJ.lastname}`;
+                    }
+                    if (currentDJ.name) {
+                      return currentDJ.name;
+                    }
+                    return currentDJ.email || 'Unknown DJ';
+                  })()}
+                </span>
+              </div>
+            )}
+
             {currentBroadcast?.description && (
               <p className="text-white/80 text-xs leading-relaxed max-w-2xl line-clamp-2">
                 {currentBroadcast.description}

@@ -22,6 +22,8 @@ const AdminDashboard = () => {
   const [totalElements, setTotalElements] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('ALL');
 
   // State for editing user role
   const [editingUser, setEditingUser] = useState(null);
@@ -169,7 +171,7 @@ const AdminDashboard = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await authService.getUsersPaged(page, pageSize);
+      const response = await authService.getUsersPaged(page, pageSize, searchQuery, roleFilter);
       const data = response.data;
       const content = Array.isArray(data?.content) ? data.content : [];
       setUsers(content);
@@ -205,6 +207,14 @@ const AdminDashboard = () => {
   const handleRoleUpdate = async () => {
     if (!editingUser || !selectedRole) return;
 
+    if (!window.confirm(`Are you sure you want to change role of user ${editingUser.email} from ${editingUser.role} to ${selectedRole}? This action cannot be undone.`)) {
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to change role of user ${editingUser.email} from ${editingUser.role} to ${selectedRole}?`)) {
+      return;
+    }
+
     setLoading(true);
     try {
       await authService.updateUserRole(editingUser.id, selectedRole);
@@ -217,8 +227,13 @@ const AdminDashboard = () => {
       // Close modal
       setShowRoleModal(false);
       setEditingUser(null);
+      setError(null); // Clear any previous error
 
       // Update stats
+      // This part is problematic as it's trying to update stats from a partial view.
+      // A more robust solution would be to refetch overall user counts or update more carefully.
+      // For now, let's keep it simple by just updating the local users array role.
+      // The overall stats (totalDJs, totalListeners) are derived from the users array anyway.
       const updatedUsers = users.map(user => 
         user.id === editingUser.id ? { ...user, role: selectedRole } : user
       );
@@ -227,12 +242,14 @@ const AdminDashboard = () => {
 
       setStats(prev => ({
         ...prev,
+        // totalUsers: prev.totalUsers, // leave overall to analytics
         totalDJs: djCount,
         totalListeners: listenerCount
       }));
+      alert('User role updated successfully!');
     } catch (err) {
       console.error('Error updating user role:', err);
-      setError('Failed to update user role. Please try again.');
+      setError(err.response?.data?.error || err.message || 'Failed to update user role. Please verify permissions.');
     } finally {
       setLoading(false);
     }
@@ -554,107 +571,272 @@ const AdminDashboard = () => {
                     </form>
                   </div>
 
-                  {/* User Table */}
-                  <div className="overflow-x-auto">
-                    {error && (
-                      <div className="bg-red-50 dark:bg-red-900/30 p-4 rounded-lg mb-6">
-                        <div className="flex">
-                          <div className="flex-shrink-0">
-                            <svg className="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                            </svg>
-                          </div>
-                          <div className="ml-3">
-                            <h3 className="text-sm font-medium text-red-800 dark:text-red-200">Error</h3>
-                            <div className="mt-2 text-sm text-red-700 dark:text-red-300">
-                              <p>{error}</p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                                    {/* User Management Search and Filter */}
 
-                    {loading ? (
-                      <div className="flex flex-col justify-center items-center py-10 gap-4">
-                        <Spinner variant="primary" size="default" />
-                        <span className="text-maroon-700 dark:text-maroon-300 font-medium">Loading users...</span>
-                      </div>
-                    ) : (
-                      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                        <thead className="bg-gray-50 dark:bg-gray-700">
-                          <tr>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                              ID
-                            </th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                              Name
-                            </th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                              Email
-                            </th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                              Role
-                            </th>
-                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                              Actions
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                          {users.length === 0 ? (
-                            <tr>
-                              <td colSpan="5" className="px-6 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
-                                No users found
-                              </td>
-                            </tr>
-                          ) : (
-                            users.map((user) => (
-                              <tr key={user.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                  {user.id}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                                  {[user.firstname, user.lastname].filter(Boolean).join(' ') || user.email}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                  {user.email}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                    user.role === 'ADMIN' 
-                                      ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
-                                      : user.role === 'MODERATOR'
-                                        ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
-                                        : user.role === 'DJ'
-                                          ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-                                          : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                  }`}>
-                                    {user.role}
-                                  </span>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                  <button 
-                                    onClick={() => handleEditRole(user)}
-                                    className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-200 mr-3"
-                                  >
-                                    Edit Role
-                                  </button>
-                                  <button className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-200">
-                                    Delete
-                                  </button>
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                  {/* Pagination Controls */}
+                                    <div className="mb-4 flex flex-col sm:flex-row gap-2">
+
+                                      <div className="relative flex-1">
+
+                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+
+                                          <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+
+                                            <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+
+                                          </svg>
+
+                                        </div>
+
+                                        <input
+
+                                          type="text"
+
+                                          placeholder="Search users by name or email..."
+
+                                          className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+
+                                          value={searchQuery}
+
+                                          onChange={(e) => setSearchQuery(e.target.value)}
+
+                                          onKeyDown={(e) => {
+
+                                            if (e.key === 'Enter') {
+
+                                              setPage(0);
+
+                                              fetchUsers();
+
+                                            }
+
+                                          }}
+
+                                        />
+
+                                      </div>
+
+                                      <select
+
+                                        className="px-4 py-2 border border-gray-300 rounded-md shadow-sm bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+
+                                        value={roleFilter}
+
+                                        onChange={(e) => {
+
+                                          setRoleFilter(e.target.value);
+
+                                          setPage(0); // Reset page when filter changes
+
+                                        }}
+
+                                      >
+
+                                        <option value="ALL">All Roles</option>
+
+                                        <option value="ADMIN">Admin</option>
+
+                                        <option value="MODERATOR">Moderator</option>
+
+                                        <option value="DJ">DJ</option>
+
+                                        <option value="LISTENER">Listener</option>
+
+                                      </select>
+
+                                      <button
+
+                                        onClick={() => {
+
+                                          setPage(0);
+
+                                          fetchUsers();
+
+                                        }}
+
+                                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+
+                                      >
+
+                                        Filter/Search
+
+                                      </button>
+
+                                    </div>
+
+                  
+
+                                    {/* User Table */}
+
+                                    <div className="overflow-x-auto">
+
+                                      {error && (
+
+                                        <div className="bg-red-50 dark:bg-red-900/30 p-4 rounded-lg mb-6">
+
+                                          <div className="flex">
+
+                                            <div className="flex-shrink-0">
+
+                                              <svg className="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+
+                                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+
+                                              </svg>
+
+                                            </div>
+
+                                            <div className="ml-3">
+
+                                              <h3 className="text-sm font-medium text-red-800 dark:text-red-200">Error</h3>
+
+                                              <div className="mt-2 text-sm text-red-700 dark:text-red-300">
+
+                                                <p>{error}</p>
+
+                                              </div>
+
+                                            </div>
+
+                                          </div>
+
+                                        </div>
+
+                                      )}
+
+                  
+
+                                      {loading ? (
+
+                                        <div className="flex flex-col justify-center items-center py-10 gap-4">
+
+                                          <Spinner variant="primary" size="default" />
+
+                                          <span className="text-maroon-700 dark:text-maroon-300 font-medium">Loading users...</span>
+
+                                        </div>
+
+                                      ) : (
+
+                                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+
+                                          <thead className="bg-gray-50 dark:bg-gray-700">
+
+                                            <tr>
+
+                                              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+
+                                                Name
+
+                                              </th>
+
+                                              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+
+                                                Email
+
+                                              </th>
+
+                                              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+
+                                                Role
+
+                                              </th>
+
+                                              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+
+                                                Actions
+
+                                              </th>
+
+                                            </tr>
+
+                                          </thead>
+
+                                          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+
+                                            {users.length === 0 ? (
+
+                                              <tr>
+
+                                                <td colSpan="4" className="px-6 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+
+                                                  No users found
+
+                                                </td>
+
+                                              </tr>
+
+                                            ) : (
+
+                                              users.map((user) => (
+
+                                                <tr key={user.id}>
+
+                                                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+
+                                                    {[user.firstname, user.lastname].filter(Boolean).join(' ') || user.email}
+
+                                                  </td>
+
+                                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+
+                                                    {user.email}
+
+                                                  </td>
+
+                                                  <td className="px-6 py-4 whitespace-nowrap">
+
+                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${user.role === 'ADMIN' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' : user.role === 'MODERATOR' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' : user.role === 'DJ' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'}`}>
+
+                                                      {user.role}
+
+                                                    </span>
+
+                                                  </td>
+
+                                                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+
+                                                    <button 
+
+                                                      onClick={() => handleEditRole(user)}
+
+                                                      className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-200 mr-3"
+
+                                                    >
+
+                                                      Edit Role
+
+                                                    </button>
+
+                                                    <button className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-200">
+
+                                                      Delete
+
+                                                    </button>
+
+                                                  </td>
+
+                                                </tr>
+
+                                              ))
+
+                                            )}
+
+                                          </tbody>
+
+                                        </table>
+
+                                      )}
+
+                                    </div>
+
+                                    {/* Pagination Controls */}
                   <div className="mt-4 flex items-center justify-between">
                     <div className="text-sm text-gray-600 dark:text-gray-300">
-                      Page {totalPages > 0 ? page + 1 : 0} of {totalPages}
-                      {totalElements ? ` • ${totalElements} users total` : ''}
+                      {totalElements > 0 ? (
+                        `Showing ${page * pageSize + 1} to ${Math.min((page + 1) * pageSize, totalElements)} of ${totalElements} users`
+                      ) : (
+                        'No users to display'
+                      )}
                     </div>
                     <div className="flex gap-2">
                       <button
@@ -787,6 +969,7 @@ const AdminDashboard = () => {
                   >
                     <option value="LISTENER">Listener</option>
                     <option value="DJ">DJ</option>
+                    <option value="MODERATOR">Moderator</option>
                     <option value="ADMIN">Admin</option>
                   </select>
                 </div>

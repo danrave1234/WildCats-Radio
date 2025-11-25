@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { motion } from "framer-motion"
 import {
   MicrophoneIcon,
   StopIcon,
@@ -32,6 +33,12 @@ import { profanityService } from "../services/api"
 import EnhancedScheduleForm from "../components/EnhancedScheduleForm"
 import { CalendarIcon } from "@heroicons/react/24/outline"
 import { getBroadcastErrorMessage, handleStateMachineError } from "../utils/errorHandler"
+import DJHandoverModal from "../components/DJHandover/DJHandoverModal"
+import SuccessNotification from "../components/SuccessNotification"
+import { broadcastApi } from "../services/api/broadcastApi"
+import ReadOnlyView from "../components/ReadOnlyView"
+import Toast from "../components/Toast"
+import { LockClosedIcon } from "@heroicons/react/24/solid"
 
 const logger = createLogger("DJDashboard")
 
@@ -113,10 +120,10 @@ const WORKFLOW_STATES = {
 
 export default function DJDashboard() {
   // Authentication context
-  const { currentUser } = useAuth()
+  const { currentUser, handoverLogin, checkAuthStatus } = useAuth()
 
   // Check if user has proper role for DJ dashboard
-  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
+  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR')) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="max-w-md w-full bg-white rounded-lg shadow-md p-6">
@@ -124,7 +131,7 @@ export default function DJDashboard() {
             <ExclamationTriangleIcon className="mx-auto h-12 w-12 text-red-500 mb-4" />
             <h2 className="text-xl font-semibold text-gray-900 mb-2">Access Denied</h2>
             <p className="text-gray-600 mb-4">
-              You need DJ or Admin privileges to access the DJ Dashboard.
+              You need DJ, Moderator, or Admin privileges to access the DJ Dashboard.
             </p>
             <p className="text-sm text-gray-500">
               Current role: {currentUser?.role || 'Not authenticated'}
@@ -133,6 +140,7 @@ export default function DJDashboard() {
               <p>To access the DJ Dashboard, you need:</p>
               <ul className="list-disc list-inside mt-2 space-y-1">
                 <li>DJ role - to create and manage broadcasts</li>
+                <li>Moderator role - to DJ and manage broadcasts</li>
                 <li>Admin role - to access all features</li>
               </ul>
               <p className="mt-2">
@@ -148,7 +156,7 @@ export default function DJDashboard() {
   // Streaming context
   const {
     isLive,
-    currentBroadcast: streamingBroadcast,
+    currentBroadcast: contextBroadcast,
     websocketConnected,
     listenerCount,
     peakListenerCount,
@@ -162,11 +170,15 @@ export default function DJDashboard() {
     setAudioSource,
     getAudioStream,
     streamStatusCircuitBreakerOpen,
+    isBroadcastingDevice
   } = useStreaming()
 
   // Core workflow state
   const [workflowState, setWorkflowState] = useState(WORKFLOW_STATES.CREATE_BROADCAST)
-  const [currentBroadcast, setCurrentBroadcast] = useState(null)
+  const [draftBroadcast, setDraftBroadcast] = useState(null)
+  
+  // Unified broadcast object (prefers context/live, falls back to local draft)
+  const currentBroadcast = contextBroadcast || draftBroadcast
 
   // Broadcast creation form state
   const [broadcastForm, setBroadcastForm] = useState({
@@ -186,9 +198,18 @@ export default function DJDashboard() {
   const [isStoppingBroadcast, setIsStoppingBroadcast] = useState(false)
   const [confirmEndOpen, setConfirmEndOpen] = useState(false)
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false)
+  const [showHandoverModal, setShowHandoverModal] = useState(false)
+  const [showSuccessNotification, setShowSuccessNotification] = useState(false)
+  const [successNotificationMessage, setSuccessNotificationMessage] = useState('')
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 })
   // Grace period to suppress transient unhealthy/isLive=false immediately after going live
   const [graceUntilMs, setGraceUntilMs] = useState(0)
+  
+  // Toast state
+  const [toastState, setToastState] = useState({ show: false, message: '', type: 'success' })
+  const showToast = (message, type = 'success') => {
+    setToastState({ show: true, message, type })
+  }
 
   // WebSocket and MediaRecorder refs
   const websocketRef = useRef(null)
@@ -204,6 +225,7 @@ export default function DJDashboard() {
   const [chatMessages, setChatMessages] = useState([])
   const [chatMessage, setChatMessage] = useState("")
   const [isDownloadingChat, setIsDownloadingChat] = useState(false)
+  const [showScrollBottom, setShowScrollBottom] = useState(false)
 
   // Song Requests State
   const [songRequests, setSongRequests] = useState([])
@@ -243,8 +265,10 @@ export default function DJDashboard() {
 
   // WebSocket References for interactions
   const chatWsRef = useRef(null)
+  const chatContainerRef = useRef(null)
   const songRequestWsRef = useRef(null)
   const pollWsRef = useRef(null)
+  const reconnectionWsRef = useRef(null)
 
   // Add abort controller ref for managing HTTP requests
   const abortControllerRef = useRef(null)
@@ -256,8 +280,6 @@ export default function DJDashboard() {
   const [radioServerError, setRadioServerError] = useState(null)
   const radioStatusPollRef = useRef(null)
   const [isRecoveringBroadcast, setIsRecoveringBroadcast] = useState(false)
-  const [reconnectionStatus, setReconnectionStatus] = useState(null) // { status, attemptNumber, maxAttempts, nextDelayMs, disconnectionType }
-  const reconnectionWsRef = useRef(null)
 
   // Analytics State
   const [broadcastStartTime, setBroadcastStartTime] = useState(null)
@@ -361,16 +383,15 @@ export default function DJDashboard() {
 
   // Sync local state with streaming context
   useEffect(() => {
-    if (streamingBroadcast && isLive) {
+    if (contextBroadcast && isLive) {
       // Only go to live mode if both broadcast exists AND system reports live
       // This prevents auto-reverting to live mode after broadcasts end
-      setCurrentBroadcast(streamingBroadcast)
       setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
-    } else if (!streamingBroadcast && workflowState === WORKFLOW_STATES.STREAMING_LIVE) {
+    } else if (!contextBroadcast && workflowState === WORKFLOW_STATES.STREAMING_LIVE) {
       // If no broadcast but we're still in live mode, go back to ready state
       setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
     }
-  }, [streamingBroadcast, isLive])
+  }, [contextBroadcast, isLive])
 
   // Sync slow mode state from current broadcast
   useEffect(() => {
@@ -386,6 +407,12 @@ export default function DJDashboard() {
   // Check for existing active broadcast and radio server state on component mount
   // This enables recovery if the DJ refreshes the page or browser crashes during a live broadcast
   useEffect(() => {
+    // Only run recovery if we have a user (authentication completed)
+    if (!currentUser) {
+      logger.debug("DJ Dashboard: Skipping recovery - user not authenticated yet")
+      return
+    }
+
     const checkActiveBroadcastAndServerState = async () => {
       try {
         logger.debug("DJ Dashboard: Checking for active broadcast and radio server state on mount")
@@ -408,9 +435,11 @@ export default function DJDashboard() {
         logger.debug("DJ Dashboard: Recovery check results:", {
           broadcastFound: !!activeBroadcast,
           broadcastStatus: activeBroadcast?.status,
-          serverState: serverState
+          serverState: serverState,
+          streamingBroadcast: contextBroadcast?.id
         })
 
+        // Check if we found an active broadcast that we should recover
         if (activeBroadcast) {
           logger.debug("DJ Dashboard: Found active broadcast:", activeBroadcast)
           
@@ -421,7 +450,7 @@ export default function DJDashboard() {
             // Only show recovery notification if we're actually recovering (not initial load)
             setIsRecoveringBroadcast(true)
             
-            setCurrentBroadcast(activeBroadcast)
+            setDraftBroadcast(activeBroadcast)
             setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
             
             if (activeBroadcast.actualStart) {
@@ -441,7 +470,7 @@ export default function DJDashboard() {
           } else if (activeBroadcast.status === 'SCHEDULED') {
             // Broadcast exists but not started yet - go to READY_TO_STREAM
             logger.debug("DJ Dashboard: Broadcast is SCHEDULED, showing ready-to-stream state")
-            setCurrentBroadcast(activeBroadcast)
+            setDraftBroadcast(activeBroadcast)
             setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
           }
         } else {
@@ -462,7 +491,7 @@ export default function DJDashboard() {
             
             if (matchingBroadcast) {
               logger.info("DJ Dashboard: Found scheduled broadcast matching current time, using it:", matchingBroadcast)
-              setCurrentBroadcast(matchingBroadcast)
+              setDraftBroadcast(matchingBroadcast)
               setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
             } else {
               logger.debug("DJ Dashboard: No active or matching scheduled broadcast found, staying on CREATE_BROADCAST")
@@ -477,10 +506,10 @@ export default function DJDashboard() {
       }
     }
 
-    if (currentUser && !streamingBroadcast) {
-      checkActiveBroadcastAndServerState()
-    }
-  }, [currentUser, streamingBroadcast])
+    // Always check for active broadcasts when user is authenticated
+    // Don't depend on contextBroadcast since it might be null during recovery
+    checkActiveBroadcastAndServerState()
+  }, [currentUser]) // Only depend on currentUser, not contextBroadcast
 
   // Track analytics when streaming starts
   useEffect(() => {
@@ -730,7 +759,22 @@ export default function DJDashboard() {
                 return prev
               }
 
+              // Check if user was at bottom before adding message (for auto-scrolling)
+              const wasAtBottom = isAtBottom(chatContainerRef.current);
+              // Always scroll if it's the current user's message
+              const isOwnMessage = currentUser && newMessage.userId === currentUser.id;
+
               const updated = [...prev, newMessage].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+
+              // Auto-scroll logic:
+              // - Always scroll if it's the user's own message
+              // - Only scroll if user was already at bottom for other messages
+              if (isOwnMessage || wasAtBottom) {
+                setTimeout(() => {
+                  scrollToBottom();
+                  setShowScrollBottom(false);
+                }, 50);
+              }
 
               logger.debug("DJ Dashboard: Updated chat messages count:", updated.length)
               return updated
@@ -965,8 +1009,11 @@ export default function DJDashboard() {
       try {
         // Clean up any existing connection first
         if (reconnectionWsRef.current) {
-          logger.debug("DJ Dashboard: Cleaning up existing reconnection WebSocket")
-          reconnectionWsRef.current.disconnect()
+          logger.debug("DJDashboard: Cleaning up existing reconnection WebSocket")
+          if (reconnectionWsRef.current.disconnect) reconnectionWsRef.current.disconnect()
+          if (reconnectionWsRef.current.connection && reconnectionWsRef.current.connection.unsubscribe) {
+            reconnectionWsRef.current.connection.unsubscribe()
+          }
           reconnectionWsRef.current = null
         }
 
@@ -974,33 +1021,8 @@ export default function DJDashboard() {
 
         // Subscribe to broadcast-specific reconnection topic
         const connection = await broadcastService.subscribeToBroadcastUpdates(currentBroadcast.id, (message) => {
-          if (message.type === "RECONNECTION_STATUS") {
-            logger.debug("DJ Dashboard: Received reconnection status:", message)
-            setReconnectionStatus({
-              status: message.status, // STARTED, ATTEMPTING, SUCCESS, FAILED
-              attemptNumber: message.attemptNumber || 0,
-              maxAttempts: message.maxAttempts || 5,
-              nextDelayMs: message.nextDelayMs || 0,
-              disconnectionType: message.disconnectionType || "UNKNOWN",
-              timestamp: message.timestamp
-            })
-
-            // Clear status after success or failure
-            if (message.status === "SUCCESS" || message.status === "FAILED") {
-              setTimeout(() => {
-                setReconnectionStatus(null)
-              }, 5000) // Clear after 5 seconds
-            }
-          } else if (message.type === "BROADCAST_RECOVERY") {
+          if (message.type === "BROADCAST_RECOVERY") {
             logger.info("DJ Dashboard: Broadcast recovery notification received:", message)
-
-            setReconnectionStatus({
-              status: 'RECOVERED',
-              message: message.message || 'Broadcast recovered after server restart',
-              checkpointTime: message.checkpointTime,
-              duration: message.duration,
-              timestamp: message.timestamp
-            })
 
             // Update broadcast state if provided
             if (message.broadcast) {
@@ -1009,43 +1031,14 @@ export default function DJDashboard() {
                 setBroadcastStartTime(new Date(message.broadcast.actualStart))
               }
             }
-
-            // Hide recovery notification after 5 seconds
-            setTimeout(() => {
-              setReconnectionStatus(null)
-            }, 5000)
           }
         })
 
         // Also subscribe to global broadcast status topic for reconnection updates
         const globalConnection = await stompClientManager.subscribe("/topic/broadcast/status", (message) => {
           const data = JSON.parse(message.body)
-          if (data.type === "RECONNECTION_STATUS" && data.broadcastId === currentBroadcast.id) {
-            logger.debug("DJ Dashboard: Received reconnection status from global topic:", data)
-            setReconnectionStatus({
-              status: data.status,
-              attemptNumber: data.attemptNumber || 0,
-              maxAttempts: data.maxAttempts || 5,
-              nextDelayMs: data.nextDelayMs || 0,
-              disconnectionType: data.disconnectionType || "UNKNOWN",
-              timestamp: data.timestamp
-            })
-
-            if (data.status === "SUCCESS" || data.status === "FAILED") {
-              setTimeout(() => {
-                setReconnectionStatus(null)
-              }, 5000)
-            }
-          } else if (data.type === "BROADCAST_RECOVERY" && data.broadcastId === currentBroadcast.id) {
+          if (data.type === "BROADCAST_RECOVERY" && data.broadcastId === currentBroadcast.id) {
             logger.info("DJ Dashboard: Broadcast recovery notification received from global topic:", data)
-
-            setReconnectionStatus({
-              status: 'RECOVERED',
-              message: data.message || 'Broadcast recovered after server restart',
-              checkpointTime: data.checkpointTime,
-              duration: data.duration,
-              timestamp: data.timestamp
-            })
 
             // Update broadcast state if provided
             if (data.broadcast) {
@@ -1054,11 +1047,6 @@ export default function DJDashboard() {
                 setBroadcastStartTime(new Date(data.broadcast.actualStart))
               }
             }
-
-            // Hide recovery notification after 5 seconds
-            setTimeout(() => {
-              setReconnectionStatus(null)
-            }, 5000)
           }
         })
 
@@ -1092,7 +1080,6 @@ export default function DJDashboard() {
         logger.error("DJ Dashboard: Failed to connect reconnection WebSocket:", error)
       }
     }
-
 
     // Setup WebSockets immediately - no delay needed with proper guards
     setupChatWebSocket()
@@ -1189,6 +1176,46 @@ export default function DJDashboard() {
 
     return () => clearInterval(interval)
   }, [currentBroadcast?.id, currentBroadcast?.status])
+
+  // Chat scrolling helpers (matching ListenerDashboard implementation)
+  const isAtBottom = (container) => {
+    if (!container) return true;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    return Math.abs(scrollHeight - clientHeight - scrollTop) < 10;
+  };
+
+  const scrollToBottom = () => {
+    const container = chatContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+      setShowScrollBottom(false);
+    }
+  };
+
+  // Scroll detection: Show/hide scroll-to-bottom button
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      setShowScrollBottom(!isAtBottom(container));
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    // Check initial state
+    handleScroll();
+
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [chatMessages.length]); // Re-check when messages change
+
+  // Auto-scroll to bottom on initial load
+  useEffect(() => {
+    if (chatMessages.length > 0) {
+      setTimeout(() => {
+        scrollToBottom();
+      }, 100);
+    }
+  }, [currentBroadcast?.id]); // Scroll when broadcast changes
 
   // Form handling functions
   const handleFormChange = (e) => {
@@ -1302,8 +1329,8 @@ export default function DJDashboard() {
     }
 
     // Double-check role permissions
-    if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
-      setStreamError("Access denied: You need DJ or Admin privileges to create broadcasts")
+    if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR')) {
+      setStreamError("Access denied: You need DJ, Moderator, or Admin privileges to create broadcasts")
       return
     }
 
@@ -1399,7 +1426,7 @@ export default function DJDashboard() {
       const response = await broadcastService.create(broadcastData)
       const createdBroadcast = response.data
 
-      setCurrentBroadcast(createdBroadcast)
+      setDraftBroadcast(createdBroadcast)
       setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
 
       // Reset form
@@ -1449,7 +1476,7 @@ export default function DJDashboard() {
       const response = await broadcastService.start(currentBroadcast.id)
       const liveBroadcast = response.data
 
-      setCurrentBroadcast(liveBroadcast)
+      // We don't need to set local state here; StreamingContext will update via WebSocket
       setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
 
       // Apply a short grace period (15s) to suppress transient unhealthy/isLive=false UI for DJs
@@ -1543,7 +1570,7 @@ export default function DJDashboard() {
       }
 
       // Reset local broadcast state
-      setCurrentBroadcast(null)
+      setDraftBroadcast(null)
       setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
 
       // Reset analytics and UI state
@@ -1612,7 +1639,7 @@ export default function DJDashboard() {
       await broadcastService.delete(currentBroadcast.id)
 
       // Reset state back to create new broadcast
-      setCurrentBroadcast(null)
+      setDraftBroadcast(null)
       setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
     } catch (error) {
       logger.error("Error canceling broadcast:", error)
@@ -1638,7 +1665,7 @@ export default function DJDashboard() {
       }
     } catch (error) {
       logger.error('Error updating slow mode:', error)
-      alert('Failed to update slow mode. Please try again.')
+      showToast('Failed to update slow mode. Please try again.', 'error')
     } finally {
       setIsSavingSlowMode(false)
     }
@@ -1648,19 +1675,19 @@ export default function DJDashboard() {
   const handleBanUser = async (userId, displayName) => {
     try {
       if (!userId) return;
-      // Only allow DJs and Admins to ban from the DJ dashboard
-      if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
-        alert('You do not have permission to ban users.');
+      // Only allow DJs, Moderators, and Admins to ban from the DJ dashboard
+      if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR')) {
+        showToast('You do not have permission to ban users.', 'error');
         return;
       }
       const confirmed = window.confirm(`Ban ${displayName || 'this user'} from chat permanently?`);
       if (!confirmed) return;
       await authService.banUser(userId, { unit: 'PERMANENT', reason: `Banned by ${currentUser.firstname || ''} ${currentUser.lastname || ''}`.trim() });
-      alert(`${displayName || 'User'} has been banned.`);
+      showToast(`${displayName || 'User'} has been banned.`, 'success');
     } catch (error) {
       logger.error('Failed to ban user from chat:', error);
       const msg = (error && (error.response?.data?.message || error.message)) || 'Unknown error';
-      alert(`Failed to ban user: ${msg}`);
+      showToast(`Failed to ban user: ${msg}`, 'error');
     }
   };
 
@@ -1673,7 +1700,7 @@ export default function DJDashboard() {
 
     try {
       if (messageText.length > 1500) {
-        alert("Message cannot exceed 1500 characters")
+        showToast("Message cannot exceed 1500 characters", 'warning')
         return
       }
       // Always send via REST (WS is receive-only). Use the WS wrapper if present (it now calls REST).
@@ -1683,21 +1710,28 @@ export default function DJDashboard() {
 
       await send()
       setChatMessage("")
+      
+      // Always auto-scroll to bottom after sending message (wait for message to appear in UI via WebSocket)
+      // The WebSocket handler will also scroll, but we ensure it happens here too
+      setTimeout(() => {
+        scrollToBottom();
+        setShowScrollBottom(false);
+      }, 300)
     } catch (error) {
       logger.error("Error sending chat message:", error)
       const status = error?.response?.status
       if (status === 401) {
-        alert("Your session expired. Please log in again.")
+        showToast("Your session expired. Please log in again.", 'error')
       } else if (status === 429) {
         const headers = error.response?.headers || {}
         const retryAfter = headers['retry-after'] || headers['Retry-After'] || headers['Retry-after']
         const sec = parseInt(retryAfter, 10)
         const waitMsg = Number.isFinite(sec) ? `${sec} second${sec === 1 ? '' : 's'}` : 'a few seconds'
-        alert(`Slow mode is enabled. Please wait ${waitMsg} before sending another message.`)
+        showToast(`Slow mode is enabled. Please wait ${waitMsg} before sending another message.`, 'warning')
       } else if (error.response?.data?.message?.includes("1500 characters")) {
-        alert("Message cannot exceed 1500 characters")
+        showToast("Message cannot exceed 1500 characters", 'warning')
       } else {
-        alert("Failed to send message. Please try again.")
+        showToast("Failed to send message. Please try again.", 'error')
       }
       // Restore message if sending failed
       setChatMessage(messageText)
@@ -1728,7 +1762,7 @@ export default function DJDashboard() {
       window.URL.revokeObjectURL(url)
     } catch (error) {
       logger.error("Error downloading chat messages:", error)
-      alert("Failed to download chat messages. Please try again.")
+      showToast("Failed to download chat messages. Please try again.", 'error')
     } finally {
       setIsDownloadingChat(false)
     }
@@ -1747,7 +1781,7 @@ export default function DJDashboard() {
       logger.debug("Song request deleted successfully")
     } catch (error) {
       logger.error("Error deleting song request:", error)
-      alert("Failed to delete song request. Please try again.")
+      showToast("Failed to delete song request. Please try again.", 'error')
     }
   }
 
@@ -1899,9 +1933,44 @@ export default function DJDashboard() {
     return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
   }
 
+  // Check if another DJ is broadcasting and show read-only view
+  const isActiveDJ = currentBroadcast?.status === 'LIVE' && 
+                     (currentBroadcast?.currentActiveDJ?.id === currentUser?.id || 
+                      currentBroadcast?.startedBy?.id === currentUser?.id || 
+                      currentBroadcast?.createdBy?.id === currentUser?.id);
+
+  if (currentBroadcast?.status === 'LIVE' && !isActiveDJ && 
+      (currentUser.role === 'DJ' || currentUser.role === 'MODERATOR' || currentUser.role === 'ADMIN')) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pt-6">
+        <div className="container mx-auto px-4">
+          <ReadOnlyView 
+            message="Another DJ is currently broadcasting"
+            activeDJ={currentBroadcast.currentActiveDJ || currentBroadcast.startedBy}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
       <div className="relative min-h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="container mx-auto px-4 py-4">
+        {/* Success Notification Banner */}
+        <SuccessNotification
+          message={successNotificationMessage}
+          isVisible={showSuccessNotification}
+          onClose={() => setShowSuccessNotification(false)}
+        />
+        
+        {toastState.show && (
+          <Toast
+            message={toastState.message}
+            type={toastState.type}
+            onClose={() => setToastState(prev => ({ ...prev, show: false }))}
+          />
+        )}
+
+        <div className="container mx-auto px-4 pt-0 pb-4">
           {/* End Broadcast Confirmation Modal */}
           {confirmEndOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -1932,6 +2001,40 @@ export default function DJDashboard() {
               </div>
             </div>
           )}
+
+          {/* DJ Handover Modal */}
+          {currentBroadcast && (
+            <DJHandoverModal
+              isOpen={showHandoverModal}
+              onClose={() => setShowHandoverModal(false)}
+              broadcastId={currentBroadcast.id}
+              currentDJ={currentBroadcast.currentActiveDJ}
+              loggedInUser={currentUser}
+              onHandoverSuccess={async (handoverData) => {
+                // After account switch handover, update auth context and refresh data
+                try {
+                  // The handoverLogin already updated AuthContext, but refresh to ensure sync
+                  await checkAuthStatus();
+                  
+                  // Refresh broadcast data
+                  // We fetch it to ensure local cache is hot, but Context update happens via WebSocket
+                  await broadcastService.getById(currentBroadcast.id);
+                  
+                  // Show success notification
+                  const djName = handoverData?.user?.name ||
+                    (handoverData?.user?.firstname && handoverData?.user?.lastname
+                      ? `${handoverData.user.firstname} ${handoverData.user.lastname}`
+                      : handoverData?.user?.email || 'Unknown DJ');
+                  setSuccessNotificationMessage(`✓ Successfully switched to ${djName}`);
+                  setShowSuccessNotification(true);
+                  
+                  logger.info('Handover completed successfully. Account switched to:', handoverData?.user?.email);
+                } catch (error) {
+                  logger.error('Error refreshing after handover:', error);
+                }
+              }}
+            />
+          )}
           {/* Live Streaming Status Bar - Fixed at top when live */}
           {workflowState === WORKFLOW_STATES.STREAMING_LIVE && currentBroadcast && (
               <div className="bg-red-600 text-white rounded-lg shadow-lg mb-6 sticky top-4 z-50">
@@ -1946,8 +2049,14 @@ export default function DJDashboard() {
                         <h2 className="text-lg font-bold truncate">{currentBroadcast.title}</h2>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs opacity-90">
                           <div className="flex items-center">
-                            <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${radioServerState === 'running' ? 'bg-green-300' : 'bg-red-300'}`}></span>
-                            <span>Server: {radioServerState === 'running' ? 'Running' : 'Offline'}</span>
+                            <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${
+                              radioServerState === 'running' ? 'bg-green-300' :
+                              radioServerState === 'unknown' ? 'bg-yellow-300' : 'bg-red-300'
+                            }`}></span>
+                            <span>Server: {
+                              radioServerState === 'running' ? 'Running' :
+                              radioServerState === 'unknown' ? 'Checking...' : 'Offline'
+                            }</span>
                           </div>
                           <div className="flex items-center">
                             <span className={`h-1.5 w-1.5 rounded-full mr-1.5 ${websocketConnected ? "bg-green-300" : "bg-yellow-300"}`}></span>
@@ -1999,6 +2108,19 @@ export default function DJDashboard() {
                           </button>
                         </div>
                       )}
+                      {/* Handover Button - Show for any DJ/Moderator on live broadcasts, or Admin */}
+                      {currentBroadcast?.status === 'LIVE' &&
+                       (currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR' ||
+                        currentUser?.role === 'DJ') && (
+                        <button
+                          onClick={() => setShowHandoverModal(true)}
+                          className="flex items-center px-4 py-1.5 bg-white bg-opacity-20 hover:bg-opacity-30 text-white rounded-md transition-all duration-200 text-sm font-medium"
+                          title="Handover broadcast to another DJ"
+                        >
+                          <UserIcon className="h-3.5 w-3.5 mr-1.5" />
+                          Handover
+                        </button>
+                      )}
                       <button
                           onClick={() => setConfirmEndOpen(true)}
                           disabled={isStoppingBroadcast || currentBroadcast?.status !== 'LIVE'}
@@ -2027,52 +2149,6 @@ export default function DJDashboard() {
               </div>
           )}
 
-          {/* Reconnection Status Notification */}
-          {reconnectionStatus && (
-              <div className={`mb-6 p-4 rounded-md border ${
-                reconnectionStatus.status === "SUCCESS" 
-                  ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 border-green-300 dark:border-green-800"
-                  : reconnectionStatus.status === "FAILED"
-                  ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200 border-red-300 dark:border-red-800"
-                  : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 border-yellow-300 dark:border-yellow-800"
-              }`}>
-                <div className="flex items-start space-x-3">
-                  {reconnectionStatus.status === "SUCCESS" ? (
-                    <CheckIcon className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
-                  ) : reconnectionStatus.status === "FAILED" ? (
-                    <ExclamationTriangleIcon className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
-                  ) : (
-                    <ClockIcon className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0 animate-spin" />
-                  )}
-                  <div className="flex-1">
-                    <h3 className="font-semibold mb-1">
-                      {reconnectionStatus.status === "SUCCESS" 
-                        ? "✅ Stream Reconnected Successfully"
-                        : reconnectionStatus.status === "FAILED"
-                        ? "❌ Reconnection Failed"
-                        : "🔄 Reconnecting Stream..."}
-                    </h3>
-                    <p className="text-sm mb-2">
-                      {reconnectionStatus.status === "SUCCESS" 
-                        ? "Your audio stream has been successfully reconnected. Broadcasting is now active."
-                        : reconnectionStatus.status === "FAILED"
-                        ? `Failed to reconnect after ${reconnectionStatus.attemptNumber} attempts. Please check your audio source and try again manually.`
-                        : `Attempt ${reconnectionStatus.attemptNumber} of ${reconnectionStatus.maxAttempts}...`}
-                    </p>
-                    {reconnectionStatus.status === "ATTEMPTING" && reconnectionStatus.nextDelayMs > 0 && (
-                      <p className="text-xs opacity-75">
-                        Next attempt in {Math.ceil(reconnectionStatus.nextDelayMs / 1000)} seconds
-                      </p>
-                    )}
-                    {reconnectionStatus.disconnectionType && (
-                      <p className="text-xs opacity-75 mt-1">
-                        Issue type: {reconnectionStatus.disconnectionType.replace(/_/g, " ")}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-          )}
 
           {/* Error Display */}
           {streamError && (
@@ -2268,12 +2344,17 @@ export default function DJDashboard() {
                 </div>
 
                 {/* Main Content Area - Three Column Layout */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Cards are responsive: max 777px, adapt to viewport height accounting for sticky header, min 400px */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
                   {/* Left Column: Song Requests */}
-                  <div className="lg:col-span-3 space-y-4">
+                  <div className="lg:col-span-3">
                     {/* Song Requests Card */}
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                      <div className="bg-gold-500 text-maroon-900 px-4 py-3 border-b border-gold-400">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out" style={{ 
+                      height: 'min(777px, calc(100vh - 16rem))', 
+                      maxHeight: '777px', 
+                      minHeight: 'clamp(400px, 50vh, 777px)' 
+                    }}>
+                      <div className="bg-gold-500 text-maroon-900 px-4 py-3 border-b border-gold-400 flex-shrink-0">
                       <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <MusicalNoteIcon className="h-5 w-5" />
@@ -2284,7 +2365,7 @@ export default function DJDashboard() {
                           </span>
                         </div>
                       </div>
-                      <EnhancedScrollArea className="h-[500px]">
+                      <EnhancedScrollArea className="flex-1 min-h-0 flex-shrink-0">
                         <div className="p-3 space-y-2.5">
                           {songRequests.length === 0 ? (
                             <div className="text-center text-gray-500 dark:text-gray-400 py-12 px-4">
@@ -2367,37 +2448,44 @@ export default function DJDashboard() {
                   </div>
 
                   {/* Center Column: Live Chat - Main Focus */}
-                  <div className="lg:col-span-6">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden h-full flex flex-col">
-                      <div className="bg-maroon-600 text-white px-5 py-4 border-b border-maroon-700">
-                        <div className="flex items-center justify-between">
+                  <div className="lg:col-span-6 w-full">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out" style={{ 
+                      height: 'min(777px, calc(100vh - 16rem))', 
+                      maxHeight: '777px', 
+                      minHeight: 'clamp(400px, 50vh, 777px)' 
+                    }}>
+                      {/* Header */}
+                      <div className="bg-maroon-600 text-white px-3 sm:px-5 py-3 sm:py-4 border-b border-maroon-700 flex-shrink-0">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
                           <div className="flex items-center gap-2">
-                            <ChatBubbleLeftRightIcon className="h-6 w-6" />
-                            <h3 className="font-bold text-lg">Live Chat</h3>
+                            <ChatBubbleLeftRightIcon className="h-5 w-5 sm:h-6 sm:w-6" />
+                            <h3 className="font-bold text-base sm:text-lg">Live Chat</h3>
                           </div>
-                          <div className="flex items-center space-x-3">
-                            <span className="text-sm bg-white bg-opacity-20 px-3 py-1.5 rounded-full font-bold">
-                            {chatMessages.length} messages
+                          <div className="flex items-center space-x-2 sm:space-x-3 flex-wrap">
+                            <span className="text-xs sm:text-sm bg-white bg-opacity-20 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full font-bold">
+                              {chatMessages.length} {chatMessages.length === 1 ? 'message' : 'messages'}
                           </span>
                           <button
                             onClick={handleDownloadChat}
                             disabled={isDownloadingChat || !currentBroadcast?.id}
-                              className="inline-flex items-center text-sm px-3 py-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+                              className="inline-flex items-center text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
                             title="Download chat messages as Excel (available for 7 days)"
                           >
-                              <ArrowDownTrayIcon className={`h-4 w-4 mr-1.5 ${isDownloadingChat ? "animate-pulse" : ""}`} />
-                            {isDownloadingChat ? "Downloading..." : "Download"}
+                              <ArrowDownTrayIcon className={`h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-1.5 ${isDownloadingChat ? "animate-pulse" : ""}`} />
+                              <span className="hidden sm:inline">{isDownloadingChat ? "Downloading..." : "Download"}</span>
                           </button>
                         </div>
                       </div>
                     </div>
-                      <div className="flex-1 flex flex-col min-h-0">
-                        <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+
+                      {/* Messages Area - Flex to fill remaining space in 777px card */}
+                      <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
+                        <div className="h-full overflow-y-auto p-3 sm:p-4 space-y-3 custom-scrollbar chat-messages-container" ref={chatContainerRef}>
                         {chatMessages.length === 0 ? (
-                            <div className="text-center text-gray-500 dark:text-gray-400 py-12">
-                              <ChatBubbleLeftRightIcon className="h-16 w-16 mx-auto mb-3 opacity-30" />
-                              <p className="text-base">No messages yet</p>
-                              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Start the conversation!</p>
+                            <div className="text-center text-gray-500 dark:text-gray-400 py-8 sm:py-12">
+                              <ChatBubbleLeftRightIcon className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-3 opacity-30" />
+                              <p className="text-sm sm:text-base">No messages yet</p>
+                              <p className="text-xs sm:text-sm text-gray-400 dark:text-gray-500 mt-1">Start the conversation!</p>
                             </div>
                         ) : (
                             chatMessages
@@ -2432,50 +2520,57 @@ export default function DJDashboard() {
                                     }
                                   })()
 
+                                // Handle date parsing more robustly (same as ListenerDashboard)
                                   let messageDate;
                                   try {
-                                    messageDate = msg.createdAt ? new Date(msg.createdAt) : null;
+                                  const ts = msg.createdAt || msg.timestamp || msg.sentAt || msg.time || msg.date;
+                                  messageDate = ts ? new Date(ts) : null;
                                   } catch (error) {
+                                  logger.error('Error parsing message date:', error);
                                     messageDate = new Date();
                                   }
 
-                                  const timeAgo = (() => {
+                                const formattedTime = (() => {
                                     try {
                                       return messageDate && !isNaN(messageDate.getTime())
-                                          ? formatDistanceToNow(messageDate, { addSuffix: true })
-                                          : "just now"
+                                        ? format(messageDate, 'hh:mm a')
+                                        : ""
                                     } catch (error) {
-                                      return "just now"
+                                    return ""
                                     }
                                   })()
 
                                   return (
-                                    <div key={msg.id} className="flex items-start space-x-3">
+                                  <div key={msg.id} className="flex items-start space-x-2 sm:space-x-3">
                                         <div
-                                          className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-sm text-white font-bold ${
+                                      className={`flex-shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-xs sm:text-sm text-white font-bold ${
                                                 isDJ ? "bg-maroon-600" : "bg-gray-500"
                                             }`}
                                         >
                                           {isDJ ? "DJ" : initials}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                        <div className="flex items-center space-x-2 mb-1">
-                                          <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                                      <div className="flex items-center flex-wrap gap-1 sm:gap-2 mb-1">
+                                        <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white truncate">
                                     {senderName}
                                   </span>
-                                            <span className="text-xs text-gray-500 dark:text-gray-400">{timeAgo}</span>
-                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
+                                        {formattedTime && (
+                                          <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                                            {formattedTime}
+                                          </span>
+                                        )}
+                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
                                                                                           <button
                                                                                             type="button"
                                                                                             onClick={() => handleBanUser(msg.sender.id, senderName)}
-                                              className="ml-2 text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800"
+                                            className="text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800 flex-shrink-0"
                                                                                             title="Ban this user from chat"
                                                                                           >
                                                                                             Ban
                                                                                           </button>
                                                                                         )}
                                           </div>
-                                        <p className="text-sm text-gray-700 dark:text-gray-300 break-words">
+                                      <p className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 break-words">
                                             {msg.content || "No content"}
                                           </p>
                                         </div>
@@ -2485,33 +2580,67 @@ export default function DJDashboard() {
                                 .filter(Boolean)
                         )}
                       </div>
-                        <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900/50">
-                          <form onSubmit={handleChatSubmit} className="flex space-x-3">
+                        
+                        {/* Scroll to bottom button - Minimalist design */}
+                        {showScrollBottom && (
+                          <div className="absolute bottom-4 right-4 z-10">
+                            <button
+                              onClick={scrollToBottom}
+                              className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full w-10 h-10 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
+                              aria-label="Scroll to bottom"
+                              title="Scroll to latest messages"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="h-5 w-5"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.5"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M19 9l-7 7-7-7"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Input Area - Outside messages container, at bottom of card */}
+                      <div className="border-t border-gray-200 dark:border-gray-700 p-3 sm:p-4 bg-gray-50 dark:bg-gray-900/50 flex-shrink-0">
+                        <form onSubmit={handleChatSubmit} className="flex space-x-2 sm:space-x-3">
                           <input
                               type="text"
                               value={chatMessage}
                               onChange={(e) => setChatMessage(e.target.value)}
                               placeholder="Type your message..."
-                                className="flex-1 px-4 py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                            className="flex-1 min-w-0 px-3 sm:px-4 py-2 sm:py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                               maxLength={1500}
                           />
                           <button
                               type="submit"
                               disabled={!chatMessage.trim()}
-                                className="px-5 py-2.5 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+                            className="px-4 sm:px-5 py-2 sm:py-2.5 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium flex-shrink-0"
+                            aria-label="Send message"
                           >
-                              <PaperAirplaneIcon className="h-5 w-5" />
+                            <PaperAirplaneIcon className="h-4 w-4 sm:h-5 sm:w-5" />
                           </button>
                         </form>
-                        </div>
                       </div>
                     </div>
                   </div>
 
                   {/* Right Column: Polls */}
                   <div className="lg:col-span-3">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                      <div className="bg-maroon-700 text-white px-4 py-3 border-b border-maroon-800">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out" style={{ 
+                      height: 'min(777px, calc(100vh - 16rem))', 
+                      maxHeight: '777px', 
+                      minHeight: 'clamp(400px, 50vh, 777px)' 
+                    }}>
+                      <div className="bg-maroon-700 text-white px-4 py-3 border-b border-maroon-800 flex-shrink-0">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <ChartBarIcon className="h-5 w-5" />
@@ -2600,7 +2729,7 @@ export default function DJDashboard() {
                         </div>
                     )}
 
-                      <EnhancedScrollArea className="h-[500px]">
+                      <EnhancedScrollArea className="flex-1 min-h-0 flex-shrink-0">
                       {polls.length === 0 ? (
                           <div className="p-4 text-center text-gray-500 dark:text-gray-400">
                             <ChartBarIcon className="h-12 w-12 mx-auto mb-3 opacity-30" />
@@ -2981,8 +3110,12 @@ export default function DJDashboard() {
                           <div className="flex items-center gap-2 mb-4">
                             <span className={`h-3 w-3 rounded-full ${radioServerState === 'running' ? 'bg-green-500 animate-pulse' : radioServerState === 'stopped' ? 'bg-gray-400' : 'bg-yellow-500'}`}></span>
                             <span className="text-sm font-medium text-gray-900 dark:text-white">
-                              Server Status: <span className={radioServerState === 'running' ? 'text-green-600 dark:text-green-400 font-semibold' : radioServerState === 'stopped' ? 'text-gray-600 dark:text-gray-400' : 'text-yellow-600 dark:text-yellow-400'}>
-                                {radioServerState === 'running' ? '✓ Running' : radioServerState === 'stopped' ? 'Offline' : 'Unknown'}
+                              Server Status: <span className={
+                                radioServerState === 'running' ? 'text-green-600 dark:text-green-400 font-semibold' :
+                                radioServerState === 'unknown' ? 'text-yellow-600 dark:text-yellow-400' :
+                                'text-red-600 dark:text-red-400'
+                              }>
+                                {radioServerState === 'running' ? '✓ Running' : radioServerState === 'stopped' ? 'Offline' : 'Checking...'}
                               </span>
                             </span>
                           </div>

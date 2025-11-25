@@ -9,6 +9,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -348,11 +349,23 @@ public class BroadcastService {
             broadcast.setActualStart(LocalDateTime.now());
             broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
             broadcast.setStartedBy(dj);
+            broadcast.setCurrentActiveDJ(dj); // Set current active DJ when broadcast starts
+            broadcast.setActiveSessionId(UUID.randomUUID().toString()); // Generate active session ID
             if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
                 broadcast.setStartIdempotencyKey(idempotencyKey);
+                logger.info("Setting start idempotency key: {} for broadcast {}", idempotencyKey, broadcastId);
             }
 
             BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+            broadcastRepository.flush(); // Force immediate write to database
+            
+            logger.info("Broadcast started: ID={}, Status={}, StartedBy={}, CurrentActiveDJ={}, StartIdempotencyKey={}, ActiveSessionId={}", 
+                savedBroadcast.getId(),
+                savedBroadcast.getStatus(),
+                savedBroadcast.getStartedBy() != null ? savedBroadcast.getStartedBy().getId() : "null",
+                savedBroadcast.getCurrentActiveDJ() != null ? savedBroadcast.getCurrentActiveDJ().getId() : "null",
+                savedBroadcast.getStartIdempotencyKey() != null ? savedBroadcast.getStartIdempotencyKey() : "null",
+                savedBroadcast.getActiveSessionId());
 
             // Log state transition for audit trail
             Map<String, Object> metadata = new java.util.HashMap<>();
@@ -479,9 +492,16 @@ public class BroadcastService {
             broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
             if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
                 broadcast.setEndIdempotencyKey(idempotencyKey);
+                logger.info("Setting end idempotency key: {} for broadcast {}", idempotencyKey, broadcastId);
             }
 
             BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+            broadcastRepository.flush(); // Force immediate write to database
+            
+            logger.info("Broadcast ended: ID={}, Status={}, EndIdempotencyKey={}", 
+                savedBroadcast.getId(),
+                savedBroadcast.getStatus(),
+                savedBroadcast.getEndIdempotencyKey() != null ? savedBroadcast.getEndIdempotencyKey() : "null");
 
             // CRITICAL FIX: Clear all active broadcasts from IcecastService to ensure stream status is updated
             // This fixes the issue where the stream still shows as live after ending
@@ -647,7 +667,8 @@ public class BroadcastService {
     }
 
     public List<BroadcastEntity> getBroadcastsByDJ(UserEntity dj) {
-        return broadcastRepository.findByCreatedBy(dj);
+        // Include broadcasts where DJ was active (creator, startedBy, currentActiveDJ, or via handovers)
+        return broadcastRepository.findByActiveDJ(dj);
     }
 
     public List<BroadcastEntity> getLiveBroadcasts() {
@@ -696,6 +717,18 @@ public class BroadcastService {
         int safeSize = Math.max(1, Math.min(size, 100));
         Pageable pageable = PageRequest.of(safePage, safeSize);
         return broadcastRepository.findEndedSince(since, pageable);
+    }
+
+    public Page<BroadcastEntity> searchBroadcasts(String query, String status, Pageable pageable) {
+        if (status != null && !status.isEmpty()) {
+            try {
+                BroadcastEntity.BroadcastStatus broadcastStatus = BroadcastEntity.BroadcastStatus.valueOf(status.toUpperCase());
+                return broadcastRepository.findByTitleContainingIgnoreCaseAndStatus(query, broadcastStatus, pageable);
+            } catch (IllegalArgumentException e) {
+                logger.warn("Invalid broadcast status: {}, falling back to title search", status);
+            }
+        }
+        return broadcastRepository.findByTitleContainingIgnoreCase(query, pageable);
     }
 
     // Method to get engagement data for analytics
@@ -1392,22 +1425,28 @@ public class BroadcastService {
             for (BroadcastEntity broadcast : liveBroadcasts) {
                 try {
                     // Update last checkpoint time
-                    broadcast.setLastCheckpointTime(LocalDateTime.now());
+                    LocalDateTime checkpointTime = LocalDateTime.now();
+                    broadcast.setLastCheckpointTime(checkpointTime);
                     
                     // Calculate and store current duration
                     if (broadcast.getActualStart() != null) {
                         java.time.Duration duration = java.time.Duration.between(
                             broadcast.getActualStart(), 
-                            LocalDateTime.now()
+                            checkpointTime
                         );
                         broadcast.setCurrentDurationSeconds(duration.getSeconds());
                     }
                     
-                    broadcastRepository.save(broadcast);
-                    logger.debug("Checkpointed broadcast {}: duration={}s", broadcast.getId(), broadcast.getCurrentDurationSeconds());
+                    BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+                    broadcastRepository.flush(); // Force immediate write to database
+                    
+                    logger.debug("Checkpointed broadcast {}: duration={}s, checkpointTime={}", 
+                        savedBroadcast.getId(), 
+                        savedBroadcast.getCurrentDurationSeconds(),
+                        savedBroadcast.getLastCheckpointTime());
                     
                     // Audit log: Periodic checkpoint (only log every 10th checkpoint to avoid log spam)
-                    if (broadcast.getCurrentDurationSeconds() != null && broadcast.getCurrentDurationSeconds() % 600 == 0) {
+                    if (savedBroadcast.getCurrentDurationSeconds() != null && savedBroadcast.getCurrentDurationSeconds() % 600 == 0) {
                         Map<String, Object> metadata = new java.util.HashMap<>();
                         metadata.put("durationSeconds", broadcast.getCurrentDurationSeconds());
                         metadata.put("checkpointTime", broadcast.getLastCheckpointTime().toString());

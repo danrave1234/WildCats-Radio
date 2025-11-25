@@ -19,6 +19,14 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
     
     List<BroadcastEntity> findByCreatedBy(UserEntity dj);
     
+    // Find broadcasts where DJ was active (as creator, startedBy, currentActiveDJ, or via handovers)
+    @Query("SELECT DISTINCT b FROM BroadcastEntity b " +
+           "WHERE b.createdBy = :dj " +
+           "OR b.startedBy = :dj " +
+           "OR b.currentActiveDJ = :dj " +
+           "OR EXISTS (SELECT 1 FROM DJHandoverEntity h WHERE h.broadcast = b AND h.newDJ = :dj)")
+    List<BroadcastEntity> findByActiveDJ(@Param("dj") UserEntity dj);
+    
     List<BroadcastEntity> findByStatusOrderByActualStartDesc(BroadcastStatus status);
     
     // Backward compatibility method - returns broadcasts ordered by actual start time (newest first)
@@ -27,6 +35,8 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
     }
     
     List<BroadcastEntity> findByCreatedByAndStatus(UserEntity dj, BroadcastStatus status);
+
+    Optional<BroadcastEntity> findByCurrentActiveDJAndStatus(UserEntity dj, BroadcastStatus status);
     
     // Query methods that work with embedded schedule fields
     @Query("SELECT b FROM BroadcastEntity b WHERE b.scheduledStart > :date")
@@ -97,4 +107,10 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
     Optional<BroadcastEntity> findByStartIdempotencyKey(String startIdempotencyKey);
     
     Optional<BroadcastEntity> findByEndIdempotencyKey(String endIdempotencyKey);
+
+    // Search broadcasts by title (paginated)
+    Page<BroadcastEntity> findByTitleContainingIgnoreCase(String title, Pageable pageable);
+
+    // Search broadcasts by title and status (paginated)
+    Page<BroadcastEntity> findByTitleContainingIgnoreCaseAndStatus(String title, BroadcastStatus status, Pageable pageable);
 } 

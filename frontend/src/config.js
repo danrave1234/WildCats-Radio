@@ -129,6 +129,11 @@ export const config = {
   // Debug Configuration
   enableDebugLogs: isLocalEnvironment || getEnvVar('REACT_APP_DEBUG') === 'true',
   enableVerboseLogs: getEnvVar('REACT_APP_VERBOSE') === 'true',
+
+  // Optimistic Authentication Configuration (for long broadcast persistence)
+  enableOptimisticAuth: getEnvVar('VITE_ENABLE_OPTIMISTIC_AUTH', 'true') === 'true',
+  authSessionTimeoutHours: parseInt(getEnvVar('VITE_AUTH_SESSION_TIMEOUT_HOURS', '12')),
+  authStorageFallback: getEnvVar('VITE_AUTH_STORAGE_FALLBACK', 'true') === 'true',
 };
 
 /**

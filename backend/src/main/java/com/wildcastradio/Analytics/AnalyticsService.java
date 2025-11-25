@@ -25,6 +25,7 @@ import com.wildcastradio.SongRequest.SongRequestService;
 import com.wildcastradio.SongRequest.SongRequestRepository;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
+import com.wildcastradio.DJHandover.DJHandoverRepository;
 
 /**
  * Service for aggregating analytics metrics from various domain services
@@ -60,6 +61,29 @@ public class AnalyticsService {
 
     @Autowired
     private ListenerTrackingService listenerTrackingService;
+
+    @Autowired
+    private DJHandoverRepository djHandoverRepository;
+
+    /**
+     * Get handover statistics by authentication method
+     */
+    public Map<String, Object> getHandoverAuthMethodStats() {
+        Map<String, Object> stats = new HashMap<>();
+        
+        long standardCount = djHandoverRepository.countByAuthMethod(com.wildcastradio.DJHandover.DJHandoverEntity.AuthMethod.STANDARD);
+        long accountSwitchCount = djHandoverRepository.countByAuthMethod(com.wildcastradio.DJHandover.DJHandoverEntity.AuthMethod.ACCOUNT_SWITCH);
+        long totalHandovers = standardCount + accountSwitchCount;
+
+        stats.put("totalHandovers", totalHandovers);
+        stats.put("standardHandovers", standardCount);
+        stats.put("accountSwitchHandovers", accountSwitchCount);
+        
+        double adoptionRate = totalHandovers > 0 ? (double) accountSwitchCount / totalHandovers : 0.0;
+        stats.put("secureHandoverAdoptionRate", adoptionRate);
+        
+        return stats;
+    }
 
     /**
      * Get broadcast statistics including real-time listener data
