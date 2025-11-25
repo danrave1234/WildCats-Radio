@@ -18,7 +18,7 @@ export const notificationApi = {
   // Persist notification preferences to the user profile (partial update)
   updateUserPreferences: (prefs) => api.put('/api/auth/me/preferences', prefs),
 
-  subscribeToNotifications: (callback) => {
+  subscribeToNotifications: (callback, updateCallback) => {
     return new Promise((resolve) => {
       const token = getCookie('token');
       const subscriptions = [];
@@ -60,7 +60,23 @@ export const notificationApi = {
               })
               .then((userSub) => {
                 subscriptions.push(userSub);
-                resolveWithSubscriptions();
+
+                // ✅ PHASE 3: Subscribe to notification updates for multi-device sync
+                return stompClientManager
+                  .subscribe('/user/queue/notifications/updates', (message) => {
+                    try {
+                      const update = JSON.parse(message.body);
+                      if (updateCallback) {
+                        updateCallback(update);
+                      }
+                    } catch (error) {
+                      logger.error('Error parsing notification update:', error);
+                    }
+                  })
+                  .then((updateSub) => {
+                    subscriptions.push(updateSub);
+                    resolveWithSubscriptions();
+                  });
               });
           }
 

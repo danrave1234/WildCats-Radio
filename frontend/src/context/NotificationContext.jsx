@@ -211,13 +211,36 @@ export function NotificationProvider({ children }) {
 
     try {
       logger.debug('Connecting to WebSocket for real-time notifications...');
-      const connection = await notificationService.subscribeToNotifications((notification) => {
-        logger.debug('Received real-time notification:', notification);
-        // Add user-queue item to inbox
-        if (notification && typeof notification.id !== 'undefined') {
-          addNotification(notification);
+      const connection = await notificationService.subscribeToNotifications(
+        // Handle new notifications
+        (notification) => {
+          logger.debug('Received real-time notification:', notification);
+          // Add user-queue item to inbox
+          if (notification && typeof notification.id !== 'undefined') {
+            addNotification(notification);
+          }
+        },
+        // ✅ PHASE 3: Handle notification updates for multi-device sync
+        (update) => {
+          logger.debug('Received notification update:', update);
+
+          if (update.type === 'MARK_ALL_READ') {
+            // Mark all notifications as read
+            setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+            setUnreadCount(0);
+            logger.debug('Applied MARK_ALL_READ update');
+          } else if (update.id) {
+            // Update single notification (typically mark as read)
+            setNotifications(prev => prev.map(n =>
+              n.id === update.id ? { ...n, ...update } : n
+            ));
+            if (update.read) {
+              setUnreadCount(prev => Math.max(0, prev - 1));
+            }
+            logger.debug('Applied notification update for ID:', update.id);
+          }
         }
-      });
+      );
 
       wsConnection.current = connection;
 
