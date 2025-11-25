@@ -22,7 +22,7 @@ interface WebSocketService {
   onDisconnect: (callback: () => void) => void;
   onError: (callback: (error: any) => void) => void;
   isConnected: () => boolean;
-  subscribe: (topic: string, callback: (message: any) => void) => { unsubscribe: () => void };
+  subscribe: (topic: string, callback: (message: any) => void, token?: string) => Promise<{ unsubscribe: () => void }>;
 }
 
 /**
@@ -32,7 +32,13 @@ interface WebSocketService {
 class StompClientManager {
   private stompClient: any = null;
   private connectPromise: Promise<any> | null = null;
-  private subscriptions: Map<string, any> = new Map();
+  private subscriptions: Map<string, { callback: (message: any) => void; token?: string }> = new Map();
+  private lastConnectionAttempt: number = 0;
+  private readonly CONNECTION_COOLDOWN_MS = 2000; // Prevent rapid reconnection attempts
+  private isReconnecting: boolean = false;
+  private reconnectAttempts: number = 0;
+  private readonly MAX_RECONNECT_ATTEMPTS = 5;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
 
   private _getAuthHeaders(token?: string): any {
     const headers: any = {};
@@ -50,44 +56,105 @@ class StompClientManager {
       const wsUrl = `${ENV.BACKEND_BASE_URL}/ws-radio`;
       logger.debug(`StompClientManager: Creating STOMP client for ${wsUrl}`);
 
-      const sockjs = new SockJS(wsUrl);
-      this.stompClient = Stomp.over(sockjs);
+      const socketFactory = () => new SockJS(wsUrl);
+      this.stompClient = Stomp.over(socketFactory);
 
       // Configure for mobile reliability
       this.stompClient.debug = () => {}; // Disable debug logs
-      this.stompClient.reconnect_delay = 0; // Manual reconnect handling
-      this.stompClient.heartbeat = { outgoing: 20000, incoming: 20000 }; // 20s heartbeat
+      this.stompClient.reconnect_delay = 0; // Manual reconnect handling (we handle it ourselves)
+      // Balanced heartbeat - not too frequent (battery drain) but frequent enough to detect disconnects
+      this.stompClient.heartbeat = { outgoing: 15000, incoming: 15000 }; // 15s heartbeat
+      
+      // Add error handler to detect disconnections
+      this.stompClient.onStompError = (frame: any) => {
+        logger.error('StompClientManager: STOMP error frame:', frame);
+        // On error, mark as disconnected but keep client for potential recovery
+        if (this.stompClient && frame.command === 'ERROR') {
+          logger.warn('StompClientManager: STOMP protocol error, connection may be lost');
+        }
+      };
+      
+      // Add WebSocket error handler
+      this.stompClient.onWebSocketError = (error: any) => {
+        logger.error('StompClientManager: WebSocket error:', error);
+        // Mark connection as failed
+        if (this.stompClient) {
+          this.stompClient.connected = false;
+        }
+      };
+      
+      // Add WebSocket close handler
+      this.stompClient.onWebSocketClose = (event: any) => {
+        logger.warn('StompClientManager: WebSocket closed:', { code: event.code, reason: event.reason });
+        // Mark as disconnected but don't clear client immediately
+        if (this.stompClient) {
+          this.stompClient.connected = false;
+        }
+        // Clear connect promise so next subscribe can reconnect
+        this.connectPromise = null;
+        
+        // Auto-reconnect if we have active subscriptions
+        if (this.subscriptions.size > 0 && !this.isReconnecting) {
+          logger.info(`StompClientManager: Connection lost with ${this.subscriptions.size} active subscriptions, attempting reconnect...`);
+          this.attemptReconnect();
+        }
+      };
     }
     return this.stompClient;
   }
 
   /**
-   * Connect the shared STOMP client (idempotent)
+   * Connect the shared STOMP client (idempotent with connection health monitoring)
    */
   async connect(token?: string): Promise<any> {
-    if (this.connectPromise) {
-      return this.connectPromise;
-    }
-
+    // If already connected and healthy, return immediately
     const client = this._ensureClient();
-
     if (client.connected) {
       logger.debug('StompClientManager: STOMP already connected');
-      this.connectPromise = Promise.resolve(client);
+      // Clear any stale connectPromise
+      this.connectPromise = null;
+      return Promise.resolve(client);
+    }
+
+    // Prevent rapid reconnection attempts (cooldown period)
+    const now = Date.now();
+    if (now - this.lastConnectionAttempt < this.CONNECTION_COOLDOWN_MS) {
+      const waitTime = this.CONNECTION_COOLDOWN_MS - (now - this.lastConnectionAttempt);
+      logger.debug(`StompClientManager: Connection cooldown, waiting ${waitTime}ms`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+
+    // If connection is in progress, wait for it
+    if (this.connectPromise) {
+      logger.debug('StompClientManager: Connection already in progress, waiting...');
       return this.connectPromise;
     }
+
+    this.lastConnectionAttempt = Date.now();
 
     const headers = this._getAuthHeaders(token);
 
     this.connectPromise = new Promise((resolve, reject) => {
+      const connectionTimeout = setTimeout(() => {
+        logger.error('StompClientManager: Connection timeout after 15 seconds');
+        this.stompClient = null;
+        this.connectPromise = null;
+        reject(new Error('Connection timeout'));
+      }, 15000);
+
       try {
         client.connect(
           headers,
           () => {
+            clearTimeout(connectionTimeout);
             logger.debug('StompClientManager: STOMP connected successfully');
+            this.connectPromise = null; // Clear promise on success
+            // Set up connection health monitoring
+            this._setupConnectionHealthMonitoring();
             resolve(client);
           },
           (error: any) => {
+            clearTimeout(connectionTimeout);
             logger.error('StompClientManager: STOMP connection failed:', error);
             this.stompClient = null;
             this.connectPromise = null;
@@ -95,6 +162,7 @@ class StompClientManager {
           }
         );
       } catch (e) {
+        clearTimeout(connectionTimeout);
         logger.error('StompClientManager: STOMP connect threw error:', e);
         this.stompClient = null;
         this.connectPromise = null;
@@ -106,32 +174,181 @@ class StompClientManager {
   }
 
   /**
-   * Subscribe to a topic
+   * Monitor connection health and auto-reconnect if needed
+   */
+  private _setupConnectionHealthMonitoring(): void {
+    // Clear any existing monitoring
+    if ((this as any).healthCheckInterval) {
+      clearInterval((this as any).healthCheckInterval);
+    }
+
+    // Check connection health every 30 seconds
+    (this as any).healthCheckInterval = setInterval(() => {
+      if (this.stompClient) {
+        if (!this.stompClient.connected) {
+          logger.warn('StompClientManager: Connection lost, attempting reconnect...');
+          // Trigger reconnection if we have active subscriptions
+          if (this.subscriptions.size > 0 && !this.isReconnecting) {
+            this.attemptReconnect();
+          }
+        } else {
+          logger.debug('StompClientManager: Connection healthy');
+          // Reset reconnect attempts on successful health check
+          this.reconnectAttempts = 0;
+        }
+      }
+    }, 30000);
+  }
+
+  /**
+   * Subscribe to a topic (prevents duplicate subscriptions, auto-reconnects)
    */
   async subscribe(topic: string, onMessage: (message: any) => void, token?: string): Promise<{ unsubscribe: () => void }> {
-    const client = await this.connect(token);
+    // Store subscription info for reconnection
+    const subscriptionInfo = { callback: onMessage, token };
+    
+    // Check if we already have a subscription for this topic
+    if (this.subscriptions.has(topic)) {
+      logger.debug(`StompClientManager: Already subscribed to ${topic}, updating callback`);
+      // Update the callback in case it changed
+      this.subscriptions.set(topic, subscriptionInfo);
+      // Return a no-op unsubscribe since we're reusing
+      return {
+        unsubscribe: () => {
+          logger.debug(`StompClientManager: Unsubscribe requested for ${topic}`);
+          this.subscriptions.delete(topic);
+        }
+      };
+    }
 
-    const subscription = client.subscribe(topic, (message: any) => {
-      try {
-        onMessage(message);
-      } catch (e) {
-        logger.error('StompClientManager: Error in subscription handler for topic', topic, e);
+    // Store subscription info before connecting (for reconnection)
+    this.subscriptions.set(topic, subscriptionInfo);
+
+    try {
+      const client = await this.connect(token);
+
+      // Double-check connection before subscribing
+      if (!client.connected) {
+        logger.warn(`StompClientManager: Client not connected, attempting reconnect for ${topic}`);
+        // Wait a bit and try again
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const reconnectedClient = await this.connect(token);
+        if (!reconnectedClient.connected) {
+          throw new Error(`Failed to connect STOMP client for topic ${topic}`);
+        }
       }
-    });
 
-    this.subscriptions.set(topic, subscription);
+      const subscription = client.subscribe(topic, (message: any) => {
+        try {
+          onMessage(message);
+        } catch (e) {
+          logger.error('StompClientManager: Error in subscription handler for topic', topic, e);
+        }
+      });
 
-    const unsubscribe = () => {
+      logger.debug(`StompClientManager: Subscribed to ${topic}`);
+
+      const unsubscribe = () => {
+        try {
+          if (subscription && typeof subscription.unsubscribe === 'function') {
+            subscription.unsubscribe();
+            logger.debug(`StompClientManager: Unsubscribed from ${topic}`);
+          }
+        } catch (e) {
+          logger.error('StompClientManager: Error unsubscribing from topic', topic, e);
+        } finally {
+          this.subscriptions.delete(topic);
+        }
+      };
+
+      return { unsubscribe };
+    } catch (error) {
+      // If subscription fails, remove from tracking
+      this.subscriptions.delete(topic);
+      throw error;
+    }
+  }
+
+  /**
+   * Attempt to reconnect and re-subscribe to all topics
+   */
+  private async attemptReconnect(): Promise<void> {
+    if (this.isReconnecting) {
+      logger.debug('StompClientManager: Reconnection already in progress');
+      return;
+    }
+
+    if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
+      logger.error(`StompClientManager: Max reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached`);
+      this.reconnectAttempts = 0; // Reset for next time
+      return;
+    }
+
+    this.isReconnecting = true;
+    this.reconnectAttempts++;
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 16000);
+    logger.info(`StompClientManager: Attempting reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS})`);
+
+    this.reconnectTimeout = setTimeout(async () => {
       try {
-        subscription.unsubscribe();
-      } catch (e) {
-        logger.error('StompClientManager: Error unsubscribing from topic', topic, e);
-      } finally {
-        this.subscriptions.delete(topic);
-      }
-    };
+        // Clear the old client
+        if (this.stompClient) {
+          try {
+            if (this.stompClient.connected) {
+              this.stompClient.disconnect();
+            }
+          } catch (e) {
+            // Ignore errors during cleanup
+          }
+          this.stompClient = null;
+        }
+        this.connectPromise = null;
 
-    return { unsubscribe };
+        // Get the first token from subscriptions (they should all use the same token)
+        const firstSub = Array.from(this.subscriptions.values())[0];
+        const token = firstSub?.token;
+
+        // Reconnect
+        const client = await this.connect(token);
+        
+        if (client.connected) {
+          logger.info(`StompClientManager: Reconnected successfully, re-subscribing to ${this.subscriptions.size} topics`);
+          
+          // Re-subscribe to all topics
+          const topicsToResubscribe = Array.from(this.subscriptions.entries());
+          for (const [topic, info] of topicsToResubscribe) {
+            try {
+              const subscription = client.subscribe(topic, (message: any) => {
+                try {
+                  info.callback(message);
+                } catch (e) {
+                  logger.error(`StompClientManager: Error in re-subscribed handler for ${topic}:`, e);
+                }
+              });
+              logger.debug(`StompClientManager: Re-subscribed to ${topic}`);
+            } catch (e) {
+              logger.error(`StompClientManager: Failed to re-subscribe to ${topic}:`, e);
+            }
+          }
+
+          this.reconnectAttempts = 0; // Reset on success
+          this.isReconnecting = false;
+        } else {
+          throw new Error('Reconnection failed - client not connected');
+        }
+      } catch (error) {
+        logger.error('StompClientManager: Reconnection attempt failed:', error);
+        this.isReconnecting = false;
+        // Try again if we haven't exceeded max attempts
+        if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS && this.subscriptions.size > 0) {
+          this.attemptReconnect();
+        } else {
+          this.reconnectAttempts = 0; // Reset for next time
+        }
+      }
+    }, delay) as any;
   }
 
   /**
@@ -167,6 +384,33 @@ class StompClientManager {
    * Disconnect the shared client
    */
   disconnect(): void {
+    // Clear reconnection timeout
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
+    // Clear health monitoring
+    if ((this as any).healthCheckInterval) {
+      clearInterval((this as any).healthCheckInterval);
+      (this as any).healthCheckInterval = null;
+    }
+
+    // Stop reconnection attempts
+    this.isReconnecting = false;
+    this.reconnectAttempts = 0;
+
+    // Unsubscribe from all topics first
+    this.subscriptions.forEach((sub, topic) => {
+      try {
+        // Note: sub is now { callback, token }, not a subscription object
+        // The actual subscription was created by STOMP and will be cleaned up when we disconnect
+      } catch (e) {
+        logger.error(`StompClientManager: Error cleaning up ${topic}:`, e);
+      }
+    });
+    this.subscriptions.clear();
+
     if (this.stompClient?.connected) {
       try {
         this.stompClient.disconnect(() => {
@@ -178,7 +422,6 @@ class StompClientManager {
     }
     this.stompClient = null;
     this.connectPromise = null;
-    this.subscriptions.clear();
   }
 }
 
@@ -428,28 +671,56 @@ class WebSocketManager implements WebSocketService {
     this.subscriptions.clear();
   }
 
-  onMessage(callback: (message: WebSocketMessage) => void): void {
+  onMessage(callback: (message: WebSocketMessage) => void): () => void {
     if (!this.messageHandlers.includes(callback)) {
       this.messageHandlers.push(callback);
     }
+    return () => {
+      this.messageHandlers = this.messageHandlers.filter((handler) => handler !== callback);
+    };
   }
 
-  onConnect(callback: () => void): void {
+  offMessage(callback: (message: WebSocketMessage) => void): void {
+    this.messageHandlers = this.messageHandlers.filter((handler) => handler !== callback);
+  }
+
+  onConnect(callback: () => void): () => void {
     if (!this.connectHandlers.includes(callback)) {
       this.connectHandlers.push(callback);
     }
+    return () => {
+      this.connectHandlers = this.connectHandlers.filter((handler) => handler !== callback);
+    };
   }
 
-  onDisconnect(callback: () => void): void {
+  offConnect(callback: () => void): void {
+    this.connectHandlers = this.connectHandlers.filter((handler) => handler !== callback);
+  }
+
+  onDisconnect(callback: () => void): () => void {
     if (!this.disconnectHandlers.includes(callback)) {
       this.disconnectHandlers.push(callback);
     }
+    return () => {
+      this.disconnectHandlers = this.disconnectHandlers.filter((handler) => handler !== callback);
+    };
   }
 
-  onError(callback: (error: any) => void): void {
+  offDisconnect(callback: () => void): void {
+    this.disconnectHandlers = this.disconnectHandlers.filter((handler) => handler !== callback);
+  }
+
+  onError(callback: (error: any) => void): () => void {
     if (!this.errorHandlers.includes(callback)) {
       this.errorHandlers.push(callback);
     }
+    return () => {
+      this.errorHandlers = this.errorHandlers.filter((handler) => handler !== callback);
+    };
+  }
+
+  offError(callback: (error: any) => void): void {
+    this.errorHandlers = this.errorHandlers.filter((handler) => handler !== callback);
   }
 
   isConnected(): boolean {
@@ -463,19 +734,26 @@ class WebSocketManager implements WebSocketService {
     this.errorHandlers = [];
   }
 
-  subscribe(topic: string, callback: (message: any) => void): { unsubscribe: () => void } {
-    if (!stompClientManager.isConnected()) {
-      throw new Error('Shared STOMP client not connected');
+  async subscribe(topic: string, callback: (message: any) => void, token?: string): Promise<{ unsubscribe: () => void }> {
+    const effectiveToken = token && token.length > 0 ? token : this.currentAuthToken || undefined;
+
+    if (token !== undefined) {
+      this.currentAuthToken = token;
     }
 
-    // Use shared manager for subscriptions
-    const subscription = stompClientManager.subscribe(topic, (message: any) => {
-      try {
-        callback(message);
-      } catch (error) {
-        console.error(`❌ Error handling message from ${topic}:`, error);
-      }
-    }, this.currentAuthToken);
+    const subscription = await stompClientManager.subscribe(
+      topic,
+      (message: any) => {
+        try {
+          callback(message);
+        } catch (error) {
+          console.error(`❌ Error handling message from ${topic}:`, error);
+        }
+      },
+      effectiveToken
+    );
+
+    this.subscriptions.set(topic, subscription);
 
     return subscription;
   }

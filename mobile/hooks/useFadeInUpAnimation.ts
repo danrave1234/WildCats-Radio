@@ -5,17 +5,21 @@ interface AnimationProps {
   delay?: number;
   duration?: number;
   initialY?: number;
+  enabled?: boolean; // allow callers to disable animations safely
 }
 
 export const useFadeInUpAnimation = ({
   delay = 0,
   duration = 500,
   initialY = 20,
+  enabled = false,
 }: AnimationProps = {}) => {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(initialY)).current;
+  // Always create values but default them to the end-state when disabled
+  const opacity = useRef(new Animated.Value(enabled ? 0 : 1)).current;
+  const translateY = useRef(new Animated.Value(enabled ? initialY : 0)).current;
 
   useEffect(() => {
+    if (!enabled) return; // No-op when disabled
     Animated.sequence([
       Animated.delay(delay),
       Animated.parallel([
@@ -33,7 +37,7 @@ export const useFadeInUpAnimation = ({
         }),
       ]),
     ]).start();
-  }, [opacity, translateY, delay, duration]);
+  }, [opacity, translateY, delay, duration, enabled]);
 
   return {
     opacity,

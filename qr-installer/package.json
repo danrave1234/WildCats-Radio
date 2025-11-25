@@ -1,0 +1,11 @@
+{
+  "name": "wildcat-radio-apk-host",
+  "version": "1.0.0",
+  "description": "APK hosting for WildCat Radio mobile app - QR code installer",
+  "scripts": {
+    "deploy": "vercel --prod",
+    "deploy:preview": "vercel"
+  },
+  "private": true
+}
+

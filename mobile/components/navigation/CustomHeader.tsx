@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { View, TouchableOpacity, Platform, Animated, Easing, Image, Dimensions, Text, ScrollView, StatusBar, InteractionManager, ActivityIndicator } from 'react-native';
+import { View, TouchableOpacity, Platform, Animated, Easing, Image, Dimensions, Text, ScrollView, StatusBar, InteractionManager, ActivityIndicator, Alert, BackHandler } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useAuth } from '../../context/AuthContext';
 import OptimizedNotificationScreen from './OptimizedNotificationScreen';
 
 interface CustomHeaderProps {
@@ -29,6 +30,7 @@ const CustomHeader = React.memo(({
 }: CustomHeaderProps) => {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { authToken } = useAuth();
   const [showNotificationScreen, setShowNotificationScreen] = useState(false);
   const [isNotificationAnimating, setIsNotificationAnimating] = useState(false);
   
@@ -248,7 +250,22 @@ const CustomHeader = React.memo(({
       console.log('🚫 Notification press ignored - animation in progress');
       return;
     }
-    
+
+    // Auth gate: require login to open notifications
+    if (!authToken) {
+      Alert.alert(
+        'Login required',
+        'Please log in to view your notifications.',
+        [
+          { text: 'Later', style: 'cancel' },
+          { text: 'Login', style: 'default', onPress: () => router.push('/auth/login') },
+        ],
+      );
+      // Ensure downstream consumers think notifications are closed
+      if (onNotificationStateChange) onNotificationStateChange(false);
+      return;
+    }
+
     console.log('🔔 CustomHeader: Notification icon pressed');
     setIsNotificationAnimating(true);
     
@@ -289,6 +306,30 @@ const CustomHeader = React.memo(({
       })
     }]
   } : {};
+
+  // Keep provider consumers in sync with local state changes (extra safety)
+  useEffect(() => {
+    if (onNotificationStateChange) {
+      onNotificationStateChange(showNotificationScreen);
+    }
+  }, [showNotificationScreen, onNotificationStateChange]);
+
+  // Handle Android hardware back while notification overlay is open
+  useEffect(() => {
+    if (!showNotificationScreen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleNotificationClose();
+      return true; // prevent default back behavior
+    });
+    return () => sub.remove();
+  }, [showNotificationScreen, handleNotificationClose]);
+
+  // Ensure tab bar visibility resets if header unmounts mid-notification
+  useEffect(() => {
+    return () => {
+      if (onNotificationStateChange) onNotificationStateChange(false);
+    };
+  }, [onNotificationStateChange]);
 
   return (
     <>
@@ -472,6 +513,18 @@ const CustomHeader = React.memo(({
                 </Animated.View>
               </View>
             </TouchableOpacity>
+            {/* Login icon when user is not authenticated */}
+            {!authToken && (
+              <TouchableOpacity
+                style={{ padding: 8, marginTop: 6, marginLeft: 6 }}
+                activeOpacity={0.7}
+                onPress={() => router.push('/auth/login')}
+                accessibilityRole="button"
+                accessibilityLabel="Login"
+              >
+                <Ionicons name="log-in-outline" size={24} color={'white'} />
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           <View style={{ width: 48 }} />

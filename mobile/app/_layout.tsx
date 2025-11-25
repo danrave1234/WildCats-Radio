@@ -17,24 +17,29 @@ const InitialLayout = () => {
 
     const currentRoute = segments.join('/') || '/'; // e.g. "/", "welcome", "auth/login", "(tabs)/broadcast"
 
-    // Check if the current route is an auth-related route
-    const isAuthRoute = currentRoute === 'welcome' || 
-                        currentRoute === 'auth/login' || 
+    // Check if the current route is an auth-related route (exclude welcome)
+    const isAuthRoute = currentRoute === 'auth/login' || 
                         currentRoute === 'auth/signup' ||
                         currentRoute === 'auth/forgot-password';
 
     // Check if the current route is a tab route
     const isTabRoute = currentRoute.startsWith('(tabs)');
 
-    // Allow public access - redirect to listener dashboard (broadcast tab) by default
-    if (currentRoute === '/' || (!isTabRoute && !isAuthRoute)) {
-      // Redirect to broadcast (Listen) screen as default landing page
-      router.replace('/(tabs)/broadcast');
+    // If the user becomes authenticated while on an auth route, send them to Profile
+    // This prevents staying on a blank/transitioning auth screen after login
+    if (authToken && isAuthRoute) {
+      router.replace('/(tabs)/profile');
+      return;
+    }
+
+    // Default landing route: show Welcome screen on app start (for WS warm-up)
+    if (currentRoute === '/' || (!isTabRoute && !isAuthRoute && currentRoute !== 'welcome')) {
+      router.replace('/welcome');
       return;
     }
 
     // If user is on an auth route, allow them to stay there
-    if (isAuthRoute) {
+    if (isAuthRoute || currentRoute === 'welcome') {
       return;
     }
 

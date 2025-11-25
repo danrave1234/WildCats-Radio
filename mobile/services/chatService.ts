@@ -13,7 +13,7 @@ class ChatService extends BaseService<ChatConnection> {
    * @param authToken - Authentication token
    * @returns Promise with messages or error
    */
-  async getMessages(broadcastId: number, authToken: string): Promise<ServiceResult<ChatMessageDTO[]>> {
+  async getMessages(broadcastId: number, authToken?: string): Promise<ServiceResult<ChatMessageDTO[]>> {
     try {
       const result = await getChatMessages(broadcastId, authToken);
       
@@ -63,86 +63,50 @@ class ChatService extends BaseService<ChatConnection> {
    */
   async subscribeToChatMessages(
     broadcastId: number,
-    authToken: string,
+    authToken?: string,
     onNewMessage: (message: ChatMessageDTO) => void,
     options?: ServiceSubscriptionOptions
   ): Promise<ChatConnection> {
-    return new Promise((resolve, reject) => {
-      // Clean up any existing subscription for this broadcast
-      this.cleanupSubscription(broadcastId);
+    // Clean up any existing subscription for this broadcast
+    this.cleanupSubscription(broadcastId);
 
-      let isConnected = false;
-      let connectionResolved = false;
-
-      // Set up message handler
-      const handleMessage = (message: any) => {
-        if (message.type === 'chat' && message.broadcastId === broadcastId) {
-          onNewMessage(message.data);
+    // Subscribe directly to the chat topic (match website behavior)
+    const subscription = await websocketService.subscribe(
+      `/topic/broadcast/${broadcastId}/chat`,
+      (message: any) => {
+        try {
+          const raw = typeof message?.body === 'string' ? JSON.parse(message.body) : message;
+          // Normalize backend DTO: ensure createdAt exists (fallback to timestamp)
+          const normalized = {
+            ...raw,
+            createdAt: raw?.createdAt ?? raw?.timestamp ?? raw?.created_at ?? raw?.time,
+          } as ChatMessageDTO;
+          onNewMessage(normalized);
+        } catch (error) {
+          options?.onError?.(error);
         }
-      };
-
-      // Set up connection handler
-      const handleConnect = () => {
-        isConnected = true;
-        options?.onConnectionChange?.(true);
-        if (!connectionResolved) {
-          connectionResolved = true;
-          resolve(connection);
-        }
-      };
-
-      // Set up disconnect handler
-      const handleDisconnect = () => {
-        isConnected = false;
-        options?.onConnectionChange?.(false);
-      };
-
-      // Set up error handler
-      const handleError = (error: any) => {
-        this.handleError(error, `ChatService: WebSocket error for broadcast ${broadcastId}`);
-        isConnected = false;
-        options?.onConnectionChange?.(false);
-        options?.onError?.(error);
-        if (!connectionResolved) {
-          connectionResolved = true;
-          reject(new Error('Failed to connect to chat WebSocket'));
-        }
-      };
-
-      // Set up WebSocket handlers
-      websocketService.onMessage(handleMessage);
-      websocketService.onConnect(handleConnect);
-      websocketService.onDisconnect(handleDisconnect);
-      websocketService.onError(handleError);
-
-      // Connect to WebSocket
-      websocketService.connect(broadcastId, authToken);
-
-      // Create connection object
-      const connection: ChatConnection = {
-        disconnect: () => {
-          websocketService.removeHandlers();
-          websocketService.disconnect();
-          this.subscriptions.delete(broadcastId);
-          isConnected = false;
-        }
-      };
-
-      // Store connection
-      this.subscriptions.set(broadcastId, connection);
-
-      // Timeout fallback for connection (match WebSocket timeout)
-      setTimeout(() => {
-        if (!connectionResolved) {
-          connectionResolved = true;
-          if (isConnected) {
-            resolve(connection);
-          } else {
-            reject(new Error('WebSocket connection timeout after 20 seconds'));
-          }
-        }
-      }, 25000); // 25 second timeout (5 seconds longer than WebSocket timeout)
+      },
+      authToken
+    ).catch((err) => {
+      options?.onError?.(err);
+      throw err;
     });
+
+    options?.onConnectionChange?.(true);
+
+    const connection: ChatConnection = {
+      disconnect: () => {
+        try {
+          subscription?.unsubscribe?.();
+        } catch {}
+        options?.onConnectionChange?.(false);
+        this.subscriptions.delete(broadcastId);
+      }
+    };
+
+    // Store connection
+    this.subscriptions.set(broadcastId, connection);
+    return connection;
   }
 
   /**
@@ -151,54 +115,36 @@ class ChatService extends BaseService<ChatConnection> {
    * @returns Promise with connection or error
    */
   async subscribeToGlobalBroadcastUpdates(
-    callback: (update: { type: string; broadcast?: any; broadcastId?: number }) => void,
+    callback: (update: { type: string; broadcast?: any; broadcastId?: number; data?: any; listenerCount?: number }) => void,
     authToken?: string
   ): Promise<ServiceResult<ChatConnection>> {
-    return new Promise((resolve, reject) => {
-      // Set up connection handler to wait for connection before subscribing
-      const handleConnect = () => {
-        try {
-          // Subscribe to global broadcast topic
-          const subscription = websocketService.subscribe('/topic/broadcasts/global', (message) => {
-            try {
-              const update = JSON.parse(message.body);
-              callback(update);
-            } catch (error) {
-              console.error('❌ ChatService: Error parsing global broadcast update:', error);
-            }
-          });
+    try {
+      const subscription = await websocketService.subscribe(
+        '/topic/broadcast/status',
+        (message: any) => {
+          try {
+            const payload = typeof message?.body === 'string' ? JSON.parse(message.body) : message;
+            callback(payload);
+          } catch (error) {
+            console.error('❌ ChatService: Error parsing global broadcast update:', error);
+          }
+        },
+        authToken
+      );
 
-          resolve(this.createResult({
-            disconnect: () => {
-              subscription?.unsubscribe();
-            }
-          }));
-        } catch (error) {
-          const errorMessage = this.handleError(error, 'ChatService: Failed to subscribe to global updates');
-          reject(new Error(errorMessage));
+      return this.createResult({
+        disconnect: () => {
+          try {
+            subscription?.unsubscribe();
+          } catch (error) {
+            console.error('❌ ChatService: Failed to unsubscribe from global updates:', error);
+          }
         }
-      };
-
-      // Set up error handler
-      const handleError = (error: any) => {
-        const errorMessage = this.handleError(error, 'ChatService: WebSocket connection error');
-        reject(new Error(errorMessage));
-      };
-
-      // Register handlers
-      websocketService.onConnect(handleConnect);
-      websocketService.onError(handleError);
-      
-      // Start the connection
-      websocketService.connect(0, authToken || ''); // Use broadcast ID 0 for global updates
-      
-      // Set a timeout to prevent hanging (match WebSocket timeout)
-      setTimeout(() => {
-        if (!websocketService.isConnected()) {
-          reject(new Error('WebSocket connection timeout after 20 seconds'));
-        }
-      }, 25000); // 25 second timeout (5 seconds longer than WebSocket timeout)
-    });
+      });
+    } catch (error) {
+      const errorMessage = this.handleError(error, 'ChatService: Failed to subscribe to global updates');
+      return this.createResult(undefined, errorMessage);
+    }
   }
 }
 

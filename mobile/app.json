@@ -8,13 +8,26 @@
     "scheme": "wildcat-radio",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
-    "ios": { "supportsTablet": true },
+    "ios": { 
+      "supportsTablet": true,
+      "bundleIdentifier": "com.wildcatradio.mobile"
+    },
     "android": {
+      "package": "com.wildcatradio.mobile",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -30,6 +43,13 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#91403E"
         }
       ]
     ],

@@ -61,6 +61,8 @@ export default function TabLayout() {
           screenOptions={{
             headerShown: true,
             header: () => <CustomHeader onNotificationStateChange={handleNotificationStateChange} />,
+            // Ensure the tab bar never hides when the keyboard opens
+            tabBarHideOnKeyboard: false,
             tabBarStyle: {
               backgroundColor: '#91403E', // Ensure tab bar has background
             },
@@ -70,8 +72,8 @@ export default function TabLayout() {
           <Tabs.Screen 
             name="home" 
             options={{
-              title: 'Announcements',
-              tabBarLabel: 'Announcements',
+              title: 'News',
+              tabBarLabel: 'News',
             }}
           />
           <Tabs.Screen 
@@ -86,6 +88,13 @@ export default function TabLayout() {
             options={{
               title: 'Listen',
               tabBarLabel: 'Listen',
+            }}
+          />
+          <Tabs.Screen 
+            name="list" 
+            options={{
+              title: 'History',
+              tabBarLabel: 'History',
             }}
           />
           <Tabs.Screen 
