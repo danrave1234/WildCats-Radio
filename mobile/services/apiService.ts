@@ -40,6 +40,7 @@ export interface UserData {
   firstname?: string;
   lastname?: string;
   email?: string;
+  gender?: string;
   role?: string;
   memberSince?: string; // Example for "Listener since May 2025"
   message?: string; // Added to handle potential error messages from API
@@ -52,11 +53,12 @@ export interface UserData {
   error?: string; // For error messages from the service
 }
 
-// Interface for updating user profile (firstName, lastName, email)
+// Interface for updating user profile (firstName, lastName, email, gender)
 export interface UpdateUserProfilePayload {
   firstname?: string;
   lastname?: string;
   email?: string;
+  gender?: string | null;
   // Add any other updatable fields here
 }
 
@@ -324,20 +326,14 @@ export const changeUserPassword = async (
   }
 };
 
-export const getLiveBroadcasts = async (token?: string | null): Promise<Broadcast[] | { error: string }> => {
+export const getLiveBroadcasts = async (token: string): Promise<Broadcast[] | { error: string }> => {
   try {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
-    
-    // Only add Authorization header if token is provided
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
     const response = await fetch(`${API_BASE_URL}/broadcasts/live`, {
       method: 'GET',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
     });
 
     if (!response.ok) {
@@ -363,20 +359,14 @@ export const getLiveBroadcasts = async (token?: string | null): Promise<Broadcas
   }
 };
 
-export const getAllBroadcasts = async (token?: string | null): Promise<Broadcast[] | { error: string }> => {
+export const getAllBroadcasts = async (token: string): Promise<Broadcast[] | { error: string }> => {
   try {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
-    
-    // Only add Authorization header if token is provided
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
     const response = await fetch(`${API_BASE_URL}/broadcasts`, {
       method: 'GET',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
     });
 
     if (!response.ok) {
@@ -402,20 +392,14 @@ export const getAllBroadcasts = async (token?: string | null): Promise<Broadcast
   }
 };
 
-export const getUpcomingBroadcasts = async (token?: string | null): Promise<Broadcast[] | { error: string }> => {
+export const getUpcomingBroadcasts = async (token: string): Promise<Broadcast[] | { error: string }> => {
   try {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
-    
-    // Only add Authorization header if token is provided
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
     const response = await fetch(`${API_BASE_URL}/broadcasts/upcoming`, {
       method: 'GET',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
     });
 
     if (!response.ok) {
@@ -667,20 +651,14 @@ export const getUserVoteForPoll = async (pollId: number, token: string): Promise
 };
 
 // Also, a function to get a single broadcast's details might be useful
-export const getBroadcastDetails = async (broadcastId: number, token?: string | null): Promise<Broadcast | { error: string }> => {
+export const getBroadcastDetails = async (broadcastId: number, token: string): Promise<Broadcast | { error: string }> => {
   try {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
-    
-    // Only add Authorization header if token is provided
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
     const response = await fetch(`${API_BASE_URL}/broadcasts/${broadcastId}`, {
       method: 'GET',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
     });
     const data = await response.json();
     if (!response.ok) {
@@ -722,6 +700,40 @@ export const updateNotificationPreferences = async (preferences: NotificationPre
     return data as UserData;
   } catch (error) {
     console.error('UpdateNotificationPreferences API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// Get unread notifications count
+export const getUnreadCount = async (token: string): Promise<number | { error: string }> => {
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/notifications/count-unread`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to fetch unread count. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to fetch unread count. Status: ${response.status}` };
+        }
+      } else {
+        return { error: `Failed to fetch unread count. Status: ${response.status}` };
+      }
+    }
+
+    const count = await response.json();
+    return typeof count === 'number' ? count : 0;
+  } catch (error) {
+    console.error('GetUnreadCount API error:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
     return { error: errorMessage };
   }
@@ -841,6 +853,129 @@ export const getAllAnnouncements = async (page = 0, size = 10): Promise<Announce
     return data;
   } catch (error) {
     console.error('GetAllAnnouncements API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// +++ Notification API Functions +++
+
+export interface NotificationDTO {
+  id: number;
+  message: string;
+  type: string;
+  timestamp: string;
+  read: boolean;
+  userId?: number;
+}
+
+export interface NotificationPage {
+  content: NotificationDTO[];
+  totalElements: number;
+  totalPages: number;
+  size: number;
+  number: number;
+  first: boolean;
+  last: boolean;
+}
+
+// Get notifications with pagination
+export const getNotifications = async (token: string, page = 0, size = 20): Promise<NotificationPage | { error: string }> => {
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/notifications?page=${page}&size=${size}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to fetch notifications. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to fetch notifications. Status: ${response.status}` };
+        }
+      } else {
+        return { error: `Failed to fetch notifications. Status: ${response.status}` };
+      }
+    }
+
+    const data: NotificationPage = await response.json();
+    return data;
+  } catch (error) {
+    console.error('GetNotifications API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// Mark notification as read
+export const markNotificationAsRead = async (notificationId: number, token: string): Promise<NotificationDTO | { error: string }> => {
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/notifications/${notificationId}/read`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to mark notification as read. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to mark notification as read. Status: ${response.status}` };
+        }
+      } else {
+        return { error: `Failed to mark notification as read. Status: ${response.status}` };
+      }
+    }
+
+    const data: NotificationDTO = await response.json();
+    return data;
+  } catch (error) {
+    console.error('MarkNotificationAsRead API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// Mark all notifications as read
+export const markAllNotificationsAsRead = async (token: string): Promise<number | { error: string }> => {
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/notifications/read-all`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to mark all notifications as read. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to mark all notifications as read. Status: ${response.status}` };
+        }
+      } else {
+        return { error: `Failed to mark all notifications as read. Status: ${response.status}` };
+      }
+    }
+
+    const count = await response.json();
+    return typeof count === 'number' ? count : 0;
+  } catch (error) {
+    console.error('MarkAllNotificationsAsRead API error:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
     return { error: errorMessage };
   }

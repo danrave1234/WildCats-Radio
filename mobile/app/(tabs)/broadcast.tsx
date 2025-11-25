@@ -731,33 +731,37 @@ const BroadcastScreen: React.FC = () => {
         }, 10000); // 10 second timeout
 
         ws.onopen = () => {
-          console.log('✅ Listener WebSocket connected');
-          clearTimeout(connectionTimeout);
-          
-          // Send initial status if playing
-          if (streamingState.isPlaying) {
-            const message = {
-              type: 'LISTENER_STATUS',
-              action: 'START_LISTENING',
-              broadcastId: currentBroadcast.id,
-              userId: currentUserId,
-              userName: userData?.name || 'Anonymous Listener',
-              timestamp: Date.now(),
-            };
-            ws.send(JSON.stringify(message));
-          }
-
-          // Setup heartbeat with ping/pong
-          heartbeatInterval.current = setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-              try {
-                // Send ping message
-                ws.send('ping');
-              } catch (error) {
-                console.error('❌ Failed to send heartbeat:', error);
-              }
+          try {
+            console.log('✅ Listener WebSocket connected');
+            clearTimeout(connectionTimeout);
+            
+            // Send initial status if playing
+            if (streamingState.isPlaying && currentBroadcast?.id) {
+              const message = {
+                type: 'LISTENER_STATUS',
+                action: 'START_LISTENING',
+                broadcastId: currentBroadcast.id,
+                userId: currentUserId,
+                userName: userData?.name || 'Anonymous Listener',
+                timestamp: Date.now(),
+              };
+              ws.send(JSON.stringify(message));
             }
-          }, 30000) as ReturnType<typeof setInterval>; // 30 seconds to match backend
+
+            // Setup heartbeat with ping/pong
+            heartbeatInterval.current = setInterval(() => {
+              if (ws.readyState === WebSocket.OPEN) {
+                try {
+                  // Send ping message
+                  ws.send('ping');
+                } catch (error) {
+                  console.error('❌ Failed to send heartbeat:', error);
+                }
+              }
+            }, 30000) as ReturnType<typeof setInterval>; // 30 seconds to match backend
+          } catch (error) {
+            console.error('❌ Error in WebSocket onopen handler:', error);
+          }
         };
 
         ws.onmessage = (event: any) => {

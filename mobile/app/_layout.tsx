@@ -9,13 +9,13 @@ import { websocketService } from '../services/websocketService';
 
 const InitialLayout = () => {
   const { authToken, isLoading } = useAuth();
-  const segments = useSegments(); // e.g. [], ['welcome'], ['(auth)', 'login'], ['(tabs)', 'broadcast']
+  const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
     if (isLoading) return;
 
-    const currentRoute = segments.join('/') || '/'; // e.g. "/", "welcome", "auth/login", "(tabs)/broadcast"
+    const currentRoute = segments.length > 0 ? segments.join('/') : '/';
 
     // Check if the current route is an auth-related route
     const isAuthRoute = currentRoute === 'welcome' || 
@@ -26,21 +26,32 @@ const InitialLayout = () => {
     // Check if the current route is a tab route
     const isTabRoute = currentRoute.startsWith('(tabs)');
 
-    // Allow public access - redirect to listener dashboard (broadcast tab) by default
-    if (currentRoute === '/' || (!isTabRoute && !isAuthRoute)) {
-      // Redirect to broadcast (Listen) screen as default landing page
-      router.replace('/(tabs)/broadcast');
+    // If no auth token
+    if (!authToken) {
+      // Allow user to stay on auth routes (welcome, login, signup, etc.)
+      if (isAuthRoute) {
+        return;
+      }
+      // Redirect to welcome for root or tab routes
+      if (currentRoute === '/' || isTabRoute) {
+        router.replace('/welcome');
+        return;
+      }
+      // For any other route, redirect to welcome
+      router.replace('/welcome');
       return;
     }
 
-    // If user is on an auth route, allow them to stay there
-    if (isAuthRoute) {
+    // If user is authenticated
+    if (authToken) {
+      // If on root or welcome, redirect to home tab
+      if (currentRoute === '/' || currentRoute === 'welcome') {
+        router.replace('/(tabs)/home');
+        return;
+      }
+      // Allow authenticated users to stay on their current route
       return;
     }
-
-    // For authenticated users on tab routes, they can access everything
-    // For non-authenticated users on tab routes, they can still access but with limited features
-    // No redirect needed - let them stay where they are
   }, [authToken, isLoading, segments, router]);
 
   // Connect a lightweight global WS for public announcements (no auth needed)

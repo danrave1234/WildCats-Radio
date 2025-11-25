@@ -3,6 +3,8 @@ import { View, TouchableOpacity, Text, StyleSheet, Dimensions, Platform, Animate
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getUnreadCount } from '../../services/apiService';
+import { useAuth } from '../../context/AuthContext';
 
 const { width } = Dimensions.get('window');
 const BASE_TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 70 : 60;
@@ -32,6 +34,10 @@ interface CustomTabBarProps extends BottomTabBarProps {
 const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigation, isNotificationOpen = false, isBroadcastListening = false }) => {
   // Safe area insets
   const insets = useSafeAreaInsets();
+  const { authToken } = useAuth();
+  
+  // Notification badge count
+  const [unreadCount, setUnreadCount] = useState(0);
   
   // Animation values for the indicator line
   const [tabLayouts, setTabLayouts] = useState<Record<string, { x: number; width: number } | undefined>>({});
@@ -42,6 +48,34 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
   
   // Tab bar hide animation
   const tabBarTranslateY = useRef(new Animated.Value(0)).current;
+
+  // Fetch unread notification count
+  useEffect(() => {
+    const fetchUnreadCount = async () => {
+      if (!authToken) {
+        setUnreadCount(0);
+        return;
+      }
+
+      try {
+        const result = await getUnreadCount(authToken);
+        if (typeof result === 'object' && 'error' in result) {
+          console.warn('Failed to fetch unread count:', result.error);
+          setUnreadCount(0);
+        } else {
+          setUnreadCount(result);
+        }
+      } catch (error) {
+        console.error('Error fetching unread count:', error);
+        setUnreadCount(0);
+      }
+    };
+
+    fetchUnreadCount();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, [authToken]);
 
   // Safety check for required props
   if (!state || !state.routes || !descriptors || !navigation) {
@@ -172,17 +206,44 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
           }}
         /> */}
         
-        {state.routes.map((route, index) => {
+        {/* Reorder routes to: Home - Schedule - Broadcast - Inbox - Profile */}
+        {(() => {
+          const routeOrder = ['home', 'schedule', 'broadcast', 'inbox', 'profile'];
+          const routeMap = new Map(state.routes.map(route => [route.name, route]));
+          
+          // Build reordered array based on desired order
+          const reorderedRoutes = routeOrder
+            .map(name => routeMap.get(name))
+            .filter((route): route is typeof state.routes[0] => route !== undefined);
+          
+          // Add any routes that weren't in the order list (fallback)
+          state.routes.forEach(route => {
+            if (!routeOrder.includes(route.name)) {
+              reorderedRoutes.push(route);
+            }
+          });
+          
+          return reorderedRoutes;
+        })().map((route, index) => {
           if (!route || !route.key) return null;
           
           const descriptor = descriptors[route.key];
           if (!descriptor) return null;
           
           const { options } = descriptor;
-          const label = (typeof options?.title === 'string' ? options.title : route.name) || 'Tab';
+          let label = (typeof options?.title === 'string' ? options.title : route.name) || 'Tab';
+          // Change "Profile" to "Menu"
+          if (route.name === 'profile') {
+            label = 'Menu';
+          }
+          // Change "Announcements" to "Home"
+          if (route.name === 'home') {
+            label = 'Home';
+          }
           const tabAccessibilityLabel = options.tabBarAccessibilityLabel || `${label} tab`;
 
-          const isFocused = state.index === index;
+          // Check if this route is focused by comparing with the current route from state
+          const isFocused = state.routes[state.index]?.key === route.key;
 
           const onPress = () => {
             const event = navigation.emit({
@@ -206,13 +267,25 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
           const getIconName = (routeName: string, focused: boolean): keyof typeof Ionicons.glyphMap => {
             if (!routeName || typeof routeName !== 'string') return 'alert-circle-outline';
             
-            // Always use outline versions for a consistent outline style
-            switch (routeName) {
-              case 'home': return 'megaphone-outline'; // Announcements icon
-              case 'broadcast': return 'radio-outline'; // Listen icon
-              case 'schedule': return 'calendar-outline';
-              case 'profile': return 'person-circle-outline';
-              default: return 'alert-circle-outline';
+            // Use filled versions when focused, outline when not focused
+            if (focused) {
+              switch (routeName) {
+                case 'home': return 'home';
+                case 'inbox': return 'notifications';
+                case 'broadcast': return 'radio';
+                case 'schedule': return 'calendar';
+                case 'profile': return 'person'; // Use 'person' instead of 'person-circle' for better visibility
+                default: return 'alert-circle';
+              }
+            } else {
+              switch (routeName) {
+                case 'home': return 'home-outline';
+                case 'inbox': return 'notifications-outline';
+                case 'broadcast': return 'radio-outline';
+                case 'schedule': return 'calendar-outline';
+                case 'profile': return 'person-outline';
+                default: return 'alert-circle-outline';
+              }
             }
           };
 
@@ -254,8 +327,57 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
                 setTabLayouts((prev) => ({ ...prev, [route.key]: { x, width } }));
               }}
             >
-              <TabBarIcon name={iconName} color={isFocused ? MIKADO_YELLOW : TEXT_COLOR} />
-              <Text style={[styles.tabLabel, { color: isFocused ? FOCUSED_TEXT_COLOR : TEXT_COLOR }]}>
+              <View style={{ position: 'relative', alignItems: 'center', justifyContent: 'center' }}>
+                <TabBarIcon 
+                  name={iconName} 
+                  color={isFocused ? MIKADO_YELLOW : TEXT_COLOR}
+                  size={isFocused ? ICON_SIZE + 3 : ICON_SIZE}
+                />
+                {/* Notification Badge for Inbox */}
+                {route.name === 'inbox' && unreadCount > 0 && (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      top: -6,
+                      right: -8,
+                      minWidth: 18,
+                      height: 18,
+                      borderRadius: 9,
+                      backgroundColor: MIKADO_YELLOW,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      paddingHorizontal: 4,
+                      borderWidth: 2,
+                      borderColor: CORDOVAN_COLOR,
+                      zIndex: 10,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: CORDOVAN_COLOR,
+                        fontSize: unreadCount > 99 ? 8 : 10,
+                        fontWeight: 'bold',
+                        textAlign: 'center',
+                        includeFontPadding: false,
+                      }}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.7}
+                    >
+                      {unreadCount > 99 ? '99+' : unreadCount.toString()}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <Text style={[
+                styles.tabLabel, 
+                { 
+                  color: isFocused ? FOCUSED_TEXT_COLOR : TEXT_COLOR,
+                  fontWeight: isFocused ? '800' : '500',
+                  fontSize: isFocused ? 12 : 11,
+                  opacity: isFocused ? 1 : 0.7,
+                }
+              ]}>
                 {typeof label === 'string' ? label.charAt(0).toUpperCase() + label.slice(1) : 'Tab'}
               </Text>
             </TouchableOpacity>
