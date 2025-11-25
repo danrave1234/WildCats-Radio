@@ -14,6 +14,7 @@ import {
   Switch,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
+import { useRouter } from 'expo-router';
 import {
   getMe,
   UserData,
@@ -27,6 +28,7 @@ import {
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import AnimatedTextInput from '../../components/ui/AnimatedTextInput';
 import ProfileSkeleton from '../../components/ProfileSkeleton';
+import LoginPrompt from '../../components/LoginPrompt';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import "../../global.css";
 
@@ -48,6 +50,7 @@ const getInitials = (user: UserData | null) => {
 
 const ProfileScreen: React.FC = () => {
   const { authToken, signOut } = useAuth();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -189,7 +192,12 @@ const ProfileScreen: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchUserData();
+    if (authToken) {
+      fetchUserData();
+    } else {
+      setIsLoading(false);
+      setUserData(null);
+    }
   }, [authToken]);
 
   const handleLogout = async () => {
@@ -517,6 +525,114 @@ const ProfileScreen: React.FC = () => {
     return null;
   };
 
+  // Show login screen if not authenticated
+  if (!authToken) {
+    return (
+      <SafeAreaView className="flex-1 bg-gray-100">
+        <ScrollView
+          contentContainerStyle={{ 
+            flexGrow: 1, 
+            justifyContent: 'center', 
+            paddingVertical: 40,
+            paddingHorizontal: 20,
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <LoginPrompt
+            title="Login to Manage Profile"
+            message="Sign in to view and manage your personal information, security settings, and notification preferences."
+            icon="person-circle-outline"
+          />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // Old login UI code removed - keeping for reference but not used
+  if (false) {
+    return (
+      <SafeAreaView className="flex-1 bg-gray-100">
+        <ScrollView
+          style={{ backgroundColor: '#F3F4F6' }}
+          contentContainerStyle={{ 
+            paddingBottom: 120 + insets.bottom,
+            paddingTop: Platform.OS === 'android' ? 12 : 6,
+            backgroundColor: '#F3F4F6',
+            flexGrow: 1,
+            justifyContent: 'center',
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={{ alignItems: 'center', paddingVertical: 40, paddingHorizontal: 20 }}>
+            <View style={{
+              width: 120,
+              height: 120,
+              borderRadius: 60,
+              backgroundColor: '#E5E7EB',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 24,
+            }}>
+              <Ionicons name="person-circle-outline" size={64} color="#9CA3AF" />
+            </View>
+            <Text style={{
+              fontSize: 28,
+              fontWeight: 'bold',
+              color: '#1F2937',
+              marginBottom: 12,
+              textAlign: 'center',
+            }}>
+              Login to Your Account
+            </Text>
+            <Text style={{
+              fontSize: 16,
+              color: '#6B7280',
+              textAlign: 'center',
+              marginBottom: 32,
+              lineHeight: 24,
+            }}>
+              Sign in to access your profile, chat with others, request songs, and vote on polls.
+            </Text>
+            <TouchableOpacity
+              style={{
+                backgroundColor: '#91403E',
+                paddingVertical: 14,
+                paddingHorizontal: 32,
+                borderRadius: 12,
+                width: '100%',
+                alignItems: 'center',
+                marginBottom: 12,
+                shadowColor: '#91403E',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                elevation: 6,
+              }}
+              onPress={() => router.push('/auth/login')}
+              activeOpacity={0.8}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>
+                Login
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{
+                paddingVertical: 14,
+                paddingHorizontal: 32,
+              }}
+              onPress={() => router.push('/auth/signup')}
+              activeOpacity={0.7}
+            >
+              <Text style={{ fontSize: 14, color: '#6B7280' }}>
+                Don't have an account? <Text style={{ color: '#91403E', fontWeight: 'bold' }}>Sign Up</Text>
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   if (isLoading && !userData) {
     return (
       <SafeAreaView className="flex-1 bg-gray-100">
@@ -548,13 +664,6 @@ const ProfileScreen: React.FC = () => {
               onPress={() => fetchUserData()}
           >
                <Text className="text-white font-semibold text-base text-center">Try Again</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-              className="bg-mikado_yellow py-3 px-8 rounded-lg shadow-md hover:bg-opacity-90"
-              onPress={handleLogout}
-          >
-               <Text className="text-black font-semibold text-base text-center">Go Back to Welcome</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>

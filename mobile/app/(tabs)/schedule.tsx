@@ -64,18 +64,13 @@ const ScheduleScreen: React.FC = () => {
   const ITEMS_PER_PAGE = 5;
 
   const fetchUpcomingBroadcasts = useCallback(async (showRefreshing = false) => {
-    if (!authToken) {
-      setError('Authentication required.');
-      setIsLoading(false);
-      return;
-    }
-    
+    // Public access - no auth required for schedule
     if (showRefreshing) setIsRefreshing(true);
     else setIsLoading(true);
     setError(null);
     
     try {
-      const result = await getUpcomingBroadcasts(authToken);
+      const result = await getUpcomingBroadcasts(authToken || null);
       if ('error' in result) {
         setError(result.error);
       } else {
