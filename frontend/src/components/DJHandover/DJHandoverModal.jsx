@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import Modal from '../Modal';
 import { broadcastApi } from '../../services/api/broadcastApi';
 import { authApi } from '../../services/api/authApi';
-
-import { useStreaming } from '../../context/StreamingContext';
+import { useStreaming } from '../../context/StreamingContext'; // Import useStreaming
 
 export default function DJHandoverModal({
   isOpen,
@@ -13,7 +12,7 @@ export default function DJHandoverModal({
   loggedInUser,
   onHandoverSuccess
 }) {
-  const { updateActiveSessionId } = useStreaming();
+  const { updateActiveSessionId, updateCurrentBroadcast } = useStreaming(); // Use updateCurrentBroadcast
   const [djs, setDjs] = useState([]);
   const [selectedDJId, setSelectedDJId] = useState('');
   const [selectedDJ, setSelectedDJ] = useState(null);
@@ -105,11 +104,36 @@ export default function DJHandoverModal({
         reason: reason || null
       });
 
-      // If this is the device performing the handover, mark it as the broadcasting device
-      if (response.data.activeSessionId) {
-        updateActiveSessionId(response.data.activeSessionId);
+      // --- Start: Retry logic for fetching updated broadcast state ---
+      const maxRetries = 5;
+      const retryDelayMs = 500; // 0.5 seconds
+      let updatedBroadcast = null;
+
+      for (let i = 0; i < maxRetries; i++) {
+        const updatedBroadcastResponse = await broadcastApi.getById(broadcastId);
+        const fetchedBroadcast = updatedBroadcastResponse.data;
+
+        // Check if the fetched broadcast has the new DJ as currentActiveDJ
+        if (fetchedBroadcast?.currentActiveDJ?.id === parseInt(selectedDJId)) {
+          updatedBroadcast = fetchedBroadcast;
+          break; // Found updated state, exit loop
+        }
+        
+        console.warn(`DJHandoverModal: Fetched broadcast still shows old DJ after handover. Retrying... (Attempt ${i + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
       }
 
+      if (!updatedBroadcast) {
+        throw new Error('Failed to synchronize broadcast state after handover. Please refresh the page.');
+      }
+      // --- End: Retry logic ---
+
+      // Update global context with the latest broadcast state
+      if (updatedBroadcast) {
+        updateCurrentBroadcast(updatedBroadcast);
+      }
+      
+      // onHandoverSuccess is usually for notifications or other side-effects
       if (onHandoverSuccess) {
         onHandoverSuccess(response.data);
       }

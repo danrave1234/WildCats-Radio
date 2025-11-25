@@ -433,6 +433,10 @@ CREATE INDEX IF NOT EXISTS idx_broadcast_active_session_id ON broadcasts(active_
 - [x] Implement DJHandoverModal session ID capture
 - [x] Reorganize Sidebar structure for DJs (consistent with Moderators)
 - [x] Add visual lock indicator for restricted links in Sidebar
+- [x] Move handover WebSocket logic to StreamingContext (Fix persistence issue)
+- [x] Implement handover state synchronization in DJHandoverModal/StreamingContext (Fix overlay persistence)
+- [x] Add retry mechanism for broadcast data fetch in DJHandoverModal
+- [x] Refactor DJDashboard.jsx state management to use StreamingContext as single source of truth
 - [x] Reorganize Sidebar structure for DJs (consistent with Moderators)
 - [x] Add visual lock indicator for restricted links in Sidebar
 

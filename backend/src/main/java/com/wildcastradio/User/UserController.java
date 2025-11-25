@@ -480,9 +480,11 @@ public class UserController {
     @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<Page<UserDTO>> getUsersPaged(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "15") int size) {
+            @RequestParam(defaultValue = "15") int size,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) String roleFilter) {
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, size));
-        Page<UserDTO> dtoPage = userService.findAllUsers(pageable).map(UserDTO::fromEntity);
+        Page<UserDTO> dtoPage = userService.findAllUsers(query, roleFilter, pageable).map(UserDTO::fromEntity);
         return ResponseEntity.ok(dtoPage);
     }
 

@@ -17,6 +17,8 @@ const ModeratorDashboardContent = () => {
   const [totalElements, setTotalElements] = useState(0);
   const [rolesLoading, setRolesLoading] = useState(false);
   const [newUser, setNewUser] = useState({ firstname: '', lastname: '', email: '', password: '', role: 'LISTENER', birthdate: '' });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState('ALL');
 
   // Live broadcasts state
   const [liveBroadcasts, setLiveBroadcasts] = useState([]);
@@ -56,7 +58,7 @@ const ModeratorDashboardContent = () => {
     setRolesLoading(true);
     setError(null);
     try {
-      const response = await authService.getUsersPaged(page, pageSize);
+      const response = await authService.getUsersPaged(page, pageSize, searchQuery, roleFilter);
       const data = response.data;
       const content = Array.isArray(data?.content) ? data.content : [];
       
@@ -194,17 +196,37 @@ const ModeratorDashboardContent = () => {
     }
   };
 
-  const handleChangeRole = async (userId, currentRole, nextRole) => {
-    if (nextRole === 'ADMIN' || currentRole === 'ADMIN') { alert('Not permitted'); return; }
+  // Update user role
+  const handleChangeRole = async (userId, oldRole, newRole) => {
+    if (newRole === oldRole) return; // No change
+
+    const userEmail = users.find(u => u.id === userId)?.email || 'this user';
+    if (!window.confirm(`Are you sure you want to change the role of user ${userEmail} from ${oldRole} to ${newRole}?`)) {
+      return;
+    }
+
+    setRolesLoading(true);
     try {
-      setRolesLoading(true);
-      await authService.updateUserRoleByActor(userId, nextRole);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: nextRole } : u));
+      // Use updateUserRoleByActor as it's designed for actor-based role changes
+      await authService.updateUserRoleByActor(userId, newRole); 
+
+      // Update local state
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+      alert('User role updated successfully!');
     } catch (e) {
-      alert('Failed to change role');
+      console.error('Error changing role:', e);
+      alert(e.response?.data?.error || e.message || 'Failed to change role. Please verify permissions.');
     } finally {
       setRolesLoading(false);
     }
+  };
+
+
+
+  const handleEditRole = (user) => {
+    setEditingUser(user);
+    setSelectedRole(user.role);
+    setShowRoleModal(true);
   };
 
   const handleAddProfanity = async (e) => {
@@ -379,7 +401,6 @@ const ModeratorDashboardContent = () => {
                         <select name="role" value={newUser.role} onChange={handleNewUserChange} className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                           <option value="LISTENER">Listener</option>
                           <option value="DJ">DJ</option>
-                          <option value="MODERATOR">Moderator</option>
                         </select>
                       </div>
                       <div className="text-right">
@@ -390,6 +411,45 @@ const ModeratorDashboardContent = () => {
 
                   <div className="mt-8">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Manage User Roles</h3>
+                    {/* Search and Filter Users */}
+                    <div className="mb-4 flex flex-col sm:flex-row gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="Search users by name or email..." 
+                        className="flex-1 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            setPage(0);
+                            fetchUsers();
+                          }
+                        }}
+                      />
+                      <select
+                        className="px-4 py-2 border border-gray-300 rounded-md shadow-sm bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        value={roleFilter}
+                        onChange={(e) => {
+                          setRoleFilter(e.target.value);
+                          setPage(0); // Reset page when filter changes
+                        }}
+                      >
+                        <option value="ALL">All Roles</option>
+                        <option value="LISTENER">Listener</option>
+                        <option value="DJ">DJ</option>
+                        <option value="MODERATOR">Moderator</option>
+                      </select>
+                      <button 
+                        onClick={() => {
+                          setPage(0);
+                          fetchUsers();
+                        }} 
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                      >
+                        Filter/Search
+                      </button>
+                    </div>
+
                     {rolesLoading && users.length === 0 ? (
                       <div className="text-sm text-gray-500">Loading users...</div>
                     ) : (
@@ -398,7 +458,6 @@ const ModeratorDashboardContent = () => {
                           <table className="min-w-full text-sm">
                             <thead className="bg-gray-50 dark:bg-gray-700">
                               <tr className="text-left">
-                                <th className="p-2">ID</th>
                                 <th className="p-2">Name</th>
                                 <th className="p-2">Email</th>
                                 <th className="p-2">Role</th>
@@ -408,14 +467,19 @@ const ModeratorDashboardContent = () => {
                             <tbody>
                               {users.map(u => (
                                 <tr key={u.id} className="border-t dark:border-gray-700">
-                                  <td className="p-2">{u.id}</td>
                                   <td className="p-2">{(u.firstname||'') + ' ' + (u.lastname||'')}</td>
                                   <td className="p-2">{u.email}</td>
                                   <td className="p-2">{u.role}</td>
                                   <td className="p-2">
-                                    {u.role !== 'ADMIN' && (
-                                      <button onClick={()=>handleChangeRole(u.id, u.role, u.role==='LISTENER'?'DJ':'LISTENER')} className="px-3 py-1 text-xs rounded bg-purple-600 text-white hover:bg-purple-700">Toggle DJ/Listener</button>
-                                    )}
+                                    <select
+                                      value={u.role}
+                                      onChange={(e) => handleRoleUpdate(u.id, u.role, e.target.value)}
+                                      className="p-1 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white text-xs"
+                                      disabled={rolesLoading || u.role === 'ADMIN' || u.role === 'MODERATOR'}
+                                    >
+                                      <option value="LISTENER">Listener</option>
+                                      <option value="DJ">DJ</option>
+                                    </select>
                                   </td>
                                 </tr>
                               ))}
@@ -425,8 +489,11 @@ const ModeratorDashboardContent = () => {
                         {/* Pagination Controls */}
                         <div className="mt-4 flex items-center justify-between">
                           <div className="text-sm text-gray-600 dark:text-gray-300">
-                            Page {totalPages > 0 ? page + 1 : 0} of {totalPages}
-                            {totalElements ? ` • ${totalElements} users total` : ''}
+                            {totalElements > 0 ? (
+                              `Showing ${page * pageSize + 1} to ${Math.min((page + 1) * pageSize, totalElements)} of ${totalElements} users`
+                            ) : (
+                              'No users to display'
+                            )}
                           </div>
                           <div className="flex gap-2">
                             <button

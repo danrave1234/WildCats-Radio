@@ -1537,6 +1537,100 @@ export function StreamingProvider({ children }) {
     }
   }, [currentBroadcast, currentUser, streamHealth.bitrate]);
 
+  // Setup Handover WebSocket
+  const connectHandoverWebSocket = useCallback(async (broadcastId) => {
+    if (!broadcastId) return;
+
+    try {
+      logger.debug("StreamingContext: Setting up handover WebSocket for broadcast:", broadcastId);
+
+      // Subscribe to handover events
+      const handoverSubscription = await stompClientManager.subscribe(
+        `/topic/broadcast/${broadcastId}/handover`,
+        (message) => {
+          try {
+            const data = JSON.parse(message.body);
+            if (data.type === "DJ_HANDOVER" && data.broadcastId === broadcastId) {
+              logger.info("StreamingContext: Handover event received:", data);
+              
+              setCurrentBroadcast(prev => {
+                if (!prev) return null;
+                return {
+                  ...prev,
+                  currentActiveDJ: data.handover?.newDJ || prev.currentActiveDJ
+                };
+              });
+              
+              // Refresh full broadcast data to ensure sync
+              broadcastService.getById(broadcastId)
+                .then(response => {
+                  if (response.data) {
+                    setCurrentBroadcast(response.data);
+                  }
+                })
+                .catch(error => logger.error('Error refreshing broadcast after handover:', error));
+            }
+          } catch (error) {
+            logger.error('Error parsing handover message:', error);
+          }
+        }
+      );
+
+      // Subscribe to current DJ updates
+      const currentDJSubscription = await stompClientManager.subscribe(
+        `/topic/broadcast/${broadcastId}/current-dj`,
+        (message) => {
+          try {
+            const data = JSON.parse(message.body);
+            if (data.type === "CURRENT_DJ_UPDATE" && data.broadcastId === broadcastId) {
+              logger.info("StreamingContext: Current DJ update received:", data);
+              
+              setCurrentBroadcast(prev => {
+                if (!prev) return null;
+                const newState = {
+                  ...prev,
+                  currentActiveDJ: data.currentDJ || prev.currentActiveDJ
+                };
+                
+                // If activeSessionId is provided in the update, update it in the state
+                if (data.activeSessionId) {
+                  newState.activeSessionId = data.activeSessionId;
+                }
+                
+                return newState;
+              });
+            }
+          } catch (error) {
+            logger.error('Error parsing current DJ message:', error);
+          }
+        }
+      );
+
+      return () => {
+        if (handoverSubscription) handoverSubscription.unsubscribe();
+        if (currentDJSubscription) currentDJSubscription.unsubscribe();
+      };
+    } catch (error) {
+      logger.error("StreamingContext: Failed to connect handover WebSocket:", error);
+      return () => {};
+    }
+  }, []);
+
+  // Effect to manage handover websocket connection
+  useEffect(() => {
+    let cleanupFn = () => {};
+
+    if (currentBroadcast?.id && isLive) {
+      connectHandoverWebSocket(currentBroadcast.id).then(fn => {
+        cleanupFn = fn;
+      });
+    }
+
+    return () => {
+      cleanupFn();
+    };
+  }, [currentBroadcast?.id, isLive, connectHandoverWebSocket]);
+
   // Connect broadcast status WebSocket
   const connectBroadcastStatusWebSocket = useCallback(() => {
     broadcastService.subscribeToGlobalBroadcastStatus((message) => {
@@ -2292,6 +2386,14 @@ export function StreamingProvider({ children }) {
     }
   };
 
+  const updateCurrentBroadcast = useCallback((newBroadcast) => {
+    logger.info("StreamingContext: Manually updating currentBroadcast:", newBroadcast);
+    setCurrentBroadcast(newBroadcast);
+    if (newBroadcast?.activeSessionId) {
+      updateActiveSessionId(newBroadcast.activeSessionId);
+    }
+  }, [updateActiveSessionId]); // Dependency on updateActiveSessionId
+
 
   const value = {
     // State
@@ -2311,6 +2413,7 @@ export function StreamingProvider({ children }) {
     streamStatusCircuitBreakerOpen,
     isBroadcastingDevice,
     updateActiveSessionId,
+    updateCurrentBroadcast, // Export new function
 
     // Health monitoring
     streamHealth,

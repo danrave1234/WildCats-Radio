@@ -20,7 +20,7 @@ export const authApi = {
   changePassword: (id, data) => api.post(`/api/auth/${id}/change-password`, data),
   
   // Admin-specific operations
-  getUsersPaged: (page = 0, size = 15) => api.get('/api/auth/paged', { params: { page, size } }),
+  getUsersPaged: (page = 0, size = 15, query = '', roleFilter = '') => api.get('/api/auth/paged', { params: { page, size, query, roleFilter } }),
   getUsersByRole: (role) => api.get(`/api/auth/by-role/${role}`),
   updateUserRole: (id, newRole) => api.put(`/api/auth/${id}/role?newRole=${newRole}`),
   updateUserRoleByActor: (id, newRole) => api.put(`/api/auth/${id}/role/by-actor?newRole=${newRole}`),
