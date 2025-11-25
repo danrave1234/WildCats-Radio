@@ -1,5 +1,6 @@
 package com.wildcastradio.User;
 
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -47,6 +48,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import jakarta.validation.Valid;
 
@@ -257,14 +259,17 @@ public class UserController {
                 currentActiveDJ != null ? currentActiveDJ.getId() : "none",
                 newDJ.getId());
             
-            // 7. Update broadcast's current active DJ
+            // 7. Update broadcast's current active DJ and set active session ID
+            String activeSessionId = UUID.randomUUID().toString();
             broadcast.setCurrentActiveDJ(newDJ);
+            broadcast.setActiveSessionId(activeSessionId);
             BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
             broadcastRepository.flush(); // Force immediate write to database
             
-            logger.info("Broadcast current_active_dj_id updated: Broadcast={}, New DJ ID={}", 
+            logger.info("Broadcast updated: Broadcast={}, New DJ ID={}, ActiveSessionId={}", 
                 request.getBroadcastId(), 
-                savedBroadcast.getCurrentActiveDJ() != null ? savedBroadcast.getCurrentActiveDJ().getId() : "null");
+                savedBroadcast.getCurrentActiveDJ() != null ? savedBroadcast.getCurrentActiveDJ().getId() : "null",
+                activeSessionId);
             
             // 8. Generate new JWT token for new DJ
             UserDetails userDetails = userService.loadUserByUsername(newDJ.getEmail());
@@ -306,6 +311,7 @@ public class UserController {
             currentDJMessage.put("type", "CURRENT_DJ_UPDATE");
             currentDJMessage.put("broadcastId", request.getBroadcastId());
             currentDJMessage.put("currentDJ", UserDTO.fromEntity(newDJ));
+            currentDJMessage.put("activeSessionId", activeSessionId);
             messagingTemplate.convertAndSend("/topic/broadcast/" + request.getBroadcastId() + "/current-dj", currentDJMessage);
             
             // 11. Log authentication event
@@ -319,6 +325,8 @@ public class UserController {
             responseBody.put("success", true);
             responseBody.put("user", UserDTO.fromEntity(newDJ));
             responseBody.put("handover", DJHandoverDTO.fromEntity(savedHandover));
+            responseBody.put("activeSessionId", activeSessionId);
+            responseBody.put("isBroadcastingSession", true);
             
             return ResponseEntity.ok(responseBody);
             
@@ -340,7 +348,24 @@ public class UserController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<String> logoutUser(HttpServletResponse response) {
+    public ResponseEntity<?> logoutUser(Authentication authentication, HttpServletResponse response) {
+        if (authentication != null) {
+            UserEntity user = userService.getUserByEmail(authentication.getName())
+                    .orElse(null);
+            
+            if (user != null) {
+                // Check if user is active DJ of LIVE broadcast
+                Optional<BroadcastEntity> activeBroadcast = broadcastRepository
+                    .findByCurrentActiveDJAndStatus(user, BroadcastEntity.BroadcastStatus.LIVE);
+                
+                if (activeBroadcast.isPresent()) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(Map.of("error", 
+                            "Cannot logout while actively broadcasting. Please hand over the broadcast first."));
+                }
+            }
+        }
+
         // Clear all authentication cookies
         Cookie tokenCookie = new Cookie("token", "");
         tokenCookie.setHttpOnly(true);
@@ -366,7 +391,7 @@ public class UserController {
         userRoleCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
         response.addCookie(userRoleCookie);
         
-        return ResponseEntity.ok("Logged out successfully");
+        return ResponseEntity.ok(Map.of("success", true, "message", "Logged out successfully"));
     }
 
     @PostMapping("/verify")
@@ -455,9 +480,11 @@ public class UserController {
     @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<Page<UserDTO>> getUsersPaged(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "15") int size) {
+            @RequestParam(defaultValue = "15") int size,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) String roleFilter) {
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, size));
-        Page<UserDTO> dtoPage = userService.findAllUsers(pageable).map(UserDTO::fromEntity);
+        Page<UserDTO> dtoPage = userService.findAllUsers(query, roleFilter, pageable).map(UserDTO::fromEntity);
         return ResponseEntity.ok(dtoPage);
     }
 

@@ -793,4 +793,19 @@ public class AnalyticsController {
             return ResponseEntity.internalServerError().build();
         }
     }
+
+    /**
+     * Get handover statistics by authentication method
+     * GET /api/analytics/handovers/auth-methods
+     */
+    @GetMapping("/handovers/auth-methods")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
+    public ResponseEntity<Map<String, Object>> getHandoverAuthMethodStats() {
+        try {
+            return ResponseEntity.ok(analyticsService.getHandoverAuthMethodStats());
+        } catch (Exception e) {
+            logger.error("Error getting handover auth method stats: ", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
 } 

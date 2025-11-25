@@ -282,7 +282,7 @@ export function AnalyticsProvider({ children }) {
   // Function to manually refresh data (HTTP only)
   const refreshData = async () => {
     if (!isAuthenticated || !currentUser) return;
-    if (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN') return;
+    if (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR') return;
     await fetchInitialData();
   };
 

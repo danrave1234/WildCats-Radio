@@ -108,7 +108,11 @@ END $$;
 ALTER TABLE IF EXISTS broadcasts
     ADD COLUMN IF NOT EXISTS current_active_dj_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
 
+ALTER TABLE IF EXISTS broadcasts
+    ADD COLUMN IF NOT EXISTS active_session_id VARCHAR(255) NULL;
+
 CREATE INDEX IF NOT EXISTS idx_broadcast_current_dj ON broadcasts(current_active_dj_id);
+CREATE INDEX IF NOT EXISTS idx_broadcast_active_session_id ON broadcasts(active_session_id);
 
 -- Migrate existing data: set current_active_dj_id to started_by_id for LIVE broadcasts
 UPDATE broadcasts 

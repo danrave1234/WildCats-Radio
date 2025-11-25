@@ -38,6 +38,12 @@ public interface DJHandoverRepository extends JpaRepository<DJHandoverEntity, Lo
     // Count handovers for a specific broadcast
     long countByBroadcast_Id(Long broadcastId);
 
+    // Count handovers by auth method
+    long countByAuthMethod(DJHandoverEntity.AuthMethod authMethod);
+
+    // Find all handovers by auth method
+    List<DJHandoverEntity> findByAuthMethod(DJHandoverEntity.AuthMethod authMethod);
+
     // Find recent handovers initiated by a specific user for a broadcast (for permission validation)
     List<DJHandoverEntity> findByBroadcast_IdAndInitiatedBy_IdAndHandoverTimeAfter(
         Long broadcastId, Long initiatorId, LocalDateTime sinceTime);

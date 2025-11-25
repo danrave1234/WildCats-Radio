@@ -34,6 +34,7 @@ export const analyticsApi = {
   // DJ Handover analytics
   getDJPeriodAnalytics: (broadcastId, config) => api.get(`/api/analytics/broadcasts/${broadcastId}/dj-periods`, config),
   getDJHandoverStats: (djId, config) => api.get(`/api/analytics/dj/${djId}/handover-stats`, config),
+  getHandoverAuthMethodStats: (config) => api.get('/api/analytics/handovers/auth-methods', config),
 };
 
 export default analyticsApi;

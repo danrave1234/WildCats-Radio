@@ -121,6 +121,9 @@ export default function AnalyticsDashboard() {
   const [selectedBroadcastId, setSelectedBroadcastId] = useState(null); // Selected broadcast for DJ period breakdown
   const [djPeriodAnalytics, setDJPeriodAnalytics] = useState(null); // DJ period analytics for selected broadcast
   const [loadingDJPeriods, setLoadingDJPeriods] = useState(false);
+  const [handoverAuthStats, setHandoverAuthStats] = useState(null);
+  const [loadingHandoverAuthStats, setLoadingHandoverAuthStats] = useState(false);
+  const [broadcastSearchResults, setBroadcastSearchResults] = useState([]); // State for broadcast finder results
 
   // Fetch DJs list on mount
   useEffect(() => {
@@ -136,6 +139,22 @@ export default function AnalyticsDashboard() {
       }
     };
     fetchDJs();
+  }, []);
+
+  // Fetch handover auth stats
+  useEffect(() => {
+    const fetchHandoverAuthStats = async () => {
+      setLoadingHandoverAuthStats(true);
+      try {
+        const response = await analyticsApi.getHandoverAuthMethodStats();
+        setHandoverAuthStats(response.data);
+      } catch (error) {
+        console.error('Error fetching handover auth stats:', error);
+      } finally {
+        setLoadingHandoverAuthStats(false);
+      }
+    };
+    fetchHandoverAuthStats();
   }, []);
 
   // Fetch filtered stats when DJ is selected
@@ -530,6 +549,35 @@ export default function AnalyticsDashboard() {
               </div>
             </div>
 
+            {/* Handover Security Metrics */}
+            {handoverAuthStats && (
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Security & Handover Metrics</h2>
+                  <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                    <ShieldExclamationIcon className="h-5 w-5 text-green-600 dark:text-green-400" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <p className="text-sm font-medium text-blue-600 dark:text-blue-400 mb-1">Total Handovers</p>
+                    <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{handoverAuthStats.totalHandovers || 0}</p>
+                  </div>
+                  <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                    <p className="text-sm font-medium text-green-600 dark:text-green-400 mb-1">Secure Account Switches</p>
+                    <p className="text-2xl font-bold text-green-900 dark:text-green-100">{handoverAuthStats.accountSwitchHandovers || 0}</p>
+                    <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                      {((handoverAuthStats.secureHandoverAdoptionRate || 0) * 100).toFixed(1)}% adoption
+                    </p>
+                  </div>
+                  <div className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Standard Handovers</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{handoverAuthStats.standardHandovers || 0}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Broadcast Performance & Popular Broadcasts */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Broadcast Performance */}
@@ -874,39 +922,91 @@ export default function AnalyticsDashboard() {
               {/* DJ Period Breakdown Section */}
               <div className="mt-6">
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-4">DJ Period Breakdown</h3>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Select Broadcast to View DJ Periods
-                  </label>
-                  <select
-                    value={selectedBroadcastId || ''}
-                    onChange={async (e) => {
-                      const broadcastId = e.target.value ? Number(e.target.value) : null;
-                      setSelectedBroadcastId(broadcastId);
-                      if (broadcastId) {
-                        setLoadingDJPeriods(true);
-                        try {
-                          const response = await analyticsApi.getDJPeriodAnalytics(broadcastId);
-                          setDJPeriodAnalytics(response.data);
-                        } catch (error) {
-                          console.error('Error fetching DJ period analytics:', error);
-                          setDJPeriodAnalytics(null);
-                        } finally {
-                          setLoadingDJPeriods(false);
-                        }
-                      } else {
-                        setDJPeriodAnalytics(null);
-                      }
-                    }}
-                    className="w-full max-w-md px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500"
-                  >
-                    <option value="">-- Select Broadcast --</option>
-                    {displayMostPopularBroadcasts && displayMostPopularBroadcasts.length > 0 && displayMostPopularBroadcasts.map(broadcast => (
-                      <option key={broadcast.id} value={broadcast.id}>
-                        {broadcast.title || 'Untitled'} ({broadcast.status || 'COMPLETED'})
-                      </option>
-                    ))}
-                  </select>
+                
+                {/* Broadcast Finder */}
+                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-6">
+                  <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Select Broadcast</h4>
+                  
+                  <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                    <div className="flex-1 relative">
+                      <input
+                        type="text"
+                        placeholder="Search broadcasts by title..."
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500"
+                        onChange={(e) => {
+                          // Simple debounce could be added here
+                          const query = e.target.value;
+                          // Trigger search logic
+                          broadcastService.searchBroadcasts(query, 'ALL', 0, 5).then(res => {
+                             // Update a local state for search results
+                             setBroadcastSearchResults(res.data.content);
+                          });
+                        }}
+                      />
+                      <div className="absolute left-3 top-2.5 text-gray-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                      </div>
+                    </div>
+                    <select
+                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500"
+                      onChange={(e) => {
+                         // Update filter status
+                      }}
+                    >
+                      <option value="ALL">All Status</option>
+                      <option value="ENDED">Completed</option>
+                      <option value="LIVE">Live</option>
+                      <option value="SCHEDULED">Scheduled</option>
+                    </select>
+                  </div>
+
+                  {/* Search Results List */}
+                  <div className="max-h-60 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                    {broadcastSearchResults.length > 0 ? (
+                      <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {broadcastSearchResults.map((broadcast) => (
+                          <button
+                            key={broadcast.id}
+                            onClick={async () => {
+                              setSelectedBroadcastId(broadcast.id);
+                              setLoadingDJPeriods(true);
+                              try {
+                                const response = await analyticsApi.getDJPeriodAnalytics(broadcast.id);
+                                setDJPeriodAnalytics(response.data);
+                              } catch (error) {
+                                console.error('Error fetching DJ period analytics:', error);
+                                setDJPeriodAnalytics(null);
+                              } finally {
+                                setLoadingDJPeriods(false);
+                              }
+                            }}
+                            className={`w-full text-left p-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex justify-between items-center ${
+                              selectedBroadcastId === broadcast.id ? 'bg-maroon-50 dark:bg-maroon-900/20 border-l-4 border-maroon-500' : ''
+                            }`}
+                          >
+                            <div>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">{broadcast.title}</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                ID: {broadcast.id} • {format(new Date(broadcast.actualStart || broadcast.scheduledStart), 'MMM d, yyyy')}
+                              </p>
+                            </div>
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              broadcast.status === 'LIVE' ? 'bg-red-100 text-red-800' : 
+                              broadcast.status === 'ENDED' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {broadcast.status}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+                        No broadcasts found. Try searching by title.
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {loadingDJPeriods && (

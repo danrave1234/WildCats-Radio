@@ -9,6 +9,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -349,6 +350,7 @@ public class BroadcastService {
             broadcast.setStatus(BroadcastEntity.BroadcastStatus.LIVE);
             broadcast.setStartedBy(dj);
             broadcast.setCurrentActiveDJ(dj); // Set current active DJ when broadcast starts
+            broadcast.setActiveSessionId(UUID.randomUUID().toString()); // Generate active session ID
             if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
                 broadcast.setStartIdempotencyKey(idempotencyKey);
                 logger.info("Setting start idempotency key: {} for broadcast {}", idempotencyKey, broadcastId);
@@ -357,12 +359,13 @@ public class BroadcastService {
             BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
             broadcastRepository.flush(); // Force immediate write to database
             
-            logger.info("Broadcast started: ID={}, Status={}, StartedBy={}, CurrentActiveDJ={}, StartIdempotencyKey={}", 
+            logger.info("Broadcast started: ID={}, Status={}, StartedBy={}, CurrentActiveDJ={}, StartIdempotencyKey={}, ActiveSessionId={}", 
                 savedBroadcast.getId(),
                 savedBroadcast.getStatus(),
                 savedBroadcast.getStartedBy() != null ? savedBroadcast.getStartedBy().getId() : "null",
                 savedBroadcast.getCurrentActiveDJ() != null ? savedBroadcast.getCurrentActiveDJ().getId() : "null",
-                savedBroadcast.getStartIdempotencyKey() != null ? savedBroadcast.getStartIdempotencyKey() : "null");
+                savedBroadcast.getStartIdempotencyKey() != null ? savedBroadcast.getStartIdempotencyKey() : "null",
+                savedBroadcast.getActiveSessionId());
 
             // Log state transition for audit trail
             Map<String, Object> metadata = new java.util.HashMap<>();
@@ -714,6 +717,18 @@ public class BroadcastService {
         int safeSize = Math.max(1, Math.min(size, 100));
         Pageable pageable = PageRequest.of(safePage, safeSize);
         return broadcastRepository.findEndedSince(since, pageable);
+    }
+
+    public Page<BroadcastEntity> searchBroadcasts(String query, String status, Pageable pageable) {
+        if (status != null && !status.isEmpty()) {
+            try {
+                BroadcastEntity.BroadcastStatus broadcastStatus = BroadcastEntity.BroadcastStatus.valueOf(status.toUpperCase());
+                return broadcastRepository.findByTitleContainingIgnoreCaseAndStatus(query, broadcastStatus, pageable);
+            } catch (IllegalArgumentException e) {
+                logger.warn("Invalid broadcast status: {}, falling back to title search", status);
+            }
+        }
+        return broadcastRepository.findByTitleContainingIgnoreCase(query, pageable);
     }
 
     // Method to get engagement data for analytics

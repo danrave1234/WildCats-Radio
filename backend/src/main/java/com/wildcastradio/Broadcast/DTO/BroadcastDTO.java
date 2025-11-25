@@ -27,6 +27,9 @@ public class BroadcastDTO {
     private Boolean slowModeEnabled;
     private Integer slowModeSeconds;
     
+    // Active session identifier for multi-device handling
+    private String activeSessionId;
+    
     // For displaying formatted dates in frontend
     private String formattedStart;
     private String formattedEnd;
@@ -96,6 +99,7 @@ public class BroadcastDTO {
         );
         dto.setSlowModeEnabled(broadcast.getSlowModeEnabled());
         dto.setSlowModeSeconds(broadcast.getSlowModeSeconds());
+        dto.setActiveSessionId(broadcast.getActiveSessionId());
         return dto;
     }
     
@@ -122,6 +126,14 @@ public class BroadcastDTO {
     
     public void setDescription(String description) {
         this.description = description;
+    }
+    
+    public String getActiveSessionId() {
+        return activeSessionId;
+    }
+
+    public void setActiveSessionId(String activeSessionId) {
+        this.activeSessionId = activeSessionId;
     }
     
     public LocalDateTime getScheduledStart() {

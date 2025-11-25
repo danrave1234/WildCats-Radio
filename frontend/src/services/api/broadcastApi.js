@@ -73,6 +73,15 @@ export const broadcastApi = {
     if (size !== undefined) params.set('size', String(size));
     return api.get(`/api/broadcasts/history?${params.toString()}`);
   },
+  // Search broadcasts (for finder UI)
+  searchBroadcasts: (query, status, page = 0, size = 10) => {
+    const params = new URLSearchParams();
+    if (query) params.set('query', query);
+    if (status && status !== 'ALL') params.set('status', status);
+    params.set('page', String(page));
+    params.set('size', String(size));
+    return api.get(`/api/broadcasts/search?${params.toString()}`);
+  },
   exportChat: (broadcastId) => api.get(`/api/broadcasts/${broadcastId}/chat/export`, { responseType: 'blob' }),
   getActiveBroadcast: () =>
     api

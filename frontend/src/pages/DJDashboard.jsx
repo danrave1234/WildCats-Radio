@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { motion } from "framer-motion"
 import {
   MicrophoneIcon,
   StopIcon,
@@ -35,6 +36,9 @@ import { getBroadcastErrorMessage, handleStateMachineError } from "../utils/erro
 import DJHandoverModal from "../components/DJHandover/DJHandoverModal"
 import SuccessNotification from "../components/SuccessNotification"
 import { broadcastApi } from "../services/api/broadcastApi"
+import ReadOnlyView from "../components/ReadOnlyView"
+import Toast from "../components/Toast"
+import { LockClosedIcon } from "@heroicons/react/24/solid"
 
 const logger = createLogger("DJDashboard")
 
@@ -119,7 +123,7 @@ export default function DJDashboard() {
   const { currentUser, handoverLogin, checkAuthStatus } = useAuth()
 
   // Check if user has proper role for DJ dashboard
-  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
+  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR')) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="max-w-md w-full bg-white rounded-lg shadow-md p-6">
@@ -127,7 +131,7 @@ export default function DJDashboard() {
             <ExclamationTriangleIcon className="mx-auto h-12 w-12 text-red-500 mb-4" />
             <h2 className="text-xl font-semibold text-gray-900 mb-2">Access Denied</h2>
             <p className="text-gray-600 mb-4">
-              You need DJ or Admin privileges to access the DJ Dashboard.
+              You need DJ, Moderator, or Admin privileges to access the DJ Dashboard.
             </p>
             <p className="text-sm text-gray-500">
               Current role: {currentUser?.role || 'Not authenticated'}
@@ -136,6 +140,7 @@ export default function DJDashboard() {
               <p>To access the DJ Dashboard, you need:</p>
               <ul className="list-disc list-inside mt-2 space-y-1">
                 <li>DJ role - to create and manage broadcasts</li>
+                <li>Moderator role - to DJ and manage broadcasts</li>
                 <li>Admin role - to access all features</li>
               </ul>
               <p className="mt-2">
@@ -151,7 +156,7 @@ export default function DJDashboard() {
   // Streaming context
   const {
     isLive,
-    currentBroadcast: streamingBroadcast,
+    currentBroadcast: contextBroadcast,
     websocketConnected,
     listenerCount,
     peakListenerCount,
@@ -165,11 +170,15 @@ export default function DJDashboard() {
     setAudioSource,
     getAudioStream,
     streamStatusCircuitBreakerOpen,
+    isBroadcastingDevice
   } = useStreaming()
 
   // Core workflow state
   const [workflowState, setWorkflowState] = useState(WORKFLOW_STATES.CREATE_BROADCAST)
-  const [currentBroadcast, setCurrentBroadcast] = useState(null)
+  const [draftBroadcast, setDraftBroadcast] = useState(null)
+  
+  // Unified broadcast object (prefers context/live, falls back to local draft)
+  const currentBroadcast = contextBroadcast || draftBroadcast
 
   // Broadcast creation form state
   const [broadcastForm, setBroadcastForm] = useState({
@@ -192,10 +201,15 @@ export default function DJDashboard() {
   const [showHandoverModal, setShowHandoverModal] = useState(false)
   const [showSuccessNotification, setShowSuccessNotification] = useState(false)
   const [successNotificationMessage, setSuccessNotificationMessage] = useState('')
-  const [currentActiveDJ, setCurrentActiveDJ] = useState(null)
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 })
   // Grace period to suppress transient unhealthy/isLive=false immediately after going live
   const [graceUntilMs, setGraceUntilMs] = useState(0)
+  
+  // Toast state
+  const [toastState, setToastState] = useState({ show: false, message: '', type: 'success' })
+  const showToast = (message, type = 'success') => {
+    setToastState({ show: true, message, type })
+  }
 
   // WebSocket and MediaRecorder refs
   const websocketRef = useRef(null)
@@ -254,7 +268,6 @@ export default function DJDashboard() {
   const chatContainerRef = useRef(null)
   const songRequestWsRef = useRef(null)
   const pollWsRef = useRef(null)
-  const handoverWsRef = useRef(null)
   const reconnectionWsRef = useRef(null)
 
   // Add abort controller ref for managing HTTP requests
@@ -370,16 +383,15 @@ export default function DJDashboard() {
 
   // Sync local state with streaming context
   useEffect(() => {
-    if (streamingBroadcast && isLive) {
+    if (contextBroadcast && isLive) {
       // Only go to live mode if both broadcast exists AND system reports live
       // This prevents auto-reverting to live mode after broadcasts end
-      setCurrentBroadcast(streamingBroadcast)
       setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
-    } else if (!streamingBroadcast && workflowState === WORKFLOW_STATES.STREAMING_LIVE) {
+    } else if (!contextBroadcast && workflowState === WORKFLOW_STATES.STREAMING_LIVE) {
       // If no broadcast but we're still in live mode, go back to ready state
       setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
     }
-  }, [streamingBroadcast, isLive])
+  }, [contextBroadcast, isLive])
 
   // Sync slow mode state from current broadcast
   useEffect(() => {
@@ -424,7 +436,7 @@ export default function DJDashboard() {
           broadcastFound: !!activeBroadcast,
           broadcastStatus: activeBroadcast?.status,
           serverState: serverState,
-          streamingBroadcast: streamingBroadcast?.id
+          streamingBroadcast: contextBroadcast?.id
         })
 
         // Check if we found an active broadcast that we should recover
@@ -438,7 +450,7 @@ export default function DJDashboard() {
             // Only show recovery notification if we're actually recovering (not initial load)
             setIsRecoveringBroadcast(true)
             
-            setCurrentBroadcast(activeBroadcast)
+            setDraftBroadcast(activeBroadcast)
             setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
             
             if (activeBroadcast.actualStart) {
@@ -458,7 +470,7 @@ export default function DJDashboard() {
           } else if (activeBroadcast.status === 'SCHEDULED') {
             // Broadcast exists but not started yet - go to READY_TO_STREAM
             logger.debug("DJ Dashboard: Broadcast is SCHEDULED, showing ready-to-stream state")
-            setCurrentBroadcast(activeBroadcast)
+            setDraftBroadcast(activeBroadcast)
             setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
           }
         } else {
@@ -479,7 +491,7 @@ export default function DJDashboard() {
             
             if (matchingBroadcast) {
               logger.info("DJ Dashboard: Found scheduled broadcast matching current time, using it:", matchingBroadcast)
-              setCurrentBroadcast(matchingBroadcast)
+              setDraftBroadcast(matchingBroadcast)
               setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
             } else {
               logger.debug("DJ Dashboard: No active or matching scheduled broadcast found, staying on CREATE_BROADCAST")
@@ -495,9 +507,9 @@ export default function DJDashboard() {
     }
 
     // Always check for active broadcasts when user is authenticated
-    // Don't depend on streamingBroadcast since it might be null during recovery
+    // Don't depend on contextBroadcast since it might be null during recovery
     checkActiveBroadcastAndServerState()
-  }, [currentUser]) // Only depend on currentUser, not streamingBroadcast
+  }, [currentUser]) // Only depend on currentUser, not contextBroadcast
 
   // Track analytics when streaming starts
   useEffect(() => {
@@ -602,31 +614,6 @@ export default function DJDashboard() {
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [showSettingsDropdown])
-
-  // Fetch current active DJ when broadcast is live
-  useEffect(() => {
-    const fetchCurrentActiveDJ = async () => {
-      if (currentBroadcast?.status === 'LIVE' && currentBroadcast?.id) {
-        try {
-          const response = await broadcastApi.getCurrentActiveDJ(currentBroadcast.id);
-          setCurrentActiveDJ(response.data);
-        } catch (error) {
-          logger.error('Error fetching current active DJ:', error);
-          // Fallback to startedBy if available
-          if (currentBroadcast?.startedBy) {
-            setCurrentActiveDJ(currentBroadcast.startedBy);
-          }
-        }
-      } else {
-        setCurrentActiveDJ(null);
-      }
-    };
-
-    fetchCurrentActiveDJ();
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchCurrentActiveDJ, 30000);
-    return () => clearInterval(interval);
-  }, [currentBroadcast?.id, currentBroadcast?.status]);
 
   // Fetch initial data when broadcast becomes available
   useEffect(() => {
@@ -1022,8 +1009,11 @@ export default function DJDashboard() {
       try {
         // Clean up any existing connection first
         if (reconnectionWsRef.current) {
-          logger.debug("DJ Dashboard: Cleaning up existing reconnection WebSocket")
-          reconnectionWsRef.current.disconnect()
+          logger.debug("DJDashboard: Cleaning up existing reconnection WebSocket")
+          if (reconnectionWsRef.current.disconnect) reconnectionWsRef.current.disconnect()
+          if (reconnectionWsRef.current.connection && reconnectionWsRef.current.connection.unsubscribe) {
+            reconnectionWsRef.current.connection.unsubscribe()
+          }
           reconnectionWsRef.current = null
         }
 
@@ -1091,72 +1081,11 @@ export default function DJDashboard() {
       }
     }
 
-
-    // Setup Handover WebSocket
-    const setupHandoverWebSocket = async () => {
-      try {
-        // Clean up any existing connection first
-        if (handoverWsRef.current) {
-          handoverWsRef.current.unsubscribe()
-          handoverWsRef.current = null
-        }
-
-        logger.debug("DJ Dashboard: Setting up handover WebSocket for broadcast:", currentBroadcast.id)
-
-        // Subscribe to handover events
-        const handoverSubscription = await stompClientManager.subscribe(
-          `/topic/broadcast/${currentBroadcast.id}/handover`,
-          (message) => {
-            try {
-              const data = JSON.parse(message.body)
-              if (data.type === "DJ_HANDOVER" && data.broadcastId === currentBroadcast.id) {
-                logger.info("DJ Dashboard: Handover event received:", data)
-                // Update current active DJ
-                if (data.handover?.newDJ) {
-                  setCurrentActiveDJ(data.handover.newDJ)
-                }
-                // Refresh broadcast data
-                broadcastService.getById(currentBroadcast.id)
-                  .then(response => setCurrentBroadcast(response.data))
-                  .catch(error => logger.error('Error refreshing broadcast after handover:', error))
-              }
-            } catch (error) {
-              logger.error('Error parsing handover message:', error)
-            }
-          }
-        )
-
-        // Subscribe to current DJ updates
-        const currentDJSubscription = await stompClientManager.subscribe(
-          `/topic/broadcast/${currentBroadcast.id}/current-dj`,
-          (message) => {
-            try {
-              const data = JSON.parse(message.body)
-              if (data.type === "CURRENT_DJ_UPDATE" && data.broadcastId === currentBroadcast.id) {
-                logger.info("DJ Dashboard: Current DJ update received:", data)
-                if (data.currentDJ) {
-                  setCurrentActiveDJ(data.currentDJ)
-                }
-              }
-            } catch (error) {
-              logger.error('Error parsing current DJ message:', error)
-            }
-          }
-        )
-
-        handoverWsRef.current = { handoverSubscription, currentDJSubscription }
-        logger.debug("DJ Dashboard: Handover WebSocket connected successfully")
-      } catch (error) {
-        logger.error("DJ Dashboard: Failed to connect handover WebSocket:", error)
-      }
-    }
-
     // Setup WebSockets immediately - no delay needed with proper guards
     setupChatWebSocket()
     setupSongRequestWebSocket()
     setupPollWebSocket()
     setupReconnectionWebSocket()
-    setupHandoverWebSocket()
 
     return () => {
       logger.debug("DJ Dashboard: Cleaning up WebSocket connections for broadcast:", currentBroadcast.id)
@@ -1187,16 +1116,6 @@ export default function DJDashboard() {
           reconnectionWsRef.current.checkpointConnection.unsubscribe()
         }
         reconnectionWsRef.current = null
-      }
-
-      if (handoverWsRef.current) {
-        if (handoverWsRef.current.handoverSubscription && handoverWsRef.current.handoverSubscription.unsubscribe) {
-          handoverWsRef.current.handoverSubscription.unsubscribe()
-        }
-        if (handoverWsRef.current.currentDJSubscription && handoverWsRef.current.currentDJSubscription.unsubscribe) {
-          handoverWsRef.current.currentDJSubscription.unsubscribe()
-        }
-        handoverWsRef.current = null
       }
     }
   }, [workflowState, currentBroadcast?.id]) // Removed unnecessary dependencies to prevent re-runs
@@ -1410,8 +1329,8 @@ export default function DJDashboard() {
     }
 
     // Double-check role permissions
-    if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
-      setStreamError("Access denied: You need DJ or Admin privileges to create broadcasts")
+    if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR')) {
+      setStreamError("Access denied: You need DJ, Moderator, or Admin privileges to create broadcasts")
       return
     }
 
@@ -1507,7 +1426,7 @@ export default function DJDashboard() {
       const response = await broadcastService.create(broadcastData)
       const createdBroadcast = response.data
 
-      setCurrentBroadcast(createdBroadcast)
+      setDraftBroadcast(createdBroadcast)
       setWorkflowState(WORKFLOW_STATES.READY_TO_STREAM)
 
       // Reset form
@@ -1557,7 +1476,7 @@ export default function DJDashboard() {
       const response = await broadcastService.start(currentBroadcast.id)
       const liveBroadcast = response.data
 
-      setCurrentBroadcast(liveBroadcast)
+      // We don't need to set local state here; StreamingContext will update via WebSocket
       setWorkflowState(WORKFLOW_STATES.STREAMING_LIVE)
 
       // Apply a short grace period (15s) to suppress transient unhealthy/isLive=false UI for DJs
@@ -1651,7 +1570,7 @@ export default function DJDashboard() {
       }
 
       // Reset local broadcast state
-      setCurrentBroadcast(null)
+      setDraftBroadcast(null)
       setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
 
       // Reset analytics and UI state
@@ -1720,7 +1639,7 @@ export default function DJDashboard() {
       await broadcastService.delete(currentBroadcast.id)
 
       // Reset state back to create new broadcast
-      setCurrentBroadcast(null)
+      setDraftBroadcast(null)
       setWorkflowState(WORKFLOW_STATES.CREATE_BROADCAST)
     } catch (error) {
       logger.error("Error canceling broadcast:", error)
@@ -1746,7 +1665,7 @@ export default function DJDashboard() {
       }
     } catch (error) {
       logger.error('Error updating slow mode:', error)
-      alert('Failed to update slow mode. Please try again.')
+      showToast('Failed to update slow mode. Please try again.', 'error')
     } finally {
       setIsSavingSlowMode(false)
     }
@@ -1756,19 +1675,19 @@ export default function DJDashboard() {
   const handleBanUser = async (userId, displayName) => {
     try {
       if (!userId) return;
-      // Only allow DJs and Admins to ban from the DJ dashboard
-      if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
-        alert('You do not have permission to ban users.');
+      // Only allow DJs, Moderators, and Admins to ban from the DJ dashboard
+      if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR')) {
+        showToast('You do not have permission to ban users.', 'error');
         return;
       }
       const confirmed = window.confirm(`Ban ${displayName || 'this user'} from chat permanently?`);
       if (!confirmed) return;
       await authService.banUser(userId, { unit: 'PERMANENT', reason: `Banned by ${currentUser.firstname || ''} ${currentUser.lastname || ''}`.trim() });
-      alert(`${displayName || 'User'} has been banned.`);
+      showToast(`${displayName || 'User'} has been banned.`, 'success');
     } catch (error) {
       logger.error('Failed to ban user from chat:', error);
       const msg = (error && (error.response?.data?.message || error.message)) || 'Unknown error';
-      alert(`Failed to ban user: ${msg}`);
+      showToast(`Failed to ban user: ${msg}`, 'error');
     }
   };
 
@@ -1781,7 +1700,7 @@ export default function DJDashboard() {
 
     try {
       if (messageText.length > 1500) {
-        alert("Message cannot exceed 1500 characters")
+        showToast("Message cannot exceed 1500 characters", 'warning')
         return
       }
       // Always send via REST (WS is receive-only). Use the WS wrapper if present (it now calls REST).
@@ -1802,17 +1721,17 @@ export default function DJDashboard() {
       logger.error("Error sending chat message:", error)
       const status = error?.response?.status
       if (status === 401) {
-        alert("Your session expired. Please log in again.")
+        showToast("Your session expired. Please log in again.", 'error')
       } else if (status === 429) {
         const headers = error.response?.headers || {}
         const retryAfter = headers['retry-after'] || headers['Retry-After'] || headers['Retry-after']
         const sec = parseInt(retryAfter, 10)
         const waitMsg = Number.isFinite(sec) ? `${sec} second${sec === 1 ? '' : 's'}` : 'a few seconds'
-        alert(`Slow mode is enabled. Please wait ${waitMsg} before sending another message.`)
+        showToast(`Slow mode is enabled. Please wait ${waitMsg} before sending another message.`, 'warning')
       } else if (error.response?.data?.message?.includes("1500 characters")) {
-        alert("Message cannot exceed 1500 characters")
+        showToast("Message cannot exceed 1500 characters", 'warning')
       } else {
-        alert("Failed to send message. Please try again.")
+        showToast("Failed to send message. Please try again.", 'error')
       }
       // Restore message if sending failed
       setChatMessage(messageText)
@@ -1843,7 +1762,7 @@ export default function DJDashboard() {
       window.URL.revokeObjectURL(url)
     } catch (error) {
       logger.error("Error downloading chat messages:", error)
-      alert("Failed to download chat messages. Please try again.")
+      showToast("Failed to download chat messages. Please try again.", 'error')
     } finally {
       setIsDownloadingChat(false)
     }
@@ -1862,7 +1781,7 @@ export default function DJDashboard() {
       logger.debug("Song request deleted successfully")
     } catch (error) {
       logger.error("Error deleting song request:", error)
-      alert("Failed to delete song request. Please try again.")
+      showToast("Failed to delete song request. Please try again.", 'error')
     }
   }
 
@@ -2014,6 +1933,26 @@ export default function DJDashboard() {
     return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
   }
 
+  // Check if another DJ is broadcasting and show read-only view
+  const isActiveDJ = currentBroadcast?.status === 'LIVE' && 
+                     (currentBroadcast?.currentActiveDJ?.id === currentUser?.id || 
+                      currentBroadcast?.startedBy?.id === currentUser?.id || 
+                      currentBroadcast?.createdBy?.id === currentUser?.id);
+
+  if (currentBroadcast?.status === 'LIVE' && !isActiveDJ && 
+      (currentUser.role === 'DJ' || currentUser.role === 'MODERATOR' || currentUser.role === 'ADMIN')) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pt-6">
+        <div className="container mx-auto px-4">
+          <ReadOnlyView 
+            message="Another DJ is currently broadcasting"
+            activeDJ={currentBroadcast.currentActiveDJ || currentBroadcast.startedBy}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
       <div className="relative min-h-screen bg-gray-50 dark:bg-gray-900">
         {/* Success Notification Banner */}
@@ -2022,6 +1961,14 @@ export default function DJDashboard() {
           isVisible={showSuccessNotification}
           onClose={() => setShowSuccessNotification(false)}
         />
+        
+        {toastState.show && (
+          <Toast
+            message={toastState.message}
+            type={toastState.type}
+            onClose={() => setToastState(prev => ({ ...prev, show: false }))}
+          />
+        )}
 
         <div className="container mx-auto px-4 pt-0 pb-4">
           {/* End Broadcast Confirmation Modal */}
@@ -2061,7 +2008,7 @@ export default function DJDashboard() {
               isOpen={showHandoverModal}
               onClose={() => setShowHandoverModal(false)}
               broadcastId={currentBroadcast.id}
-              currentDJ={currentActiveDJ}
+              currentDJ={currentBroadcast.currentActiveDJ}
               loggedInUser={currentUser}
               onHandoverSuccess={async (handoverData) => {
                 // After account switch handover, update auth context and refresh data
@@ -2069,14 +2016,10 @@ export default function DJDashboard() {
                   // The handoverLogin already updated AuthContext, but refresh to ensure sync
                   await checkAuthStatus();
                   
-                  // Refresh current active DJ after handover
-                  const response = await broadcastApi.getCurrentActiveDJ(currentBroadcast.id);
-                  setCurrentActiveDJ(response.data);
-                  
                   // Refresh broadcast data
-                  const updated = await broadcastService.getById(currentBroadcast.id);
-                  setCurrentBroadcast(updated.data);
-
+                  // We fetch it to ensure local cache is hot, but Context update happens via WebSocket
+                  await broadcastService.getById(currentBroadcast.id);
+                  
                   // Show success notification
                   const djName = handoverData?.user?.name ||
                     (handoverData?.user?.firstname && handoverData?.user?.lastname
@@ -2165,7 +2108,7 @@ export default function DJDashboard() {
                           </button>
                         </div>
                       )}
-                      {/* Handover Button - Show for any DJ on live broadcasts, or Admin/Moderator */}
+                      {/* Handover Button - Show for any DJ/Moderator on live broadcasts, or Admin */}
                       {currentBroadcast?.status === 'LIVE' &&
                        (currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR' ||
                         currentUser?.role === 'DJ') && (
@@ -2616,7 +2559,7 @@ export default function DJDashboard() {
                                             {formattedTime}
                                           </span>
                                         )}
-                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
+                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
                                                                                           <button
                                                                                             type="button"
                                                                                             onClick={() => handleBanUser(msg.sender.id, senderName)}

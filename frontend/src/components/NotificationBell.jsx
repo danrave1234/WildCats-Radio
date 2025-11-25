@@ -101,12 +101,13 @@ const parseBackendTimestamp = (timestamp) => {
 };
 
 export default function NotificationBell() {
-    const { 
-        unreadCount, 
-        markAsRead, 
+    const {
+        unreadCount,
+        markAsRead,
         markAllAsRead,
         deleteNotification,
-        combinedNotifications
+        combinedNotifications,
+        isConnected
     } = useNotifications();
     const { isAuthenticated } = useAuth();
     
@@ -153,6 +154,7 @@ export default function NotificationBell() {
             .filter((notification) => notification?.isAnnouncement || !notification?.read)
             .slice(0, 10);
     }, [combinedNotifications]);
+
 
     const getNotificationIcon = (type) => {
         const IconComponent = notificationTypeIcons[type] || notificationTypeIcons.default;
@@ -256,17 +258,27 @@ export default function NotificationBell() {
             <Popover open={isOpen} onOpenChange={setIsOpen}>
                 <PopoverTrigger asChild>
                     <button
-                        className={`relative rounded-full h-8 w-8 sm:h-9 sm:w-9 md:h-10 md:w-10 flex-shrink-0 text-foreground bg-transparent hover:bg-muted transition-all duration-300 flex items-center justify-center focus:outline-none focus:ring-0 hover:scale-105 ${isOpen ? 'scale-105' : ''} ${unreadCount > 0 ? 'notification-shake' : ''}`}
-                        aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ''}`}
+                        className={`relative rounded-full h-8 w-8 sm:h-9 sm:w-9 md:h-10 md:w-10 flex-shrink-0 text-foreground bg-transparent hover:bg-muted transition-all duration-300 flex items-center justify-center focus:outline-none focus:ring-0 hover:scale-105 ${isOpen ? 'scale-105' : ''}`}
+                        aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ''} - ${isConnected ? 'Real-time updates active' : 'Using periodic updates'}`}
                     >
                         <Bell className="bell-icon h-4 w-4 sm:h-5 sm:w-5" />
-                        
+
                         {/* Notification Badge */}
                         {unreadCount > 0 && (
                             <span className="absolute -top-1 -right-1 sm:-top-1.5 sm:-right-1.5 h-5 w-5 sm:h-6 sm:w-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold animate-pulse">
                                 {unreadCount > 99 ? '99+' : unreadCount}
                             </span>
                         )}
+
+                        {/* Connection Status Indicator - positioned at bottom right of bell */}
+                        <div
+                            className={`absolute bottom-0 right-0 h-2 w-2 rounded-full border border-white dark:border-gray-800 transition-colors duration-300 ${
+                                isConnected
+                                    ? 'bg-green-500 shadow-sm'
+                                    : 'bg-yellow-500 shadow-sm'
+                            }`}
+                            title={isConnected ? 'Real-time updates active' : 'Using periodic updates'}
+                        />
                     </button>
                 </PopoverTrigger>
                 
@@ -282,6 +294,17 @@ export default function NotificationBell() {
                                 <h3 className="text-base font-semibold">
                                     Notifications
                                 </h3>
+                                {/* Connection status indicator in header */}
+                                <div className="flex items-center space-x-1">
+                                    <div
+                                        className={`h-2 w-2 rounded-full ${
+                                            isConnected ? 'bg-green-500' : 'bg-yellow-500'
+                                        }`}
+                                    />
+                                    <span className="text-xs text-muted-foreground">
+                                        {isConnected ? 'Live' : 'Polling'}
+                                    </span>
+                                </div>
                             </div>
                             {unreadCount > 0 && (
                                 <button
