@@ -176,14 +176,14 @@ const AnnouncementsScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
-      {/* Screen Title */}
-      <View className="pt-2 pb-4 mb-2 px-5 bg-gray-50">
-        <View>
-          <Text className="text-3xl font-bold text-gray-800 mb-1">Welcome to WildCat Radio</Text>
-          <Text className="text-base text-gray-600">Stay connected with the latest news and announcements</Text>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
+        {/* Screen Title */}
+        <View className="pt-6 pb-4 mb-2 px-5 bg-gray-50">
+          <View>
+            <Text className="text-3xl font-bold text-gray-800 mb-1">Welcome to WildCat Radio</Text>
+            <Text className="text-base text-gray-600">Stay connected with the latest news and announcements</Text>
+          </View>
         </View>
-      </View>
 
       <ScrollView
         style={{ backgroundColor: '#F9FAFB' }}
