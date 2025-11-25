@@ -68,6 +68,9 @@ export default function Notifications() {
   const [selectedNotifications, setSelectedNotifications] = useState([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // ✅ PHASE 6: Performance optimization - limit rendered notifications for large lists
+  const MAX_RENDERED_NOTIFICATIONS = 100; // Render max 100 notifications at once
+
   // Manual refresh function
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
@@ -179,15 +182,18 @@ export default function Notifications() {
             </div>
             
             <div className="flex items-center space-x-3">
-              {/* Manual Refresh Button */}
-              <button
-                onClick={handleManualRefresh}
-                disabled={isRefreshing}
-                className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <RefreshCw className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                <span>Refresh</span>
-              </button>
+              {/* Manual Refresh Button - Only show when WebSocket disconnected */}
+              {!isConnected && (
+                <button
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshing}
+                  className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Manual refresh (WebSocket disconnected)"
+                >
+                  <RefreshCw className={`h-5 w-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </button>
+              )}
               
               {unreadCount > 0 && (
                 <button
@@ -277,11 +283,17 @@ export default function Notifications() {
               }
               if (selectedFilter === 'unread') arr = arr.filter(n => !n.read && !String(n.id).startsWith('ann-'));
               if (selectedFilter === 'read') arr = arr.filter(n => n.read || String(n.id).startsWith('ann-'));
+
               if (sortBy === 'oldest') arr = arr.slice().reverse();
               if (sortBy === 'unread') arr = arr.slice().sort((a,b)=> (a.read?1:0)-(b.read?1:0));
-              return arr;
+
+              // ✅ PHASE 6: Performance optimization - limit rendered notifications
+              const hasMoreToShow = arr.length > MAX_RENDERED_NOTIFICATIONS;
+              const displayedList = hasMoreToShow ? arr.slice(0, MAX_RENDERED_NOTIFICATIONS) : arr;
+
+              return { items: displayedList, total: arr.length, hasMoreToShow };
             })();
-            return list.length === 0 ? (
+            return list.items.length === 0 ? (
             <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
               <Bell className="h-16 w-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
               <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
@@ -294,7 +306,7 @@ export default function Notifications() {
               </p>
             </div>
           ) : (
-            list.map((notification) => {
+            list.items.map((notification) => {
               const IconComponent = getNotificationIcon(notification.type);
               const isSelected = selectedNotifications.includes(notification.id);
               
@@ -378,6 +390,35 @@ export default function Notifications() {
               );
             })
           )})()}
+
+          {/* ✅ PHASE 6: Show message when notifications are limited for performance */}
+          {(() => {
+            const list = (() => {
+              let arr = [...combinedNotifications];
+              if (searchTerm) {
+                arr = arr.filter(n => (n.message||'').toLowerCase().includes(searchTerm.toLowerCase()) || (n.type||'').toLowerCase().includes(searchTerm.toLowerCase()));
+              }
+              if (selectedFilter === 'unread') arr = arr.filter(n => !n.read && !String(n.id).startsWith('ann-'));
+              if (selectedFilter === 'read') arr = arr.filter(n => n.read || String(n.id).startsWith('ann-'));
+
+              if (sortBy === 'oldest') arr = arr.slice().reverse();
+              if (sortBy === 'unread') arr = arr.slice().sort((a,b)=> (a.read?1:0)-(b.read?1:0));
+
+              const hasMoreToShow = arr.length > MAX_RENDERED_NOTIFICATIONS;
+              const hiddenCount = arr.length - MAX_RENDERED_NOTIFICATIONS;
+
+              return { hasMoreToShow, hiddenCount };
+            })();
+
+            return list.hasMoreToShow ? (
+              <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700 text-center">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  Showing {MAX_RENDERED_NOTIFICATIONS} of {list.hiddenCount + MAX_RENDERED_NOTIFICATIONS} notifications.
+                  Consider using filters or search to find specific notifications.
+                </p>
+              </div>
+            ) : null;
+          })()}
         </div>
 
         
@@ -394,18 +435,29 @@ export default function Notifications() {
           </div>
         )}
 
+
         {/* Connection status indicator */}
-        <div className="mt-8 text-center">
+        <div className="mt-8 text-center space-y-2">
           <div className="inline-flex items-center space-x-2 text-sm">
             <div className={`h-2 w-2 rounded-full ${
-              isConnected 
-                ? 'bg-green-500 animate-pulse' 
+              isConnected
+                ? 'bg-green-500 animate-pulse'
                 : 'bg-yellow-500'
             }`}></div>
             <span className={isConnected ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'}>
               {isConnected ? 'Real-time updates active' : 'Using periodic updates (every 30 seconds)'}
             </span>
           </div>
+          {isConnected && (
+            <p className="text-xs text-muted-foreground">
+              Notifications sync across all your devices • Instant updates when actions occur
+            </p>
+          )}
+          {!isConnected && (
+            <p className="text-xs text-muted-foreground">
+              Manual refresh available above • Updates may be delayed
+            </p>
+          )}
         </div>
       </div>
     </div>

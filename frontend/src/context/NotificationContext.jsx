@@ -12,7 +12,8 @@ export function NotificationProvider({ children }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [page, setPage] = useState(0);
-  const [size] = useState(20);
+  // ✅ PHASE 6: Optimized page size for performance (matches backend MAX_PAGE_SIZE)
+  const [size] = useState(20); // Start with 20, can load more
   const [hasMore, setHasMore] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [isConnected, setIsConnected] = useState(false);

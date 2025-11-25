@@ -39,9 +39,13 @@ public class NotificationController {
         UserEntity user = userService.getUserByEmail(authentication.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
+        // ✅ PHASE 6: Enforce reasonable limits to prevent system overload
+        final int MAX_PAGE_SIZE = 50;  // Industry standard: 20-50 items per page
+        final int DEFAULT_PAGE_SIZE = 20;
+
         if (page != null || size != null) {
-            int p = page != null ? page : 0;
-            int s = size != null ? size : 20;
+            int p = Math.max(0, page != null ? page : 0);  // Ensure non-negative page
+            int s = Math.min(MAX_PAGE_SIZE, size != null ? size : DEFAULT_PAGE_SIZE);  // Cap page size
             Page<NotificationDTO> result = notificationService.getNotificationsForUser(user, p, s);
             return ResponseEntity.ok(result);
         }
