@@ -9,33 +9,43 @@ import { websocketService } from '../services/websocketService';
 
 const InitialLayout = () => {
   const { authToken, isLoading } = useAuth();
-  const segments = useSegments(); // e.g. [], ['welcome'], ['(auth)', 'login'], ['(tabs)', 'home']
+  const segments = useSegments(); // e.g. [], ['welcome'], ['(auth)', 'login'], ['(tabs)', 'broadcast']
   const router = useRouter();
 
   useEffect(() => {
     if (isLoading) return;
 
-    const currentRoute = segments.join('/') || '/'; // e.g. "/", "welcome", "auth/login", "(tabs)/home"
+    const currentRoute = segments.join('/') || '/'; // e.g. "/", "welcome", "auth/login", "(tabs)/broadcast"
 
-    // Check if the current route is an auth-related route
-    const isAuthRoute = currentRoute === 'welcome' || 
-                        currentRoute === 'auth/login' || 
+    // Check if the current route is an auth-related route (exclude welcome)
+    const isAuthRoute = currentRoute === 'auth/login' || 
                         currentRoute === 'auth/signup' ||
                         currentRoute === 'auth/forgot-password';
 
-    if (authToken) {
-      // User is authenticated
-      if (isAuthRoute || currentRoute === '/') {
-        // If on an auth route or the initial splash/loading, redirect to main app
-        router.replace('/(tabs)/home'); 
-      }
-    } else {
-      // User is not authenticated
-      if (!isAuthRoute && currentRoute !== '/') {
-        // If not on an auth route and not on initial splash, redirect to welcome
-        router.replace('/welcome');
-      }
+    // Check if the current route is a tab route
+    const isTabRoute = currentRoute.startsWith('(tabs)');
+
+    // If the user becomes authenticated while on an auth route, send them to Profile
+    // This prevents staying on a blank/transitioning auth screen after login
+    if (authToken && isAuthRoute) {
+      router.replace('/(tabs)/profile');
+      return;
     }
+
+    // Default landing route: show Welcome screen on app start (for WS warm-up)
+    if (currentRoute === '/' || (!isTabRoute && !isAuthRoute && currentRoute !== 'welcome')) {
+      router.replace('/welcome');
+      return;
+    }
+
+    // If user is on an auth route, allow them to stay there
+    if (isAuthRoute || currentRoute === 'welcome') {
+      return;
+    }
+
+    // For authenticated users on tab routes, they can access everything
+    // For non-authenticated users on tab routes, they can still access but with limited features
+    // No redirect needed - let them stay where they are
   }, [authToken, isLoading, segments, router]);
 
   // Connect a lightweight global WS for public announcements (no auth needed)

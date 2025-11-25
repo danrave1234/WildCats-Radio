@@ -14,6 +14,7 @@ import {
   Switch,
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
+import { useRouter } from 'expo-router';
 import {
   getMe,
   UserData,
@@ -27,6 +28,7 @@ import {
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import AnimatedTextInput from '../../components/ui/AnimatedTextInput';
 import ProfileSkeleton from '../../components/ProfileSkeleton';
+import LoginPrompt from '../../components/LoginPrompt';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import "../../global.css";
 
@@ -48,6 +50,7 @@ const getInitials = (user: UserData | null) => {
 
 const ProfileScreen: React.FC = () => {
   const { authToken, signOut } = useAuth();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -189,7 +192,12 @@ const ProfileScreen: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchUserData();
+    if (authToken) {
+      fetchUserData();
+    } else {
+      setIsLoading(false);
+      setUserData(null);
+    }
   }, [authToken]);
 
   const handleLogout = async () => {
@@ -299,77 +307,93 @@ const ProfileScreen: React.FC = () => {
   };
 
   const renderTabContent = () => {
-    const cardPadding = "p-6 md:p-8"; 
     const formVerticalSpacing = "space-y-6";
-    const buttonGroupSpacing = "mt-10";
 
-    // Content views no longer wrapped in PanGestureHandler or Animated.View for sliding
+    // Edit mode for Personal Information
     if (isEditingPersonalInfo && activeTab === 'Personal Information') {
       return (
-        <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
-            <Text className="text-2xl font-bold text-cordovan mb-8">Edit Personal Information</Text>
-            <View className={formVerticalSpacing}>
-              <AnimatedTextInput
-                label="First Name"
-                value={firstname}
-                onChangeText={setFirstname}
-                editable={!isUpdatingProfile}
-                autoCapitalize="words"
-              />
-              <AnimatedTextInput
-                label="Last Name"
-                value={lastname}
-                onChangeText={setLastname}
-                editable={!isUpdatingProfile}
-                autoCapitalize="words"
-              />
-              <AnimatedTextInput
-                label="Email Address"
-                value={email}
-                onChangeText={setEmail}
-                editable={false} 
-                keyboardType="email-address"
-                containerStyle={{ opacity: 0.6 }}
-              />
-            </View>
-            <View className={`flex-row justify-end items-center ${buttonGroupSpacing} space-x-4`}>
-                <TouchableOpacity onPress={() => setIsEditingPersonalInfo(false)} disabled={isUpdatingProfile}>
-                    <Text className="text-gray-600 font-semibold">Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    onPress={handleUpdateProfile}
-                    className="bg-cordovan py-2 px-6 rounded-lg shadow-lg flex-row items-center"
-                    disabled={isUpdatingProfile}
-                >
-                    {isUpdatingProfile && <ActivityIndicator size="small" color="white" className="mr-2" />}
-                    <Text className="text-white font-bold">Save</Text>
-                </TouchableOpacity>
-            </View>
+        <View>
+          <View className="flex-row items-center mb-6">
+            <Ionicons name="pencil-outline" size={20} color="#91403E" />
+            <Text className="text-lg font-medium text-gray-900 ml-2">Personal Information</Text>
+          </View>
+          <View style={{ height: 1, backgroundColor: '#E5E7EB', marginBottom: 24 }} />
+          <View className={formVerticalSpacing}>
+            <AnimatedTextInput
+              label="First Name"
+              value={firstname}
+              onChangeText={setFirstname}
+              editable={!isUpdatingProfile}
+              autoCapitalize="words"
+            />
+            <AnimatedTextInput
+              label="Last Name"
+              value={lastname}
+              onChangeText={setLastname}
+              editable={!isUpdatingProfile}
+              autoCapitalize="words"
+            />
+            <AnimatedTextInput
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              editable={false} 
+              keyboardType="email-address"
+              containerStyle={{ opacity: 0.6 }}
+            />
+          </View>
+          <View className="flex-row justify-end items-center mt-8">
+            <TouchableOpacity 
+              onPress={() => setIsEditingPersonalInfo(false)} 
+              disabled={isUpdatingProfile}
+              className="mr-4"
+            >
+              <Text className="text-gray-600 font-semibold">Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleUpdateProfile}
+              className="py-2.5 px-6 rounded-lg flex-row items-center"
+              style={{ backgroundColor: '#91403E' }}
+              disabled={isUpdatingProfile}
+            >
+              {isUpdatingProfile && <ActivityIndicator size="small" color="white" style={{ marginRight: 8 }} />}
+              <Text className="text-white font-semibold">Save Changes</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       );
     }
     
     if (activeTab === 'Personal Information') {
       return (
-        <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
-          <View className="flex-row justify-between items-center mb-6">
-            <Text className="text-2xl font-bold text-cordovan">Personal Information</Text>
+        <View>
+          <View className="flex-row items-center justify-between mb-6">
+            <View className="flex-row items-center">
+              <Ionicons name="pencil-outline" size={20} color="#91403E" />
+              <Text className="text-lg font-medium text-gray-900 ml-2">Personal Information</Text>
+            </View>
             <TouchableOpacity onPress={() => setIsEditingPersonalInfo(true)} className="p-2">
-                <MaterialIcons name="edit" size={24} color="#91403E" />
+              <MaterialIcons name="edit" size={22} color="#91403E" />
             </TouchableOpacity>
           </View>
+          <View style={{ height: 1, backgroundColor: '#E5E7EB', marginBottom: 24 }} />
           <View className={formVerticalSpacing}>
             <View>
-              <Text className="text-sm text-cordovan font-medium">FULL NAME</Text>
-              <Text className="text-base text-gray-800 mt-0.5">{`${firstname} ${lastname}`.trim() || 'N/A'}</Text>
+              <Text className="text-sm font-medium text-gray-700 mb-1">First Name</Text>
+              <Text className="text-base text-gray-900">{firstname || 'N/A'}</Text>
             </View>
             <View>
-              <Text className="text-sm text-cordovan font-medium">EMAIL</Text>
-              <Text className="text-base text-gray-800 mt-0.5">{email || 'N/A'}</Text>
+              <Text className="text-sm font-medium text-gray-700 mb-1">Last Name</Text>
+              <Text className="text-base text-gray-900">{lastname || 'N/A'}</Text>
             </View>
             <View>
-              <Text className="text-sm text-cordovan font-medium">ROLE</Text>
-              <Text className="text-base text-gray-800 mt-0.5">{userData?.role || 'N/A'}</Text>
+              <Text className="text-sm font-medium text-gray-700 mb-1">Email</Text>
+              <Text className="text-base text-gray-900">{email || 'N/A'}</Text>
+              <Text className="text-xs text-gray-500 mt-1">Email cannot be changed</Text>
+            </View>
+            <View>
+              <Text className="text-sm font-medium text-gray-700 mb-1">Role</Text>
+              <Text className="text-base text-gray-900">{userData?.role || 'N/A'}</Text>
             </View>
           </View>
         </View>
@@ -378,43 +402,50 @@ const ProfileScreen: React.FC = () => {
     
     if (activeTab === 'Security') {
       return (
-        <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
-          <Text className="text-2xl font-bold text-cordovan mb-8">Change Password</Text>
+        <View>
+          <View className="flex-row items-center mb-6">
+            <Ionicons name="lock-closed-outline" size={20} color="#91403E" />
+            <Text className="text-lg font-medium text-gray-900 ml-2">Change Password</Text>
+          </View>
+          <View style={{ height: 1, backgroundColor: '#E5E7EB', marginBottom: 24 }} />
           {passwordError && (
-              <Text className="text-red-500 bg-red-100 p-3 rounded-lg mb-4">{passwordError}</Text>
+            <View className="bg-red-50 border-l-4 p-4 rounded-lg mb-6" style={{ borderLeftColor: '#EF4444' }}>
+              <Text className="text-red-800 text-sm">{passwordError}</Text>
+            </View>
           )}
           <View className={formVerticalSpacing}>
-              <AnimatedTextInput
-                  label="Current Password"
-                  value={currentPassword}
-                  onChangeText={setCurrentPassword}
-                  secureTextEntry
-                  editable={!isChangingPassword}
-              />
-              <AnimatedTextInput
-                  label="New Password"
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  secureTextEntry
-                  editable={!isChangingPassword}
-              />
-              <AnimatedTextInput
-                  label="Confirm New Password"
-                  value={confirmNewPassword}
-                  onChangeText={setConfirmNewPassword}
-                  secureTextEntry
-                  editable={!isChangingPassword}
-              />
+            <AnimatedTextInput
+              label="Current Password"
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
+              secureTextEntry
+              editable={!isChangingPassword}
+            />
+            <AnimatedTextInput
+              label="New Password"
+              value={newPassword}
+              onChangeText={setNewPassword}
+              secureTextEntry
+              editable={!isChangingPassword}
+            />
+            <AnimatedTextInput
+              label="Confirm New Password"
+              value={confirmNewPassword}
+              onChangeText={setConfirmNewPassword}
+              secureTextEntry
+              editable={!isChangingPassword}
+            />
           </View>
-          <View className={`flex-row justify-end ${buttonGroupSpacing}`}>
-              <TouchableOpacity
-                  onPress={handleChangePassword}
-                  className="bg-cordovan py-3 px-6 rounded-lg shadow-lg flex-row items-center"
-                  disabled={isChangingPassword}
-              >
-                  {isChangingPassword && <ActivityIndicator size="small" color="white" className="mr-2" />}
-                  <Text className="text-white font-bold">Update Password</Text>
-              </TouchableOpacity>
+          <View className="flex-row justify-end mt-8">
+            <TouchableOpacity
+              onPress={handleChangePassword}
+              className="py-2.5 px-6 rounded-lg flex-row items-center"
+              style={{ backgroundColor: '#91403E' }}
+              disabled={isChangingPassword}
+            >
+              {isChangingPassword && <ActivityIndicator size="small" color="white" style={{ marginRight: 8 }} />}
+              <Text className="text-white font-semibold">Update Password</Text>
+            </TouchableOpacity>
           </View>
         </View>
       );
@@ -422,39 +453,43 @@ const ProfileScreen: React.FC = () => {
     
     if (activeTab === 'Preferences') {
       return (
-        <View className={`bg-white ${cardPadding} rounded-xl shadow-lg`}>
-          <Text className="text-2xl font-bold text-cordovan mb-8">Notification Preferences</Text>
+        <View>
+          <View className="flex-row items-center mb-6">
+            <Ionicons name="settings-outline" size={20} color="#91403E" />
+            <Text className="text-lg font-medium text-gray-900 ml-2">Notification Preferences</Text>
+          </View>
+          <View style={{ height: 1, backgroundColor: '#E5E7EB', marginBottom: 24 }} />
           
           {/* Success Display */}
           {preferenceUpdateSuccess && (
-            <View className="bg-green-50 border border-green-200 rounded-lg p-3 mb-6">
-              <Text className="text-green-600 text-sm font-medium">{preferenceUpdateSuccess}</Text>
+            <View className="bg-green-50 border-l-4 p-4 rounded-lg mb-6" style={{ borderLeftColor: '#10B981' }}>
+              <Text className="text-green-800 text-sm">{preferenceUpdateSuccess}</Text>
             </View>
           )}
           
           {/* Error Display */}
           {preferenceUpdateError && (
-            <View className="bg-red-50 border border-red-200 rounded-lg p-3 mb-6">
-              <Text className="text-red-600 text-sm font-medium">{preferenceUpdateError}</Text>
+            <View className="bg-red-50 border-l-4 p-4 rounded-lg mb-6" style={{ borderLeftColor: '#EF4444' }}>
+              <Text className="text-red-800 text-sm">{preferenceUpdateError}</Text>
             </View>
           )}
           
           {/* Loading Indicator */}
           {isUpdatingPreferences && (
-            <View className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6">
+            <View className="bg-blue-50 border-l-4 p-4 rounded-lg mb-6" style={{ borderLeftColor: '#3B82F6' }}>
               <View className="flex-row items-center">
-                <ActivityIndicator size="small" color="#3B82F6" className="mr-2" />
-                <Text className="text-blue-600 text-sm font-medium">Updating preferences...</Text>
+                <ActivityIndicator size="small" color="#3B82F6" style={{ marginRight: 8 }} />
+                <Text className="text-blue-800 text-sm font-medium">Updating preferences...</Text>
               </View>
             </View>
           )}
           
-          <View className="space-y-6">
+          <View style={{ gap: 24 }}>
             {/* Broadcast Start Notifications */}
             <View className="flex-row items-center justify-between">
-              <View className="flex-1">
-                <Text className="text-base font-semibold text-gray-800">Broadcast Start</Text>
-                <Text className="text-sm text-gray-600">Get notified when broadcasts begin</Text>
+              <View className="flex-1 mr-4">
+                <Text className="text-base font-semibold text-gray-900">Broadcast Start</Text>
+                <Text className="text-sm text-gray-600 mt-0.5">Get notified when broadcasts begin</Text>
               </View>
               <Switch
                 value={userData?.notifyBroadcastStart ?? true}
@@ -467,9 +502,9 @@ const ProfileScreen: React.FC = () => {
 
             {/* Broadcast Reminders */}
             <View className="flex-row items-center justify-between">
-              <View className="flex-1">
-                <Text className="text-base font-semibold text-gray-800">Broadcast Reminders</Text>
-                <Text className="text-sm text-gray-600">Get notified before broadcasts start</Text>
+              <View className="flex-1 mr-4">
+                <Text className="text-base font-semibold text-gray-900">Broadcast Reminders</Text>
+                <Text className="text-sm text-gray-600 mt-0.5">Get notified before broadcasts start</Text>
               </View>
               <Switch
                 value={userData?.notifyBroadcastReminders ?? true}
@@ -482,9 +517,9 @@ const ProfileScreen: React.FC = () => {
 
             {/* New Schedule Notifications */}
             <View className="flex-row items-center justify-between">
-              <View className="flex-1">
-                <Text className="text-base font-semibold text-gray-800">New Schedule</Text>
-                <Text className="text-sm text-gray-600">Get notified about new broadcast schedules</Text>
+              <View className="flex-1 mr-4">
+                <Text className="text-base font-semibold text-gray-900">New Schedule</Text>
+                <Text className="text-sm text-gray-600 mt-0.5">Get notified about new broadcast schedules</Text>
               </View>
               <Switch
                 value={userData?.notifyNewSchedule ?? false}
@@ -497,9 +532,9 @@ const ProfileScreen: React.FC = () => {
 
             {/* System Updates */}
             <View className="flex-row items-center justify-between">
-              <View className="flex-1">
-                <Text className="text-base font-semibold text-gray-800">System Updates</Text>
-                <Text className="text-sm text-gray-600">Get notified about system announcements</Text>
+              <View className="flex-1 mr-4">
+                <Text className="text-base font-semibold text-gray-900">System Updates</Text>
+                <Text className="text-sm text-gray-600 mt-0.5">Get notified about system announcements</Text>
               </View>
               <Switch
                 value={userData?.notifySystemUpdates ?? true}
@@ -516,6 +551,29 @@ const ProfileScreen: React.FC = () => {
     
     return null;
   };
+
+  // Show login screen if not authenticated
+  if (!authToken) {
+    return (
+      <SafeAreaView className="flex-1 bg-gray-100">
+        <ScrollView
+          contentContainerStyle={{ 
+            flexGrow: 1, 
+            justifyContent: 'center', 
+            paddingVertical: 40,
+            paddingHorizontal: 20,
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <LoginPrompt
+            title="Login to Manage Profile"
+            message="Sign in to view and manage your personal information, security settings, and notification preferences."
+            icon="person-circle-outline"
+          />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   if (isLoading && !userData) {
     return (
@@ -549,13 +607,6 @@ const ProfileScreen: React.FC = () => {
           >
                <Text className="text-white font-semibold text-base text-center">Try Again</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
-              className="bg-mikado_yellow py-3 px-8 rounded-lg shadow-md hover:bg-opacity-90"
-              onPress={handleLogout}
-          >
-               <Text className="text-black font-semibold text-base text-center">Go Back to Welcome</Text>
-          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -565,29 +616,46 @@ const ProfileScreen: React.FC = () => {
   const memberSinceText = userData?.memberSince || `Listener since ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-100">
+    <SafeAreaView className="flex-1" style={{ backgroundColor: '#F9FAFB' }}>
       <ScrollView
-        style={{ backgroundColor: '#F3F4F6' }} // Add background to ScrollView
+        style={{ backgroundColor: '#F9FAFB' }}
         contentContainerStyle={{ 
-          paddingBottom: 120 + insets.bottom, // Increased bottom padding to account for app navigation bar
-          paddingTop: Platform.OS === 'android' ? 12 : 6, // Tight spacing like schedule page
-          backgroundColor: '#F3F4F6' // Ensure content area has background
+          paddingBottom: 120 + insets.bottom,
+          paddingTop: Platform.OS === 'android' ? 8 : 4,
+          backgroundColor: '#F9FAFB'
         }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header Section */}
-        <View className="bg-white pt-16 pb-8 px-5 items-center shadow-lg">
-          <View className="w-24 h-24 rounded-full bg-mikado_yellow justify-center items-center mb-2 border-4 border-white shadow-lg">
-            <Text className="text-3xl font-bold text-black">{getInitials(userData)}</Text>
+        {/* Page Header */}
+        <View className="px-4 pt-4 pb-6">
+          <Text className="text-3xl font-bold text-gray-900">Your Profile</Text>
+          <Text className="text-gray-600 mt-1">Manage your personal information and account settings</Text>
+        </View>
+
+        {/* User Info Section */}
+        <View className="px-4 pb-6">
+          <View className="flex-row items-center mb-6">
+            <View className="h-20 w-20 rounded-full" style={{ backgroundColor: '#F3E8FF', justifyContent: 'center', alignItems: 'center' }}>
+              <Text className="text-2xl font-bold" style={{ color: '#91403E' }}>{getInitials(userData)}</Text>
+            </View>
+            <View className="ml-4 flex-1">
+              <Text className="text-xl font-bold text-gray-900">
+                {`${firstname} ${lastname}`.trim() || 'User Name'}
+              </Text>
+              <Text className="text-gray-600 mt-1">{email || 'No email'}</Text>
+              {userData?.role && (
+                <View className="mt-1 self-start px-2.5 py-0.5 rounded-full" style={{ backgroundColor: '#FEF3C7' }}>
+                  <Text className="text-xs font-medium" style={{ color: '#92400E' }}>{userData.role}</Text>
+                </View>
+              )}
+            </View>
           </View>
-          <Text className="text-2xl font-bold text-gray-900 mb-1">{`${firstname} ${lastname}`.trim()}</Text>
-          <Text className="text-base text-gray-500">{userData?.role || 'Role not found'}</Text>
         </View>
 
         {/* Tab Navigation */}
-        <View className="bg-white px-2 pt-4">
-          <View className="flex-row">
-            {tabDefinitions.map((tab, index) => (
+        <View className="px-4 pb-2">
+          <View className="flex-row" style={{ borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }}>
+            {tabDefinitions.map((tab) => (
               <Pressable
                 key={tab.key}
                 onLayout={(event) => {
@@ -599,11 +667,11 @@ const ProfileScreen: React.FC = () => {
               >
                 <Ionicons
                   name={tab.icon}
-                  size={24}
+                  size={22}
                   color={activeTab === tab.key ? "#91403E" : "#6B7280"}
                 />
                 <Text
-                  className={`mt-1 text-xs font-bold ${
+                  className={`mt-1 text-xs font-medium ${
                     activeTab === tab.key ? 'text-cordovan' : 'text-gray-500'
                   }`}
                 >
@@ -612,30 +680,23 @@ const ProfileScreen: React.FC = () => {
               </Pressable>
             ))}
           </View>
-          <Animated.View
-            style={{
-              height: 2,
-              backgroundColor: '#91403E',
-              width: underlineWidth,
-              transform: [{ translateX: underlinePosition }],
-            }}
-          />
         </View>
 
-        {/* Tab Content */}
-        <View className="p-4">
+        {/* Tab Content - Full Width */}
+        <View className="px-4 pt-6">
           {renderTabContent()}
         </View>
         
         {/* Logout Button */}
-        <View className="px-4 mt-8">
-            <TouchableOpacity
-                onPress={handleLogout}
-                className="bg-red-500/10 py-3 rounded-lg flex-row items-center justify-center border border-red-500/20"
-            >
-                <Ionicons name="log-out-outline" size={22} color="#EF4444" />
-                <Text className="text-red-500 font-bold ml-2">Sign Out</Text>
-            </TouchableOpacity>
+        <View className="px-4 mt-8 mb-6">
+          <TouchableOpacity
+            onPress={handleLogout}
+            className="bg-red-50 py-3 rounded-lg flex-row items-center justify-center border"
+            style={{ borderColor: '#FEE2E2' }}
+          >
+            <Ionicons name="log-out-outline" size={22} color="#EF4444" />
+            <Text className="text-red-600 font-semibold ml-2">Sign Out</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>

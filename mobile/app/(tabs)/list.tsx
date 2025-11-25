@@ -48,7 +48,7 @@ const ListScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const { tab } = useLocalSearchParams<{ tab?: FilterTab }>();
 
-  const [activeFilter, setActiveFilter] = useState<FilterTab>(tab || 'all');
+  const [activeFilter, setActiveFilter] = useState<FilterTab>(tab || 'recent');
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [liveBroadcasts, setLiveBroadcasts] = useState<Broadcast[]>([]);
   const [upcomingBroadcasts, setUpcomingBroadcasts] = useState<Broadcast[]>([]);
@@ -68,10 +68,7 @@ const ListScreen: React.FC = () => {
   const [isInitialLayoutDone, setIsInitialLayoutDone] = useState(false);
 
   const tabDefinitions: TabDefinition[] = useMemo(() => [
-    { key: 'all', name: 'All', icon: 'list-outline' },
-    { key: 'live', name: 'Live', icon: 'radio-outline' },
-    { key: 'upcoming', name: 'Upcoming', icon: 'time-outline' },
-    { key: 'recent', name: 'Recent', icon: 'calendar-outline' },
+    { key: 'recent', name: 'History', icon: 'time-outline' },
   ], []);
 
   // Animate tab underline
@@ -102,21 +99,16 @@ const ListScreen: React.FC = () => {
   }, [activeFilter, tabLayouts, isInitialLayoutDone, tabDefinitions, underlinePosition, underlineWidth]);
 
   const fetchBroadcasts = useCallback(async (showRefreshing = false) => {
-    if (!authToken) {
-      setError('Authentication required');
-      setIsLoading(false);
-      return;
-    }
-
     try {
       if (showRefreshing) setIsRefreshing(true);
       else setIsLoading(true);
       setError(null);
 
+      const token = authToken || null;
       const [allResult, liveResult, upcomingResult] = await Promise.all([
-        getAllBroadcasts(authToken),
-        getLiveBroadcasts(authToken),
-        getUpcomingBroadcasts(authToken),
+        getAllBroadcasts(token),
+        getLiveBroadcasts(token),
+        getUpcomingBroadcasts(token),
       ]);
 
       if ('error' in allResult) {
@@ -210,16 +202,12 @@ const ListScreen: React.FC = () => {
 
     // For other filters, return simple array
     switch (activeFilter) {
-      case 'live':
-        return liveBroadcasts;
-      case 'upcoming':
-        return upcomingBroadcasts;
       case 'recent':
         return broadcasts.filter(broadcast => {
           if (!broadcast.actualEnd) return false;
           try {
             const endDate = parseISO(broadcast.actualEnd);
-            return isAfter(endDate, sevenDaysAgo) && isBefore(endDate, now);
+            return isBefore(endDate, now); // include all past broadcasts
           } catch {
             return false;
           }
@@ -227,7 +215,7 @@ const ListScreen: React.FC = () => {
       default:
         return [];
     }
-  }, [activeFilter, broadcasts, liveBroadcasts, upcomingBroadcasts, upcomingPage, recentPage]);
+  }, [activeFilter, broadcasts, upcomingPage, recentPage]);
 
   const handleBroadcastPress = (broadcast: Broadcast) => {
     // If it's an upcoming broadcast, redirect to schedule with the date
@@ -263,12 +251,11 @@ const ListScreen: React.FC = () => {
 
   const handleRecentNextPage = () => {
     const now = new Date();
-    const sevenDaysAgo = addDays(now, -7);
     const recentBroadcasts = broadcasts.filter(broadcast => {
       if (!broadcast.actualEnd) return false;
       try {
         const endDate = parseISO(broadcast.actualEnd);
-        return isAfter(endDate, sevenDaysAgo) && isBefore(endDate, now);
+        return isBefore(endDate, now);
       } catch {
         return false;
       }
@@ -953,7 +940,7 @@ const ListScreen: React.FC = () => {
       all: { icon: 'list-outline', message: 'No Broadcasts Found', subtitle: 'Check back soon for exciting shows!' },
       live: { icon: 'radio-outline', message: 'Currently Off Air', subtitle: 'There are no live broadcasts at the moment. Please check the schedule or try again later.' },
       upcoming: { icon: 'time-outline', message: 'No Upcoming Shows', subtitle: 'There are no upcoming broadcasts scheduled. New shows will be added soon.' },
-      recent: { icon: 'calendar-outline', message: 'No Recent Shows', subtitle: 'There are no recent broadcasts from the past week. Check back after some shows air.' },
+      recent: { icon: 'time-outline', message: 'No Past Broadcasts', subtitle: 'No broadcasts have ended yet. Please check back later.' },
     };
 
     const { icon, message, subtitle } = emptyMessages[activeFilter];
@@ -974,7 +961,7 @@ const ListScreen: React.FC = () => {
       <SafeAreaView style={{ flex: 1, backgroundColor: '#F9FAFB', paddingTop: insets.top, paddingBottom: insets.bottom }}>
         <Stack.Screen 
           options={{ 
-            title: 'Broadcasts',
+            title: 'History',
             headerShadowVisible: false,
           }} 
         />
@@ -1012,16 +999,16 @@ const ListScreen: React.FC = () => {
     <SafeAreaView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
       <Stack.Screen 
         options={{ 
-          title: 'Broadcasts',
+          title: 'History',
           headerShadowVisible: false,
         }} 
       />
       
       {/* Screen Title */}
-      <View className="pt-2 pb-4 mb-2 px-5 bg-gray-50">
+      <View className="pt-6 pb-4 mb-2 px-5 bg-gray-50">
         <View>
-          <Text className="text-3xl font-bold text-gray-800 mb-1">Broadcast Directory</Text>
-          <Text className="text-base text-gray-600">Explore live shows, upcoming broadcasts and recent episodes</Text>
+          <Text className="text-3xl font-bold text-gray-800 mb-1">Broadcast History</Text>
+          <Text className="text-base text-gray-600">Explore past broadcasts</Text>
         </View>
       </View>
       

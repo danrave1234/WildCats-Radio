@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, TouchableOpacity, Text, StyleSheet, Dimensions, Platform, Animated, Easing } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, TouchableOpacity, Text, StyleSheet, Dimensions, Platform } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,15 +33,10 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
   // Safe area insets
   const insets = useSafeAreaInsets();
   
-  // Animation values for the indicator line
   const [tabLayouts, setTabLayouts] = useState<Record<string, { x: number; width: number } | undefined>>({});
-  const underlinePosition = useRef(new Animated.Value(0)).current;
-  const underlineWidth = useRef(new Animated.Value(0)).current;
-  const underlineOpacity = useRef(new Animated.Value(1)).current;
-  const [isInitialLayoutDone, setIsInitialLayoutDone] = useState(false);
-  
-  // Tab bar hide animation
-  const tabBarTranslateY = useRef(new Animated.Value(0)).current;
+  const [underlinePosition, setUnderlinePosition] = useState(0);
+  const [underlineWidth, setUnderlineWidth] = useState(0);
+  const [underlineVisible, setUnderlineVisible] = useState(true);
 
   // Safety check for required props
   if (!state || !state.routes || !descriptors || !navigation) {
@@ -73,104 +68,42 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
   // Effect to position underline based on current tab without animation
   useEffect(() => {
     if (!state || state.index === undefined || !state.routes) return;
-    
     const currentRouteKey = state.routes[state.index]?.key;
     if (!currentRouteKey) return;
-    
-    // Handle broadcast tab special case
+
     const isCurrentBroadcast = state.routes[state.index]?.name === 'broadcast';
-    
-    // Set opacity based on whether broadcast is selected (no animation)
-    underlineOpacity.setValue(isCurrentBroadcast ? 0 : 1); // Hide when broadcast is selected
-    
-    // Only update position if it's not the broadcast tab
+    setUnderlineVisible(!isCurrentBroadcast);
+
     if (!isCurrentBroadcast) {
       const currentTabLayout = tabLayouts[currentRouteKey];
       if (currentTabLayout && currentTabLayout.width > 0) {
-        // Set position directly without animation
-        underlinePosition.setValue(currentTabLayout.x);
-        underlineWidth.setValue(currentTabLayout.width);
-        if (!isInitialLayoutDone) {
-          setIsInitialLayoutDone(true);
-        }
+        setUnderlinePosition(currentTabLayout.x);
+        setUnderlineWidth(currentTabLayout.width);
       }
     }
-  }, [state?.index, tabLayouts, underlinePosition, underlineWidth, underlineOpacity, isInitialLayoutDone]);
+  }, [state, tabLayouts]);
 
-  // Calculate total tab bar height including safe area
-  const totalTabBarHeight = BASE_TAB_BAR_HEIGHT + insets.bottom;
-
-  // Effect to handle tab bar hide/show animation based on notification or broadcast state
-  useEffect(() => {
-    // Priority: notification takes precedence over broadcast listening
-    if (isNotificationOpen) {
-      // Hide tab bar by sliding down for notifications - faster to sync with notification opening
-      Animated.timing(tabBarTranslateY, {
-        toValue: totalTabBarHeight + 20, // Move down by tab bar height plus some extra
-        duration: 250, // Faster animation to sync with notification
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    } else if (isBroadcastListening) {
-      // Hide tab bar by sliding down for broadcast tune-in - slower animation to match screen transition
-      Animated.timing(tabBarTranslateY, {
-        toValue: totalTabBarHeight + 20, // Move down by tab bar height plus some extra
-        duration: 500, // Slower animation to match broadcast screen transition
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    } else {
-      // Show tab bar by sliding up - use moderate speed that works well for both scenarios
-      // Add a small delay when coming back from broadcast to coordinate with header animation
-      const delay = isBroadcastSelected ? 200 : 0; // Delay only when coming back from broadcast
-      
-      setTimeout(() => {
-        Animated.timing(tabBarTranslateY, {
-          toValue: 0,
-          duration: 350, // Balanced duration that works well for both notification and broadcast returns
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }).start();
-      }, delay);
-    }
-  }, [isNotificationOpen, isBroadcastListening, tabBarTranslateY, isBroadcastSelected, totalTabBarHeight]);
+  // Keep the tab bar always visible. Previously, when `isBroadcastListening` was true,
+  // we translated the bar down by its own height which effectively hid it off‑screen.
+  // That caused the navbar to disappear while listening live. We now keep offset at 0.
+  const tabBarOffset = 0;
 
   return (
-    <Animated.View style={[styles.container, animatedStyle, {
-      transform: [{ translateY: tabBarTranslateY }],
-      paddingBottom: insets.bottom, // Add bottom safe area
-    }]}>
-      {/* Background overlay to prevent content bleeding through system UI */}
+    <View style={[styles.container, animatedStyle, {
+      transform: [{ translateY: tabBarOffset }],
+      paddingBottom: insets.bottom,
+    }]}> 
+      {/* Solid background behind the tab bar area */}
       <View style={{
         position: 'absolute',
         top: 0,
         left: 0,
         right: 0,
-        bottom: -insets.bottom, // Extend slightly below to cover system UI
+        bottom: 0,
         backgroundColor: CORDOVAN_COLOR,
-        zIndex: -1, // Behind tab content but above system UI
+        zIndex: -1,
       }} />
       <View style={styles.tabBar}>
-        {/* Animated Line Indicator - Removed for seamless blend */}
-        {/* <Animated.View
-          style={{
-            position: 'absolute',
-            top: 0,
-            height: 4,
-            backgroundColor: INDICATOR_COLOR,
-            left: underlinePosition,
-            width: underlineWidth,
-            borderBottomLeftRadius: 4,
-            borderBottomRightRadius: 4,
-            zIndex: 10, // Ensure it's above other elements
-            shadowColor: INDICATOR_COLOR,
-            shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: 0.4,
-            shadowRadius: 2,
-            elevation: 3,
-            opacity: underlineOpacity, // Fade out when broadcast is selected
-          }}
-        /> */}
         
         {state.routes.map((route, index) => {
           if (!route || !route.key) return null;
@@ -208,11 +141,11 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
             
             // Always use outline versions for a consistent outline style
             switch (routeName) {
-              case 'home': return 'home-outline';
-              case 'list': return 'list-outline';
-              case 'broadcast': return 'radio-outline';
+              case 'home': return 'megaphone-outline'; // Announcements icon
+              case 'broadcast': return 'radio-outline'; // Listen icon
               case 'schedule': return 'calendar-outline';
               case 'profile': return 'person-circle-outline';
+              case 'list': return 'time-outline'; // History icon for past broadcasts
               default: return 'alert-circle-outline';
             }
           };
@@ -262,20 +195,30 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
             </TouchableOpacity>
           );
         })}
+        {underlineVisible && (
+          <View
+            style={[
+              styles.indicator,
+              {
+                left: underlinePosition,
+                width: underlineWidth,
+                opacity: underlineVisible ? 1 : 0,
+              },
+            ]}
+          />
+        )}
       </View>
-    </Animated.View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    position: 'relative', // participate in layout so content never sits under the navbar
+    width: '100%',
     backgroundColor: 'transparent',
     alignItems: 'center',
-    justifyContent: 'flex-end', // Align tabBar to bottom of container
+    justifyContent: 'flex-end',
   },
   tabBar: {
     flexDirection: 'row',
@@ -341,6 +284,13 @@ const styles = StyleSheet.create({
     fontSize: 11, // Slightly larger label
     marginTop: 3, // Space between icon and label
     fontWeight: '500',
+  },
+  indicator: {
+    position: 'absolute',
+    bottom: 0,
+    height: 3,
+    backgroundColor: INDICATOR_COLOR,
+    borderRadius: 2,
   },
 });
 

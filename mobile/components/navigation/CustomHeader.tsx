@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { View, TouchableOpacity, Platform, Animated, Easing, Image, Dimensions, Text, ScrollView, StatusBar, InteractionManager, ActivityIndicator } from 'react-native';
+import { View, TouchableOpacity, Platform, Animated, Easing, Image, Dimensions, Text, ScrollView, StatusBar, InteractionManager, ActivityIndicator, Alert, BackHandler } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useAuth } from '../../context/AuthContext';
 import OptimizedNotificationScreen from './OptimizedNotificationScreen';
 
 interface CustomHeaderProps {
@@ -29,6 +30,7 @@ const CustomHeader = React.memo(({
 }: CustomHeaderProps) => {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { authToken } = useAuth();
   const [showNotificationScreen, setShowNotificationScreen] = useState(false);
   const [isNotificationAnimating, setIsNotificationAnimating] = useState(false);
   
@@ -248,7 +250,22 @@ const CustomHeader = React.memo(({
       console.log('🚫 Notification press ignored - animation in progress');
       return;
     }
-    
+
+    // Auth gate: require login to open notifications
+    if (!authToken) {
+      Alert.alert(
+        'Login required',
+        'Please log in to view your notifications.',
+        [
+          { text: 'Later', style: 'cancel' },
+          { text: 'Login', style: 'default', onPress: () => router.push('/auth/login') },
+        ],
+      );
+      // Ensure downstream consumers think notifications are closed
+      if (onNotificationStateChange) onNotificationStateChange(false);
+      return;
+    }
+
     console.log('🔔 CustomHeader: Notification icon pressed');
     setIsNotificationAnimating(true);
     
@@ -290,19 +307,45 @@ const CustomHeader = React.memo(({
     }]
   } : {};
 
+  // Keep provider consumers in sync with local state changes (extra safety)
+  useEffect(() => {
+    if (onNotificationStateChange) {
+      onNotificationStateChange(showNotificationScreen);
+    }
+  }, [showNotificationScreen, onNotificationStateChange]);
+
+  // Handle Android hardware back while notification overlay is open
+  useEffect(() => {
+    if (!showNotificationScreen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleNotificationClose();
+      return true; // prevent default back behavior
+    });
+    return () => sub.remove();
+  }, [showNotificationScreen, handleNotificationClose]);
+
+  // Ensure tab bar visibility resets if header unmounts mid-notification
+  useEffect(() => {
+    return () => {
+      if (onNotificationStateChange) onNotificationStateChange(false);
+    };
+  }, [onNotificationStateChange]);
+
   return (
     <>
     <View style={{
       paddingTop: Platform.OS === 'ios' ? insets.top : insets.top + 10,
-      paddingBottom: 8,
-      paddingHorizontal: 16,
-      backgroundColor: '#F5F5F7', // Light grayish white color
+      paddingBottom: 12,
+      paddingHorizontal: 20,
+      backgroundColor: '#91403E', // Cordovan color - matching CustomTabBar
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.15,
-      shadowRadius: 6,
-      elevation: 8,
-        zIndex: 10,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.25,
+      shadowRadius: 10,
+      elevation: 12,
+      zIndex: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(255, 195, 11, 0.15)', // Subtle Mikado Yellow accent border
     }}>
       <View style={{
         flexDirection: 'row',
@@ -327,10 +370,15 @@ const CustomHeader = React.memo(({
           >
             <TouchableOpacity 
               onPress={handleBack} 
-              style={{ padding: 8, paddingBottom: 4 }} 
+              style={{ 
+                padding: 10,
+                paddingBottom: 6,
+                backgroundColor: 'rgba(255, 195, 11, 0.12)',
+                borderRadius: 12,
+              }} 
               activeOpacity={0.7}
             >
-              <Ionicons name="chevron-back" size={26} color="#91403E" />
+              <Ionicons name="chevron-back" size={26} color="#FFC30B" />
             </TouchableOpacity>
           </Animated.View>
         )}
@@ -363,7 +411,11 @@ const CustomHeader = React.memo(({
         {showNotification ? (
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>            
             <TouchableOpacity 
-              style={{ padding: 8, marginTop: 6, position: 'relative' }} 
+              style={{ 
+                padding: 8, 
+                marginTop: 6, 
+                position: 'relative',
+              }} 
               activeOpacity={0.7}
               onPress={handleNotificationPress}
             >
@@ -418,7 +470,7 @@ const CustomHeader = React.memo(({
                   <Ionicons
                     name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
                     size={24}
-                    color={'#91403E'}
+                    color={'white'}
                   />
                   {unreadCount > 0 && (() => {
                     const badgeSize = 16;
@@ -461,6 +513,18 @@ const CustomHeader = React.memo(({
                 </Animated.View>
               </View>
             </TouchableOpacity>
+            {/* Login icon when user is not authenticated */}
+            {!authToken && (
+              <TouchableOpacity
+                style={{ padding: 8, marginTop: 6, marginLeft: 6 }}
+                activeOpacity={0.7}
+                onPress={() => router.push('/auth/login')}
+                accessibilityRole="button"
+                accessibilityLabel="Login"
+              >
+                <Ionicons name="log-in-outline" size={24} color={'white'} />
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           <View style={{ width: 48 }} />

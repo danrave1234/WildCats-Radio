@@ -1,11 +1,13 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { SafeAreaView, View, Text, Image, TouchableOpacity, Animated } from 'react-native';
 import { useRouter } from 'expo-router';
 import "../global.css"; // Ensure NativeWind styles are imported
 import { useFadeInUpAnimation } from '../hooks/useFadeInUpAnimation'; // Import the hook
+import { websocketService } from '../services/websocketService';
 
 const WelcomeScreen: React.FC = () => {
   const router = useRouter();
+  const userNavigatedRef = useRef(false);
 
   // Animation hooks with delays
   const logoAnim = useFadeInUpAnimation({ delay: 100 });
@@ -15,12 +17,38 @@ const WelcomeScreen: React.FC = () => {
   const signupButtonAnim = useFadeInUpAnimation({ delay: 900 });
 
   const handleLogin = () => {
+    userNavigatedRef.current = true;
     router.push('/auth/login'); // Navigate to your login screen
   };
 
   const handleSignUp = () => {
+    userNavigatedRef.current = true;
     router.push('/auth/signup'); // Navigate to your sign-up screen
   };
+
+  // Auto-forward to Listen after WS connect (with fallback timeout)
+  useEffect(() => {
+    let isActive = true;
+
+    const goToListen = () => {
+      if (!isActive || userNavigatedRef.current) return;
+      router.replace('/(tabs)/broadcast');
+    };
+
+    const onWsConnect = () => {
+      goToListen();
+    };
+
+    websocketService.onConnect(onWsConnect);
+    // Fallback in case connect callback doesn't fire promptly
+    const fallbackTimer = setTimeout(goToListen, 1500);
+
+    return () => {
+      isActive = false;
+      clearTimeout(fallbackTimer);
+      websocketService.offConnect(onWsConnect);
+    };
+  }, [router]);
 
   return (
     <SafeAreaView className="flex-1 bg-anti-flash_white">
