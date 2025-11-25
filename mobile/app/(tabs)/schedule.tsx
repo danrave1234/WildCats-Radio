@@ -337,7 +337,7 @@ const ScheduleScreen: React.FC = () => {
   return (
     <SafeAreaView className="flex-1 bg-gray-100">
       {/* Screen Title */}
-      <View className="pt-2 pb-4 mb-2 px-5 bg-gray-100">
+      <View className="pt-6 pb-4 mb-2 px-5 bg-gray-100">
         <View>
           <Text className="text-3xl font-bold text-gray-800 mb-1">Broadcast Schedule</Text>
           <Text className="text-base text-gray-600">Discover upcoming shows and plan your listening</Text>

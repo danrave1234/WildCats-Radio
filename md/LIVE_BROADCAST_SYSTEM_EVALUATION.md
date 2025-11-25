@@ -1147,12 +1147,17 @@ The WildCats Radio live broadcast system has a solid foundation with WebSocket-b
 
 ---
 
-**Document Version:** 1.8
+**Document Version:** 1.9
 **Last Updated:** January 2025
 **Author:** System Evaluation
 **Review Status:** Phase 1 ✅ COMPLETED, Phase 2 ✅ COMPLETED, Phase 3 ✅ COMPLETED
 
 **UPDATE:** Phase 2 WebSocket optimization COMPLETED. Hard refactor implemented with breaking changes - pure STOMP architecture achieved with 83% connection reduction.
+
+**LATEST UPDATE (January 2025):** WebSocket message handling cleanup completed:
+- ✅ Removed dead code: `BROADCAST_STATUS_UPDATE` handlers (backend doesn't send this message type)
+- ✅ Enhanced `BROADCAST_RECOVERY` handling: Added to global broadcast status subscription in ListenerDashboard
+- ✅ Verified consistency: All frontend WebSocket message handlers now match backend implementation exactly
 
 ---
 

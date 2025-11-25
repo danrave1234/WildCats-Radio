@@ -1018,7 +1018,7 @@ const ListScreen: React.FC = () => {
       />
       
       {/* Screen Title */}
-      <View className="pt-2 pb-4 mb-2 px-5 bg-gray-50">
+      <View className="pt-6 pb-4 mb-2 px-5 bg-gray-50">
         <View>
           <Text className="text-3xl font-bold text-gray-800 mb-1">Broadcast Directory</Text>
           <Text className="text-base text-gray-600">Explore live shows, upcoming broadcasts and recent episodes</Text>

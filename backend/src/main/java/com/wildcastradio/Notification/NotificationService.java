@@ -1,8 +1,10 @@
 package com.wildcastradio.Notification;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -143,7 +145,17 @@ public class NotificationService {
                 .orElseThrow(() -> new RuntimeException("Notification not found"));
 
         notification.setRead(true);
-        return notificationRepository.save(notification);
+        NotificationEntity saved = notificationRepository.save(notification);
+
+        // ✅ PHASE 3: Send WebSocket update for real-time sync across devices
+        NotificationDTO dto = NotificationDTO.fromEntity(saved);
+        messagingTemplate.convertAndSendToUser(
+                saved.getRecipient().getEmail(),
+                "/queue/notifications/updates",
+                dto
+        );
+
+        return saved;
     }
 
     public long countUnreadNotifications(UserEntity user) {
@@ -166,7 +178,19 @@ public class NotificationService {
 
     @Transactional
     public int markAllAsRead(UserEntity user) {
-        return notificationRepository.markAllAsReadForUser(user);
+        int updated = notificationRepository.markAllAsReadForUser(user);
+
+        // ✅ PHASE 3: Send WebSocket update for real-time sync across devices
+        Map<String, Object> update = new HashMap<>();
+        update.put("type", "MARK_ALL_READ");
+        update.put("count", updated);
+        messagingTemplate.convertAndSendToUser(
+                user.getEmail(),
+                "/queue/notifications/updates",
+                update
+        );
+
+        return updated;
     }
 
     @Transactional(readOnly = true)

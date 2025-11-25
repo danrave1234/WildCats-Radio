@@ -1,6 +1,6 @@
 package com.wildcastradio.User;
 
-import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -9,10 +9,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,14 +27,30 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.wildcastradio.Broadcast.BroadcastEntity;
+import com.wildcastradio.Broadcast.BroadcastRepository;
+import com.wildcastradio.DJHandover.DJHandoverEntity;
+import com.wildcastradio.DJHandover.DJHandoverRepository;
+import com.wildcastradio.DJHandover.DTO.DJHandoverDTO;
 import com.wildcastradio.User.DTO.BanRequest;
 import com.wildcastradio.User.DTO.ChangePasswordRequest;
+import com.wildcastradio.User.DTO.HandoverLoginRequest;
 import com.wildcastradio.User.DTO.LoginRequest;
 import com.wildcastradio.User.DTO.LoginResponse;
 import com.wildcastradio.User.DTO.RegisterRequest;
 import com.wildcastradio.User.DTO.UserDTO;
+import com.wildcastradio.config.JwtUtil;
 import com.wildcastradio.ratelimit.IpUtils;
 import com.wildcastradio.ratelimit.LoginAttemptLimiter;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import jakarta.validation.Valid;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -43,6 +64,24 @@ public class UserController {
 
     private final UserService userService;
     private final LoginAttemptLimiter loginAttemptLimiter;
+
+    @Autowired
+    private BroadcastRepository broadcastRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private DJHandoverRepository handoverRepository;
 
     @Value("${app.security.cookie.secure:false}")
     private boolean useSecureCookies;
@@ -125,8 +164,208 @@ public class UserController {
         }
     }
 
+    @PostMapping("/handover-login")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
+    @Transactional
+    public ResponseEntity<?> handoverLogin(
+            @Valid @RequestBody HandoverLoginRequest request,
+            Authentication authentication,
+            HttpServletResponse response) {
+        
+        try {
+            // 1. Validate handover permissions
+            UserEntity initiator = userService.getUserByEmail(authentication.getName())
+                    .orElseThrow(() -> new IllegalArgumentException("Initiator not found"));
+            
+            BroadcastEntity broadcast = broadcastRepository.findById(request.getBroadcastId())
+                    .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
+            
+            if (broadcast.getStatus() != BroadcastEntity.BroadcastStatus.LIVE) {
+                throw new IllegalArgumentException("Broadcast must be LIVE");
+            }
+            
+            // 2. Validate new DJ exists and has DJ role
+            UserEntity newDJ = userRepository.findById(request.getNewDJId())
+                    .orElseThrow(() -> new IllegalArgumentException("New DJ not found"));
+            
+            if (newDJ.getRole() != UserEntity.UserRole.DJ) {
+                throw new IllegalArgumentException("New DJ must have DJ role");
+            }
+            
+            if (!newDJ.isActive()) {
+                throw new IllegalArgumentException("New DJ must be active");
+            }
+            
+            // 3. Authenticate new DJ with password
+            if (!passwordEncoder.matches(request.getPassword(), newDJ.getPassword())) {
+                logger.warn("Handover-login authentication failed: Invalid password for DJ {}", newDJ.getEmail());
+                throw new IllegalArgumentException("Invalid password for selected DJ");
+            }
+            
+            // 4. Validate handover permissions (enhanced for long broadcast scenarios)
+            UserEntity currentActiveDJ = broadcast.getCurrentActiveDJ();
+            boolean hasPermission = validateHandoverPermission(initiator, broadcast);
+
+            if (!hasPermission) {
+                logger.warn("Handover permission denied - Broadcast: {} ({}h old), Initiator: {} (role: {}), CurrentDJ: {}",
+                    request.getBroadcastId(),
+                    broadcast.getActualStart() != null ?
+                        Duration.between(broadcast.getActualStart(), LocalDateTime.now()).toHours() : 0,
+                    initiator.getEmail(),
+                    initiator.getRole(),
+                    currentActiveDJ != null ? currentActiveDJ.getEmail() : "none");
+                throw new IllegalArgumentException("You do not have permission to initiate handover");
+            }
+            
+            // 5. Check if new DJ is same as current active DJ
+            if (currentActiveDJ != null && currentActiveDJ.getId().equals(newDJ.getId())) {
+                throw new IllegalArgumentException("New DJ cannot be the same as current active DJ");
+            }
+            
+            // 6. Create handover record with ACCOUNT_SWITCH auth method
+            DJHandoverEntity handover = new DJHandoverEntity();
+            handover.setBroadcast(broadcast);
+            handover.setPreviousDJ(currentActiveDJ);
+            handover.setNewDJ(newDJ);
+            handover.setHandoverTime(LocalDateTime.now());
+            handover.setInitiatedBy(initiator);
+            handover.setReason(request.getReason());
+            handover.setAuthMethod(DJHandoverEntity.AuthMethod.ACCOUNT_SWITCH);
+            
+            // Calculate duration of previous DJ's session
+            if (currentActiveDJ != null && broadcast.getActualStart() != null) {
+                List<DJHandoverEntity> previousHandovers = handoverRepository
+                        .findByBroadcast_IdOrderByHandoverTimeAsc(request.getBroadcastId());
+                
+                LocalDateTime periodStart = broadcast.getActualStart();
+                for (DJHandoverEntity prevHandover : previousHandovers) {
+                    if (prevHandover.getNewDJ().getId().equals(currentActiveDJ.getId())) {
+                        periodStart = prevHandover.getHandoverTime();
+                        break;
+                    }
+                }
+                
+                Duration duration = Duration.between(periodStart, LocalDateTime.now());
+                handover.setDurationSeconds(duration.getSeconds());
+            }
+            
+            // Save handover record
+            DJHandoverEntity savedHandover = handoverRepository.save(handover);
+            handoverRepository.flush(); // Force immediate write to database
+            
+            logger.info("Handover record saved: ID={}, Broadcast={}, From DJ={}, To DJ={}", 
+                savedHandover.getId(), 
+                request.getBroadcastId(),
+                currentActiveDJ != null ? currentActiveDJ.getId() : "none",
+                newDJ.getId());
+            
+            // 7. Update broadcast's current active DJ and set active session ID
+            String activeSessionId = UUID.randomUUID().toString();
+            broadcast.setCurrentActiveDJ(newDJ);
+            broadcast.setActiveSessionId(activeSessionId);
+            BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+            broadcastRepository.flush(); // Force immediate write to database
+            
+            logger.info("Broadcast updated: Broadcast={}, New DJ ID={}, ActiveSessionId={}", 
+                request.getBroadcastId(), 
+                savedBroadcast.getCurrentActiveDJ() != null ? savedBroadcast.getCurrentActiveDJ().getId() : "null",
+                activeSessionId);
+            
+            // 8. Generate new JWT token for new DJ
+            UserDetails userDetails = userService.loadUserByUsername(newDJ.getEmail());
+            String token = jwtUtil.generateToken(userDetails);
+            
+            // 9. Set HttpOnly cookies with new token
+            Cookie tokenCookie = new Cookie("token", token);
+            tokenCookie.setHttpOnly(true);
+            tokenCookie.setSecure(useSecureCookies);
+            tokenCookie.setPath("/");
+            tokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+            tokenCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
+            response.addCookie(tokenCookie);
+            
+            Cookie userIdCookie = new Cookie("userId", String.valueOf(newDJ.getId()));
+            userIdCookie.setHttpOnly(true);
+            userIdCookie.setSecure(useSecureCookies);
+            userIdCookie.setPath("/");
+            userIdCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+            userIdCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
+            response.addCookie(userIdCookie);
+            
+            Cookie userRoleCookie = new Cookie("userRole", newDJ.getRole().toString());
+            userRoleCookie.setHttpOnly(true);
+            userRoleCookie.setSecure(useSecureCookies);
+            userRoleCookie.setPath("/");
+            userRoleCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+            userRoleCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
+            response.addCookie(userRoleCookie);
+            
+            // 10. Send WebSocket notifications
+            Map<String, Object> handoverMessage = new HashMap<>();
+            handoverMessage.put("type", "DJ_HANDOVER");
+            handoverMessage.put("broadcastId", request.getBroadcastId());
+            handoverMessage.put("handover", DJHandoverDTO.fromEntity(savedHandover));
+            messagingTemplate.convertAndSend("/topic/broadcast/" + request.getBroadcastId() + "/handover", handoverMessage);
+            
+            Map<String, Object> currentDJMessage = new HashMap<>();
+            currentDJMessage.put("type", "CURRENT_DJ_UPDATE");
+            currentDJMessage.put("broadcastId", request.getBroadcastId());
+            currentDJMessage.put("currentDJ", UserDTO.fromEntity(newDJ));
+            currentDJMessage.put("activeSessionId", activeSessionId);
+            messagingTemplate.convertAndSend("/topic/broadcast/" + request.getBroadcastId() + "/current-dj", currentDJMessage);
+            
+            // 11. Log authentication event
+            logger.info("DJ handover with account switch: Broadcast {} from DJ {} to DJ {}", 
+                    request.getBroadcastId(),
+                    currentActiveDJ != null ? currentActiveDJ.getEmail() : "none",
+                    newDJ.getEmail());
+            
+            // 12. Return response
+            Map<String, Object> responseBody = new HashMap<>();
+            responseBody.put("success", true);
+            responseBody.put("user", UserDTO.fromEntity(newDJ));
+            responseBody.put("handover", DJHandoverDTO.fromEntity(savedHandover));
+            responseBody.put("activeSessionId", activeSessionId);
+            responseBody.put("isBroadcastingSession", true);
+            
+            return ResponseEntity.ok(responseBody);
+            
+        } catch (IllegalArgumentException e) {
+            logger.warn("Handover-login failed: {}", e.getMessage());
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("error", e.getMessage());
+            errorResponse.put("code", "HANDOVER_FAILED");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        } catch (Exception e) {
+            logger.error("Unexpected error during handover-login", e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("error", "An unexpected error occurred");
+            errorResponse.put("code", "INTERNAL_ERROR");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
     @PostMapping("/logout")
-    public ResponseEntity<String> logoutUser(HttpServletResponse response) {
+    public ResponseEntity<?> logoutUser(Authentication authentication, HttpServletResponse response) {
+        if (authentication != null) {
+            UserEntity user = userService.getUserByEmail(authentication.getName())
+                    .orElse(null);
+            
+            if (user != null) {
+                // Check if user is active DJ of LIVE broadcast
+                Optional<BroadcastEntity> activeBroadcast = broadcastRepository
+                    .findByCurrentActiveDJAndStatus(user, BroadcastEntity.BroadcastStatus.LIVE);
+                
+                if (activeBroadcast.isPresent()) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(Map.of("error", 
+                            "Cannot logout while actively broadcasting. Please hand over the broadcast first."));
+                }
+            }
+        }
+
         // Clear all authentication cookies
         Cookie tokenCookie = new Cookie("token", "");
         tokenCookie.setHttpOnly(true);
@@ -152,7 +391,7 @@ public class UserController {
         userRoleCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
         response.addCookie(userRoleCookie);
         
-        return ResponseEntity.ok("Logged out successfully");
+        return ResponseEntity.ok(Map.of("success", true, "message", "Logged out successfully"));
     }
 
     @PostMapping("/verify")
@@ -241,14 +480,16 @@ public class UserController {
     @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
     public ResponseEntity<Page<UserDTO>> getUsersPaged(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "15") int size) {
+            @RequestParam(defaultValue = "15") int size,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) String roleFilter) {
         Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, size));
-        Page<UserDTO> dtoPage = userService.findAllUsers(pageable).map(UserDTO::fromEntity);
+        Page<UserDTO> dtoPage = userService.findAllUsers(query, roleFilter, pageable).map(UserDTO::fromEntity);
         return ResponseEntity.ok(dtoPage);
     }
 
     @GetMapping("/by-role/{role}")
-    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')")
     public ResponseEntity<List<UserDTO>> getUsersByRole(@PathVariable UserEntity.UserRole role) {
         List<UserDTO> users = userService.findUsersByRole(role).stream()
                 .map(UserDTO::fromEntity)
@@ -337,6 +578,71 @@ public class UserController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
+        }
+    }
+
+    /**
+     * Enhanced handover permission validation for long broadcast scenarios
+     */
+    private boolean validateHandoverPermission(UserEntity initiator, BroadcastEntity broadcast) {
+        // Admin/Mod override always allowed
+        if (initiator.getRole() == UserEntity.UserRole.ADMIN ||
+            initiator.getRole() == UserEntity.UserRole.MODERATOR) {
+            return true;
+        }
+
+        // For DJs, multiple validation paths
+        if (initiator.getRole() == UserEntity.UserRole.DJ) {
+            UserEntity currentActiveDJ = broadcast.getCurrentActiveDJ();
+
+            // Path 1: Standard check (current active DJ)
+            if (currentActiveDJ != null && currentActiveDJ.getId().equals(initiator.getId())) {
+                return true;
+            }
+
+            // Path 2: Long broadcast persistent auth scenario
+            if (isValidPersistentAuthScenario(initiator, broadcast)) {
+                return true;
+            }
+
+            // Path 3: Recent activity fallback (check last 24 hours)
+            if (wasRecentlyActiveInBroadcast(initiator, broadcast)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if this is a long broadcast scenario where persistent auth should be allowed
+     */
+    private boolean isValidPersistentAuthScenario(UserEntity initiator, BroadcastEntity broadcast) {
+        if (broadcast.getActualStart() == null) return false;
+
+        Duration duration = Duration.between(broadcast.getActualStart(), LocalDateTime.now());
+        boolean isLongBroadcast = duration.toHours() >= 4; // 4+ hour threshold
+
+        // For long broadcasts, allow handover if initiator is active DJ
+        // The persistent auth system ensures only authorized DJs remain logged in
+        return isLongBroadcast && initiator.getRole() == UserEntity.UserRole.DJ && initiator.isActive();
+    }
+
+    /**
+     * Check if initiator was recently active in this broadcast (fallback for edge cases)
+     */
+    private boolean wasRecentlyActiveInBroadcast(UserEntity initiator, BroadcastEntity broadcast) {
+        try {
+            List<DJHandoverEntity> recentActivity = handoverRepository
+                .findByBroadcast_IdAndInitiatedBy_IdAndHandoverTimeAfter(
+                    broadcast.getId(),
+                    initiator.getId(),
+                    LocalDateTime.now().minusHours(24)
+                );
+            return !recentActivity.isEmpty();
+        } catch (Exception e) {
+            logger.warn("Error checking recent activity for handover permission", e);
+            return false;
         }
     }
 

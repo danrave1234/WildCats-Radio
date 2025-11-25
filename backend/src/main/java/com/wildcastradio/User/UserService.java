@@ -292,10 +292,10 @@ public class UserService implements UserDetailsService {
         boolean actorIsAdmin = actor.getRole() == UserEntity.UserRole.ADMIN;
         boolean actorIsModerator = actor.getRole() == UserEntity.UserRole.MODERATOR;
 
-        // Moderators cannot promote to ADMIN and cannot modify ADMIN users
+        // Moderators cannot promote to ADMIN or MODERATOR, and cannot modify ADMIN users
         if (actorIsModerator) {
-            if (newRole == UserEntity.UserRole.ADMIN) {
-                throw new SecurityException("Moderator cannot assign ADMIN role");
+            if (newRole == UserEntity.UserRole.ADMIN || newRole == UserEntity.UserRole.MODERATOR) {
+                throw new SecurityException("Moderator cannot assign ADMIN or MODERATOR role");
             }
             if (target.getRole() == UserEntity.UserRole.ADMIN) {
                 throw new SecurityException("Moderator cannot modify ADMIN users");
@@ -488,8 +488,31 @@ public class UserService implements UserDetailsService {
         return userRepository.findAll();
     }
 
-    public Page<UserEntity> findAllUsers(Pageable pageable) {
-        return userRepository.findAll(pageable);
+    public Page<UserEntity> findAllUsers(String query, String roleFilter, Pageable pageable) {
+        // Handle role filter
+        UserEntity.UserRole role = null;
+        if (roleFilter != null && !roleFilter.trim().isEmpty() && !"ALL".equalsIgnoreCase(roleFilter)) {
+            try {
+                role = UserEntity.UserRole.valueOf(roleFilter.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                logger.warn("Invalid role filter: {}, ignoring", roleFilter);
+                // Continue without role filter if invalid
+            }
+        }
+
+        if (query != null && !query.trim().isEmpty()) {
+            if (role != null) {
+                return userRepository.searchUsersByRole(query.trim().toLowerCase(), role, pageable);
+            } else {
+                return userRepository.searchUsers(query.trim().toLowerCase(), pageable);
+            }
+        } else { // No search query
+            if (role != null) {
+                return userRepository.findByRole(role, pageable);
+            } else {
+                return userRepository.findAll(pageable);
+            }
+        }
     }
 
     public List<UserEntity> findUsersByRole(UserEntity.UserRole role) {
