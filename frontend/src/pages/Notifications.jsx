@@ -55,7 +55,6 @@ export default function Notifications() {
     markAsRead, 
     markAllAsRead, 
     fetchNotifications,
-    refreshAnnouncements,
     isConnected,
     hasMore,
     loadMoreNotifications,
@@ -75,10 +74,7 @@ export default function Notifications() {
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await Promise.all([
-        fetchNotifications(),
-        refreshAnnouncements()
-      ]);
+      await fetchNotifications();
     } finally {
       setIsRefreshing(false);
     }
@@ -424,7 +420,7 @@ export default function Notifications() {
         
 
         {/* Load More */}
-        {filteredAndSortedNotifications.length > 0 && hasMore && (
+        {hasMore && (
           <div className="mt-6 text-center">
             <button
               onClick={loadMoreNotifications}
