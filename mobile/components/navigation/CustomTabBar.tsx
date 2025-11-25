@@ -208,9 +208,8 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
             
             // Always use outline versions for a consistent outline style
             switch (routeName) {
-              case 'home': return 'home-outline';
-              case 'list': return 'list-outline';
-              case 'broadcast': return 'radio-outline';
+              case 'home': return 'megaphone-outline'; // Announcements icon
+              case 'broadcast': return 'radio-outline'; // Listen icon
               case 'schedule': return 'calendar-outline';
               case 'profile': return 'person-circle-outline';
               default: return 'alert-circle-outline';

@@ -65,12 +65,36 @@ export default function TabLayout() {
               backgroundColor: '#91403E', // Ensure tab bar has background
             },
           }}
+          initialRouteName="broadcast"
         >
-          <Tabs.Screen name="home" />
-          <Tabs.Screen name="list" />
-          <Tabs.Screen name="broadcast" />
-          <Tabs.Screen name="schedule" />
-          <Tabs.Screen name="profile" />
+          <Tabs.Screen 
+            name="home" 
+            options={{
+              title: 'Announcements',
+              tabBarLabel: 'Announcements',
+            }}
+          />
+          <Tabs.Screen 
+            name="schedule" 
+            options={{
+              title: 'Schedule',
+              tabBarLabel: 'Schedule',
+            }}
+          />
+          <Tabs.Screen 
+            name="broadcast" 
+            options={{
+              title: 'Listen',
+              tabBarLabel: 'Listen',
+            }}
+          />
+          <Tabs.Screen 
+            name="profile" 
+            options={{
+              title: 'Profile',
+              tabBarLabel: 'Profile',
+            }}
+          />
         </Tabs>
       </BroadcastContext.Provider>
     </NotificationContext.Provider>

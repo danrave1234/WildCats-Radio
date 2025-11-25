@@ -41,6 +41,7 @@ import {
   getActivePollsForBroadcast,
   voteOnPoll,
   getMe,
+  getUpcomingBroadcasts,
 } from '../../services/apiService';
 import { chatService } from '../../services/chatService';
 import { pollService } from '../../services/pollService';
@@ -53,6 +54,9 @@ import { runStreamDiagnostics, quickStreamTest } from '../../services/streamDebu
 import { websocketService } from '../../services/websocketService';
 import '../../global.css';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
+import HeroPlayButton from '../../components/HeroPlayButton';
+import NowPlayingCard from '../../components/NowPlayingCard';
+import LoginPrompt from '../../components/LoginPrompt';
 
 // AnimatedMessage Component for grouping animations
 interface AnimatedMessageProps {
@@ -479,6 +483,7 @@ const BroadcastScreen: React.FC = () => {
   const [isRefreshingBroadcast, setIsRefreshingBroadcast] = useState(false);
 
   const [currentBroadcast, setCurrentBroadcast] = useState<Broadcast | null>(null);
+  const [upcomingBroadcasts, setUpcomingBroadcasts] = useState<Broadcast[]>([]);
   // Mock Now Playing Data - replace with actual data structure from API
   const [nowPlayingInfo, setNowPlayingInfo] = useState<NowPlayingInfo | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessageDTO[]>([]);
@@ -549,37 +554,8 @@ const BroadcastScreen: React.FC = () => {
   const [isBanned, setIsBanned] = useState(false);
   const [banMessage, setBanMessage] = useState<string | null>(null);
 
-  // Early safety check for auth context - AFTER all hooks are called
-  if (!authContext) {
-    return (
-      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]} className="flex-1 bg-anti-flash_white">
-        <Stack.Screen 
-          options={{
-              headerShown: false, // Always hide the default header
-          }}
-         />
-        {/* Custom Header - Always visible */}
-        <CustomHeader 
-          showBackButton={false}
-          onBackPress={undefined}
-        />
-        <ScrollView
-          style={{ backgroundColor: '#F3F4F6' }}
-          contentContainerStyle={{ 
-            paddingBottom: 100,
-            paddingTop: Platform.OS === 'android' ? 12 : 6, // Tight spacing like other pages
-            paddingHorizontal: 20,
-            backgroundColor: '#F3F4F6'
-          }}
-          showsVerticalScrollIndicator={false}
-        >
-          <BroadcastSkeleton />
-        </ScrollView>
-      </View>
-    );
-  }
-
-  const authToken = authContext.authToken;
+  // Auth is optional - allow public access
+  const authToken = authContext?.authToken || null;
 
   // Sync slow mode settings from broadcast (matching website)
   useEffect(() => {
@@ -1405,37 +1381,44 @@ const BroadcastScreen: React.FC = () => {
   }, [setIsBroadcastListening]);
 
   const loadInitialDataForBroadcastScreen = useCallback(async (isBackgroundUpdate = false) => {
-    if (!authToken || !authContext) {
-      setError("Authentication required.");
-      setIsLoading(false);
-      setCurrentBroadcast(null);
-      setNowPlayingInfo(null); // Clear now playing info
-      return;
-    }
+    // Public access - no auth required for listening
     if (!isBackgroundUpdate) {
       setIsLoading(true);
       setError(null);
-      setChatMessages([]);
-      setActivePolls([]);
-      setSongRequests([]);
-      setUserMessageIds(new Set());
+      // Only clear interactive data if not authenticated
+      if (!authToken) {
+        setChatMessages([]);
+        setActivePolls([]);
+        setSongRequests([]);
+        setUserMessageIds(new Set());
+      }
       setNowPlayingInfo(null); // Clear now playing on new load
     }
 
     try {
       let broadcastToUse: Broadcast | null = null;
       if (routeBroadcastId) {
-        const detailsResult = await getBroadcastDetails(routeBroadcastId, authToken);
+        const detailsResult = await getBroadcastDetails(routeBroadcastId, authToken || null);
         if ('error' in detailsResult) throw new Error(detailsResult.error);
         broadcastToUse = detailsResult;
       } else {
-        const liveBroadcastsResult = await getLiveBroadcasts(authToken);
+        // Auto-detect live broadcast - public access
+        const liveBroadcastsResult = await getLiveBroadcasts(authToken || null);
         if ('error' in liveBroadcastsResult) throw new Error(liveBroadcastsResult.error);
         if (liveBroadcastsResult.length > 0) {
           broadcastToUse = liveBroadcastsResult[0];
         } else {
           setCurrentBroadcast(null);
           setNowPlayingInfo(null);
+          // Fetch upcoming broadcasts for "Off Air" state
+          try {
+            const upcomingResult = await getUpcomingBroadcasts(authToken || null);
+            if (!('error' in upcomingResult)) {
+              setUpcomingBroadcasts(upcomingResult.slice(0, 3)); // Get next 3 shows
+            }
+          } catch (e) {
+            console.error('Failed to fetch upcoming broadcasts:', e);
+          }
           setIsLoading(false);
           return;
         }
@@ -1449,8 +1432,8 @@ const BroadcastScreen: React.FC = () => {
         // if (!('error' in songInfo)) setNowPlayingInfo(songInfo);
       }
 
-      if (broadcastToUse) {
-        // Use consistent services for all data fetching
+      if (broadcastToUse && authToken) {
+        // Only fetch interactive data if authenticated
         const [messagesResult, pollsResult, songRequestsResult] = await Promise.all([
           chatService.getMessages(broadcastToUse.id, authToken),
           pollService.getPollsForBroadcast(broadcastToUse.id, authToken),
@@ -1506,7 +1489,7 @@ const BroadcastScreen: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [authToken, routeBroadcastId, authContext]);
+  }, [authToken, routeBroadcastId]);
 
   // Start polling for broadcast status updates (fallback only)
   const startPolling = useCallback(() => {
@@ -2063,7 +2046,24 @@ const BroadcastScreen: React.FC = () => {
     return ownershipMap;
   }, [memoizedChatMessages, currentUserId, listenerName, userData, userMessageIds]);
 
-  const renderChatTab = () => (
+  const renderChatTab = () => {
+    // Show login prompt if not authenticated
+    if (!authToken) {
+      return (
+        <ScrollView 
+          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingVertical: 40 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <LoginPrompt
+            title="Login to Join the Conversation"
+            message="Sign in to chat with other listeners and interact with the broadcast."
+            icon="chatbubbles-outline"
+          />
+        </ScrollView>
+      );
+    }
+
+    return (
     <View style={styles.tabContentContainer} className="flex-1 bg-gray-50">
       {/* Enhanced Chat Header */}
       <View className="px-5 pt-6 pb-4 bg-gradient-to-r from-white to-gray-50 border-b border-gray-100">
@@ -2266,8 +2266,60 @@ const BroadcastScreen: React.FC = () => {
     </View>
   );
 
-  const renderRequestsTab = () => (
-    <View style={styles.tabContentContainer} className="flex-1 bg-gray-50">
+  const renderRequestsTab = () => {
+    // Show login prompt if not authenticated
+    if (!authToken) {
+      return (
+        <ScrollView 
+          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingVertical: 40 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <LoginPrompt
+            title="Login to Request Songs"
+            message="Sign in to request your favorite songs and see what others are requesting."
+            icon="musical-notes-outline"
+          />
+          {/* Show read-only popular requests */}
+          {songRequests.length > 0 && (
+            <View style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: 16,
+              padding: 16,
+              marginHorizontal: 20,
+              marginTop: 16,
+            }}>
+              <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1F2937', marginBottom: 12 }}>
+                Popular Requests
+              </Text>
+              {songRequests.slice(0, 5).map((request) => (
+                <View key={request.id} style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 8,
+                  borderBottomWidth: 1,
+                  borderBottomColor: '#E5E7EB',
+                }}>
+                  <Ionicons name="musical-note" size={20} color="#91403E" style={{ marginRight: 12 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#1F2937' }}>
+                      {request.songTitle}
+                    </Text>
+                    {request.artist && (
+                      <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
+                        {request.artist}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+        </ScrollView>
+      );
+    }
+
+    return (
+      <View style={styles.tabContentContainer} className="flex-1 bg-gray-50">
       {/* Fixed Request Song Header */}
       <View className="px-5 pt-6 pb-4 bg-gradient-to-r from-white to-gray-50 border-b border-gray-100">
         <View className="flex-row items-center justify-between">
@@ -2345,9 +2397,68 @@ const BroadcastScreen: React.FC = () => {
         </View>
       </ScrollView>
     </View>
-  );
+    );
+  };
 
- const renderPollsTab = () => (
+  const renderPollsTab = () => {
+    // Show login prompt if not authenticated
+    if (!authToken) {
+      return (
+        <ScrollView 
+          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingVertical: 40 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <LoginPrompt
+            title="Login to Vote on Polls"
+            message="Sign in to participate in polls and share your opinion with the community."
+            icon="stats-chart-outline"
+          />
+          {/* Show read-only active polls */}
+          {activePolls.length > 0 && (
+            <View style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: 16,
+              padding: 16,
+              marginHorizontal: 20,
+              marginTop: 16,
+            }}>
+              <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1F2937', marginBottom: 12 }}>
+                Active Polls
+              </Text>
+              {activePolls.filter(p => p.isActive).map((poll) => (
+                <View key={poll.id} style={{
+                  paddingVertical: 12,
+                  borderBottomWidth: 1,
+                  borderBottomColor: '#E5E7EB',
+                }}>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#1F2937', marginBottom: 8 }}>
+                    {poll.question}
+                  </Text>
+                  {poll.options.map((opt) => (
+                    <View key={opt.id} style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingVertical: 6,
+                    }}>
+                      <View style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: '#D1D5DB',
+                        marginRight: 8,
+                      }} />
+                      <Text style={{ fontSize: 13, color: '#6B7280' }}>{opt.text}</Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </View>
+          )}
+        </ScrollView>
+      );
+    }
+
+    return (
     <View style={styles.tabContentContainer} className="flex-1 bg-gray-50">
       {/* Fixed Polls Header */}
       <View className="px-5 pt-6 pb-4 bg-gradient-to-r from-white to-gray-50 border-b border-gray-100">
@@ -2424,7 +2535,8 @@ const BroadcastScreen: React.FC = () => {
         </View>
       </ScrollView>
     </View>
-  );
+    );
+  };
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -2439,34 +2551,8 @@ const BroadcastScreen: React.FC = () => {
     }
   };
 
-  if (isLoading && !currentBroadcast && !nowPlayingInfo) { // Adjusted loading condition slightly for initial card appearance
-    return (
-      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]} className="flex-1 bg-anti-flash_white">
-        <Stack.Screen 
-          options={{
-              headerShown: false, // Always hide the default header
-          }}
-         />
-        {/* Custom Header - Always visible */}
-        <CustomHeader 
-          showBackButton={false}
-          onBackPress={undefined}
-        />
-        <ScrollView
-          style={{ backgroundColor: '#F3F4F6' }}
-          contentContainerStyle={{ 
-            paddingBottom: 100,
-            paddingTop: Platform.OS === 'android' ? 12 : 6, // Tight spacing like other pages
-            paddingHorizontal: 20,
-            backgroundColor: '#F3F4F6'
-          }}
-          showsVerticalScrollIndicator={false}
-        >
-          <BroadcastSkeleton />
-        </ScrollView>
-      </View>
-    );
-  }
+  // Show skeleton overlay while we fetch the initial broadcast data
+  const showGlobalSkeleton = isLoading && !currentBroadcast && !nowPlayingInfo;
 
    if (error && !isLoading) { 
     return (
@@ -2486,9 +2572,10 @@ const BroadcastScreen: React.FC = () => {
 
   const screenTitle = currentBroadcast ? `${currentBroadcast.title}` : 'Live Broadcast';
   const screenSubtitle = currentBroadcast ? `DJ: ${currentBroadcast.dj?.name || 'Wildcat Radio'}` : 'Standby...';
+  const isBroadcastLive = currentBroadcast?.status === 'LIVE';
 
   const renderNowPlayingCard = () => {
-    if (!currentBroadcast || currentBroadcast.status !== 'LIVE') {
+    if (!currentBroadcast || !isBroadcastLive) {
       return null; // Don't render if not live
     }
     return (
@@ -2711,333 +2798,455 @@ const BroadcastScreen: React.FC = () => {
         }}
        />
       
-      {!currentBroadcast && !isLoading ? (
-        // Show off-air message with proper layout structure
+      {!currentBroadcast ? (
+        // Beautiful Off Air state with next show info
         <ScrollView
           style={{ backgroundColor: '#F5F5F5' }}
           contentContainerStyle={{ 
-            paddingBottom: 120 + insets.bottom, // Bottom safe area for navigation
-            paddingTop: Platform.OS === 'android' ? 12 : 6, // Tight spacing like other pages
+            paddingBottom: 120 + insets.bottom,
+            paddingTop: Platform.OS === 'android' ? 12 : 6,
             paddingHorizontal: 20,
             backgroundColor: '#F5F5F5',
             flexGrow: 1,
-            justifyContent: 'center'
           }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshingBroadcast}
+              onRefresh={refreshBroadcastData}
+              colors={['#91403E']}
+              tintColor="#91403E"
+            />
+          }
         >
-          <View className="justify-center items-center p-5">
-            <Ionicons name="radio-outline" size={64} color="#A0A0A0" className="mb-4"/>
-            <Text className="text-2xl font-bold text-gray-700 mb-2">Currently Off Air</Text>
-            <Text className="text-base text-gray-500 text-center leading-relaxed px-4">
-              There is no live broadcast at the moment. Please check the schedule or try again later.
+          <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+            <View style={{
+              width: 140,
+              height: 140,
+              borderRadius: 70,
+              backgroundColor: '#F3F4F6',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 28,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.1,
+              shadowRadius: 12,
+              elevation: 6,
+              borderWidth: 3,
+              borderColor: '#E5E7EB',
+            }}>
+              <Ionicons name="radio-outline" size={72} color="#9CA3AF" />
+            </View>
+            <Text style={{
+              fontSize: 32,
+              fontWeight: 'bold',
+              color: '#1F2937',
+              marginBottom: 12,
+              textAlign: 'center',
+              letterSpacing: -0.5,
+            }}>
+              Currently Off Air
             </Text>
+            <Text style={{
+              fontSize: 17,
+              color: '#6B7280',
+              textAlign: 'center',
+              marginBottom: 40,
+              lineHeight: 26,
+              paddingHorizontal: 20,
+            }}>
+              {upcomingBroadcasts.length > 0
+                ? `We'll be back soon! Check out our next show below.`
+                : 'We\'re currently off air. Check back soon for exciting shows!'}
+            </Text>
+
+            {/* Next Show Card */}
+            {upcomingBroadcasts.length > 0 && (
+              <View style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: 24,
+                padding: 24,
+                width: '100%',
+                marginBottom: 20,
+                shadowColor: '#91403E',
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: 0.15,
+                shadowRadius: 16,
+                elevation: 8,
+                borderWidth: 1,
+                borderColor: '#F3F4F6',
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                  <View style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: '#FFC30B',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: 14,
+                    shadowColor: '#FFC30B',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 8,
+                    elevation: 6,
+                  }}>
+                    <Ionicons name="time" size={24} color="#000000" />
+                  </View>
+                  <Text style={{
+                    fontSize: 20,
+                    fontWeight: 'bold',
+                    color: '#1F2937',
+                    letterSpacing: -0.5,
+                  }}>
+                    Next Show
+                  </Text>
+                </View>
+                {upcomingBroadcasts[0] && (() => {
+                  const nextShow = upcomingBroadcasts[0];
+                  const startTime = parseISO(nextShow.scheduledStart);
+                  const timeUntil = formatDistanceToNow(startTime, { addSuffix: true });
+                  return (
+                    <>
+                      <Text style={{
+                        fontSize: 22,
+                        fontWeight: 'bold',
+                        color: '#1F2937',
+                        marginBottom: 10,
+                        letterSpacing: -0.3,
+                      }}>
+                        {nextShow.title}
+                      </Text>
+                      {nextShow.dj?.name && (
+                        <View style={{ 
+                          flexDirection: 'row', 
+                          alignItems: 'center', 
+                          marginBottom: 12,
+                          backgroundColor: '#F9FAFB',
+                          paddingHorizontal: 12,
+                          paddingVertical: 8,
+                          borderRadius: 12,
+                          alignSelf: 'flex-start',
+                        }}>
+                          <Ionicons name="person" size={18} color="#91403E" style={{ marginRight: 8 }} />
+                          <Text style={{ fontSize: 15, color: '#91403E', fontWeight: '700' }}>
+                            {nextShow.dj.name}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={{ 
+                        flexDirection: 'row', 
+                        alignItems: 'center', 
+                        marginTop: 8,
+                        marginBottom: 12,
+                      }}>
+                        <Ionicons name="calendar" size={18} color="#6B7280" style={{ marginRight: 8 }} />
+                        <Text style={{ fontSize: 15, color: '#6B7280', fontWeight: '600' }}>
+                          {format(startTime, 'MMM d, yyyy • h:mm a')}
+                        </Text>
+                      </View>
+                      <View style={{
+                        backgroundColor: '#91403E',
+                        borderRadius: 16,
+                        padding: 14,
+                        marginTop: 8,
+                      }}>
+                        <Text style={{ 
+                          fontSize: 14, 
+                          color: '#FFFFFF', 
+                          fontWeight: '700',
+                          textAlign: 'center',
+                          letterSpacing: 0.5,
+                        }}>
+                          Starts {timeUntil}
+                        </Text>
+                      </View>
+                    </>
+                  );
+                })()}
+              </View>
+            )}
+
             <TouchableOpacity
-              className="bg-cordovan py-3 px-8 rounded-lg shadow-md mt-8 active:opacity-80"
+              style={{
+                backgroundColor: '#91403E',
+                paddingVertical: 14,
+                paddingHorizontal: 32,
+                borderRadius: 12,
+                shadowColor: '#91403E',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                elevation: 6,
+              }}
               onPress={() => loadInitialDataForBroadcastScreen()}
+              activeOpacity={0.8}
             >
-              <Text className="text-white font-semibold text-base">Refresh</Text>
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>
+                Refresh
+              </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
-      ) : currentBroadcast && currentBroadcast.status === 'LIVE' ? (
-        // Show exciting ON AIR poster-style interface with animation overlay
+      ) : currentBroadcast ? (
+        // Beautiful Listen screen with hero play button and graceful fallback when not live
         <View className="flex-1 bg-gray-50">
-          {/* Static Poster View */}
-          <View
-            style={{
-              flex: 1,
-            }}
-          >
-            <ScrollView
-              contentContainerStyle={{ paddingBottom: 120, paddingTop: Platform.OS === 'android' ? 12 : 6 }}
-              refreshControl={
-                <RefreshControl
-                  refreshing={isRefreshingBroadcast}
-                  onRefresh={refreshBroadcastData}
-                  colors={['#91403E']}
-                  tintColor="#91403E"
-                  title="Pull to refresh broadcast"
-                  titleColor="#91403E"
-                />
-              }
-              showsVerticalScrollIndicator={false}
-              className="px-5"
-            >
-            {/* Dynamic ON AIR Poster Header */}
-            <View className="items-center mb-8 relative">
-              {/* Background Glow Effect */}
-              <View 
-                className="absolute inset-0 rounded-3xl"
-                style={{
-                  backgroundColor: '#91403E',
-                  opacity: 0.05,
-                  transform: [{ scale: 1.2 }],
-                  shadowColor: '#91403E',
-                  shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.1,
-                  shadowRadius: 20,
-                  elevation: 10,
-                }}
+          <ScrollView
+            contentContainerStyle={{ paddingBottom: 120, paddingTop: Platform.OS === 'android' ? 12 : 6 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshingBroadcast}
+                onRefresh={refreshBroadcastData}
+                colors={['#91403E']}
+                tintColor="#91403E"
+                title="Pull to refresh"
+                titleColor="#91403E"
               />
-              
-              {/* Main ON AIR Banner */}
-              <View 
-                className="bg-cordovan px-8 py-4 rounded-2xl mb-4 relative overflow-hidden"
-                style={{
-                  shadowColor: '#91403E',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.2,
-                  shadowRadius: 12,
-                  elevation: 8,
-                }}
-              >
-                {/* Animated Background Pattern */}
-                <View className="absolute inset-0 opacity-20">
-                  <View className="absolute top-2 left-4 w-3 h-3 bg-white rounded-full" />
-                  <View className="absolute bottom-3 right-6 w-2 h-2 bg-white rounded-full" />
-                  <View className="absolute top-6 right-8 w-1 h-1 bg-white rounded-full" />
-                </View>
-                
-                <View className="flex-row items-center justify-center">
-                  <View className="w-4 h-4 bg-white rounded-full mr-3" style={{ opacity: 0.9 }} />
-                  <Text className="text-white text-2xl font-black tracking-widest">
-                    ON AIR
-                  </Text>
-                  <View className="w-4 h-4 bg-white rounded-full ml-3" style={{ opacity: 0.9 }} />
-                </View>
+            }
+            showsVerticalScrollIndicator={false}
+          >
+            {!isBroadcastLive && (
+              <View className="mx-5 mb-4 p-4 rounded-2xl bg-amber-50 border border-amber-200">
+                <Text className="text-amber-800 font-semibold text-base mb-1">
+                  Broadcast not live yet
+                </Text>
+                <Text className="text-amber-700 text-sm">
+                  Tap refresh after the DJ goes live to start listening instantly.
+                </Text>
               </View>
+            )}
 
-              {/* Station Branding */}
-              <Text className="text-gray-900 text-4xl font-black mb-2 tracking-wide">
-                WILDCAT RADIO
-              </Text>
-              <Text className="text-cordovan text-lg font-bold tracking-wider">
-                LIVE BROADCAST
-              </Text>
+            {/* Hero Play Button Section */}
+            <View style={{ paddingTop: 20, paddingBottom: 16 }}>
+              <HeroPlayButton
+                isPlaying={streamingState.isPlaying}
+                isLoading={streamingState.isLoading}
+                isLive={isBroadcastLive}
+                onPress={handlePlayPause}
+                disabled={!isStreamReady && !streamingState.isLoading}
+                broadcastTitle={currentBroadcast.title}
+                djName={currentBroadcast.dj?.name}
+                listenerCount={streamStatus.listenerCount}
+              />
             </View>
 
-            {/* Show Information Poster Card */}
-            <View 
-              className="bg-white rounded-3xl p-6 mb-6 relative overflow-hidden"
-              style={{
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 12 },
-                shadowOpacity: 0.25,
-                shadowRadius: 25,
-                elevation: 20,
-              }}
-            >
-              {/* Decorative Corner Elements */}
-              <View className="absolute top-0 right-0 w-16 h-16 bg-cordovan/10 rounded-bl-3xl" />
-              <View className="absolute bottom-0 left-0 w-12 h-12 bg-mikado_yellow/10 rounded-tr-3xl" />
-              
-              {/* Show Title Section */}
-              <View className="items-center mb-6">
-                <View className="bg-cordovan w-16 h-16 rounded-full items-center justify-center mb-4">
-                  <Ionicons name="radio" size={32} color="white" />
+            {/* Now Playing Card */}
+            {isBroadcastLive && nowPlayingInfo && (
+              <NowPlayingCard
+                songTitle={nowPlayingInfo.songTitle}
+                artist={nowPlayingInfo.artist}
+                isPlaying={streamingState.isPlaying}
+                listenerCount={streamStatus.listenerCount}
+              />
+            )}
+
+            {/* Current Show Info Card */}
+            <View style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: 24,
+              padding: 22,
+              marginHorizontal: 20,
+              marginBottom: 20,
+              shadowColor: '#91403E',
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.15,
+              shadowRadius: 16,
+              elevation: 8,
+              borderWidth: 1,
+              borderColor: '#F3F4F6',
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
+                <View style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 28,
+                  backgroundColor: '#91403E',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 14,
+                  shadowColor: '#91403E',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 8,
+                  elevation: 6,
+                }}>
+                  <Ionicons name="radio" size={28} color="#FFFFFF" />
                 </View>
-                <Text className="text-2xl font-black text-gray-900 text-center leading-tight">
-                  {currentBroadcast.title}
-                </Text>
-                                  <View className="flex-row items-center mt-2">
-                    <View className="bg-mikado_yellow px-3 py-1 rounded-full mr-2">
-                      <Text className="text-black text-xs font-bold">DJ</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{
+                    fontSize: 22,
+                    fontWeight: 'bold',
+                    color: '#1F2937',
+                    marginBottom: 6,
+                    letterSpacing: -0.5,
+                  }}>
+                    {currentBroadcast.title}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <View style={{
+                      backgroundColor: '#FFC30B',
+                      paddingHorizontal: 10,
+                      paddingVertical: 5,
+                      borderRadius: 14,
+                      marginRight: 8,
+                      shadowColor: '#FFC30B',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.3,
+                      shadowRadius: 4,
+                      elevation: 4,
+                    }}>
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: '#000000', letterSpacing: 0.5 }}>DJ</Text>
                     </View>
-                    <Text className="text-cordovan font-semibold text-lg">
+                    <Text style={{ fontSize: 15, color: '#91403E', fontWeight: '700' }}>
                       {currentBroadcast.dj?.name || 'Wildcat Radio'}
                     </Text>
                   </View>
+                </View>
               </View>
-
-              {/* Now Playing Section */}
-              {nowPlayingInfo && (
-                <View 
-                  className="bg-gray-100 rounded-2xl p-5 mb-6 border border-gray-200"
-                  style={{
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.08,
-                    shadowRadius: 6,
-                    elevation: 4,
-                  }}
-                >
-                  <View className="flex-row items-center mb-3">
-                    <View className="w-3 h-3 bg-cordovan rounded-full mr-3" />
-                    <Text className="text-gray-800 text-sm font-bold uppercase tracking-widest">
-                      NOW PLAYING
-                    </Text>
-                    {/* Animated Audio Wave Visualizer */}
-                    <View className="ml-auto">
-                      <AnimatedAudioWave isPlaying={streamingState.isPlaying} size={20} />
-                    </View>
-                  </View>
-                  
-                  <Text className="text-gray-900 text-xl font-bold mb-1">
-                    {nowPlayingInfo.songTitle}
-                  </Text>
-                  <Text className="text-gray-600 text-base font-medium">
-                    {nowPlayingInfo.artist}
-                  </Text>
-                </View>
+              {currentBroadcast.description && (
+                <Text style={{
+                  fontSize: 15,
+                  color: '#6B7280',
+                  lineHeight: 22,
+                  marginTop: 4,
+                }}>
+                  {currentBroadcast.description}
+                </Text>
               )}
-
-              {/* Call to Action */}
-              <TouchableOpacity
-                className="bg-cordovan py-4 px-6 rounded-2xl items-center active:scale-95"
-                onPress={animateToTuneIn}
-                style={{
-                  shadowColor: '#91403E',
-                  shadowOffset: { width: 0, height: 6 },
-                  shadowOpacity: 0.4,
-                  shadowRadius: 12,
-                  elevation: 10,
-                }}
-              >
-                <View className="flex-row items-center">
-                  <Ionicons name="headset" size={24} color="white" className="mr-3" />
-                  <Text className="text-white font-black text-lg tracking-wide">
-                    TUNE IN NOW
-                  </Text>
-                </View>
-              </TouchableOpacity>
             </View>
 
-            {/* Connection Status Banner */}
-            <View 
-              className={`rounded-2xl p-4 border ${
-                isWebSocketConnected 
-                  ? 'bg-green-50 border-green-200' 
-                  : 'bg-gray-100 border-gray-300'
-              }`}
-              style={{
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.05,
-                shadowRadius: 4,
-                elevation: 3,
-              }}
-            >
-              <View className="flex-row items-center justify-center">
-                <Ionicons 
-                  name={isWebSocketConnected ? "wifi" : "wifi-outline"} 
-                  size={20} 
-                  color={isWebSocketConnected ? "#10B981" : "#6B7280"} 
-                  className="mr-2" 
-                />
-                <Text className={`font-bold text-base ${
-                  isWebSocketConnected ? 'text-green-600' : 'text-gray-600'
-                }`}>
-                  {isWebSocketConnected ? 'LIVE • CRYSTAL CLEAR HD' : 'CONNECTING...'}
+            {/* Stream Status */}
+            <View style={{
+              backgroundColor: streamingState.isPlaying ? '#F0FDF4' : '#F9FAFB',
+              borderRadius: 16,
+              padding: 16,
+              marginHorizontal: 20,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: streamingState.isPlaying ? '#10B981' : '#E5E7EB',
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: streamingState.isPlaying ? '#10B981' : '#6B7280',
+                  marginRight: 8,
+                }} />
+                <Text style={{
+                  fontSize: 14,
+                  fontWeight: '600',
+                  color: streamingState.isPlaying ? '#10B981' : '#6B7280',
+                }}>
+                  {streamingState.isPlaying 
+                    ? 'Connected • Crystal Clear HD' 
+                    : streamingState.isLoading 
+                      ? 'Connecting...' 
+                      : isBroadcastLive
+                        ? 'Ready to Play'
+                        : 'Waiting for DJ'}
                 </Text>
               </View>
             </View>
           </ScrollView>
-          </View>
 
-          {/* Animated Tune-In Interface */}
-          {isListening && (
-            <Animated.View
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                transform: [{ translateX: tuneInTranslateX }],
-                backgroundColor: '#F9FAFB',
-                zIndex: 10,
-              }}
-            >
-              {/* This will contain the full tune-in interface */}
-              <View style={{ flex: 1 }}>
-
-                {/* Refreshable Now Playing Section - Hidden when keyboard is visible */}
-                {!isKeyboardVisible && (
-                  <ScrollView
-                    style={{ flexGrow: 0 }}
-                    contentContainerStyle={{ flexGrow: 0 }}
-                    refreshControl={
-                      <RefreshControl
-                        refreshing={isRefreshingBroadcast}
-                        onRefresh={refreshBroadcastData}
-                        colors={['#91403E']}
-                        tintColor="#91403E"
-                        title="Pull to refresh broadcast"
-                        titleColor="#91403E"
-                      />
-                    }
-                    showsVerticalScrollIndicator={false}
+          {isBroadcastLive ? (
+            <View style={{
+              backgroundColor: '#FFFFFF',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: -4 },
+              shadowOpacity: 0.1,
+              shadowRadius: 12,
+              elevation: 8,
+              paddingTop: 8,
+            }}>
+              <View style={styles.tabBar} className="flex-row bg-white border-b border-gray-200 relative">
+                {tabDefinitions.map(tab => (
+                  <Pressable 
+                    key={tab.key}
+                    onLayout={(event) => {
+                      const { x, width } = event.nativeEvent.layout;
+                      setTabLayouts((prev) => ({ ...prev, [tab.key]: { x, width } }));
+                    }}
+                    style={({ pressed }) => [
+                      { opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1 }, 
+                    ]}
+                    className="flex-1 items-center py-3 justify-center flex-row" 
+                    onPress={() => setActiveTab(tab.key)}
+                    disabled={isLoading} 
+                    android_ripple={{ color: 'rgba(0,0,0,0.05)' }} 
                   >
-                    {renderNowPlayingCard()}
-                  </ScrollView>
-                )}
-
-                {/* Animated Tab Section - moves up when keyboard appears */}
+                    <Ionicons
+                      name={tab.icon as any}
+                      size={20}
+                      color={isLoading ? '#CBD5E0' : (activeTab === tab.key ? '#91403E' : (Platform.OS === 'ios' ? '#6b7280' : '#4B5563'))}
+                    />
+                    <Text
+                      className={`ml-1.5 text-sm ${isLoading ? 'text-gray-400' : (activeTab === tab.key ? 'font-semibold text-cordovan' : 'text-gray-600')}`}
+                    >
+                      {tab.name}
+                    </Text>
+                  </Pressable>
+                ))}
                 <Animated.View
                   style={{
-                    flex: 1,
-                    transform: [{ translateY: tabContentTranslateY }],
-                    backgroundColor: isKeyboardVisible ? '#F3F4F6' : 'transparent',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: isKeyboardVisible ? -4 : 0 },
-                    shadowOpacity: isKeyboardVisible ? 0.1 : 0,
-                    shadowRadius: isKeyboardVisible ? 8 : 0,
-                    elevation: isKeyboardVisible ? 8 : 0,
+                    position: 'absolute',
+                    bottom: 0,
+                    height: 3, 
+                    backgroundColor: '#B5830F', 
+                    transform: [{ translateX: underlinePosition }],
+                    width: underlineWidth,
                   }}
-                >
-                  <View style={styles.tabBar} className="flex-row bg-white border-b border-gray-200 relative">
-                    {tabDefinitions.map(tab => (
-                      <Pressable 
-                        key={tab.key}
-                        onLayout={(event) => {
-                          const { x, width } = event.nativeEvent.layout;
-                          setTabLayouts((prev) => ({ ...prev, [tab.key]: { x, width } }));
-                        }}
-                        style={({ pressed }) => [
-                          { opacity: pressed && Platform.OS === 'ios' ? 0.7 : 1 }, 
-                        ]}
-                        className="flex-1 items-center py-3 justify-center flex-row" 
-                        onPress={() => setActiveTab(tab.key)}
-                        disabled={isLoading} 
-                        android_ripple={{ color: 'rgba(0,0,0,0.05)' }} 
-                      >
-                        <Ionicons
-                          name={tab.icon as any}
-                          size={20}
-                          color={isLoading ? '#CBD5E0' : (activeTab === tab.key ? '#91403E' : (Platform.OS === 'ios' ? '#6b7280' : '#4B5563'))}
-                        />
-                        <Text
-                          className={`ml-1.5 text-sm ${isLoading ? 'text-gray-400' : (activeTab === tab.key ? 'font-semibold text-cordovan' : 'text-gray-600')}`}
-                        >
-                          {tab.name}
-                        </Text>
-                      </Pressable>
-                    ))}
-                    <Animated.View
-                      style={{
-                        position: 'absolute',
-                        bottom: 0,
-                        height: 3, 
-                        backgroundColor: '#B5830F', 
-                        transform: [{ translateX: underlinePosition }],
-                        width: underlineWidth,
-                      }}
-                    />
-                  </View>
-
-                  <KeyboardAvoidingView 
-                    className="flex-1"
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-                  >
-                    {renderTabContent()}
-                  </KeyboardAvoidingView>
-                </Animated.View>
+                />
               </View>
-            </Animated.View>
+
+              <KeyboardAvoidingView 
+                className="flex-1"
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+                style={{ minHeight: 300 }}
+              >
+                {renderTabContent()}
+              </KeyboardAvoidingView>
+            </View>
+          ) : (
+            <View className="mx-5 mt-4 p-4 rounded-2xl bg-white border border-gray-200">
+              <Text className="text-base font-semibold text-gray-800 mb-1">
+                Live chat, song requests, and polls unlock when the broadcast goes live.
+              </Text>
+              <Text className="text-sm text-gray-600">
+                We’ll pull them up automatically once the DJ starts the show.
+              </Text>
+            </View>
           )}
         </View>
-              ) : null}
+      ) : null}
+
+      {showGlobalSkeleton && (
+        <View style={{
+          position: 'absolute',
+          top: insets.top + 8,
+          left: 0,
+          right: 0,
+          bottom: insets.bottom,
+          backgroundColor: 'rgba(243, 244, 246, 0.9)',
+        }}>
+          <ScrollView
+            style={{ backgroundColor: 'transparent' }}
+            contentContainerStyle={{ 
+              paddingBottom: 100,
+              paddingTop: Platform.OS === 'android' ? 12 : 6,
+              paddingHorizontal: 20,
+            }}
+            showsVerticalScrollIndicator={false}
+          >
+            <BroadcastSkeleton />
+          </ScrollView>
+        </View>
+      )}
     </View>
   );
 };
@@ -3053,5 +3262,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+}
 
 export default BroadcastScreen; 

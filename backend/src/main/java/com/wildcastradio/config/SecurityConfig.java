@@ -66,10 +66,10 @@ public class SecurityConfig {
     
     @PostConstruct
     public void init() {
-        // Auto-enable secure cookies in production
-        if (isProduction && !useSecureCookies) {
-            useSecureCookies = true;
-            logger.info("Production mode detected: Auto-enabled secure cookies (Secure=true, SameSite=None)");
+        // Log configuration for debugging
+        logger.info("OAuth Configuration: isProduction={}, useSecureCookies={}", isProduction, useSecureCookies);
+        if (isProduction) {
+            logger.info("Production mode: Cookies will use Secure=true, SameSite=None for cross-subdomain support");
         }
     }
 
@@ -81,34 +81,45 @@ public class SecurityConfig {
             .oauth2Login(oauth2 -> oauth2
                 .successHandler((request, response, authentication) -> {
                     try {
+                        logger.info("OAuth2 success handler invoked. Host: {}, Origin: {}", 
+                            request.getHeader("Host"), request.getHeader("Origin"));
+                        
                         String frontendDomain = getFrontendDomain(request);
+                        logger.debug("Detected frontend domain: {}", frontendDomain);
                         
                         if (authentication == null || !(authentication instanceof OAuth2AuthenticationToken)) {
+                            logger.warn("OAuth2 authentication is null or wrong type: {}", 
+                                authentication != null ? authentication.getClass().getName() : "null");
                             response.sendRedirect(frontendDomain + "/login?oauth_error=auth_failed");
                             return;
                         }
                         
                         OAuth2AuthenticationToken token = (OAuth2AuthenticationToken) authentication;
                         String registrationId = token.getAuthorizedClientRegistrationId();
+                        logger.debug("OAuth2 registration ID: {}", registrationId);
                         
                         if (registrationId == null || registrationId.isEmpty()) {
+                            logger.warn("OAuth2 registration ID is null or empty");
                             response.sendRedirect(frontendDomain + "/login?oauth_error=auth_failed");
                             return;
                         }
                         
                         OAuth2User oauth2User = token.getPrincipal();
                         if (oauth2User == null) {
+                            logger.warn("OAuth2User principal is null");
                             response.sendRedirect(frontendDomain + "/login?oauth_error=auth_failed");
                             return;
                         }
                         
                         Map<String, Object> attributes = oauth2User.getAttributes();
+                        logger.debug("OAuth2 attributes received: {}", attributes.keySet());
                         
                         LoginResponse loginResponse;
                         try {
                             loginResponse = userService.oauth2Login(attributes, registrationId);
+                            logger.info("OAuth2 login successful for user: {}", loginResponse.getUser().getEmail());
                         } catch (Exception e) {
-                            logger.error("OAuth2 login failed: {}", e.getMessage());
+                            logger.error("OAuth2 login failed: {}", e.getMessage(), e);
                             response.sendRedirect(frontendDomain + "/login?oauth_error=login_failed");
                             return;
                         }
@@ -118,33 +129,43 @@ public class SecurityConfig {
                             return;
                         }
                         
+                        // Determine cookie security settings based on production flag
+                        // In production: Secure=true, SameSite=None (required for cross-subdomain cookies)
+                        // In localhost: Secure=false, SameSite=Lax (works for same-origin)
+                        boolean shouldUseSecureCookies = isProduction || useSecureCookies;
+                        
                         // Create secure HttpOnly cookies for token and user information
                         Cookie tokenCookie = new Cookie("token", loginResponse.getToken());
                         tokenCookie.setHttpOnly(true);
-                        tokenCookie.setSecure(useSecureCookies);
+                        tokenCookie.setSecure(shouldUseSecureCookies);
                         setCookieDomain(tokenCookie, request);
                         tokenCookie.setPath("/");
                         tokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-                        tokenCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
+                        tokenCookie.setAttribute("SameSite", shouldUseSecureCookies ? "None" : "Lax");
                         response.addCookie(tokenCookie);
                         
                         Cookie userIdCookie = new Cookie("userId", String.valueOf(loginResponse.getUser().getId()));
                         userIdCookie.setHttpOnly(true);
-                        userIdCookie.setSecure(useSecureCookies);
+                        userIdCookie.setSecure(shouldUseSecureCookies);
                         setCookieDomain(userIdCookie, request);
                         userIdCookie.setPath("/");
                         userIdCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-                        userIdCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
+                        userIdCookie.setAttribute("SameSite", shouldUseSecureCookies ? "None" : "Lax");
                         response.addCookie(userIdCookie);
                         
                         Cookie userRoleCookie = new Cookie("userRole", String.valueOf(loginResponse.getUser().getRole()));
                         userRoleCookie.setHttpOnly(true);
-                        userRoleCookie.setSecure(useSecureCookies);
+                        userRoleCookie.setSecure(shouldUseSecureCookies);
                         setCookieDomain(userRoleCookie, request);
                         userRoleCookie.setPath("/");
                         userRoleCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-                        userRoleCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
+                        userRoleCookie.setAttribute("SameSite", shouldUseSecureCookies ? "None" : "Lax");
                         response.addCookie(userRoleCookie);
+                        
+                        logger.debug("OAuth cookies set: Secure={}, SameSite={}, Domain={}", 
+                            shouldUseSecureCookies, 
+                            shouldUseSecureCookies ? "None" : "Lax",
+                            tokenCookie.getDomain());
                         
                         // Redirect to frontend
                         // For localhost: include token in URL since cookies don't work across ports
@@ -346,6 +367,8 @@ public class SecurityConfig {
     /**
      * Set cookie domain for cross-subdomain sharing
      * Only sets domain for production (not localhost)
+     * Note: Tomcat 10+ (RFC 6265) doesn't allow leading dot, but browsers still support
+     * cross-subdomain cookies without it for same root domain
      */
     private void setCookieDomain(Cookie cookie, HttpServletRequest request) {
         String host = request.getHeader("Host");
@@ -360,8 +383,10 @@ public class SecurityConfig {
         if (domain != null && !domain.contains("localhost") && !domain.contains("127.0.0.1")) {
             String rootDomain = extractRootDomain(domain);
             if (rootDomain != null && !rootDomain.isEmpty()) {
-                cookie.setDomain("." + rootDomain);
-                logger.debug("Setting cookie domain to: .{}", rootDomain);
+                // Set domain WITHOUT leading dot - Tomcat 10+ doesn't allow it
+                // Modern browsers still share cookies across subdomains (api.wildcat-radio.live <-> wildcat-radio.live)
+                cookie.setDomain(rootDomain);
+                logger.debug("Setting cookie domain to: {} (without leading dot for Tomcat 10+ compatibility)", rootDomain);
             }
         }
     }

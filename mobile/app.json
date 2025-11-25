@@ -8,26 +8,13 @@
     "scheme": "wildcat-radio",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
-    "ios": {
-      "supportsTablet": true,
-      "infoPlist": {
-        "UIBackgroundModes": ["audio", "fetch", "background-processing"],
-        "NSMicrophoneUsageDescription": "This app does not use the microphone.",
-        "NSCameraUsageDescription": "This app does not use the camera."
-      }
-    },
+    "ios": { "supportsTablet": true },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
-      "permissions": [
-        "WAKE_LOCK",
-        "FOREGROUND_SERVICE",
-        "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE"
-      ]
+      "edgeToEdgeEnabled": true
     },
     "web": {
       "bundler": "metro",
@@ -44,27 +31,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ],
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/images/notification-icon.png",
-          "color": "#91403E",
-          "defaultChannel": "media-controls"
-        }
-      ],
-      [
-        "expo-background-fetch",
-        {
-          "backgroundFetchInterval": 15
-        }
-      ],
-      [
-        "expo-task-manager"
       ]
     ],
-    "experiments": {
-      "typedRoutes": true
-    }
+    "experiments": {}
   }
 }

@@ -294,15 +294,17 @@ const CustomHeader = React.memo(({
     <>
     <View style={{
       paddingTop: Platform.OS === 'ios' ? insets.top : insets.top + 10,
-      paddingBottom: 8,
-      paddingHorizontal: 16,
-      backgroundColor: '#F5F5F7', // Light grayish white color
+      paddingBottom: 12,
+      paddingHorizontal: 20,
+      backgroundColor: '#91403E', // Cordovan color - matching CustomTabBar
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.15,
-      shadowRadius: 6,
-      elevation: 8,
-        zIndex: 10,
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.25,
+      shadowRadius: 10,
+      elevation: 12,
+      zIndex: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(255, 195, 11, 0.15)', // Subtle Mikado Yellow accent border
     }}>
       <View style={{
         flexDirection: 'row',
@@ -327,10 +329,15 @@ const CustomHeader = React.memo(({
           >
             <TouchableOpacity 
               onPress={handleBack} 
-              style={{ padding: 8, paddingBottom: 4 }} 
+              style={{ 
+                padding: 10,
+                paddingBottom: 6,
+                backgroundColor: 'rgba(255, 195, 11, 0.12)',
+                borderRadius: 12,
+              }} 
               activeOpacity={0.7}
             >
-              <Ionicons name="chevron-back" size={26} color="#91403E" />
+              <Ionicons name="chevron-back" size={26} color="#FFC30B" />
             </TouchableOpacity>
           </Animated.View>
         )}
@@ -363,7 +370,11 @@ const CustomHeader = React.memo(({
         {showNotification ? (
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>            
             <TouchableOpacity 
-              style={{ padding: 8, marginTop: 6, position: 'relative' }} 
+              style={{ 
+                padding: 8, 
+                marginTop: 6, 
+                position: 'relative',
+              }} 
               activeOpacity={0.7}
               onPress={handleNotificationPress}
             >
@@ -418,7 +429,7 @@ const CustomHeader = React.memo(({
                   <Ionicons
                     name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
                     size={24}
-                    color={'#91403E'}
+                    color={'white'}
                   />
                   {unreadCount > 0 && (() => {
                     const badgeSize = 16;

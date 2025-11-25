@@ -324,14 +324,20 @@ export const changeUserPassword = async (
   }
 };
 
-export const getLiveBroadcasts = async (token: string): Promise<Broadcast[] | { error: string }> => {
+export const getLiveBroadcasts = async (token?: string | null): Promise<Broadcast[] | { error: string }> => {
   try {
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+    };
+    
+    // Only add Authorization header if token is provided
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const response = await fetch(`${API_BASE_URL}/broadcasts/live`, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
+      headers,
     });
 
     if (!response.ok) {
@@ -357,14 +363,20 @@ export const getLiveBroadcasts = async (token: string): Promise<Broadcast[] | { 
   }
 };
 
-export const getAllBroadcasts = async (token: string): Promise<Broadcast[] | { error: string }> => {
+export const getAllBroadcasts = async (token?: string | null): Promise<Broadcast[] | { error: string }> => {
   try {
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+    };
+    
+    // Only add Authorization header if token is provided
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const response = await fetch(`${API_BASE_URL}/broadcasts`, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
+      headers,
     });
 
     if (!response.ok) {
@@ -390,14 +402,20 @@ export const getAllBroadcasts = async (token: string): Promise<Broadcast[] | { e
   }
 };
 
-export const getUpcomingBroadcasts = async (token: string): Promise<Broadcast[] | { error: string }> => {
+export const getUpcomingBroadcasts = async (token?: string | null): Promise<Broadcast[] | { error: string }> => {
   try {
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+    };
+    
+    // Only add Authorization header if token is provided
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const response = await fetch(`${API_BASE_URL}/broadcasts/upcoming`, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
+      headers,
     });
 
     if (!response.ok) {
@@ -649,14 +667,20 @@ export const getUserVoteForPoll = async (pollId: number, token: string): Promise
 };
 
 // Also, a function to get a single broadcast's details might be useful
-export const getBroadcastDetails = async (broadcastId: number, token: string): Promise<Broadcast | { error: string }> => {
+export const getBroadcastDetails = async (broadcastId: number, token?: string | null): Promise<Broadcast | { error: string }> => {
   try {
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+    };
+    
+    // Only add Authorization header if token is provided
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const response = await fetch(`${API_BASE_URL}/broadcasts/${broadcastId}`, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
+      headers,
     });
     const data = await response.json();
     if (!response.ok) {
