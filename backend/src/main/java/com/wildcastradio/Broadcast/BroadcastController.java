@@ -96,7 +96,7 @@ public class BroadcastController {
 
 
     @PostMapping("/{id}/start")
-    @PreAuthorize("hasAnyRole('DJ','ADMIN')") // LISTENER access removed - use proper DJ/ADMIN roles
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')") // MODERATOR added - moderators can DJ and start broadcasts
     public ResponseEntity<BroadcastDTO> startBroadcast(
             @PathVariable Long id,
             @org.springframework.web.bind.annotation.RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
@@ -273,7 +273,7 @@ public class BroadcastController {
     }
 
     @PutMapping("/{id}/slowmode")
-    @PreAuthorize("hasAnyRole('DJ','ADMIN')")
+    @PreAuthorize("hasAnyRole('DJ','ADMIN','MODERATOR')") // MODERATOR added - moderators can control slow mode
     public ResponseEntity<BroadcastDTO> updateSlowMode(
             @PathVariable Long id,
             @RequestBody SlowModeRequest request) {

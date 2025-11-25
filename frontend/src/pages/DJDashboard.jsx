@@ -123,7 +123,7 @@ export default function DJDashboard() {
   const { currentUser, handoverLogin, checkAuthStatus } = useAuth()
 
   // Check if user has proper role for DJ dashboard
-  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
+  if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR')) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="max-w-md w-full bg-white rounded-lg shadow-md p-6">
@@ -131,7 +131,7 @@ export default function DJDashboard() {
             <ExclamationTriangleIcon className="mx-auto h-12 w-12 text-red-500 mb-4" />
             <h2 className="text-xl font-semibold text-gray-900 mb-2">Access Denied</h2>
             <p className="text-gray-600 mb-4">
-              You need DJ or Admin privileges to access the DJ Dashboard.
+              You need DJ, Moderator, or Admin privileges to access the DJ Dashboard.
             </p>
             <p className="text-sm text-gray-500">
               Current role: {currentUser?.role || 'Not authenticated'}
@@ -140,6 +140,7 @@ export default function DJDashboard() {
               <p>To access the DJ Dashboard, you need:</p>
               <ul className="list-disc list-inside mt-2 space-y-1">
                 <li>DJ role - to create and manage broadcasts</li>
+                <li>Moderator role - to DJ and manage broadcasts</li>
                 <li>Admin role - to access all features</li>
               </ul>
               <p className="mt-2">
@@ -1328,8 +1329,8 @@ export default function DJDashboard() {
     }
 
     // Double-check role permissions
-    if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
-      setStreamError("Access denied: You need DJ or Admin privileges to create broadcasts")
+    if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR')) {
+      setStreamError("Access denied: You need DJ, Moderator, or Admin privileges to create broadcasts")
       return
     }
 
@@ -1674,8 +1675,8 @@ export default function DJDashboard() {
   const handleBanUser = async (userId, displayName) => {
     try {
       if (!userId) return;
-      // Only allow DJs and Admins to ban from the DJ dashboard
-      if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN')) {
+      // Only allow DJs, Moderators, and Admins to ban from the DJ dashboard
+      if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR')) {
         showToast('You do not have permission to ban users.', 'error');
         return;
       }
@@ -2107,7 +2108,7 @@ export default function DJDashboard() {
                           </button>
                         </div>
                       )}
-                      {/* Handover Button - Show for any DJ on live broadcasts, or Admin/Moderator */}
+                      {/* Handover Button - Show for any DJ/Moderator on live broadcasts, or Admin */}
                       {currentBroadcast?.status === 'LIVE' &&
                        (currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR' ||
                         currentUser?.role === 'DJ') && (
@@ -2558,7 +2559,7 @@ export default function DJDashboard() {
                                             {formattedTime}
                                           </span>
                                         )}
-                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
+                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
                                                                                           <button
                                                                                             type="button"
                                                                                             onClick={() => handleBanUser(msg.sender.id, senderName)}

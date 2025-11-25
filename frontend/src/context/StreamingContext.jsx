@@ -216,7 +216,7 @@ export function StreamingProvider({ children }) {
 
   // Persist state changes
   useEffect(() => {
-    if (currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN') {
+    if (currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR') {
       persistDJState();
     }
   }, [isLive, currentBroadcast, websocketConnected, currentUser]);
@@ -233,7 +233,7 @@ export function StreamingProvider({ children }) {
   // Auto-connect/reconnect depending on authentication
   useEffect(() => {
     if (isAuthenticated && currentUser) {
-      if (currentUser.role === 'DJ' || currentUser.role === 'ADMIN') {
+      if (currentUser.role === 'DJ' || currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR') {
         // Check for existing broadcast and connect if needed
         checkAndRestoreDJState();
       } else {
@@ -2296,7 +2296,7 @@ export function StreamingProvider({ children }) {
         console.log('Page became visible, checking connection status...');
         // When page becomes visible again, check if we need to reconnect
         if (isAuthenticated && currentUser) {
-          if (currentUser.role === 'DJ' || currentUser.role === 'ADMIN') {
+          if (currentUser.role === 'DJ' || currentUser.role === 'ADMIN' || currentUser.role === 'MODERATOR') {
             // Check if DJ should still be connected
             if (isLive && !websocketConnected) {
               console.log('Reconnecting DJ WebSocket after page visibility change');
