@@ -2387,12 +2387,12 @@ export default function DJDashboard() {
                 </div>
 
                 {/* Main Content Area - Three Column Layout */}
-                {/* Cards are responsive: max 777px, adapt to viewport height accounting for sticky header, min 400px */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-6 items-start">
+                {/* On large screens: three columns; on xl: 3/6/3 layout with wider chat in the center */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-12 gap-6 items-stretch">
                   {/* Left Column: Song Requests */}
-                  <div className="order-2 lg:order-2 lg:col-span-1 xl:col-span-3">
+                  <div className="order-2 lg:order-1 lg:col-span-1 xl:col-span-3">
                     {/* Song Requests Card */}
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[360px] sm:min-h-[420px] lg:min-h-[460px] max-h-[85vh]">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[400px] sm:min-h-[460px] max-h-[90vh] h-full">
                       <div className="bg-gold-500 text-maroon-900 px-4 py-3 border-b border-gold-400 flex-shrink-0">
                       <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
@@ -2487,8 +2487,8 @@ export default function DJDashboard() {
                   </div>
 
                   {/* Center Column: Live Chat - Main Focus */}
-                  <div className="order-1 lg:order-1 lg:col-span-2 xl:col-span-6 w-full">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[400px] sm:min-h-[460px] max-h-[90vh]">
+                  <div className="order-1 lg:order-2 lg:col-span-1 xl:col-span-6 w-full">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[400px] sm:min-h-[460px] max-h-[90vh] h-full">
                       {/* Header */}
                       <div className="bg-maroon-600 text-white px-3 sm:px-5 py-3 sm:py-4 border-b border-maroon-700 flex-shrink-0">
                         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -2670,7 +2670,7 @@ export default function DJDashboard() {
 
                   {/* Right Column: Polls */}
                   <div className="order-3 lg:order-3 lg:col-span-1 xl:col-span-3">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[360px] sm:min-h-[420px] lg:min-h-[460px] max-h-[85vh]">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[400px] sm:min-h-[460px] max-h-[90vh] h-full">
                       <div className="bg-maroon-700 text-white px-4 py-3 border-b border-maroon-800 flex-shrink-0">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">

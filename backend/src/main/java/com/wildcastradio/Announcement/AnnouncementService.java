@@ -78,7 +78,8 @@ public class AnnouncementService {
     }
 
     /**
-     * Create a new announcement (DJs create drafts, Moderators/Admins can publish directly)
+     * Create a new announcement
+     * Always starts as DRAFT; publishing/scheduling is handled explicitly.
      */
     @Transactional
     public AnnouncementDTO createAnnouncement(CreateAnnouncementRequest request, UserEntity creator) {
@@ -93,26 +94,10 @@ public class AnnouncementService {
         announcement.setImageUrl(imageUrl);
         announcement.setCreatedBy(creator);
         announcement.setCreatedAt(LocalDateTime.now());
-
-        // DJs create drafts, Moderators/Admins can create published
-        if (creator.getRole() == UserRole.DJ) {
-            announcement.setStatus(AnnouncementStatus.DRAFT);
-        } else if (creator.getRole() == UserRole.MODERATOR || creator.getRole() == UserRole.ADMIN) {
-            announcement.setStatus(AnnouncementStatus.PUBLISHED);
-            announcement.setPublishedAt(LocalDateTime.now());
-            announcement.setApprovedBy(creator);
-        } else {
-            announcement.setStatus(AnnouncementStatus.DRAFT);
-        }
+        // Always start as DRAFT; further state changes happen via publish/schedule endpoints
+        announcement.setStatus(AnnouncementStatus.DRAFT);
 
         AnnouncementEntity saved = announcementRepository.save(announcement);
-
-        // If created directly as published by a moderator/admin, broadcast notification
-        if (saved.getStatus() == AnnouncementStatus.PUBLISHED) {
-            broadcastAnnouncementPublished(saved);
-            notificationService.sendPublicAnnouncementToast(saved, "New announcement: " + (saved.getTitle() != null ? saved.getTitle() : "View details"));
-        }
-
         return AnnouncementDTO.fromEntity(saved);
     }
 
