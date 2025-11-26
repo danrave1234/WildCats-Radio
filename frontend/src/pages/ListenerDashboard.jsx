@@ -1582,11 +1582,25 @@ export default function ListenerDashboard() {
     if (!broadcastIdToUse) return;
 
     if (!isSongRequestMode) {
-      // Enter song request mode
+      // Simple flow: if the listener has already typed a title in the main message bar,
+      // treat it as a one-click song request.
+      const typedTitle = (chatMessage || '').trim();
+      if (typedTitle) {
+        try {
+          await songRequestService.createRequest(broadcastIdToUse, { songTitle: typedTitle });
+          setChatMessage('');
+          setToast({ visible: true, message: 'Song request sent to the DJ', type: 'success' });
+        } catch (error) {
+          logger.error('Error submitting song request from chat bar:', error);
+        }
+        return;
+      }
+
+      // If nothing is typed yet, fall back to explicit Song Request mode
       setIsSongRequestMode(true);
       setSongRequestText('');
     } else {
-      // Submit the song request
+      // Submit the song request from dedicated Song Request mode
       if (!songRequestText.trim()) return;
 
       try {
@@ -1905,7 +1919,7 @@ export default function ListenerDashboard() {
           maxLength={1500}
         />
 
-        {/* Request Song button on the left, Send button on the right */}
+        {/* Send button on the left, Request Song button on the right */}
         {isSongRequestMode ? (
           <>
             <button
@@ -1935,6 +1949,24 @@ export default function ListenerDashboard() {
         ) : (
           <>
             <button
+              type="submit"
+              disabled={
+                currentBroadcast?.status !== "LIVE" ||
+                !(currentBroadcastId || currentBroadcast?.id) ||
+                !chatMessage.trim() ||
+                (typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
+              }
+              className={`flex-shrink-0 p-2 rounded-lg transition-all w-full sm:w-auto flex items-center justify-center ${
+                currentBroadcast?.status === 'LIVE' && chatMessage.trim() && !(typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
+                  ? "bg-maroon-600 hover:bg-maroon-700 active:bg-maroon-800 text-white shadow-sm hover:shadow-md"
+                  : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+              }`}
+              aria-label="Send message"
+            >
+              <PaperAirplaneIcon className="h-5 w-5" />
+              <span className="sr-only">Send message</span>
+            </button>
+            <button
               type="button"
               onClick={handleSongRequest}
               disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id)}
@@ -1947,24 +1979,6 @@ export default function ListenerDashboard() {
             >
               <MusicalNoteIcon className="h-4 w-4" />
               Request
-            </button>
-            <button
-              type="submit"
-              disabled={
-                currentBroadcast?.status !== "LIVE" ||
-                !(currentBroadcastId || currentBroadcast?.id) ||
-                !chatMessage.trim() ||
-                (typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
-              }
-              className={`flex-shrink-0 p-2 rounded-lg transition-all w-full sm:w-auto flex items-center justify-center ${
-                currentBroadcast?.status === 'LIVE' && chatMessage.trim()
-                  ? "bg-maroon-600 hover:bg-maroon-700 active:bg-maroon-800 text-white shadow-sm hover:shadow-md"
-                  : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
-              }`}
-              aria-label="Send message"
-            >
-              <PaperAirplaneIcon className="h-5 w-5" />
-              <span className="sr-only">Send message</span>
             </button>
           </>
         )}
@@ -2493,7 +2507,7 @@ export default function ListenerDashboard() {
                         maxLength={1500}
                       />
 
-                      {/* Request Song button on the left, Send button on the right */}
+                      {/* Send button on the left, Request Song button on the right */}
                       {isSongRequestMode ? (
                         <>
                           <button
@@ -2514,7 +2528,7 @@ export default function ListenerDashboard() {
                             type="button"
                             onClick={handleCancelSongRequest}
                             disabled={currentBroadcast?.status !== 'LIVE'}
-                          className="flex-shrink-0 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap w-full sm:w-auto"
+                            className="flex-shrink-0 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap w-full sm:w-auto"
                             aria-label="Cancel song request"
                           >
                             Cancel
@@ -2522,23 +2536,6 @@ export default function ListenerDashboard() {
                         </>
                       ) : (
                         <>
-                          <button
-                            type="button"
-                            onClick={handleSongRequest}
-                            disabled={
-                              currentBroadcast?.status !== "LIVE" ||
-                              (typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
-                            }
-                            className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap w-full sm:w-auto ${
-                              isLive && !(typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
-                                ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
-                                : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
-                            }`}
-                            aria-label="Request a song"
-                          >
-                            <MusicalNoteIcon className="h-4 w-4" />
-                            Request
-                          </button>
                           <button
                             type="submit"
                             disabled={
@@ -2557,6 +2554,23 @@ export default function ListenerDashboard() {
                           >
                             <PaperAirplaneIcon className="h-5 w-5" />
                             <span className="sr-only">Send message</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleSongRequest}
+                            disabled={
+                              currentBroadcast?.status !== "LIVE" ||
+                              (typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
+                            }
+                            className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap w-full sm:w-auto ${
+                              isLive && !(typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
+                                ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
+                                : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-slate-500 cursor-not-allowed'
+                            }`}
+                            aria-label="Request a song"
+                          >
+                            <MusicalNoteIcon className="h-4 w-4" />
+                            Request
                           </button>
                         </>
                       )}
