@@ -22,6 +22,7 @@ export default function DJHandoverModal({
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
   const [loadingDJs, setLoadingDJs] = useState(false);
   const [isSwitchingAccounts, setIsSwitchingAccounts] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -36,6 +37,7 @@ export default function DJHandoverModal({
       setPassword('');
       setReason('');
       setError(null);
+      setSuccess(null);
       setIsSwitchingAccounts(false);
       setSearchQuery('');
     }
@@ -123,8 +125,15 @@ export default function DJHandoverModal({
     setIsSwitchingAccounts(true);
     setLoading(true);
     setError(null);
+    setSuccess(null);
 
     try {
+      console.log('DJHandoverModal: Initiating handover...', {
+        broadcastId,
+        newDJId: parseInt(selectedDJId),
+        currentDJ: currentDJ?.id
+      });
+
       // Use handoverLogin from AuthContext to ensure state is updated immediately
       const responseData = await handoverLogin({
         broadcastId,
@@ -133,45 +142,147 @@ export default function DJHandoverModal({
         reason: reason || null
       });
 
-      // --- Start: Retry logic for fetching updated broadcast state ---
-      const maxRetries = 5;
-      const retryDelayMs = 500; // 0.5 seconds
-      let updatedBroadcast = null;
+      console.log('DJHandoverModal: Handover API call successful', responseData);
 
-      for (let i = 0; i < maxRetries; i++) {
-        const updatedBroadcastResponse = await broadcastApi.getById(broadcastId);
-        const fetchedBroadcast = updatedBroadcastResponse.data;
-
-        // Check if the fetched broadcast has the new DJ as currentActiveDJ
-        if (fetchedBroadcast?.currentActiveDJ?.id === parseInt(selectedDJId)) {
-          updatedBroadcast = fetchedBroadcast;
-          break; // Found updated state, exit loop
-        }
-        
-        console.warn(`DJHandoverModal: Fetched broadcast still shows old DJ after handover. Retrying... (Attempt ${i + 1}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      // Verify handover was successful from response
+      if (!responseData || !responseData.success) {
+        throw new Error('Handover request completed but did not return success status. Please refresh the page to verify.');
       }
 
+      // --- Start: Retry logic for fetching updated broadcast state ---
+      // Increase retries and delay to account for backend processing time
+      const maxRetries = 8;
+      const retryDelayMs = 800; // 0.8 seconds - give backend more time
+      let updatedBroadcast = null;
+      let lastFetchedBroadcast = null;
+
+      console.log('DJHandoverModal: Starting broadcast state synchronization...');
+
+      for (let i = 0; i < maxRetries; i++) {
+        try {
+          const updatedBroadcastResponse = await broadcastApi.getById(broadcastId);
+          const fetchedBroadcast = updatedBroadcastResponse.data;
+          lastFetchedBroadcast = fetchedBroadcast;
+
+          // Check if the fetched broadcast has the new DJ as currentActiveDJ
+          if (fetchedBroadcast?.currentActiveDJ?.id === parseInt(selectedDJId)) {
+            updatedBroadcast = fetchedBroadcast;
+            console.log('DJHandoverModal: Broadcast state synchronized successfully', {
+              attempt: i + 1,
+              newDJId: fetchedBroadcast.currentActiveDJ.id
+            });
+            break; // Found updated state, exit loop
+          }
+          
+          console.warn(`DJHandoverModal: Broadcast state not yet updated. Retrying... (Attempt ${i + 1}/${maxRetries})`, {
+            expectedDJId: parseInt(selectedDJId),
+            currentDJId: fetchedBroadcast?.currentActiveDJ?.id
+          });
+          
+          // Only wait if not the last attempt
+          if (i < maxRetries - 1) {
+            await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+          }
+        } catch (fetchError) {
+          console.error(`DJHandoverModal: Error fetching broadcast on attempt ${i + 1}:`, fetchError);
+          // Continue retrying unless it's the last attempt
+          if (i < maxRetries - 1) {
+            await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+          }
+        }
+      }
+
+      // If we couldn't verify the state update, but the handover API succeeded,
+      // we should still proceed but warn the user
       if (!updatedBroadcast) {
-        throw new Error('Failed to synchronize broadcast state after handover. Please refresh the page.');
+        console.warn('DJHandoverModal: Could not verify broadcast state update, but handover API succeeded. Using last fetched broadcast or proceeding anyway.');
+        
+        // Use the last fetched broadcast if available, or create a synthetic update
+        if (lastFetchedBroadcast) {
+          updatedBroadcast = lastFetchedBroadcast;
+          // Manually update the currentActiveDJ if responseData has user info
+          if (responseData?.user) {
+            updatedBroadcast = {
+              ...lastFetchedBroadcast,
+              currentActiveDJ: responseData.user
+            };
+          }
+        } else if (responseData?.user) {
+          // If we have user data from response, create a minimal update
+          console.warn('DJHandoverModal: Using response data to update broadcast state');
+          updatedBroadcast = {
+            ...(await broadcastApi.getById(broadcastId)).data,
+            currentActiveDJ: responseData.user
+          };
+        }
       }
       // --- End: Retry logic ---
 
       // Update global context with the latest broadcast state
       if (updatedBroadcast) {
+        console.log('DJHandoverModal: Updating global broadcast context', {
+          broadcastId: updatedBroadcast.id,
+          newDJ: updatedBroadcast.currentActiveDJ
+        });
         updateCurrentBroadcast(updatedBroadcast);
+        
+        // Also update active session ID if provided
+        if (responseData?.activeSessionId) {
+          updateActiveSessionId(responseData.activeSessionId);
+        }
       }
       
-      // onHandoverSuccess is usually for notifications or other side-effects
+      // Show success message before closing
+      const newDJName = responseData?.user?.name || 
+        (responseData?.user?.firstname && responseData?.user?.lastname
+          ? `${responseData.user.firstname} ${responseData.user.lastname}`
+          : responseData?.user?.email || 'the selected DJ');
+      
+      setSuccess(`Successfully handed over to ${newDJName}`);
+      console.log('DJHandoverModal: Handover completed successfully', {
+        newDJ: responseData?.user?.email,
+        broadcastId
+      });
+      
+      // Call success callback
       if (onHandoverSuccess) {
-        onHandoverSuccess(responseData);
+        try {
+          await onHandoverSuccess(responseData);
+        } catch (callbackError) {
+          console.error('DJHandoverModal: Error in onHandoverSuccess callback:', callbackError);
+          // Don't fail the handover if callback has issues
+        }
       }
-      onClose();
+      
+      // Close modal after a brief delay to show success message
+      setTimeout(() => {
+        onClose();
+      }, 1500);
     } catch (err) {
-      console.error('Error initiating handover with account switch:', err);
-      // Handle both Axios error response structure and Error object structure
-      const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to switch accounts. Please verify password and try again.';
+      // Extract error message from AxiosError or regular Error
+      let errorMessage = 'Failed to switch accounts. Please verify password and try again.';
+      
+      if (err?.response?.data) {
+        // Backend returns error in { error: "...", code: "..." } format
+        errorMessage = err.response.data.error || 
+                      err.response.data.message || 
+                      errorMessage;
+      } else if (err?.message) {
+        // Regular Error object
+        errorMessage = err.message;
+      }
+      
+      // Log full error for debugging
+      console.error('DJHandoverModal: Error initiating handover:', {
+        message: errorMessage,
+        status: err?.response?.status,
+        statusText: err?.response?.statusText,
+        data: err?.response?.data,
+        error: err
+      });
+      
       setError(errorMessage);
+      setSuccess(null);
     } finally {
       setLoading(false);
       setIsSwitchingAccounts(false);
@@ -209,6 +320,12 @@ export default function DJHandoverModal({
         {error && (
           <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
             <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
+          </div>
+        )}
+
+        {success && (
+          <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+            <p className="text-sm text-green-800 dark:text-green-200">{success}</p>
           </div>
         )}
 

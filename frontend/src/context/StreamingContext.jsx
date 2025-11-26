@@ -1553,6 +1553,7 @@ export function StreamingProvider({ children }) {
             if (data.type === "DJ_HANDOVER" && data.broadcastId === broadcastId) {
               logger.info("StreamingContext: Handover event received:", data);
               
+              // Update state immediately with new DJ info
               setCurrentBroadcast(prev => {
                 if (!prev) return null;
                 return {
@@ -1561,10 +1562,11 @@ export function StreamingProvider({ children }) {
                 };
               });
               
-              // Refresh full broadcast data to ensure sync
+              // Refresh full broadcast data to ensure complete sync
               broadcastService.getById(broadcastId)
                 .then(response => {
                   if (response.data) {
+                    logger.info("StreamingContext: Refreshed broadcast after handover event");
                     setCurrentBroadcast(response.data);
                   }
                 })
@@ -1585,6 +1587,7 @@ export function StreamingProvider({ children }) {
             if (data.type === "CURRENT_DJ_UPDATE" && data.broadcastId === broadcastId) {
               logger.info("StreamingContext: Current DJ update received:", data);
               
+              // Update state immediately
               setCurrentBroadcast(prev => {
                 if (!prev) return null;
                 const newState = {
@@ -1599,6 +1602,16 @@ export function StreamingProvider({ children }) {
                 
                 return newState;
               });
+              
+              // Also fetch full broadcast data to ensure complete sync
+              broadcastService.getById(broadcastId)
+                .then(response => {
+                  if (response.data) {
+                    logger.info("StreamingContext: Refreshed broadcast after current DJ update");
+                    setCurrentBroadcast(response.data);
+                  }
+                })
+                .catch(error => logger.error('Error refreshing broadcast after current DJ update:', error));
             }
           } catch (error) {
             logger.error('Error parsing current DJ message:', error);

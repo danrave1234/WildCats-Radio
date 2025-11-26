@@ -170,7 +170,8 @@ export default function DJDashboard() {
     setAudioSource,
     getAudioStream,
     streamStatusCircuitBreakerOpen,
-    isBroadcastingDevice
+    isBroadcastingDevice,
+    updateCurrentBroadcast
   } = useStreaming()
 
   // Core workflow state
@@ -2059,9 +2060,16 @@ export default function DJDashboard() {
                   // The handoverLogin already updated AuthContext, but refresh to ensure sync
                   await checkAuthStatus();
                   
-                  // Refresh broadcast data
-                  // We fetch it to ensure local cache is hot, but Context update happens via WebSocket
-                  await broadcastService.getById(currentBroadcast.id);
+                  // Fetch and update broadcast data immediately to reflect handover
+                  const updatedBroadcastResponse = await broadcastService.getById(currentBroadcast.id);
+                  if (updatedBroadcastResponse.data) {
+                    // Update the context with the latest broadcast state
+                    updateCurrentBroadcast(updatedBroadcastResponse.data);
+                    logger.info('DJDashboard: Broadcast state updated after handover', {
+                      broadcastId: updatedBroadcastResponse.data.id,
+                      newActiveDJ: updatedBroadcastResponse.data.currentActiveDJ?.id
+                    });
+                  }
                   
                   // Show success notification
                   const djName = handoverData?.user?.name ||
