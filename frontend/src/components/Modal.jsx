@@ -8,7 +8,8 @@ export default function Modal({
   type = 'default', 
   showCloseButton = true,
   maxWidth = 'md',
-  footer = null
+  footer = null,
+  zIndex = 'z-50'
 }) {
   if (!isOpen) return null;
 
@@ -72,7 +73,7 @@ export default function Modal({
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50 px-4">
+    <div className={`fixed inset-0 flex items-center justify-center ${zIndex} px-4`}>
       {/* Backdrop with blur effect */}
       <div 
         className="fixed inset-0 bg-black/40 backdrop-blur-sm" 

@@ -123,6 +123,31 @@ This document outlines the implementation plan for **Account Switching During Ha
 - **Result:** Handovers now work seamlessly during 8+ hour broadcasts with proper database record creation
 - **Impact:** ✅ **RESOLVED** - Complete handover functionality restored for marathon sessions
 
+**Bug: Handover Permission Mismatch (Access Denied for New DJ)**
+- **Issue:** After a successful handover, the new DJ would see "Another DJ is broadcasting" instead of the dashboard, and the old DJ retained control.
+- **Root Cause:** 
+    1. Frontend `AuthContext` state wasn't updating immediately after handover API call.
+    2. Backend `BroadcastDTO` was missing the `currentActiveDJ` field, causing frontend to fallback to `startedBy`.
+- **Fix:** 
+    1. Updated `DJHandoverModal.jsx` to use `AuthContext.handoverLogin` for immediate state update.
+    2. Added `currentActiveDJ` field to `BroadcastDTO` on backend.
+    3. Updated `DJDashboard.jsx` to prioritize `currentActiveDJ` for access checks.
+- **Result:** Seamless transition; new DJ gets immediate access, old DJ loses access.
+- **Impact:** ✅ **RESOLVED** - Handover flow is now fully functional.
+
+**Enhancement: Moderator Handover Support**
+- **Issue:** Moderators were not appearing in the handover selection list.
+- **Fix:** Updated `DJHandoverModal.jsx` to fetch and combine users with `DJ` and `MODERATOR` roles.
+- **Result:** Moderators can now be selected as targets for broadcast handover.
+- **Impact:** ✅ **IMPLEMENTED** - Full support for Moderator-DJ workflows.
+
+**Bug: Previous DJ Retains Dashboard Access After Handover**
+- **Issue:** After a successful handover, the previous DJ could still access the live dashboard controls as if they were the active DJ.
+- **Root Cause:** The `isActiveDJ` check in `DJDashboard.jsx` used `startedBy` or `createdBy` as a fallback even when `currentActiveDJ` was set, allowing the original broadcaster to bypass the check.
+- **Fix:** Updated `isActiveDJ` logic to strictly prioritize `currentActiveDJ`. If `currentActiveDJ` is set (which happens on handover), ONLY that user is considered active.
+- **Result:** Previous DJ immediately sees "Another DJ is currently broadcasting" screen upon refresh or navigation.
+- **Impact:** ✅ **RESOLVED** - Security hole closed; only one DJ can control the stream at a time.
+
 ### 📋 Long Broadcast Authentication Strategy
 
 **See:** `LONG_BROADCAST_AUTHENTICATION_PERSISTENCE.md`

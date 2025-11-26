@@ -18,6 +18,7 @@ public class BroadcastDTO {
     private String streamUrl;
     private UserDTO createdBy;
     private UserDTO startedBy;
+    private UserDTO currentActiveDJ;
     
     // Analytics fields
     private Integer peakListeners;
@@ -40,7 +41,7 @@ public class BroadcastDTO {
     
     public BroadcastDTO(Long id, String title, String description, LocalDateTime scheduledStart,
                        LocalDateTime scheduledEnd, LocalDateTime actualStart, LocalDateTime actualEnd,
-                       String status, String streamUrl, UserDTO createdBy, UserDTO startedBy,
+                       String status, String streamUrl, UserDTO createdBy, UserDTO startedBy, UserDTO currentActiveDJ,
                        Integer peakListeners, Integer totalInteractions) {
         this.id = id;
         this.title = title;
@@ -53,6 +54,7 @@ public class BroadcastDTO {
         this.streamUrl = streamUrl;
         this.createdBy = createdBy;
         this.startedBy = startedBy;
+        this.currentActiveDJ = currentActiveDJ;
         this.peakListeners = peakListeners;
         this.totalInteractions = totalInteractions;
         
@@ -81,6 +83,11 @@ public class BroadcastDTO {
         if (broadcast.getStartedBy() != null) {
             startedByDTO = UserDTO.fromEntity(broadcast.getStartedBy());
         }
+
+        UserDTO currentActiveDJDTO = null;
+        if (broadcast.getCurrentActiveDJ() != null) {
+            currentActiveDJDTO = UserDTO.fromEntity(broadcast.getCurrentActiveDJ());
+        }
         
         BroadcastDTO dto = new BroadcastDTO(
             broadcast.getId(),
@@ -94,6 +101,7 @@ public class BroadcastDTO {
             broadcast.getStreamUrl(),
             userDTO,
             startedByDTO,
+            currentActiveDJDTO,
             broadcast.getPeakListeners(),
             broadcast.getTotalInteractions()
         );
@@ -198,6 +206,14 @@ public class BroadcastDTO {
 
     public void setStartedBy(UserDTO startedBy) {
         this.startedBy = startedBy;
+    }
+
+    public UserDTO getCurrentActiveDJ() {
+        return currentActiveDJ;
+    }
+
+    public void setCurrentActiveDJ(UserDTO currentActiveDJ) {
+        this.currentActiveDJ = currentActiveDJ;
     }
     
     public String getFormattedStart() {

@@ -397,13 +397,13 @@ const Announcements = () => {
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-950 py-8">
         <div className="max-w-6xl mx-auto px-4">
           {/* Header */}
-          <div className="flex items-center justify-between mb-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700 gap-4">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-gradient-to-br from-maroon-600 to-maroon-700 rounded-xl shadow-md">
               <Megaphone className="w-8 h-8 text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Announcements</h1>
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">Announcements</h1>
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                 {isModerator ? 'Manage and moderate community announcements' : 'Stay updated with WildCats Radio'}
               </p>
@@ -413,7 +413,7 @@ const Announcements = () => {
           {canCreate && (
             <button
               onClick={() => navigate('/announcements/create')}
-              className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-maroon-600 to-maroon-700 hover:from-maroon-700 hover:to-maroon-800 text-white rounded-xl transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 font-medium"
+              className="w-full md:w-auto flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-maroon-600 to-maroon-700 hover:from-maroon-700 hover:to-maroon-800 text-white rounded-xl transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 font-medium"
             >
               <Plus className="w-5 h-5" />
               New Announcement
@@ -505,20 +505,20 @@ const Announcements = () => {
 
                     {/* Content */}
                     <div className="p-6">
-                      <div className="flex items-start justify-between mb-3">
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between mb-3 gap-4">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
-                            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                            <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
                               {announcement.title}
                             </h2>
                             {announcement.pinned && (
-                              <Pin className="w-5 h-5 text-maroon-600 fill-maroon-600" />
+                              <Pin className="w-5 h-5 text-maroon-600 fill-maroon-600 flex-shrink-0" />
                             )}
                           </div>
                           
                           {/* Status Badge */}
                           {(isModerator || isDJ) && (
-                            <div className="flex gap-2 mb-2">
+                            <div className="flex flex-wrap gap-2 mb-2">
                               <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadge(announcement.status)}`}>
                                 {announcement.status}
                               </span>
@@ -533,7 +533,7 @@ const Announcements = () => {
                         </div>
                         
                         {/* Action Buttons */}
-                        <div className="flex gap-2 ml-4 flex-wrap">
+                        <div className="flex gap-2 sm:ml-4 flex-wrap">
                           {/* DJ: Edit/Delete DRAFTS only (their own) */}
                           {isDJ && canEditDelete(announcement) && announcement.status === 'DRAFT' && (
                             <>

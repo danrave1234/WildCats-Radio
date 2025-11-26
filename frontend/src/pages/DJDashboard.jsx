@@ -1235,6 +1235,16 @@ export default function DJDashboard() {
     }
   }
 
+  // Helper function to clear form errors
+  const clearFormError = (fieldName) => {
+    if (formErrors[fieldName]) {
+      setFormErrors((prev) => ({
+        ...prev,
+        [fieldName]: "",
+      }))
+    }
+  }
+
   const validateForm = () => {
     const errors = {}
 
@@ -1934,10 +1944,11 @@ export default function DJDashboard() {
   }
 
   // Check if another DJ is broadcasting and show read-only view
-  const isActiveDJ = currentBroadcast?.status === 'LIVE' && 
-                     (currentBroadcast?.currentActiveDJ?.id === currentUser?.id || 
-                      currentBroadcast?.startedBy?.id === currentUser?.id || 
-                      currentBroadcast?.createdBy?.id === currentUser?.id);
+  const isActiveDJ = currentBroadcast?.status === 'LIVE' ? 
+    (currentBroadcast.currentActiveDJ ? 
+      currentBroadcast.currentActiveDJ.id === currentUser?.id :
+      (currentBroadcast.startedBy?.id === currentUser?.id || currentBroadcast.createdBy?.id === currentUser?.id)
+    ) : true; // If not live, creator/starter check happens in create/start flow logic or isn't relevant for "Another DJ" screen
 
   if (currentBroadcast?.status === 'LIVE' && !isActiveDJ && 
       (currentUser.role === 'DJ' || currentUser.role === 'MODERATOR' || currentUser.role === 'ADMIN')) {

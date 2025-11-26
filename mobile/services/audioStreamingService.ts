@@ -51,6 +51,11 @@ class AudioStreamingService {
   private listenerStatusCallback: ((status: ListenerStatus) => void) | null = null;
   private lastToggleTime = 0;
   private readonly TOGGLE_DEBOUNCE_MS = 1000; // Prevent rapid toggles
+  private lastBufferingLogTime = 0;
+  private readonly BUFFERING_LOG_THROTTLE_MS = 10000; // Only log buffering every 10 seconds
+  private bufferingStartTime: number | null = null;
+  private readonly MAX_BUFFERING_TIME_MS = 30000; // 30 seconds max buffering before action
+  private bufferingTimeout: NodeJS.Timeout | null = null;
 
   // Storage keys for persistence
   private static readonly STORAGE_KEYS = {
@@ -119,15 +124,30 @@ class AudioStreamingService {
     }
 
     try {
-      // Clean up existing sound
-      if (this.sound) {
+      // Add cache-busting to prevent stale connections (like web version)
+      const cacheBustedUrl = streamUrl.includes('?') 
+        ? `${streamUrl}&_=${Date.now()}` 
+        : `${streamUrl}?_=${Date.now()}`;
+
+      // Only unload if URL actually changed (like web version - keep connection stable)
+      if (this.sound && this.currentStreamUrl !== streamUrl) {
         await this.unloadStream();
       }
 
+      // If we already have a sound instance with the same base URL, don't reload unnecessarily
+      // (cache-busting parameter changes, but base URL is the same)
+      const baseUrl = streamUrl.split('?')[0];
+      const currentBaseUrl = this.currentStreamUrl?.split('?')[0];
+      if (this.sound && currentBaseUrl === baseUrl) {
+        logger.debug('Stream already loaded with same base URL, keeping connection stable');
+        return;
+      }
+
+      // Store the base URL (without cache-busting) for comparison
       this.currentStreamUrl = streamUrl;
       this.updateStatus({ isLoading: true, error: null });
 
-      logger.debug('Loading stream:', streamUrl);
+      logger.debug('Loading stream:', cacheBustedUrl);
 
       // Get current volume and mute state
       const currentVolume = await this.getVolumeState();
@@ -148,14 +168,14 @@ class AudioStreamingService {
       };
 
       const { sound } = await Audio.Sound.createAsync(
-        { uri: streamUrl },
+        { uri: cacheBustedUrl },
         soundConfig,
         this.onPlaybackStatusUpdate.bind(this)
       );
 
       this.sound = sound;
       
-      logger.debug('Stream loaded successfully:', streamUrl);
+      logger.debug('Stream loaded successfully:', cacheBustedUrl);
       this.updateStatus({ isLoading: false });
 
     } catch (error) {
@@ -441,6 +461,14 @@ class AudioStreamingService {
     try {
       this.stopHeartbeat();
       
+      // Clear buffering timeout
+      if (this.bufferingTimeout) {
+        clearTimeout(this.bufferingTimeout);
+        this.bufferingTimeout = null;
+      }
+      this.bufferingStartTime = null;
+      this.lastBufferingLogTime = 0;
+      
       if (this.sound) {
         await this.sound.unloadAsync();
         this.sound = null;
@@ -563,9 +591,42 @@ class AudioStreamingService {
 
       this.updateStatus(audioState);
 
-      // Handle buffering states
+      // Handle buffering states - don't spam logs, buffering is normal for live streams
+      // Only log if buffering persists for an unusually long time (like web version)
       if (successStatus.isBuffering && successStatus.isPlaying) {
-        logger.debug('Stream is buffering...');
+        const now = Date.now();
+        
+        // Track when buffering started
+        if (this.bufferingStartTime === null) {
+          this.bufferingStartTime = now;
+          // Don't log initial buffering - it's normal
+        }
+        
+        // Only log if buffering persists for more than 15 seconds (unusual)
+        const bufferingDuration = this.bufferingStartTime ? (now - this.bufferingStartTime) : 0;
+        if (bufferingDuration > 15000 && (now - this.lastBufferingLogTime > this.BUFFERING_LOG_THROTTLE_MS)) {
+          logger.debug(`Stream buffering for ${Math.floor(bufferingDuration / 1000)}s...`);
+          this.lastBufferingLogTime = now;
+        }
+        
+        // If buffering persists for too long (30s), try to recover (like web version)
+        if (bufferingDuration > this.MAX_BUFFERING_TIME_MS) {
+          if (!this.bufferingTimeout) {
+            logger.debug(`Long buffering detected (${Math.floor(bufferingDuration / 1000)}s), attempting recovery...`);
+            this.bufferingTimeout = setTimeout(() => {
+              this.handleLongBuffering();
+            }, 2000) as any;
+          }
+        }
+      } else {
+        // Not buffering - reset tracking silently (like web version)
+        if (this.bufferingStartTime !== null) {
+          this.bufferingStartTime = null;
+        }
+        if (this.bufferingTimeout) {
+          clearTimeout(this.bufferingTimeout);
+          this.bufferingTimeout = null;
+        }
       }
 
       // Reset reconnect attempts on successful status update
@@ -712,6 +773,71 @@ class AudioStreamingService {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
+    }
+  }
+
+  /**
+   * Handle long buffering by attempting to refresh the stream (like web version)
+   */
+  private async handleLongBuffering(): Promise<void> {
+    if (this.bufferingTimeout) {
+      clearTimeout(this.bufferingTimeout);
+      this.bufferingTimeout = null;
+    }
+    
+    if (!this.currentStreamUrl || !this.sound) {
+      return;
+    }
+    
+    logger.debug('Attempting to recover from long buffering (web-style recovery)...');
+    
+    try {
+      // Reset buffering tracking
+      this.bufferingStartTime = null;
+      
+      // Web version approach: pause, update src with cache-busting, reload, then play
+      const wasPlaying = await this.isPlaying();
+      
+      if (wasPlaying) {
+        // Pause current playback
+        try {
+          await this.sound.pauseAsync();
+        } catch (e) {
+          // Ignore pause errors
+        }
+        
+        // Update source with cache-busting (like web version)
+        const cacheBustedUrl = this.currentStreamUrl.includes('?') 
+          ? `${this.currentStreamUrl}&_=${Date.now()}` 
+          : `${this.currentStreamUrl}?_=${Date.now()}`;
+        
+        // Unload and reload with new URL
+        try {
+          await this.sound.unloadAsync();
+          this.sound = null;
+          
+          // Reload with cache-busted URL
+          await this.loadStream(this.currentStreamUrl);
+          
+          // Resume playback after a short delay
+          setTimeout(async () => {
+            try {
+              if (this.sound) {
+                await this.play();
+                logger.debug('Recovered from long buffering successfully');
+              }
+            } catch (error) {
+              logger.debug('Failed to resume after buffering recovery (will retry):', error);
+            }
+          }, 500);
+        } catch (reloadError) {
+          logger.debug('Stream reload during recovery failed (will retry):', reloadError);
+          // Don't treat as fatal - will retry on next status update
+        }
+      }
+    } catch (error) {
+      logger.debug('Buffering recovery attempt failed (non-fatal):', error);
+      // Don't show error to user - just log it, stream might recover on its own
     }
   }
 
