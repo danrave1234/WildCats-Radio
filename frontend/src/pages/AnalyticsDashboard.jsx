@@ -397,8 +397,8 @@ export default function AnalyticsDashboard() {
         </div>
 
         {/* Tabs Navigation */}
-        <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
-          <nav className="flex space-x-8 -mb-px">
+        <div className="mb-6 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+          <nav className="flex space-x-8 -mb-px min-w-max">
             {[
               { id: 'overview', label: 'Overview', icon: ChartBarIcon },
               { id: 'demographics', label: 'Demographics', icon: UsersIcon },

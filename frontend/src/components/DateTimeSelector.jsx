@@ -455,44 +455,54 @@ export function TimeSelector({ value, onChange, label, required = false, id, min
       e.stopPropagation();
     }
     
-    if (customHour && customMinute) {
-      // Parse the hour and minute
-      let hours = parseInt(customHour, 10);
-      const minutes = parseInt(customMinute, 10);
-      
-      // Convert to 24-hour format
-      if (customAmPm === 'PM' && hours < 12) {
-        hours += 12;
-      } else if (customAmPm === 'AM' && hours === 12) {
-        hours = 0;
-      }
-      
-      // Format as HH:MM for the internal value
-      const formattedTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-      
-      // Validate that the time is not in the past if date is today
-      const effectiveMin = getEffectiveMinTime();
-      if (effectiveMin) {
-        const [minHour, minMinute] = effectiveMin.split(':').map(Number);
-        const selectedTime = new Date();
-        selectedTime.setHours(hours, minutes, 0);
-        const minTime = new Date();
-        minTime.setHours(minHour, minMinute, 0);
-        
-        if (selectedTime < minTime) {
-          // Time is in the past, don't set it
-          return false;
-        }
-      }
-      
-      onChange(formattedTime);
-      
-      // Close the dropdown after a small delay to prevent issues with event handling
-      setTimeout(() => {
-        setIsOpen(false);
-        setShowCustomInput(false);
-      }, 10);
+    // Validate inputs are present
+    if (!customHour || !customMinute) {
+      return false;
     }
+    
+    // Parse the hour and minute
+    let hours = parseInt(customHour, 10);
+    const minutes = parseInt(customMinute, 10);
+    
+    // Validate numeric values
+    if (isNaN(hours) || isNaN(minutes) || hours < 1 || hours > 12 || minutes < 0 || minutes > 59) {
+      return false;
+    }
+    
+    // Convert to 24-hour format
+    if (customAmPm === 'PM' && hours < 12) {
+      hours += 12;
+    } else if (customAmPm === 'AM' && hours === 12) {
+      hours = 0;
+    }
+    
+    // Format as HH:MM for the internal value
+    const formattedTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+    
+    // Validate that the time is not in the past if date is today
+    if (isSelectedDateToday()) {
+      const now = new Date();
+      const selectedDateTime = new Date();
+      selectedDateTime.setHours(hours, minutes, 0, 0);
+      now.setSeconds(0, 0);
+      
+      // Add 1 minute buffer to allow times very close to now
+      const minTime = new Date(now.getTime() + 60000);
+      
+      if (selectedDateTime < minTime) {
+        // Time is in the past, don't set it
+        return false;
+      }
+    }
+    
+    // Call onChange to update the parent component
+    onChange(formattedTime);
+    
+    // Close the dropdown after a small delay to prevent issues with event handling
+    setTimeout(() => {
+      setIsOpen(false);
+      setShowCustomInput(false);
+    }, 10);
     
     return false;
   };

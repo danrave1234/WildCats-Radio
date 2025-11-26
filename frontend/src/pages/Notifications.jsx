@@ -159,14 +159,14 @@ export default function Notifications() {
       <div className="max-w-4xl mx-auto p-6">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-4">
             <div className="flex items-center space-x-3">
               <div className="p-2 bg-maroon-100 dark:bg-maroon-900/30 rounded-lg">
                 <Bell className="h-8 w-8 text-maroon-600 dark:text-maroon-400" />
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Notifications</h1>
-                <p className="text-gray-600 dark:text-gray-400 flex items-center space-x-2">
+                <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">Notifications</h1>
+                <p className="text-gray-600 dark:text-gray-400 flex items-center space-x-2 text-sm md:text-base">
                   <span>
                     {unreadCount > 0 ? `${unreadCount} unread notifications` : 'All caught up!'}
                   </span>
@@ -177,7 +177,7 @@ export default function Notifications() {
               </div>
             </div>
             
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center justify-between sm:justify-end space-x-3 w-full sm:w-auto">
               {/* Manual Refresh Button - Only show when WebSocket disconnected */}
               {!isConnected && (
                 <button
