@@ -394,385 +394,320 @@ const Announcements = () => {
         description="Latest announcements and news from Wildcat Radio - Cebu Institute of Technology University (CITU). Stay updated with campus events and broadcast schedules."
         keywords="wildcat radio announcements, CITU news, campus radio news, CIT radio updates, university announcements, campus events"
       />
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-950 py-8">
-        <div className="max-w-6xl mx-auto px-4">
-          {/* Header */}
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700 gap-4">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-gradient-to-br from-maroon-600 to-maroon-700 rounded-xl shadow-md">
-              <Megaphone className="w-8 h-8 text-white" />
+      <div className="min-h-screen bg-slate-950 text-slate-50 py-10">
+        <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="text-sm text-slate-400">
+              Manage campus updates, drafts, schedules, and archived notices in one place.
             </div>
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">Announcements</h1>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                {isModerator ? 'Manage and moderate community announcements' : 'Stay updated with WildCats Radio'}
-              </p>
-            </div>
-          </div>
-          
-          {canCreate && (
-            <button
-              onClick={() => navigate('/announcements/create')}
-              className="w-full md:w-auto flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-maroon-600 to-maroon-700 hover:from-maroon-700 hover:to-maroon-800 text-white rounded-xl transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 font-medium"
-            >
-              <Plus className="w-5 h-5" />
-              New Announcement
-            </button>
-          )}
-        </div>
-
-        {/* Tabs */}
-        {tabs.length > 1 && (
-          <div className="flex gap-3 mb-6 overflow-x-auto bg-white dark:bg-gray-800 p-2 rounded-xl shadow-md border border-gray-200 dark:border-gray-700">
-            {tabs.map((tab) => (
+            {canCreate && (
               <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  setCurrentPage(0);
-                }}
-                className={`px-5 py-2.5 rounded-lg font-semibold transition-all whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'bg-gradient-to-r from-maroon-600 to-maroon-700 text-white shadow-md transform scale-105'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
+                onClick={() => navigate('/announcements/create')}
+                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-300 to-amber-500 text-maroon-900 px-4 py-2 font-semibold shadow-lg hover:shadow-xl transition hover:-translate-y-0.5"
               >
-                {tab.label}
+                <Plus className="w-4 h-4" />
+                New Announcement
               </button>
-            ))}
+            )}
           </div>
-        )}
 
-        {/* Error Message */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-800 dark:text-red-200">
-            {error}
-          </div>
-        )}
-
-        {/* Loading State */}
-        {loading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-maroon-600"></div>
-          </div>
-        ) : (
-          <>
-            {/* Announcements List */}
-            <div className="space-y-6">
-              {announcements.length === 0 ? (
-                <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700">
-                  <div className="inline-flex p-6 bg-gray-100 dark:bg-gray-700 rounded-full mb-6">
-                    <Megaphone className="w-16 h-16 text-gray-400" />
-                  </div>
-                  <p className="text-gray-600 dark:text-gray-300 text-xl font-medium mb-2">
-                    No announcements {activeTab !== 'published' && `in ${activeTab}`}
-                  </p>
-                  <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
-                    {activeTab === 'my-drafts' && 'You have no draft announcements yet'}
-                    {activeTab === 'my-published' && 'You have no published or archived announcements yet'}
-                    {activeTab !== 'my-drafts' && activeTab !== 'my-published' && 'Check back later for updates'}
-                  </p>
-                  {canCreate && activeTab === 'my-drafts' && (
+          <div className="rounded-3xl border border-slate-800 bg-slate-900/50 p-6 space-y-6 shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
+            {tabs.length > 1 && (
+              <div className="flex flex-wrap items-center gap-3">
+                {tabs.map((tab) => {
+                  const active = activeTab === tab.id;
+                  return (
                     <button
-                      onClick={() => navigate('/announcements/create')}
-                      className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-maroon-600 to-maroon-700 hover:from-maroon-700 hover:to-maroon-800 text-white rounded-xl transition-all shadow-md hover:shadow-lg font-medium"
+                      key={tab.id}
+                      onClick={() => {
+                        setActiveTab(tab.id);
+                        setCurrentPage(0);
+                      }}
+                      className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${
+                        active ? 'bg-white text-maroon-700 shadow-lg' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                      }`}
                     >
-                      <Plus className="w-5 h-5" />
-                      Create Your First Announcement
+                      {tab.label}
                     </button>
-                  )}
+                  );
+                })}
+              </div>
+            )}
+
+            {error && (
+              <div className="p-4 bg-red-900/30 border border-red-800 text-red-200 rounded-2xl">
+                {error}
+              </div>
+            )}
+
+            {loading ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {[...Array(4)].map((_, idx) => (
+                  <div key={idx} className="h-48 rounded-3xl bg-slate-900/60 border border-slate-800 animate-pulse" />
+                ))}
+              </div>
+            ) : announcements.length === 0 ? (
+              <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-10 text-center shadow-inner">
+                <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-slate-800 flex items-center justify-center">
+                  <Megaphone className="h-8 w-8 text-slate-400" />
                 </div>
-              ) : (
-                announcements.map((announcement) => (
-                  <div
-                    key={announcement.id}
-                    className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition-all border border-gray-200 dark:border-gray-700 transform hover:-translate-y-1"
+                <h2 className="text-2xl font-semibold text-white mb-2">
+                  No announcements {activeTab !== 'published' && `in ${activeTab}`}
+                </h2>
+                <p className="text-slate-300 max-w-md mx-auto">
+                  {activeTab === 'my-drafts'
+                    ? 'Your creative canvas is empty. Start crafting the next big update!'
+                    : 'Check back later for fresh campus broadcasts.'}
+                </p>
+                {canCreate && activeTab === 'my-drafts' && (
+                  <button
+                    onClick={() => navigate('/announcements/create')}
+                    className="mt-6 inline-flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-amber-300 to-amber-500 text-maroon-900 font-semibold shadow-lg hover:shadow-xl transition"
                   >
-                    {/* Image - Natural aspect ratio like Facebook */}
-                    {announcement.imageUrl && (
-                      <div className="w-full bg-gray-200 dark:bg-gray-700">
-                        <img
-                          src={announcement.imageUrl}
-                          alt={announcement.title}
-                          className="w-full h-auto object-contain"
-                          style={{ maxHeight: '600px' }}
-                          onError={(e) => {
-                            e.target.style.display = 'none';
-                          }}
-                        />
+                    <Plus className="w-4 h-4" />
+                    Create Announcement
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                {announcements.map((announcement) => (
+                  <article
+                    key={announcement.id}
+                    className="group relative flex flex-col rounded-3xl border border-slate-800 bg-slate-900/70 p-6 shadow-lg backdrop-blur hover:-translate-y-1 hover:border-amber-400/40 transition"
+                  >
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
+                        {announcement.category || 'Broadcast'}
+                      </p>
+                      <h2 className="text-2xl font-semibold text-white break-words">
+                        {announcement.title}
+                      </h2>
+                    </div>
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(announcement.status)}`}>
+                        {announcement.status}
+                      </span>
+                      {announcement.scheduledFor && (
+                        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-200 border border-blue-400/30 flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {format(new Date(announcement.scheduledFor), 'MMM d, h:mm a')}
+                        </span>
+                      )}
+                      {announcement.pinned && (
+                        <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-200 flex items-center gap-1">
+                          <Pin className="w-3 h-3" />
+                          Pinned
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {announcement.imageUrl && (
+                    <div className="mt-4 rounded-2xl overflow-hidden border border-slate-800 bg-slate-950/40">
+                      <img
+                        src={announcement.imageUrl}
+                        alt={announcement.title}
+                        className="w-full object-cover max-h-60"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  <p className="mt-4 text-slate-200 whitespace-pre-line leading-relaxed">
+                    {(announcement.content || '').trim()}
+                  </p>
+
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {/* DJ: Edit/Delete DRAFTS only (their own) */}
+                    {isDJ && canEditDelete(announcement) && announcement.status === 'DRAFT' && (
+                      <>
+                        <button
+                          onClick={() => handleEdit(announcement)}
+                          className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-200 hover:bg-blue-500/20"
+                        >
+                          <Edit className="w-4 h-4" />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleOpenDeleteDraft(announcement)}
+                          className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-200 hover:bg-red-500/20"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Delete
+                        </button>
+                      </>
+                    )}
+
+                    {/* DJ: Resubmit REJECTED announcements */}
+                    {isDJ && announcement.createdById === currentUser?.id && announcement.status === 'REJECTED' && (
+                      <>
+                        <button
+                          onClick={() => handleEdit(announcement)}
+                          className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-200 hover:bg-blue-500/20"
+                        >
+                          <Edit className="w-4 h-4" />
+                          Revise
+                        </button>
+                        <button
+                          onClick={() => handleResubmit(announcement.id)}
+                          className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-200 hover:bg-emerald-500/20"
+                        >
+                          <Send className="w-4 h-4" />
+                          Resubmit
+                        </button>
+                      </>
+                    )}
+
+                    {/* Moderator/Admin: Full management controls */}
+                    {isModerator && (
+                      <>
+                        {announcement.status === 'DRAFT' && (
+                          <>
+                            <button
+                              onClick={() => handleOpenPublish(announcement)}
+                              className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-200 hover:bg-emerald-500/20"
+                            >
+                              <Send className="w-4 h-4" />
+                              Publish
+                            </button>
+                            <button
+                              onClick={() => handleOpenSchedule(announcement)}
+                              className="inline-flex items-center gap-1 rounded-full bg-indigo-500/10 px-3 py-1.5 text-sm font-medium text-indigo-200 hover:bg-indigo-500/20"
+                            >
+                              <Calendar className="w-4 h-4" />
+                              Schedule
+                            </button>
+                            <button
+                              onClick={() => handleOpenReject(announcement)}
+                              className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-200 hover:bg-red-500/20"
+                            >
+                              <X className="w-4 h-4" />
+                              Reject
+                            </button>
+                          </>
+                        )}
+
+                        {announcement.status === 'PUBLISHED' && (
+                          <>
+                            <button
+                              onClick={() => handleTogglePin(announcement)}
+                              className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-medium ${
+                                announcement.pinned
+                                  ? 'bg-amber-500/20 text-amber-200'
+                                  : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                              }`}
+                            >
+                              {announcement.pinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+                              {announcement.pinned ? 'Unpin' : 'Pin'}
+                            </button>
+                            <button
+                              onClick={() => handleArchive(announcement.id)}
+                              className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-3 py-1.5 text-sm font-medium text-amber-200 hover:bg-amber-500/20"
+                            >
+                              <Archive className="w-4 h-4" />
+                              Archive
+                            </button>
+                          </>
+                        )}
+
+                        {announcement.status === 'SCHEDULED' && (
+                          <button
+                            onClick={() => handleDelete(announcement.id)}
+                            className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-200 hover:bg-red-500/20"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            Delete
+                          </button>
+                        )}
+
+                        {announcement.status === 'ARCHIVED' && (
+                          <>
+                            <button
+                              onClick={() => handleUnarchive(announcement.id)}
+                              className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-200 hover:bg-emerald-500/20"
+                            >
+                              <ArchiveRestore className="w-4 h-4" />
+                              Restore
+                            </button>
+                            <button
+                              onClick={() => handleOpenDeleteArchived(announcement)}
+                              className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-200 hover:bg-red-500/20"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete
+                            </button>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <div className="mt-6 pt-4 border-t border-slate-800 text-sm text-slate-400 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2 justify-between">
+                      <div className="flex items-center gap-2">
+                        <User className="w-4 h-4" />
+                        <span className="text-slate-200">{announcement.createdByName}</span>
+                      </div>
+                      <span>{format(new Date(announcement.createdAt), 'PPp')}</span>
+                    </div>
+
+                    {isModerator && announcement.status === 'PUBLISHED' && announcement.approvedByName && (
+                      <div className="flex flex-wrap items-center gap-2 justify-between text-emerald-200">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Approved by {announcement.approvedByName}</span>
+                        </div>
+                        {announcement.publishedAt && <span>{format(new Date(announcement.publishedAt), 'PPp')}</span>}
                       </div>
                     )}
 
-                    {/* Content */}
-                    <div className="p-6">
-                      <div className="flex flex-col sm:flex-row sm:items-start justify-between mb-3 gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
-                              {announcement.title}
-                            </h2>
-                            {announcement.pinned && (
-                              <Pin className="w-5 h-5 text-maroon-600 fill-maroon-600 flex-shrink-0" />
-                            )}
-                          </div>
-                          
-                          {/* Status Badge */}
-                          {(isModerator || isDJ) && (
-                            <div className="flex flex-wrap gap-2 mb-2">
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadge(announcement.status)}`}>
-                                {announcement.status}
-                              </span>
-                              {announcement.scheduledFor && (
-                                <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 flex items-center gap-1">
-                                  <Clock className="w-3 h-3" />
-                                  {format(new Date(announcement.scheduledFor), 'MMM d, yyyy h:mm a')}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* Action Buttons */}
-                        <div className="flex gap-2 sm:ml-4 flex-wrap">
-                          {/* DJ: Edit/Delete DRAFTS only (their own) */}
-                          {isDJ && canEditDelete(announcement) && announcement.status === 'DRAFT' && (
-                            <>
-                              <button
-                                onClick={() => handleEdit(announcement)}
-                                className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors shadow-sm"
-                                title="Edit"
-                              >
-                                <Edit className="w-5 h-5" />
-                              </button>
-                              <button
-                                onClick={() => handleOpenDeleteDraft(announcement)}
-                                className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors shadow-sm"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-5 h-5" />
-                              </button>
-                            </>
-                          )}
-
-                          {/* DJ: Resubmit REJECTED announcements */}
-                          {isDJ && announcement.createdById === currentUser?.id && announcement.status === 'REJECTED' && (
-                            <>
-                              <button
-                                onClick={() => handleEdit(announcement)}
-                                className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors shadow-sm"
-                                title="Edit & Revise"
-                              >
-                                <Edit className="w-5 h-5" />
-                              </button>
-                              <button
-                                onClick={() => handleResubmit(announcement.id)}
-                                className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors shadow-sm"
-                                title="Resubmit for Approval"
-                              >
-                                <Send className="w-5 h-5" />
-                              </button>
-                            </>
-                          )}
-
-                          {/* Moderator/Admin: Full management controls */}
-                          {isModerator && (
-                            <>
-                              {/* DRAFT: Approve, Schedule, or Reject */}
-                              {announcement.status === 'DRAFT' && (
-                                <>
-                                  <button
-                                    onClick={() => handleOpenPublish(announcement)}
-                                    className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors shadow-sm"
-                                    title="Approve & Publish Now"
-                                  >
-                                    <Send className="w-5 h-5" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleOpenSchedule(announcement)}
-                                    className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors shadow-sm"
-                                    title="Schedule for Later"
-                                  >
-                                    <Calendar className="w-5 h-5" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleOpenReject(announcement)}
-                                    className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors shadow-sm"
-                                    title="Reject with Feedback"
-                                  >
-                                    <X className="w-5 h-5" />
-                                  </button>
-                                </>
-                              )}
-
-                              {/* PUBLISHED: Pin/Unpin, Archive */}
-                              {announcement.status === 'PUBLISHED' && (
-                                <>
-                                  <button
-                                    onClick={() => handleTogglePin(announcement)}
-                                    className={`p-2 rounded-lg transition-colors shadow-sm ${
-                                      announcement.pinned
-                                        ? 'text-maroon-600 bg-maroon-50 dark:bg-maroon-900/20 ring-2 ring-maroon-200 dark:ring-maroon-800'
-                                        : 'text-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
-                                    }`}
-                                    title={announcement.pinned ? 'Unpin' : 'Pin (max 2)'}
-                                  >
-                                    {announcement.pinned ? <PinOff className="w-5 h-5" /> : <Pin className="w-5 h-5" />}
-                                  </button>
-                                  <button
-                                    onClick={() => handleArchive(announcement.id)}
-                                    className="p-2 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-lg transition-colors shadow-sm"
-                                    title="Archive"
-                                  >
-                                    <Archive className="w-5 h-5" />
-                                  </button>
-                                </>
-                              )}
-
-                              {/* SCHEDULED: Delete */}
-                              {announcement.status === 'SCHEDULED' && (
-                                <button
-                                  onClick={() => handleDelete(announcement.id)}
-                                  className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors shadow-sm"
-                                  title="Delete"
-                                >
-                                  <Trash2 className="w-5 h-5" />
-                                </button>
-                              )}
-
-                              {/* ARCHIVED: Unarchive or Delete (with confirmation) */}
-                              {announcement.status === 'ARCHIVED' && (
-                                <>
-                                  <button
-                                    onClick={() => handleUnarchive(announcement.id)}
-                                    className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors shadow-sm"
-                                    title="Restore & Publish"
-                                  >
-                                    <ArchiveRestore className="w-5 h-5" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleOpenDeleteArchived(announcement)}
-                                    className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors shadow-sm"
-                                    title="Delete Permanently"
-                                  >
-                                    <Trash2 className="w-5 h-5" />
-                                  </button>
-                                </>
-                              )}
-                            </>
-                          )}
-                        </div>
+                    {announcement.status === 'REJECTED' && announcement.rejectionReason && (
+                      <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-3 text-red-200">
+                        <p className="text-xs uppercase tracking-wide mb-1">Rejection reason</p>
+                        {announcement.rejectionReason}
                       </div>
+                    )}
 
-                      <p className="text-gray-700 dark:text-gray-300 mb-4 whitespace-pre-wrap leading-relaxed">
-                        {(announcement.content || '').replace(/\s+$/g, '')}
-                      </p>
-
-                      {/* Metadata Footer */}
-                      <div className="border-t dark:border-gray-700 pt-4 space-y-3">
-                        {/* Created By */}
-                        <div className="flex items-center justify-between text-sm">
-                          <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-                            <User className="w-4 h-4" />
-                            <span>Created by <span className="font-medium text-gray-900 dark:text-white">{announcement.createdByName}</span></span>
-                          </div>
-                          <span className="text-xs text-gray-500 dark:text-gray-400">
-                            {format(new Date(announcement.createdAt), 'PPp')}
-                          </span>
-                        </div>
-
-                        {/* Approval Info (Published - Mods/Admins only) */}
-                        {isModerator && announcement.status === 'PUBLISHED' && announcement.approvedByName && (
-                          <div className="flex items-center justify-between text-sm bg-green-50 dark:bg-green-900/10 px-3 py-2 rounded-lg border border-green-200 dark:border-green-800">
-                            <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
-                              <CheckCircle2 className="w-4 h-4" />
-                              <span>Approved by <span className="font-medium">{announcement.approvedByName}</span></span>
-                            </div>
-                            {announcement.publishedAt && (
-                              <span className="text-xs text-green-600 dark:text-green-400">
-                                {format(new Date(announcement.publishedAt), 'PPp')}
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Rejection Info (Rejected - DJ or Mod/Admin view) */}
-                        {announcement.status === 'REJECTED' && announcement.rejectedByName && (
-                          <div className="bg-red-50 dark:bg-red-900/10 px-4 py-3 rounded-lg border border-red-200 dark:border-red-800 space-y-2">
-                            <div className="flex items-center justify-between text-sm">
-                              <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
-                                <AlertCircle className="w-4 h-4" />
-                                <span>Rejected by <span className="font-medium">{announcement.rejectedByName}</span></span>
-                              </div>
-                              {announcement.rejectedAt && (
-                                <span className="text-xs text-red-600 dark:text-red-400">
-                                  {format(new Date(announcement.rejectedAt), 'PPp')}
-                                </span>
-                              )}
-                            </div>
-                            {announcement.rejectionReason && (
-                              <div className="text-sm text-red-800 dark:text-red-200 bg-red-100 dark:bg-red-900/20 px-3 py-2 rounded border border-red-300 dark:border-red-700">
-                                <span className="font-semibold">Reason: </span>
-                                {announcement.rejectionReason}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Archive Info (Archived - Mods/Admins only) */}
-                        {isModerator && announcement.status === 'ARCHIVED' && announcement.archivedByName && (
-                          <div className="flex items-center justify-between text-sm bg-gray-100 dark:bg-gray-700/50 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600">
-                            <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-                              <Archive className="w-4 h-4" />
-                              <span>Archived by <span className="font-medium">{announcement.archivedByName}</span></span>
-                            </div>
-                            {announcement.archivedAt && (
-                              <span className="text-xs text-gray-600 dark:text-gray-400">
-                                {format(new Date(announcement.archivedAt), 'PPp')}
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Expiry Warning */}
-                        {announcement.expiresAt && announcement.status !== 'ARCHIVED' && (
-                          <div className="flex items-center gap-2 text-xs bg-orange-50 dark:bg-orange-900/10 text-orange-700 dark:text-orange-400 px-3 py-2 rounded-lg border border-orange-200 dark:border-orange-800">
-                            <AlertCircle className="w-4 h-4" />
-                            <span>Expires: {format(new Date(announcement.expiresAt), 'PPp')}</span>
-                          </div>
-                        )}
+                    {announcement.expiresAt && announcement.status !== 'ARCHIVED' && (
+                      <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-3 text-amber-100 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4" />
+                        Expires {format(new Date(announcement.expiresAt), 'PPp')}
                       </div>
-                    </div>
+                    )}
                   </div>
-                ))
-              )}
+                </article>
+              ))}
             </div>
+          )}
 
-            {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-4 mt-8">
+              <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
                 <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 0}
-                  className="p-2 rounded-lg bg-white dark:bg-gray-800 shadow disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-800 px-4 py-2 text-slate-200 disabled:opacity-40"
                 >
-                  <ChevronLeft className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                  <ChevronLeft className="w-4 h-4" />
+                  Previous
                 </button>
-                
-                <span className="text-gray-700 dark:text-gray-300">
+                <span className="text-slate-300">
                   Page {currentPage + 1} of {totalPages}
                 </span>
-                
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage >= totalPages - 1}
-                  className="p-2 rounded-lg bg-white dark:bg-gray-800 shadow disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-800 px-4 py-2 text-slate-200 disabled:opacity-40"
                 >
-                  <ChevronRight className="w-5 h-5 text-gray-700 dark:text-gray-300" />
+                  Next
+                  <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
             )}
-          </>
-        )}
+          </div>
 
         {/* Schedule Modal (Moderators only) */}
         {showScheduleModal && (
