@@ -129,10 +129,10 @@ const SignupScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-anti-flash_white overflow-hidden">
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#E9ECEC' }}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
+        style={{ flex: 1 }}
       >
         <Animated.View style={[{ flex: 1, width: '100%' }, { transform: [{ translateY: translateY }] }]}>
           <ScrollView

@@ -64,13 +64,18 @@ const ScheduleScreen: React.FC = () => {
   const ITEMS_PER_PAGE = 5;
 
   const fetchUpcomingBroadcasts = useCallback(async (showRefreshing = false) => {
-    // Public access - no auth required for schedule
+    if (!authToken) {
+      setError('Authentication required.');
+      setIsLoading(false);
+      return;
+    }
+    
     if (showRefreshing) setIsRefreshing(true);
     else setIsLoading(true);
     setError(null);
     
     try {
-      const result = await getUpcomingBroadcasts(authToken || null);
+      const result = await getUpcomingBroadcasts(authToken);
       if ('error' in result) {
         setError(result.error);
       } else {
@@ -338,9 +343,11 @@ const ScheduleScreen: React.FC = () => {
     <SafeAreaView className="flex-1 bg-gray-100">
       {/* Screen Title */}
       <View className="pt-6 pb-4 mb-2 px-5 bg-gray-100">
-        <View>
-          <Text className="text-3xl font-bold text-gray-800 mb-1">Broadcast Schedule</Text>
-          <Text className="text-base text-gray-600">Discover upcoming shows and plan your listening</Text>
+        <View className="flex-row items-center">
+          <View className="flex-1">
+            <Text className="text-3xl font-bold text-gray-800 mb-1">Broadcast Schedule</Text>
+            <Text className="text-base text-gray-600">Discover upcoming shows and plan your listening</Text>
+          </View>
         </View>
       </View>
       

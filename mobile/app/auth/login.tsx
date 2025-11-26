@@ -14,9 +14,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import "../../global.css"; // Adjust path based on actual global.css location
 import { useFadeInUpAnimation } from '../../hooks/useFadeInUpAnimation'; // Added back
 import AnimatedTextInput from '../../components/ui/AnimatedTextInput'; // Import the new component
@@ -28,29 +26,25 @@ const logo = require('../../assets/images/wildcat_radio_logo_transparent.png');
 
 const LoginScreen: React.FC = () => {
   const router = useRouter();
-  const navigation = useNavigation();
   const { signIn } = useAuth(); // Get signIn from AuthContext
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false); // Loading state
 
   const screenHeight = Dimensions.get('window').height;
-  const translateY = useRef(new Animated.Value(0)).current; // Vertical slide value
+  const translateY = useRef(new Animated.Value(0)).current; // Changed from translateX
   const isInitialRender = useRef(true); // To prevent animation on initial load
   const localParams = useLocalSearchParams<{ direction?: string }>();
-  const insets = useSafeAreaInsets();
 
-  // Disable all fancy animations to avoid Android white screen issues
-  const ANIMATIONS_ENABLED = false;
-  // Individual element animations (disabled by default)
-  const logoAnim = useFadeInUpAnimation({ delay: 300, enabled: ANIMATIONS_ENABLED });
-  const titleAnim = useFadeInUpAnimation({ delay: 400, enabled: ANIMATIONS_ENABLED });
-  const subtitleAnim = useFadeInUpAnimation({ delay: 500, enabled: ANIMATIONS_ENABLED });
-  const emailInputAnim = useFadeInUpAnimation({ delay: 600, enabled: ANIMATIONS_ENABLED });
-  const passwordInputAnim = useFadeInUpAnimation({ delay: 700, enabled: ANIMATIONS_ENABLED });
-  const forgotButtonAnim = useFadeInUpAnimation({ delay: 800, enabled: ANIMATIONS_ENABLED });
-  const loginButtonAnim = useFadeInUpAnimation({ delay: 900, enabled: ANIMATIONS_ENABLED });
-  const signupLinkAnim = useFadeInUpAnimation({ delay: 1000, enabled: ANIMATIONS_ENABLED });
+  // Individual element animations (adjusted delays for staging)
+  const logoAnim = useFadeInUpAnimation({ delay: 300 });         // Was 200
+  const titleAnim = useFadeInUpAnimation({ delay: 400 });        // Was 300
+  const subtitleAnim = useFadeInUpAnimation({ delay: 500 });     // Was 400
+  const emailInputAnim = useFadeInUpAnimation({ delay: 600 });   // Was 500
+  const passwordInputAnim = useFadeInUpAnimation({ delay: 700 });// Was 600
+  const forgotButtonAnim = useFadeInUpAnimation({ delay: 800 }); // Was 700
+  const loginButtonAnim = useFadeInUpAnimation({ delay: 900 });  // Was 800
+  const signupLinkAnim = useFadeInUpAnimation({ delay: 1000 }); // Was 900
 
   useFocusEffect(
     React.useCallback(() => {
@@ -73,12 +67,6 @@ const LoginScreen: React.FC = () => {
       }
     }, [translateY, screenHeight, localParams.direction])
   );
-
-  // Only apply the slide transform when explicitly enabled (disabled to avoid issues on Android)
-  const enableSlide = ANIMATIONS_ENABLED && (localParams?.direction === 'fromTop' || localParams?.direction === 'fromBottom');
-  const animatedContainerStyle = enableSlide
-    ? [{ transform: [{ translateY }] }]
-    : [];
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -167,47 +155,16 @@ const LoginScreen: React.FC = () => {
     });
   };
 
-  const handleBackNav = () => {
-    try {
-      // @ts-ignore - React Navigation type
-      if (typeof navigation?.canGoBack === 'function' && navigation.canGoBack()) {
-        router.back();
-      } else {
-        // Fallback: go to last known sensible screen
-        router.replace('/(tabs)/profile');
-      }
-    } catch {
-      router.replace('/(tabs)/profile');
-    }
-  };
-
   return (
-    <SafeAreaView className="flex-1 bg-anti-flash_white overflow-hidden">
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#E9ECEC' }}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        // Offset accounts for status bar/safe area so inputs aren't hidden on iOS
-        keyboardVerticalOffset={(insets?.top || 0) + 8}
-        className="flex-1"
+        style={{ flex: 1 }}
       >
-        <Animated.View style={[{ flex: 1, width: '100%' }, ...animatedContainerStyle]}>
-          {/* In-page back button (header hidden for Login) */}
-          <View style={{ paddingHorizontal: 20, paddingTop: (insets?.top || 0) + 8, paddingBottom: 8 }}>
-            <TouchableOpacity
-              onPress={handleBackNav}
-              style={{ flexDirection: 'row', alignItems: 'center' }}
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-            >
-              <Ionicons name="chevron-back" size={24} color="#91403E" />
-              <Text className="text-cordovan text-base font-semibold">Back</Text>
-            </TouchableOpacity>
-          </View>
+        <Animated.View style={[{ flex: 1, width: '100%' }, { transform: [{ translateY: translateY }] }]}>
           <ScrollView
-            contentContainerStyle={{ flexGrow: 1, minHeight: '100%', justifyContent: 'center' }}
+            contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={Platform.OS === 'ios' ? 'on-drag' : 'none'}
-            automaticallyAdjustKeyboardInsets
-            contentInsetAdjustmentBehavior="always"
             showsVerticalScrollIndicator={false}
           >
             <View className="flex-1 justify-center items-center px-8 py-10">

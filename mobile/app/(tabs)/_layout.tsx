@@ -3,6 +3,7 @@ import { Tabs } from 'expo-router';
 import { View } from 'react-native';
 import CustomTabBar from '../../components/navigation/CustomTabBar';
 import CustomHeader from '../../components/navigation/CustomHeader';
+import { useAuth } from '../../context/AuthContext';
 
 // Create context for broadcast listening state
 interface BroadcastContextType {
@@ -38,10 +39,10 @@ export const useNotificationContext = () => {
 export default function TabLayout() {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isBroadcastListening, setIsBroadcastListening] = useState(false);
+  const { authToken } = useAuth();
 
-  const handleNotificationStateChange = (isOpen: boolean) => {
-    setIsNotificationOpen(isOpen);
-  };
+  // Set initial route based on authentication status
+  const initialRoute = authToken ? 'home' : 'broadcast';
 
   return (
     <NotificationContext.Provider value={{ isNotificationOpen, setIsNotificationOpen }}>
@@ -60,20 +61,18 @@ export default function TabLayout() {
           tabBar={(props) => <CustomTabBar {...props} isNotificationOpen={isNotificationOpen} isBroadcastListening={isBroadcastListening} />}
           screenOptions={{
             headerShown: true,
-            header: () => <CustomHeader onNotificationStateChange={handleNotificationStateChange} />,
-            // Ensure the tab bar never hides when the keyboard opens
-            tabBarHideOnKeyboard: false,
+            header: () => <CustomHeader />,
             tabBarStyle: {
               backgroundColor: '#91403E', // Ensure tab bar has background
             },
           }}
-          initialRouteName="broadcast"
+          initialRouteName={initialRoute}
         >
           <Tabs.Screen 
             name="home" 
             options={{
-              title: 'News',
-              tabBarLabel: 'News',
+              title: 'Announcements',
+              tabBarLabel: 'Announcements',
             }}
           />
           <Tabs.Screen 
@@ -91,10 +90,10 @@ export default function TabLayout() {
             }}
           />
           <Tabs.Screen 
-            name="list" 
+            name="inbox" 
             options={{
-              title: 'History',
-              tabBarLabel: 'History',
+              title: 'Inbox',
+              tabBarLabel: 'Inbox',
             }}
           />
           <Tabs.Screen 
