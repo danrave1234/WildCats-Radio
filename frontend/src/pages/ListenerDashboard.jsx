@@ -1877,7 +1877,7 @@ export default function ListenerDashboard() {
           </div>
         )}
         {slowModeEnabled && slowModeSeconds > 0 && (
-          <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">
+          <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-2 text-center">
             Slow Mode is enabled.{" "}
             {typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0 ? (
               <>
@@ -2468,7 +2468,7 @@ export default function ListenerDashboard() {
                   ) : (
                     <>
                       {slowModeEnabled && slowModeSeconds > 0 && (
-                        <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">
+                        <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-2 text-center">
                           Slow Mode is enabled.{" "}
                           {typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0 ? (
                             <>

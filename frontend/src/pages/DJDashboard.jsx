@@ -2646,6 +2646,13 @@ export default function DJDashboard() {
 
                       {/* Input Area - Outside messages container, at bottom of card */}
                       <div className="border-t border-gray-200 dark:border-gray-700 p-3 sm:p-4 bg-gray-50 dark:bg-gray-900/50 flex-shrink-0">
+                        {slowModeEnabled && slowModeSeconds > 0 && (
+                          <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-2 text-center">
+                            Slow Mode is enabled.{" "}
+                            Messages may be delayed by up to {slowModeSeconds} second
+                            {slowModeSeconds === 1 ? "" : "s"}.
+                          </p>
+                        )}
                         <form onSubmit={handleChatSubmit} className="flex flex-col sm:flex-row gap-2 sm:items-center">
                           <input
                               type="text"
