@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Text, View } from 'react-native';
+import { Animated, Text, View, Easing } from 'react-native';
 import { ChatMessageDTO } from '../../services/apiService';
 
 export interface AnimatedMessageProps {
@@ -13,19 +13,35 @@ export interface AnimatedMessageProps {
 
 const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(
   ({ message, isOwnMessage, showAvatar, isLastInGroup, isFirstInGroup }) => {
-    const slideAnim = useRef(new Animated.Value(50)).current;
+    // Initialize with 0 opacity but ready to animate
+    const slideAnim = useRef(new Animated.Value(20)).current;
     const opacityAnim = useRef(new Animated.Value(0)).current;
-    const scaleAnim = useRef(new Animated.Value(0.8)).current;
-    const hasAnimated = useRef(false);
+    const scaleAnim = useRef(new Animated.Value(0.9)).current;
+    
     const [currentTime, setCurrentTime] = useState(new Date());
 
     useEffect(() => {
-      if (hasAnimated.current) return;
-      slideAnim.setValue(0);
-      opacityAnim.setValue(1);
-      scaleAnim.setValue(1);
-      hasAnimated.current = true;
-    }, [slideAnim, opacityAnim, scaleAnim]);
+      // Run animation immediately on mount
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.ease),
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+          easing: Easing.back(1), // Slight bounce effect
+        }),
+      ]).start();
+    }, []);
 
     useEffect(() => {
       const timer = setInterval(() => {
@@ -141,6 +157,21 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(
       }
     };
 
+    const getSenderName = () => {
+      const sender = message.sender;
+      if (!sender) return 'Unknown User';
+      
+      if (sender.name) return sender.name;
+      
+      const firstName = sender.firstname || "";
+      const lastName = sender.lastname || "";
+      const fullName = `${firstName} ${lastName}`.trim();
+      
+      return fullName || sender.email || 'Unknown User';
+    };
+
+    const senderName = getSenderName();
+
     return (
       <Animated.View
         style={{
@@ -172,7 +203,6 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(
               >
                 <Text className="text-white text-xs font-bold">
                   {(() => {
-                    const senderName = message.sender?.name || 'U';
                     if (senderName.toLowerCase().includes('dj')) {
                       return 'DJ';
                     }
@@ -197,7 +227,7 @@ const AnimatedMessage: React.FC<AnimatedMessageProps> = React.memo(
             >
               {!isOwnMessage && (
                 <Text className="text-xs font-semibold text-gray-700 mr-2">
-                  {message.sender?.name || 'User'}
+                  {senderName}
                 </Text>
               )}
               {isOwnMessage && (

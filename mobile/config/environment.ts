@@ -9,7 +9,10 @@ const isDevelopment = false; // Set to __DEV__ for local backend
 // const isDevelopment = __DEV__; // Automatically detects dev/prod mode
 
 // Your local machine's IP address (update this to match your network)
-const LOCAL_IP = '192.168.1.2';
+// For Android Emulator, use '10.0.2.2' to access host machine
+// For iOS Simulator, use 'localhost'
+// For physical devices, use your machine's LAN IP (e.g., 192.168.1.x)
+const LOCAL_IP = '10.0.2.2';
 const LOCAL_PORT = '8080';
 
 // Alternative: Use localhost for tunnel mode
