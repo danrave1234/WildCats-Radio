@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Modal from '../Modal';
 import { broadcastApi } from '../../services/api/broadcastApi';
 import { authApi } from '../../services/api/authApi';
@@ -24,6 +24,8 @@ export default function DJHandoverModal({
   const [error, setError] = useState(null);
   const [loadingDJs, setLoadingDJs] = useState(false);
   const [isSwitchingAccounts, setIsSwitchingAccounts] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const selectRef = useRef(null);
 
   // Fetch DJs when modal opens
   useEffect(() => {
@@ -35,6 +37,7 @@ export default function DJHandoverModal({
       setReason('');
       setError(null);
       setIsSwitchingAccounts(false);
+      setSearchQuery('');
     }
   }, [isOpen]);
 
@@ -85,6 +88,18 @@ export default function DJHandoverModal({
       setLoadingDJs(false);
     }
   };
+
+  // Filter DJs based on search query (case-insensitive email search)
+  const filteredDJs = djs.filter(dj => {
+    if (!searchQuery.trim()) return true;
+    const email = dj.email || '';
+    return email.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
+  // Calculate dropdown size - show as list when searching
+  const dropdownSize = searchQuery && filteredDJs.length > 0 
+    ? Math.min(filteredDJs.length + 1, 8) // Show up to 8 items when searching
+    : 1; // Normal dropdown when not searching
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -198,18 +213,30 @@ export default function DJHandoverModal({
         )}
 
         <div>
-          <label htmlFor="dj-select" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <label htmlFor="dj-search" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Select DJ or Moderator to Handover To
           </label>
+          <input
+            type="text"
+            id="dj-search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            disabled={loadingDJs || loading}
+            placeholder="Search by email..."
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 disabled:opacity-50 mb-2"
+          />
           <select
+            ref={selectRef}
             id="dj-select"
+            size={dropdownSize}
             value={selectedDJId}
             onChange={(e) => setSelectedDJId(e.target.value)}
             disabled={loadingDJs || loading}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 disabled:opacity-50"
+            style={dropdownSize > 1 ? { maxHeight: '200px', overflowY: 'auto' } : {}}
           >
             <option value="">-- Select DJ or Moderator --</option>
-            {djs.map(dj => {
+            {filteredDJs.map(dj => {
               const isLoggedInUser = loggedInUser && dj.id === loggedInUser.id;
               return (
                 <option
@@ -226,6 +253,9 @@ export default function DJHandoverModal({
           </select>
           {loadingDJs && (
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Loading DJs...</p>
+          )}
+          {!loadingDJs && searchQuery && filteredDJs.length === 0 && (
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">No DJs found matching "{searchQuery}"</p>
           )}
         </div>
 
