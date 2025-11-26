@@ -1231,6 +1231,23 @@ This **HARD REFACTOR** achieves a **pure STOMP architecture** that:
 
 ---
 
+## 16. Mobile Broadcast State Strategy
+
+To ensure a responsive and realtime user experience on mobile devices (where connections can be flaky), the following strategy is implemented:
+
+### 16.1 Optimistic Chat Updates
+- **Immediate Feedback:** User messages are added to the local chat list immediately upon sending with a temporary ID.
+- **Background Sync:** The message is sent to the server in the background.
+- **Confirmation:** When the server confirmation (or WebSocket echo) arrives, the temporary message is reconciled.
+- **Error Handling:** If sending fails, the user is notified, and the optimistic message is removed or marked as failed.
+
+### 16.2 Robust Broadcast State Handling
+- **Dual Signal Processing:** The app listens for both `BROADCAST_ENDED` events AND `STREAM_STATUS` updates.
+- **Fail-Safe Ending:** If `STREAM_STATUS` reports `isLive: false` while the app thinks a broadcast is active, it automatically transitions to the "Off Air" state. This covers cases where the specific `BROADCAST_ENDED` event was missed due to network interruption.
+- **Conditional Polling:** HTTP polling for status is used *only* as a fallback when the WebSocket connection is lost, preserving battery life while maintaining reliability.
+
+---
+
 **Document Status:** Ready for Hard Refactor Implementation
 **Last Updated:** January 2025
 **Author:** WebSocket Architecture Team

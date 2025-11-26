@@ -78,18 +78,13 @@ class StompClientManager {
       this.stompClient.onWebSocketError = (error: any) => {
         logger.error('StompClientManager: WebSocket error:', error);
         // Mark connection as failed
-        if (this.stompClient) {
-          this.stompClient.connected = false;
-        }
       };
       
       // Add WebSocket close handler
       this.stompClient.onWebSocketClose = (event: any) => {
         logger.warn('StompClientManager: WebSocket closed:', { code: event.code, reason: event.reason });
         // Mark as disconnected but don't clear client immediately
-        if (this.stompClient) {
-          this.stompClient.connected = false;
-        }
+        
         // Clear connect promise so next subscribe can reconnect
         this.connectPromise = null;
         
@@ -136,11 +131,11 @@ class StompClientManager {
 
     this.connectPromise = new Promise((resolve, reject) => {
       const connectionTimeout = setTimeout(() => {
-        logger.error('StompClientManager: Connection timeout after 15 seconds');
+        logger.error('StompClientManager: Connection timeout after 30 seconds');
         this.stompClient = null;
         this.connectPromise = null;
         reject(new Error('Connection timeout'));
-      }, 15000);
+      }, 30000);
 
       try {
         client.connect(
@@ -468,10 +463,10 @@ class WebSocketManager implements WebSocketService {
 
       // Set connection timeout (increased for slow mobile connections)
       const connectionTimeout = setTimeout(() => {
-        console.error('❌ WebSocket connection timeout after 20 seconds');
+        console.error('❌ WebSocket connection timeout after 35 seconds');
         this.isConnecting = false;
         this.errorHandlers.forEach(handler => handler({ type: 'timeout' }));
-      }, 20000); // 20 second timeout for mobile
+      }, 35000); // 35 second timeout for mobile
 
       // Connect using shared STOMP client manager
       stompClientManager.connect(authToken).then(
