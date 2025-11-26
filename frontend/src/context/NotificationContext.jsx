@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useMemo } from 'react';
 // Announcement popups removed per new requirement
 import { notificationService } from '../services/api/index.js';
-import { getAllAnnouncements } from '../services/announcementService';
 import { useAuth } from './AuthContext';
 import { createLogger } from '../services/logger';
 
@@ -17,7 +16,6 @@ export function NotificationProvider({ children }) {
   const [hasMore, setHasMore] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [announcements, setAnnouncements] = useState([]);
   const { isAuthenticated } = useAuth();
   const wsConnection = useRef(null);
   const refreshInterval = useRef(null);
@@ -42,6 +40,13 @@ export function NotificationProvider({ children }) {
   });
 
   const shouldDisplayNotification = (notification, prefs = preferences) => {
+    // 1-week cutoff filter
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const timestamp = notification.timestamp || notification.createdAt;
+    if (timestamp && new Date(timestamp) < oneWeekAgo) {
+      return false;
+    }
+
     const type = notification?.type;
     switch (type) {
       case 'BROADCAST_STARTED':
@@ -93,13 +98,11 @@ export function NotificationProvider({ children }) {
     if (isAuthenticated) {
       connectToWebSocket();
       fetchNotifications();
-      refreshAnnouncements();
       startPeriodicRefresh();
     } else {
       disconnectWebSocket();
       setNotifications([]);
       setUnreadCount(0);
-      setAnnouncements([]);
       stopPeriodicRefresh();
     }
 
@@ -305,8 +308,9 @@ export function NotificationProvider({ children }) {
       });
 
       setPage(0);
+      // Corrected: hasMore should rely on 'last' flag from server, not filtered length
       const last = notificationsResponse.data?.last;
-      setHasMore(Boolean(last === false && filtered.length > 0));
+      setHasMore(!last);
 
       // ✅ PHASE 1: Use server unread count as source of truth
       // This accounts for any read/delete operations that happened elsewhere
@@ -315,30 +319,6 @@ export function NotificationProvider({ children }) {
       logger.debug('Updated unread count from server:', serverUnreadCount);
     } catch (error) {
       logger.error('Error fetching notifications:', error);
-    }
-  };
-
-  const refreshAnnouncements = async () => {
-    try {
-      const resp = await getAllAnnouncements(0, 20);
-      const content = resp?.content || resp?.data?.content || [];
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const items = content
-        .filter((a) => a?.publishedAt && new Date(a.publishedAt) >= sevenDaysAgo)
-        .map((a) => ({
-          id: `ann-${a.id}`,
-          message: a.title,
-          type: 'ANNOUNCEMENT',
-          timestamp: a.publishedAt,
-          read: true,
-          link: '/announcements',
-          isAnnouncement: true,
-        }));
-      setAnnouncements(items);
-    } catch (error) {
-      logger.warn('Failed to refresh announcements', error);
-      setAnnouncements([]);
     }
   };
 
@@ -352,8 +332,9 @@ export function NotificationProvider({ children }) {
       const filtered = content.filter(shouldDisplayNotification);
       setNotifications(prev => [...prev, ...filtered]);
       setPage(nextPage);
+      // Corrected: hasMore should rely on 'last' flag from server, not filtered length
       const last = resp.data?.last;
-      setHasMore(Boolean(last === false && filtered.length > 0));
+      setHasMore(!last);
     } catch (e) {
       logger.error('Failed to load more notifications', e);
       setHasMore(false);
@@ -414,13 +395,6 @@ export function NotificationProvider({ children }) {
     );
   }, [notifications]);
 
-  const combinedNotifications = useMemo(() => {
-    return [...sortedNotifications, ...announcements].sort(
-      (a, b) =>
-        new Date(b.timestamp || b.createdAt || 0) - new Date(a.timestamp || a.createdAt || 0)
-    );
-  }, [sortedNotifications, announcements]);
-
   const getLatestUnreadNotifications = (limit = 10) => {
     return sortedNotifications.filter((n) => !n.read).slice(0, limit);
   };
@@ -440,14 +414,12 @@ export function NotificationProvider({ children }) {
       addNotification,
       clearAllNotifications,
       fetchNotifications,
-      refreshAnnouncements,
       isConnected,
       connectToWebSocket,
       disconnectWebSocket,
       preferences,
       updatePreferences,
-      announcements,
-      combinedNotifications,
+      combinedNotifications: sortedNotifications, // Replaced with direct notifications
       getLatestUnreadNotifications
     }}>
       {children}

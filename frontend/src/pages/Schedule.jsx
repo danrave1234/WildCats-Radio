@@ -675,15 +675,15 @@ const canScheduleBroadcasts = !!currentUser && (
         />
         <div className="container mx-auto px-4">
           <div className="max-w-5xl mx-auto">
-            <div className="flex justify-between items-center mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Broadcast Schedule</h1>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">Broadcast Schedule</h1>
 
-            <div className="flex items-center space-x-4">
-              <div className="inline-flex rounded-md shadow-sm" role="group">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
+              <div className="inline-flex rounded-md shadow-sm w-full sm:w-auto" role="group">
                 <button
                     type="button"
                     onClick={() => setViewType("calendar")}
-                    className={`px-4 py-2 text-sm font-medium rounded-l-lg border ${
+                    className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium rounded-l-lg border ${
                         viewType === "calendar"
                             ? "bg-maroon-700 text-white border-maroon-700"
                             : "bg-white text-gray-700 border-gray-300 dark:bg-gray-700 dark:text-white dark:border-gray-600"
@@ -695,7 +695,7 @@ const canScheduleBroadcasts = !!currentUser && (
                 <button
                     type="button"
                     onClick={() => setViewType("list")}
-                    className={`px-4 py-2 text-sm font-medium rounded-r-lg border ${
+                    className={`flex-1 sm:flex-none px-4 py-2 text-sm font-medium rounded-r-lg border ${
                         viewType === "list"
                             ? "bg-maroon-700 text-white border-maroon-700"
                             : "bg-white text-gray-700 border-gray-300 dark:bg-gray-700 dark:text-white dark:border-gray-600"
@@ -709,7 +709,7 @@ const canScheduleBroadcasts = !!currentUser && (
               {canScheduleBroadcasts && (
                   <button
                       onClick={() => setShowScheduleForm(!showScheduleForm)}
-                      className="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg text-sm font-medium flex items-center"
+                      className="w-full sm:w-auto px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg text-sm font-medium flex items-center justify-center"
                       disabled={isLoading}
                   >
                     <CalendarIcon className="h-5 w-5 mr-1" />

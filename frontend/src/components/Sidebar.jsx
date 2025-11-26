@@ -433,7 +433,7 @@ const NewSidebar = ({ userRole }) => {
             >
               <motion.img 
                 src={wildcatradioLogo} 
-                alt="WildCats Radio Logo" 
+                alt="WildCat Radio Logo" 
                 className="w-32 h-32 md:w-24 md:h-24 flex-shrink-0"
                 animate={{
                   y: open ? 0 : 10,
@@ -572,9 +572,9 @@ const NewSidebar = ({ userRole }) => {
                 {/* Brand Section */}
                 <div className="mb-4">
                   <h4 className="text-gold-500 font-semibold text-sm mb-1">
-                    WildCats Radio
+                    WildCat Radio
                   </h4>
-                  <p className="text-white/60 text-xs">
+                  <p className="text-muted-foreground text-xs">
                     © 2025 All Rights Reserved
                   </p>
                 </div>
@@ -583,19 +583,19 @@ const NewSidebar = ({ userRole }) => {
                 <div className="space-y-2.5 mb-4">
                   <a 
                     href="/privacy-policy" 
-                    className="block text-white/70 hover:text-gold-400 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
+                    className="block text-muted-foreground hover:text-gold-400 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
                   >
                     Privacy Policy
                   </a>
                   <a 
                     href="/terms-of-service" 
-                    className="block text-white/70 hover:text-gold-400 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
+                    className="block text-muted-foreground hover:text-gold-400 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
                   >
                     Terms of Service
                   </a>
                   <a 
                     href="/contact" 
-                    className="block text-white/70 hover:text-gold-400 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
+                    className="block text-muted-foreground hover:text-gold-400 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
                   >
                     Contact
                   </a>
@@ -606,7 +606,7 @@ const NewSidebar = ({ userRole }) => {
 
                 {/* Tagline */}
                 <div className="text-center">
-                  <p className="text-white/50 text-xs">
+                  <p className="text-muted-foreground text-xs">
                     Broadcasting Excellence
                   </p>
                 </div>
