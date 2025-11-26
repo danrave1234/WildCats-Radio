@@ -237,6 +237,17 @@ public class BroadcastService {
         broadcast.setSlowModeEnabled(isEnabled);
         broadcast.setSlowModeSeconds(secs);
         BroadcastEntity saved = broadcastRepository.save(broadcast);
+
+        // Notify all listeners that the broadcast configuration (including slow mode) changed
+        try {
+            Map<String, Object> broadcastUpdatedMessage = new java.util.HashMap<>();
+            broadcastUpdatedMessage.put("type", "BROADCAST_UPDATED");
+            broadcastUpdatedMessage.put("broadcast", BroadcastDTO.fromEntity(saved));
+            messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastUpdatedMessage);
+        } catch (Exception e) {
+            logger.warn("Failed to send broadcast update WebSocket message after slow mode change", e);
+        }
+
         return BroadcastDTO.fromEntity(saved);
     }
 

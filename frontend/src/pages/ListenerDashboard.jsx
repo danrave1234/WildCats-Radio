@@ -84,6 +84,8 @@ export default function ListenerDashboard() {
   const [slowModeSeconds, setSlowModeSeconds] = useState(0);
   // If a send was blocked by slow mode, we store the suggested wait time for a gentle notice
   const [slowModeWaitSeconds, setSlowModeWaitSeconds] = useState(null);
+  // Local last-sent timestamp to prevent rapid sends even before the backend responds
+  const [lastChatSentAt, setLastChatSentAt] = useState(null);
 
   // Song request state
   const [isSongRequestMode, setIsSongRequestMode] = useState(false);
@@ -881,6 +883,13 @@ export default function ListenerDashboard() {
               }, 5000);
               break;
 
+            case 'BROADCAST_UPDATED':
+              logger.debug('Listener Dashboard: Broadcast updated via WebSocket:', message);
+              if (message.broadcast && (!currentBroadcastId || message.broadcast.id === currentBroadcastId)) {
+                setCurrentBroadcast(message.broadcast);
+              }
+              break;
+
             default:
               // Unknown message type - can be safely ignored
               logger.debug('Unknown broadcast message type:', message.type);
@@ -1077,6 +1086,23 @@ export default function ListenerDashboard() {
     }
   }, [currentBroadcastId]); // Scroll when broadcast changes
 
+  // Slow mode countdown: decrement remaining wait seconds each second, then clear
+  useEffect(() => {
+    if (typeof slowModeWaitSeconds !== "number" || slowModeWaitSeconds <= 0) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setSlowModeWaitSeconds((prev) => {
+        if (typeof prev !== "number") return prev;
+        const next = prev - 1;
+        return next > 0 ? next : null;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [slowModeWaitSeconds]);
+
   // Handle chat submission
   const handleChatSubmit = async (e) => {
     e.preventDefault();
@@ -1086,6 +1112,18 @@ export default function ListenerDashboard() {
     }
     let broadcastIdToUse = currentBroadcastId || currentBroadcast?.id;
     if (!chatMessage.trim()) return;
+
+    // Local slow mode check: if we've sent a message recently and slow mode is enabled,
+    // prevent another send and show the remaining seconds inline.
+    if (slowModeEnabled && slowModeSeconds > 0 && lastChatSentAt) {
+      const now = Date.now();
+      const elapsedSeconds = (now - lastChatSentAt) / 1000;
+      if (elapsedSeconds < slowModeSeconds) {
+        const remaining = Math.ceil(slowModeSeconds - elapsedSeconds);
+        setSlowModeWaitSeconds(remaining);
+        return;
+      }
+    }
 
     // If we still don't have a broadcast ID at send time, try to resolve it immediately
     if (!broadcastIdToUse) {
@@ -1130,8 +1168,9 @@ export default function ListenerDashboard() {
       });
       await chatService.sendMessage(broadcastIdToUse, messageData);
 
-      // Clear any previous slow-mode wait notice on successful send
+      // Clear any previous slow-mode wait notice and record send time on successful send
       setSlowModeWaitSeconds(null);
+      setLastChatSentAt(Date.now());
 
       // Refresh messages to reflect the sent message immediately
       const updatedMessages = await chatService.getMessages(broadcastIdToUse);
@@ -1151,11 +1190,9 @@ export default function ListenerDashboard() {
           alert('Your session expired. Please log in again.');
           handleLoginRedirect();
         } else if (apiStatus === 429) {
-          const headers = error.response?.headers || {};
-          const retryAfter = headers['retry-after'] || headers['Retry-After'] || headers['Retry-after'];
-          const sec = parseInt(retryAfter, 10);
-          // Store suggested wait seconds for gentle inline notice (fallback to configured slow mode seconds)
-          const waitSec = Number.isFinite(sec) ? sec : (slowModeSeconds || null);
+          // When slow mode is active, use the configured interval for a clearer UX
+          // and let the backend remain the source of truth for actual enforcement.
+          const waitSec = slowModeSeconds || null;
           setSlowModeWaitSeconds(waitSec);
           // No alert popup – inline text will inform the user
         } else {
@@ -1361,6 +1398,13 @@ export default function ListenerDashboard() {
                 setTimeout(() => {
                   setRecoveryNotification(null);
                 }, 5000);
+              }
+              break;
+
+            case 'BROADCAST_UPDATED':
+              logger.debug('Listener Dashboard: Broadcast updated via global WebSocket:', message);
+              if (message.broadcast && (!currentBroadcastId || message.broadcast.id === currentBroadcastId)) {
+                setCurrentBroadcast(message.broadcast);
               }
               break;
 
@@ -1818,11 +1862,21 @@ export default function ListenerDashboard() {
             </p>
           </div>
         )}
-        {(slowModeEnabled && slowModeSeconds > 0) && (
-          <p className="text-[11px] text-gray-600 dark:text-gray-300 mb-1">Slow mode: {slowModeSeconds} second{slowModeSeconds === 1 ? '' : 's'}</p>
-        )}
-        {(typeof slowModeWaitSeconds === 'number' && slowModeWaitSeconds > 0) && (
-          <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">Please wait {slowModeWaitSeconds} second{slowModeWaitSeconds === 1 ? '' : 's'} before sending another message.</p>
+        {slowModeEnabled && slowModeSeconds > 0 && (
+          <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">
+            Slow Mode is enabled.{" "}
+            {typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0 ? (
+              <>
+                You can chat in {slowModeWaitSeconds} second
+                {slowModeWaitSeconds === 1 ? "" : "s"} from now.
+              </>
+            ) : (
+              <>
+                Messages may be delayed by up to {slowModeSeconds} second
+                {slowModeSeconds === 1 ? "" : "s"}.
+              </>
+            )}
+          </p>
         )}
         <form onSubmit={handleChatSubmit} className="flex flex-col sm:flex-row sm:items-center gap-2 w-full min-w-0">
         <input
@@ -1844,7 +1898,10 @@ export default function ListenerDashboard() {
               ? "border-yellow-400 bg-yellow-50/50 dark:bg-yellow-900/10 dark:border-yellow-500 focus:ring-yellow-400 focus:border-yellow-400" 
               : "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 focus:ring-maroon-500 focus:border-maroon-500"
           }`}
-          disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id)}
+          disabled={
+            currentBroadcast?.status !== "LIVE" ||
+            !(currentBroadcastId || currentBroadcast?.id)
+          }
           maxLength={1500}
         />
 
@@ -1893,7 +1950,12 @@ export default function ListenerDashboard() {
             </button>
             <button
               type="submit"
-              disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id) || !chatMessage.trim()}
+              disabled={
+                currentBroadcast?.status !== "LIVE" ||
+                !(currentBroadcastId || currentBroadcast?.id) ||
+                !chatMessage.trim() ||
+                (typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
+              }
               className={`flex-shrink-0 p-2 rounded-lg transition-all w-full sm:w-auto flex items-center justify-center ${
                 currentBroadcast?.status === 'LIVE' && chatMessage.trim()
                   ? "bg-maroon-600 hover:bg-maroon-700 active:bg-maroon-800 text-white shadow-sm hover:shadow-md"
@@ -2391,11 +2453,21 @@ export default function ListenerDashboard() {
                     </div>
                   ) : (
                     <>
-                      {(slowModeEnabled && slowModeSeconds > 0) && (
-                        <p className="text-[11px] text-gray-600 dark:text-gray-300 mb-1">Slow mode: {slowModeSeconds} second{slowModeSeconds === 1 ? '' : 's'}</p>
-                      )}
-                      {(typeof slowModeWaitSeconds === 'number' && slowModeWaitSeconds > 0) && (
-                        <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">Please wait {slowModeWaitSeconds} second{slowModeWaitSeconds === 1 ? '' : 's'} before sending another message.</p>
+                      {slowModeEnabled && slowModeSeconds > 0 && (
+                        <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">
+                          Slow Mode is enabled.{" "}
+                          {typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0 ? (
+                            <>
+                              You can chat in {slowModeWaitSeconds} second
+                              {slowModeWaitSeconds === 1 ? "" : "s"} from now.
+                            </>
+                          ) : (
+                            <>
+                              Messages may be delayed by up to {slowModeSeconds} second
+                              {slowModeSeconds === 1 ? "" : "s"}.
+                            </>
+                          )}
+                        </p>
                       )}
                     <form onSubmit={handleChatSubmit} className="flex flex-wrap md:flex-nowrap items-center gap-2 w-full min-w-0 overflow-hidden p-4">
                       <input
@@ -2417,7 +2489,7 @@ export default function ListenerDashboard() {
                             ? "border-gold-400 bg-gold-50 dark:bg-gold-900/20 dark:border-gold-500 focus:ring-gold-500 shadow-md" 
                             : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 focus:ring-maroon-500"
                         }`}
-                        disabled={currentBroadcast?.status !== 'LIVE'}
+                        disabled={currentBroadcast?.status !== "LIVE"}
                         maxLength={1500}
                       />
 
@@ -2453,9 +2525,12 @@ export default function ListenerDashboard() {
                           <button
                             type="button"
                             onClick={handleSongRequest}
-                            disabled={currentBroadcast?.status !== 'LIVE'}
+                            disabled={
+                              currentBroadcast?.status !== "LIVE" ||
+                              (typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
+                            }
                             className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap w-full sm:w-auto ${
-                              isLive 
+                              isLive && !(typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
                                 ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
                                 : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
                             }`}
@@ -2466,9 +2541,15 @@ export default function ListenerDashboard() {
                           </button>
                           <button
                             type="submit"
-                            disabled={!isLive || !chatMessage.trim()}
+                            disabled={
+                              !isLive ||
+                              !chatMessage.trim() ||
+                              (typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
+                            }
                             className={`flex-shrink-0 p-2.5 rounded-lg transition-all w-full sm:w-auto flex items-center justify-center ${
-                              currentBroadcast?.status === 'LIVE' && chatMessage.trim()
+                              currentBroadcast?.status === "LIVE" &&
+                              chatMessage.trim() &&
+                              !(typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
                                 ? "bg-maroon-600 hover:bg-maroon-700 text-white shadow-sm hover:shadow-md"
                                 : "bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed"
                             }`}

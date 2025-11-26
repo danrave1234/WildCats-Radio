@@ -1661,21 +1661,53 @@ export default function DJDashboard() {
 
   // Slow mode save handler
   const handleSaveSlowMode = async () => {
-    if (!currentBroadcast?.id) return
+    if (!currentBroadcast?.id) {
+      return
+    }
+
+    // Simple front-end validation to avoid bad requests
+    const parsedSeconds = parseInt(slowModeSeconds, 10)
+    const safeSeconds = Number.isFinite(parsedSeconds) ? parsedSeconds : 0
+    const clampedSeconds = Math.max(0, Math.min(3600, safeSeconds))
+
+    if (slowModeEnabled && clampedSeconds <= 0) {
+      showToast('Please enter a slow mode delay (in seconds) greater than 0.', 'error')
+      return
+    }
+
     try {
       setIsSavingSlowMode(true)
-      const seconds = Math.max(0, Math.min(3600, parseInt(slowModeSeconds, 10) || 0))
+
       const response = await broadcastService.updateSlowMode(currentBroadcast.id, {
         enabled: !!slowModeEnabled,
-        seconds
+        seconds: clampedSeconds
       })
+
       const updated = response?.data || null
+
+      // We don't need to mutate the unified currentBroadcast here; the listener/dashboard
+      // views already sync slow mode state from the active broadcast and our local
+      // slowModeEnabled/slowModeSeconds state reflects what we just saved.
       if (updated) {
-        setCurrentBroadcast(updated)
+        showToast('Slow mode settings updated.', 'success')
+      } else {
+        showToast('Slow mode settings updated.', 'success')
       }
     } catch (error) {
       logger.error('Error updating slow mode:', error)
-      showToast('Failed to update slow mode. Please try again.', 'error')
+
+      const apiStatus = error.response?.status
+      const apiMessage = error.response?.data?.message
+
+      if (apiStatus === 401 || apiStatus === 403) {
+        showToast('You do not have permission to change slow mode for this broadcast.', 'error')
+      } else if (apiStatus === 404) {
+        showToast('Broadcast not found. Please refresh the page and try again.', 'error')
+      } else if (apiMessage) {
+        showToast(apiMessage, 'error')
+      } else {
+        showToast('Failed to update slow mode. Please try again.', 'error')
+      }
     } finally {
       setIsSavingSlowMode(false)
     }
