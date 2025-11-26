@@ -2356,15 +2356,11 @@ export default function DJDashboard() {
 
                 {/* Main Content Area - Three Column Layout */}
                 {/* Cards are responsive: max 777px, adapt to viewport height accounting for sticky header, min 400px */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-6 items-start">
                   {/* Left Column: Song Requests */}
-                  <div className="lg:col-span-3">
+                  <div className="order-2 lg:order-2 lg:col-span-1 xl:col-span-3">
                     {/* Song Requests Card */}
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out" style={{ 
-                      height: 'min(777px, calc(100vh - 16rem))', 
-                      maxHeight: '777px', 
-                      minHeight: 'clamp(400px, 50vh, 777px)' 
-                    }}>
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[360px] sm:min-h-[420px] lg:min-h-[460px] max-h-[85vh]">
                       <div className="bg-gold-500 text-maroon-900 px-4 py-3 border-b border-gold-400 flex-shrink-0">
                       <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
@@ -2376,7 +2372,7 @@ export default function DJDashboard() {
                           </span>
                         </div>
                       </div>
-                      <EnhancedScrollArea className="flex-1 min-h-0 flex-shrink-0">
+                      <EnhancedScrollArea className="flex-1 min-h-0 flex-shrink-0 max-h-full">
                         <div className="p-3 space-y-2.5">
                           {songRequests.length === 0 ? (
                             <div className="text-center text-gray-500 dark:text-gray-400 py-12 px-4">
@@ -2459,12 +2455,8 @@ export default function DJDashboard() {
                   </div>
 
                   {/* Center Column: Live Chat - Main Focus */}
-                  <div className="lg:col-span-6 w-full">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out" style={{ 
-                      height: 'min(777px, calc(100vh - 16rem))', 
-                      maxHeight: '777px', 
-                      minHeight: 'clamp(400px, 50vh, 777px)' 
-                    }}>
+                  <div className="order-1 lg:order-1 lg:col-span-2 xl:col-span-6 w-full">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[400px] sm:min-h-[460px] max-h-[90vh]">
                       {/* Header */}
                       <div className="bg-maroon-600 text-white px-3 sm:px-5 py-3 sm:py-4 border-b border-maroon-700 flex-shrink-0">
                         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -2622,7 +2614,7 @@ export default function DJDashboard() {
 
                       {/* Input Area - Outside messages container, at bottom of card */}
                       <div className="border-t border-gray-200 dark:border-gray-700 p-3 sm:p-4 bg-gray-50 dark:bg-gray-900/50 flex-shrink-0">
-                        <form onSubmit={handleChatSubmit} className="flex space-x-2 sm:space-x-3">
+                        <form onSubmit={handleChatSubmit} className="flex flex-col sm:flex-row gap-2 sm:items-center">
                           <input
                               type="text"
                               value={chatMessage}
@@ -2634,7 +2626,7 @@ export default function DJDashboard() {
                           <button
                               type="submit"
                               disabled={!chatMessage.trim()}
-                            className="px-4 sm:px-5 py-2 sm:py-2.5 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium flex-shrink-0"
+                            className="px-4 sm:px-5 py-2 sm:py-2.5 bg-maroon-600 text-white rounded-lg hover:bg-maroon-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium flex-shrink-0 w-full sm:w-auto flex items-center justify-center"
                             aria-label="Send message"
                           >
                             <PaperAirplaneIcon className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -2645,12 +2637,8 @@ export default function DJDashboard() {
                   </div>
 
                   {/* Right Column: Polls */}
-                  <div className="lg:col-span-3">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out" style={{ 
-                      height: 'min(777px, calc(100vh - 16rem))', 
-                      maxHeight: '777px', 
-                      minHeight: 'clamp(400px, 50vh, 777px)' 
-                    }}>
+                  <div className="order-3 lg:order-3 lg:col-span-1 xl:col-span-3">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[360px] sm:min-h-[420px] lg:min-h-[460px] max-h-[85vh]">
                       <div className="bg-maroon-700 text-white px-4 py-3 border-b border-maroon-800 flex-shrink-0">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -2740,7 +2728,7 @@ export default function DJDashboard() {
                         </div>
                     )}
 
-                      <EnhancedScrollArea className="flex-1 min-h-0 flex-shrink-0">
+                      <EnhancedScrollArea className="flex-1 min-h-0 flex-shrink-0 max-h-full">
                       {polls.length === 0 ? (
                           <div className="p-4 text-center text-gray-500 dark:text-gray-400">
                             <ChartBarIcon className="h-12 w-12 mx-auto mb-3 opacity-30" />

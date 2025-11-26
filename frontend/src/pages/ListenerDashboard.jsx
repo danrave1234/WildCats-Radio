@@ -1761,7 +1761,7 @@ export default function ListenerDashboard() {
 
   // Render chat messages - matching DJDashboard structure
   const renderChatMessages = () => (
-    <div className="h-full overflow-y-auto p-3 sm:p-4 space-y-3 custom-scrollbar chat-messages-container" ref={chatContainerRef}>
+    <div className="h-full min-h-0 overflow-y-auto p-3 sm:p-4 space-y-3 custom-scrollbar chat-messages-container" ref={chatContainerRef}>
       {chatMessages.length === 0 ? (
         <div className="text-center text-gray-500 dark:text-gray-400 py-8 sm:py-12">
           <ChatBubbleLeftRightIcon className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-3 opacity-30" />
@@ -1824,7 +1824,7 @@ export default function ListenerDashboard() {
         {(typeof slowModeWaitSeconds === 'number' && slowModeWaitSeconds > 0) && (
           <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">Please wait {slowModeWaitSeconds} second{slowModeWaitSeconds === 1 ? '' : 's'} before sending another message.</p>
         )}
-        <form onSubmit={handleChatSubmit} className="flex items-center gap-2 w-full min-w-0">
+        <form onSubmit={handleChatSubmit} className="flex flex-col sm:flex-row sm:items-center gap-2 w-full min-w-0">
         <input
           type="text"
           value={isSongRequestMode ? songRequestText : chatMessage}
@@ -1855,7 +1855,7 @@ export default function ListenerDashboard() {
               type="button"
               onClick={handleSongRequest}
               disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id) || !songRequestText.trim()}
-              className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
+              className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap w-full sm:w-auto ${
                 currentBroadcast?.status === 'LIVE' && songRequestText.trim() 
                   ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
                   : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
@@ -1869,7 +1869,7 @@ export default function ListenerDashboard() {
               type="button"
               onClick={handleCancelSongRequest}
               disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id)}
-              className="flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap"
+              className="flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap w-full sm:w-auto"
               aria-label="Cancel song request"
             >
               Cancel
@@ -1881,7 +1881,7 @@ export default function ListenerDashboard() {
               type="button"
               onClick={handleSongRequest}
               disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id)}
-              className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
+              className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap w-full sm:w-auto ${
                 isLive 
                   ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
                   : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
@@ -1894,7 +1894,7 @@ export default function ListenerDashboard() {
             <button
               type="submit"
               disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id) || !chatMessage.trim()}
-              className={`flex-shrink-0 p-2 rounded-lg transition-all ${
+              className={`flex-shrink-0 p-2 rounded-lg transition-all w-full sm:w-auto flex items-center justify-center ${
                 currentBroadcast?.status === 'LIVE' && chatMessage.trim()
                   ? "bg-maroon-600 hover:bg-maroon-700 active:bg-maroon-800 text-white shadow-sm hover:shadow-md"
                   : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
@@ -2058,10 +2058,10 @@ export default function ListenerDashboard() {
           : 'wildcat radio, campus radio, live streaming, online radio'
         }
       />
-      <div className="container mx-auto px-4 mb-8">
-        <div className="mb-4 pt-4">
-          <h2 className="text-xl font-semibold text-maroon-700 dark:text-maroon-400 mb-1">Broadcast Stream</h2>
-          <p className="text-slate-600 dark:text-slate-400 text-xs">Tune in to live broadcasts and connect with listeners</p>
+      <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8 mb-8 space-y-6">
+        <div className="pt-2 sm:pt-3">
+          <h2 className="text-xl sm:text-2xl font-semibold text-maroon-700 dark:text-maroon-400 mb-1">Broadcast Stream</h2>
+          <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm">Tune in to live broadcasts and connect with listeners</p>
         </div>
 
         {/* Recovery Notification Banner */}
@@ -2078,8 +2078,8 @@ export default function ListenerDashboard() {
           </div>
         )}
 
-      {/* Desktop: Grid layout */}
-      <div className="hidden lg:grid lg:grid-cols-3 lg:gap-8">
+      {/* Desktop layout */}
+      <div className="hidden lg:grid lg:grid-cols-3 gap-6 lg:gap-8">
         {/* Desktop Left Column - Broadcast + Poll */}
         <div className="lg:col-span-2 space-y-6">
           {/* Spotify-style Music Player */}
@@ -2118,7 +2118,7 @@ export default function ListenerDashboard() {
             </div>
 
             {/* Desktop Tab content */}
-            <div className="bg-white dark:bg-slate-800 flex-grow flex flex-col h-[450px]">
+            <div className="bg-white dark:bg-slate-800 flex-grow flex flex-col min-h-[360px] md:min-h-[420px] lg:min-h-[460px]">
               {activeTab === "poll" && (
                 <div className="p-8 flex-grow flex flex-col h-full">
                   {currentBroadcast?.status === 'LIVE' ? (
@@ -2333,7 +2333,7 @@ export default function ListenerDashboard() {
             <p className="text-xs opacity-90 font-medium">{Math.max(listenerCount, localListenerCount)} listeners online</p>
           </div>
 
-          <div className="bg-white dark:bg-slate-800 border border-t-0 border-slate-200 dark:border-slate-700 rounded-b-xl flex-grow flex flex-col h-[494px] shadow-lg">
+          <div className="bg-white dark:bg-slate-800 border border-t-0 border-slate-200 dark:border-slate-700 rounded-b-xl flex-grow flex flex-col min-h-[420px] md:min-h-[480px] lg:min-h-[520px] max-h-[80vh] shadow-lg">
             {currentBroadcast?.status === 'LIVE' ? (
               <div className="flex flex-col h-full">
                 <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
@@ -2397,7 +2397,7 @@ export default function ListenerDashboard() {
                       {(typeof slowModeWaitSeconds === 'number' && slowModeWaitSeconds > 0) && (
                         <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-1">Please wait {slowModeWaitSeconds} second{slowModeWaitSeconds === 1 ? '' : 's'} before sending another message.</p>
                       )}
-                    <form onSubmit={handleChatSubmit} className="flex items-center space-x-2 w-full min-w-0 overflow-hidden p-4">
+                    <form onSubmit={handleChatSubmit} className="flex flex-wrap md:flex-nowrap items-center gap-2 w-full min-w-0 overflow-hidden p-4">
                       <input
                         type="text"
                         value={isSongRequestMode ? songRequestText : chatMessage}
@@ -2428,7 +2428,7 @@ export default function ListenerDashboard() {
                             type="button"
                             onClick={handleSongRequest}
                             disabled={currentBroadcast?.status !== 'LIVE' || !songRequestText.trim()}
-                            className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-md whitespace-nowrap ${
+                            className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-md whitespace-nowrap w-full sm:w-auto ${
                               currentBroadcast?.status === 'LIVE' && songRequestText.trim() 
                                 ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105' 
                                 : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed'
@@ -2442,7 +2442,7 @@ export default function ListenerDashboard() {
                             type="button"
                             onClick={handleCancelSongRequest}
                             disabled={currentBroadcast?.status !== 'LIVE'}
-                            className="flex-shrink-0 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap"
+                          className="flex-shrink-0 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap w-full sm:w-auto"
                             aria-label="Cancel song request"
                           >
                             Cancel
@@ -2454,7 +2454,7 @@ export default function ListenerDashboard() {
                             type="button"
                             onClick={handleSongRequest}
                             disabled={currentBroadcast?.status !== 'LIVE'}
-                            className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap ${
+                            className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap w-full sm:w-auto ${
                               isLive 
                                 ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
                                 : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
@@ -2467,7 +2467,7 @@ export default function ListenerDashboard() {
                           <button
                             type="submit"
                             disabled={!isLive || !chatMessage.trim()}
-                            className={`flex-shrink-0 p-2.5 rounded-lg transition-all ${
+                            className={`flex-shrink-0 p-2.5 rounded-lg transition-all w-full sm:w-auto flex items-center justify-center ${
                               currentBroadcast?.status === 'LIVE' && chatMessage.trim()
                                 ? "bg-maroon-600 hover:bg-maroon-700 text-white shadow-sm hover:shadow-md"
                                 : "bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed"
@@ -2501,7 +2501,7 @@ export default function ListenerDashboard() {
 
       </div>
 
-      {/* Mobile: Single column layout */}
+      {/* Mobile & Tablet layout */}
       <div className="lg:hidden space-y-6">
         {/* Mobile Spotify-style Music Player */}
         <SpotifyPlayer broadcast={currentBroadcast} />
@@ -2547,7 +2547,7 @@ export default function ListenerDashboard() {
           </div>
 
           {/* Mobile Tab content */}
-          <div className="bg-white dark:bg-slate-800 flex-grow flex flex-col h-[calc(100vh-350px)] min-h-[400px]">
+          <div className="bg-white dark:bg-slate-800 flex-grow flex flex-col min-h-[360px] max-h-[80vh]">
             {activeTab === "chat" && (
               <div className="animate-fade-in flex flex-col h-full">
                 <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">

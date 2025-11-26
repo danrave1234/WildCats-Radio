@@ -101,14 +101,26 @@ const ChatTab: React.FC<ChatTabProps> = ({
 
         {memoizedChatMessages.map((msg, index) => {
           const isOwnMessage = messageOwnershipMap.get(msg.id) || false;
-          const showAvatar =
-            index === memoizedChatMessages.length - 1 ||
-            memoizedChatMessages[index + 1]?.sender?.name !== msg.sender?.name;
-          const isLastInGroup =
-            index === memoizedChatMessages.length - 1 ||
-            memoizedChatMessages[index + 1]?.sender?.name !== msg.sender?.name;
-          const isFirstInGroup =
-            index === 0 || memoizedChatMessages[index - 1]?.sender?.name !== msg.sender?.name;
+          
+          // Helper to identify sender for grouping
+          const getSenderId = (m: ChatMessageDTO) => {
+             if (m.sender?.id) return `id:${m.sender.id}`;
+             if (m.sender?.name) return `name:${m.sender.name}`;
+             const firstName = m.sender?.firstname || "";
+             const lastName = m.sender?.lastname || "";
+             const fullName = `${firstName} ${lastName}`.trim();
+             if (fullName) return `name:${fullName}`;
+             if (m.sender?.email) return `email:${m.sender.email}`;
+             return 'unknown';
+          };
+
+          const currentSenderId = getSenderId(msg);
+          const nextSenderId = index < memoizedChatMessages.length - 1 ? getSenderId(memoizedChatMessages[index + 1]) : null;
+          const prevSenderId = index > 0 ? getSenderId(memoizedChatMessages[index - 1]) : null;
+
+          const showAvatar = index === memoizedChatMessages.length - 1 || nextSenderId !== currentSenderId;
+          const isLastInGroup = index === memoizedChatMessages.length - 1 || nextSenderId !== currentSenderId;
+          const isFirstInGroup = index === 0 || prevSenderId !== currentSenderId;
 
           return (
             <AnimatedMessage

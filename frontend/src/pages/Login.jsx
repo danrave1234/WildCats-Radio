@@ -13,6 +13,7 @@ import wildcatRadioLogo from "../assets/wildcatradio_logo.png"
 import { Separator } from "@/components/ui/separator"
 import { ArrowLeft } from "lucide-react"
 import { config } from "../config"
+import AuthBackground from "@/components/AuthBackground"
 
 // (Removed page-specific theme logic; global ThemeProvider controls theme)
 
@@ -90,12 +91,12 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-b from-background via-muted/40 to-muted text-foreground dark:from-slate-800 dark:via-slate-700/60 dark:to-slate-600 overflow-y-auto">
-      <div className="w-full flex flex-col items-center justify-start min-h-screen p-4 py-8 relative">
-        <div className="w-full max-w-md my-auto">
+    <AuthBackground contentClassName="px-4 sm:px-6 py-6 sm:py-10">
+      <div className="w-full flex flex-col items-center justify-start min-h-screen relative">
+        <div className="w-full max-w-sm sm:max-w-md lg:max-w-lg my-auto">
           {/* Back to Home */}
           <div className="w-full mb-2">
-            <Link to="/" className="inline-flex items-center gap-2 text-sm font-medium text-wildcats-maroon hover:text-wildcats-maroon/80">
+            <Link to="/" className="inline-flex items-center gap-2 text-sm font-medium text-wildcats-yellow hover:text-wildcats-yellow/90 transition-colors">
               <ArrowLeft className="h-4 w-4" />
               Back to Home
             </Link>
@@ -111,12 +112,12 @@ export default function Login() {
 
           {/* Title Section */}
           <div className="text-center mb-4 px-4">
-            <p className="text-sm text-gray-600 uppercase tracking-wider max-w-sm mx-auto font-semibold">
+            <p className="text-xs uppercase tracking-[0.4em] text-slate-200/90 max-w-sm mx-auto font-semibold">
               Your radio broadcast platform
             </p>
           </div>
 
-          <Card className="border border-border shadow bg-white dark:bg-slate-700 text-card-foreground overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out">
+          <Card className="border border-white/20 dark:border-white/10 shadow-2xl bg-white/95 dark:bg-slate-800/90 backdrop-blur-xl text-card-foreground overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out">
             <div className="h-3 bg-wildcats-maroon" />
             <CardHeader className="px-6 pt-6 pb-3">
               <div>
@@ -218,7 +219,7 @@ export default function Login() {
                 </div>
 
                 {/* Remember Me & Forgot Password */}
-                <div className="flex items-center justify-between pt-1">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-1">
                   <div className="flex items-center space-x-2">
                     <Checkbox
                       id="remember-me"
@@ -285,6 +286,6 @@ export default function Login() {
           </Card>
         </div>
       </div>
-    </div>
+    </AuthBackground>
   );
 } 
