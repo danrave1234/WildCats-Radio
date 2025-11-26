@@ -8,8 +8,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import jakarta.persistence.LockModeType;
 
 import com.wildcastradio.Broadcast.BroadcastEntity.BroadcastStatus;
 import com.wildcastradio.User.UserEntity;
@@ -37,6 +39,10 @@ public interface BroadcastRepository extends JpaRepository<BroadcastEntity, Long
     List<BroadcastEntity> findByCreatedByAndStatus(UserEntity dj, BroadcastStatus status);
 
     Optional<BroadcastEntity> findByCurrentActiveDJAndStatus(UserEntity dj, BroadcastStatus status);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT b FROM BroadcastEntity b WHERE b.id = :id")
+    Optional<BroadcastEntity> findByIdForUpdate(@Param("id") Long id);
     
     // Query methods that work with embedded schedule fields
     @Query("SELECT b FROM BroadcastEntity b WHERE b.scheduledStart > :date")

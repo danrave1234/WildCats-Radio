@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -128,7 +129,21 @@ public class BroadcastController {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         BroadcastEntity broadcast = broadcastService.endBroadcast(id, user, idempotencyKey);
-        return ResponseEntity.ok(BroadcastDTO.fromEntity(broadcast));
+
+        HttpHeaders headers = new HttpHeaders();
+        if (broadcast.getEndResultType() != null) {
+            headers.add("X-Broadcast-End-State", broadcast.getEndResultType().name());
+        }
+        headers.add("X-Broadcast-End-Retry", Boolean.toString(broadcast.isVerificationRetried()));
+
+        logger.info("Broadcast end request for {} completed with state={}, retry={}",
+                id,
+                broadcast.getEndResultType(),
+                broadcast.isVerificationRetried());
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(BroadcastDTO.fromEntity(broadcast));
     }
 
     @GetMapping("/upcoming")

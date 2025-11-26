@@ -22,6 +22,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 
 @Entity
 @Table(name = "broadcasts", indexes = {
@@ -120,6 +121,12 @@ public class BroadcastEntity {
     @Column(name = "active_session_id")
     private String activeSessionId;
 
+    @Transient
+    private BroadcastEndResultType endResultType = BroadcastEndResultType.SUCCESS;
+
+    @Transient
+    private boolean verificationRetried;
+
     // Broadcast status enum with state machine validation
     public enum BroadcastStatus {
         SCHEDULED, LIVE, ENDED, TESTING, CANCELLED;
@@ -137,6 +144,12 @@ public class BroadcastEntity {
                 case ENDED, CANCELLED -> false; // Terminal states
             };
         }
+    }
+
+    public enum BroadcastEndResultType {
+        SUCCESS,
+        NO_OP_ALREADY_ENDED,
+        IDEMPOTENT_DUPLICATE
     }
 
     // Default constructor
@@ -360,5 +373,21 @@ public class BroadcastEntity {
 
     public void setActiveSessionId(String activeSessionId) {
         this.activeSessionId = activeSessionId;
+    }
+
+    public BroadcastEndResultType getEndResultType() {
+        return endResultType;
+    }
+
+    public void setEndResultType(BroadcastEndResultType endResultType) {
+        this.endResultType = endResultType;
+    }
+
+    public boolean isVerificationRetried() {
+        return verificationRetried;
+    }
+
+    public void setVerificationRetried(boolean verificationRetried) {
+        this.verificationRetried = verificationRetried;
     }
 }
