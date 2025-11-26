@@ -16,6 +16,7 @@ const ModeratorDashboardContent = () => {
   const [totalPages, setTotalPages] = useState(0);
   const [totalElements, setTotalElements] = useState(0);
   const [rolesLoading, setRolesLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [newUser, setNewUser] = useState({ firstname: '', lastname: '', email: '', password: '', role: 'LISTENER', birthdate: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('ALL');
@@ -130,7 +131,7 @@ const ModeratorDashboardContent = () => {
   };
 
   // Update user role
-  const handleChangeRole = async (userId, oldRole, newRole) => {
+  const handleRoleUpdate = async (userId, oldRole, newRole) => {
     if (newRole === oldRole) return; // No change
 
     const userEmail = users.find(u => u.id === userId)?.email || 'this user';
@@ -152,14 +153,6 @@ const ModeratorDashboardContent = () => {
     } finally {
       setRolesLoading(false);
     }
-  };
-
-
-
-  const handleEditRole = (user) => {
-    setEditingUser(user);
-    setSelectedRole(user.role);
-    setShowRoleModal(true);
   };
 
   const handleAddProfanity = async (e) => {

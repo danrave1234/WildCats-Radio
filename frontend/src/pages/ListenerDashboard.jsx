@@ -2547,7 +2547,7 @@ export default function ListenerDashboard() {
           </div>
 
           {/* Mobile Tab content */}
-          <div className="bg-white dark:bg-slate-800 flex-grow flex flex-col h-[500px]">
+          <div className="bg-white dark:bg-slate-800 flex-grow flex flex-col h-[calc(100vh-350px)] min-h-[400px]">
             {activeTab === "chat" && (
               <div className="animate-fade-in flex flex-col h-full">
                 <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">

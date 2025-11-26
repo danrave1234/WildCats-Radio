@@ -3,6 +3,7 @@ import Modal from '../Modal';
 import { broadcastApi } from '../../services/api/broadcastApi';
 import { authApi } from '../../services/api/authApi';
 import { useStreaming } from '../../context/StreamingContext'; // Import useStreaming
+import { useAuth } from '../../context/AuthContext'; // Import useAuth
 
 export default function DJHandoverModal({
   isOpen,
@@ -13,6 +14,7 @@ export default function DJHandoverModal({
   onHandoverSuccess
 }) {
   const { updateActiveSessionId, updateCurrentBroadcast } = useStreaming(); // Use updateCurrentBroadcast
+  const { handoverLogin } = useAuth(); // Use handoverLogin from AuthContext
   const [djs, setDjs] = useState([]);
   const [selectedDJId, setSelectedDJId] = useState('');
   const [selectedDJ, setSelectedDJ] = useState(null);
@@ -58,15 +60,27 @@ export default function DJHandoverModal({
   const fetchDJs = async () => {
     setLoadingDJs(true);
     try {
-      const response = await authApi.getUsersByRole('DJ');
+      // Fetch both DJs and Moderators as they are both eligible for handover
+      const [djsResponse, moderatorsResponse] = await Promise.all([
+        authApi.getUsersByRole('DJ'),
+        authApi.getUsersByRole('MODERATOR')
+      ]);
+      
+      const djsList = djsResponse.data || [];
+      const moderatorsList = moderatorsResponse.data || [];
+      
+      // Combine and deduplicate by ID (in case a user has multiple roles or API oddities)
+      const allUsers = [...djsList, ...moderatorsList];
+      const uniqueUsers = Array.from(new Map(allUsers.map(item => [item.id, item])).values());
+
       // Filter out current DJ but keep logged-in user (will be greyed out)
-      const filteredDJs = (response.data || []).filter(dj =>
-        !currentDJ || dj.id !== currentDJ.id
+      const filteredUsers = uniqueUsers.filter(user =>
+        !currentDJ || user.id !== currentDJ.id
       );
-      setDjs(filteredDJs);
+      setDjs(filteredUsers);
     } catch (err) {
-      console.error('Error fetching DJs:', err);
-      setError('Failed to load DJ list');
+      console.error('Error fetching DJs/Moderators:', err);
+      setError('Failed to load user list');
     } finally {
       setLoadingDJs(false);
     }
@@ -96,8 +110,8 @@ export default function DJHandoverModal({
     setError(null);
 
     try {
-      // Use new handover-login endpoint for account switching
-      const response = await authApi.handoverLogin({
+      // Use handoverLogin from AuthContext to ensure state is updated immediately
+      const responseData = await handoverLogin({
         broadcastId,
         newDJId: parseInt(selectedDJId),
         password,
@@ -135,12 +149,14 @@ export default function DJHandoverModal({
       
       // onHandoverSuccess is usually for notifications or other side-effects
       if (onHandoverSuccess) {
-        onHandoverSuccess(response.data);
+        onHandoverSuccess(responseData);
       }
       onClose();
     } catch (err) {
       console.error('Error initiating handover with account switch:', err);
-      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to switch accounts. Please verify password and try again.');
+      // Handle both Axios error response structure and Error object structure
+      const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to switch accounts. Please verify password and try again.';
+      setError(errorMessage);
     } finally {
       setLoading(false);
       setIsSwitchingAccounts(false);
@@ -154,6 +170,7 @@ export default function DJHandoverModal({
       title="Handover Broadcast"
       type="info"
       maxWidth="lg"
+      zIndex="z-[60]"
       footer={
         <div className="flex justify-end space-x-3">
           <button
@@ -182,7 +199,7 @@ export default function DJHandoverModal({
 
         <div>
           <label htmlFor="dj-select" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Select DJ to Handover To
+            Select DJ or Moderator to Handover To
           </label>
           <select
             id="dj-select"
@@ -191,7 +208,7 @@ export default function DJHandoverModal({
             disabled={loadingDJs || loading}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 disabled:opacity-50"
           >
-            <option value="">-- Select DJ --</option>
+            <option value="">-- Select DJ or Moderator --</option>
             {djs.map(dj => {
               const isLoggedInUser = loggedInUser && dj.id === loggedInUser.id;
               return (
