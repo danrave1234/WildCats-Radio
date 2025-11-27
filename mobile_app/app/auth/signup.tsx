@@ -441,22 +441,9 @@ const SignupScreen: React.FC = () => {
               style={styles.createAccountButton}
               activeOpacity={0.8}
             >
-              <LinearGradient
-                colors={['#FFD93D', '#FFC30B', '#E6A800']}
-                start={{ x: 0.5, y: 0 }}
-                end={{ x: 0.5, y: 1 }}
-                style={styles.createAccountButtonGradient}
-              >
-                <LinearGradient
-                  colors={['rgba(255, 255, 255, 0.25)', 'rgba(255, 255, 255, 0)', 'rgba(0, 0, 0, 0.1)']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 0, y: 1 }}
-                  style={styles.shineOverlay}
-                />
-                <Text style={styles.createAccountButtonText}>
-                  Create Account
-                </Text>
-              </LinearGradient>
+              <Text style={styles.createAccountButtonText}>
+                Create Account
+              </Text>
             </TouchableOpacity>
 
             <View style={styles.loginLinkContainer}>
@@ -518,17 +505,16 @@ const SignupScreen: React.FC = () => {
             style={styles.modalGradientBlur2}
           />
 
-          <View style={styles.modalHeader}>
-            <View style={styles.modalHeaderLeft} />
-            <TouchableOpacity
-              onPress={() => {
-                setShowSignupModal(false);
-                setShowGenderDropdown(false);
-              }}
-            >
-              <Ionicons name="close" size={28} color="#94a3b8" />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity 
+            onPress={() => {
+              setShowSignupModal(false);
+              setShowGenderDropdown(false);
+            }}
+            style={styles.modalCloseButton}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="close" size={20} color="#94a3b8" />
+          </TouchableOpacity>
 
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -770,18 +756,6 @@ const SignupScreen: React.FC = () => {
                     activeOpacity={0.8}
                     disabled={!agreedToTerms || loading}
                   >
-                    <LinearGradient
-                      colors={['#FFD93D', '#FFC30B', '#E6A800']}
-                      start={{ x: 0.5, y: 0 }}
-                      end={{ x: 0.5, y: 1 }}
-                      style={styles.modalSignupButtonGradient}
-                    >
-                      <LinearGradient
-                        colors={['rgba(255, 255, 255, 0.25)', 'rgba(255, 255, 255, 0)', 'rgba(0, 0, 0, 0.1)']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 0, y: 1 }}
-                        style={styles.modalShineOverlay}
-                      />
                       {loading ? (
                         <ActivityIndicator color="#000000" />
                       ) : (
@@ -789,7 +763,6 @@ const SignupScreen: React.FC = () => {
                           Create Account
                         </Text>
                       )}
-                    </LinearGradient>
                   </TouchableOpacity>
               </View>
             </ScrollView>
@@ -1105,35 +1078,17 @@ const styles = StyleSheet.create({
   },
   createAccountButton: {
     width: '100%',
+    backgroundColor: '#FFC30B',
     borderRadius: 8,
-    marginBottom: 24,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  createAccountButtonGradient: {
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
-    borderRadius: 8,
-  },
-  shineOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 8,
+    marginBottom: 24,
   },
   createAccountButtonText: {
     color: '#000000',
     fontSize: 18,
     fontWeight: 'bold',
-    letterSpacing: 0.5,
   },
   // Modal Styles
   modalContainer: {
@@ -1188,20 +1143,22 @@ const styles = StyleSheet.create({
     height: height * 1.0,
     opacity: 0.7,
   },
-  modalHeader: {
-    backgroundColor: 'rgba(30, 41, 59, 0.8)', // slate-800 with opacity
-    flexDirection: 'row',
+  modalCloseButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-    zIndex: 10,
-  },
-  modalHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
   },
   modalKeyboardView: {
     flex: 1,
@@ -1211,6 +1168,7 @@ const styles = StyleSheet.create({
   },
   modalScrollContent: {
     paddingBottom: 40,
+    paddingTop: 16,
     flexGrow: 1,
   },
   modalContent: {
@@ -1401,28 +1359,11 @@ const styles = StyleSheet.create({
   },
   modalSignupButton: {
     width: '100%',
+    backgroundColor: '#FFC30B',
     borderRadius: 8,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  modalSignupButtonGradient: {
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
-    borderRadius: 8,
-  },
-  modalShineOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 8,
   },
   modalSignupButtonDisabled: {
     opacity: 0.6,
@@ -1431,7 +1372,6 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontSize: 16,
     fontWeight: '600',
-    letterSpacing: 0.5,
   },
   modalErrorContainer: {
     flexDirection: 'row',
