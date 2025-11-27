@@ -5,6 +5,11 @@ module.exports = {
   presets: [require("nativewind/preset")],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Manrope_400Regular', 'system-ui', 'sans-serif'],
+        manrope: ['Manrope_400Regular', 'sans-serif'],
+        poppins: ['Poppins_400Regular', 'sans-serif'],
+      },
       colors: {
         'white': { DEFAULT: '#FFFFFF', 100: '#333333', 200: '#666666', 300: '#999999', 400: '#cccccc', 500: '#ffffff', 600: '#ffffff', 700: '#ffffff', 800: '#ffffff', 900: '#ffffff' },
         'cordovan': { DEFAULT: '#91403E', 100: '#1d0d0d', 200: '#3b1a19', 300: '#582626', 400: '#753332', 500: '#91403e', 600: '#b75856', 700: '#c98281', 800: '#dbacab', 900: '#edd5d5' },

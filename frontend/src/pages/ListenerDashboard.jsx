@@ -2364,7 +2364,7 @@ export default function ListenerDashboard() {
         {/* Desktop Right Column - Live Chat */}
         <div className="lg:col-span-1 flex flex-col">
           <div className="bg-maroon-700 dark:bg-maroon-800 text-white p-4 rounded-t-xl shadow-md border-b border-maroon-800 dark:border-maroon-900">
-            <h3 className="font-bold text-lg mb-1 font-montserrat">Live Chat</h3>
+            <h3 className="font-bold text-lg mb-1 font-poppins">Live Chat</h3>
             <p className="text-xs opacity-90 font-medium">{Math.max(listenerCount, localListenerCount)} listeners online</p>
           </div>
 
@@ -2584,7 +2584,7 @@ export default function ListenerDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.2em] text-white/70 font-semibold">Community</p>
-                <h3 className="font-bold text-lg font-montserrat">Live Chat</h3>
+                <h3 className="font-bold text-lg font-poppins">Live Chat</h3>
               </div>
               <span className="text-xs font-medium">{Math.max(listenerCount, localListenerCount)} online</span>
             </div>

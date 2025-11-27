@@ -143,11 +143,9 @@ export default {
         'glow-lg': '0 0 40px rgba(99, 102, 241, 0.6)',
       },
       fontFamily: {
-        sans: ['Kumbh Sans', 'system-ui', 'sans-serif'],
-        montserrat: ['Montserrat', 'sans-serif'],
-        nunito: ['Nunito Sans', 'sans-serif'],
-        poetsen: ['Poetsen One', 'cursive'],
-        kumbh: ['Kumbh Sans', 'sans-serif'],
+        sans: ['Manrope', 'system-ui', 'sans-serif'],
+        manrope: ['Manrope', 'sans-serif'],
+        poppins: ['Poppins', 'sans-serif'],
       },
       animation: {
         spinner: 'spinner 1s linear infinite',

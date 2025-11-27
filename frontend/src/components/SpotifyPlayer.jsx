@@ -125,7 +125,7 @@ const SpotifyPlayer = ({ broadcast: propBroadcast, currentDJ }) => {
             <div className="w-20 h-20 mx-auto mb-4 rounded-xl flex items-center justify-center bg-maroon-900/40 backdrop-blur-sm border-2 border-maroon-600/30">
               <MusicalNoteIcon className="h-10 w-10 text-gold-500" />
             </div>
-            <h3 className="text-xl font-bold mb-2 text-white font-montserrat">WildCats Radio</h3>
+            <h3 className="text-xl font-bold mb-2 text-white font-poppins">WildCats Radio</h3>
             <p className="text-white/80 text-sm">No broadcast currently active</p>
           </div>
         </div>
@@ -152,7 +152,7 @@ const SpotifyPlayer = ({ broadcast: propBroadcast, currentDJ }) => {
           </div>
 
           <div className="mb-4">
-            <h2 className="text-white text-xl font-bold mb-1.5 truncate font-montserrat">
+            <h2 className="text-white text-xl font-bold mb-1.5 truncate font-poppins">
               {currentBroadcast?.title || 'Live Broadcast'}
             </h2>
 
