@@ -170,7 +170,8 @@ export default function DJDashboard() {
     setAudioSource,
     getAudioStream,
     streamStatusCircuitBreakerOpen,
-    isBroadcastingDevice
+    isBroadcastingDevice,
+    updateCurrentBroadcast
   } = useStreaming()
 
   // Core workflow state
@@ -1661,21 +1662,53 @@ export default function DJDashboard() {
 
   // Slow mode save handler
   const handleSaveSlowMode = async () => {
-    if (!currentBroadcast?.id) return
+    if (!currentBroadcast?.id) {
+      return
+    }
+
+    // Simple front-end validation to avoid bad requests
+    const parsedSeconds = parseInt(slowModeSeconds, 10)
+    const safeSeconds = Number.isFinite(parsedSeconds) ? parsedSeconds : 0
+    const clampedSeconds = Math.max(0, Math.min(3600, safeSeconds))
+
+    if (slowModeEnabled && clampedSeconds <= 0) {
+      showToast('Please enter a slow mode delay (in seconds) greater than 0.', 'error')
+      return
+    }
+
     try {
       setIsSavingSlowMode(true)
-      const seconds = Math.max(0, Math.min(3600, parseInt(slowModeSeconds, 10) || 0))
+
       const response = await broadcastService.updateSlowMode(currentBroadcast.id, {
         enabled: !!slowModeEnabled,
-        seconds
+        seconds: clampedSeconds
       })
+
       const updated = response?.data || null
+
+      // We don't need to mutate the unified currentBroadcast here; the listener/dashboard
+      // views already sync slow mode state from the active broadcast and our local
+      // slowModeEnabled/slowModeSeconds state reflects what we just saved.
       if (updated) {
-        setCurrentBroadcast(updated)
+        showToast('Slow mode settings updated.', 'success')
+      } else {
+        showToast('Slow mode settings updated.', 'success')
       }
     } catch (error) {
       logger.error('Error updating slow mode:', error)
-      showToast('Failed to update slow mode. Please try again.', 'error')
+
+      const apiStatus = error.response?.status
+      const apiMessage = error.response?.data?.message
+
+      if (apiStatus === 401 || apiStatus === 403) {
+        showToast('You do not have permission to change slow mode for this broadcast.', 'error')
+      } else if (apiStatus === 404) {
+        showToast('Broadcast not found. Please refresh the page and try again.', 'error')
+      } else if (apiMessage) {
+        showToast(apiMessage, 'error')
+      } else {
+        showToast('Failed to update slow mode. Please try again.', 'error')
+      }
     } finally {
       setIsSavingSlowMode(false)
     }
@@ -2027,9 +2060,16 @@ export default function DJDashboard() {
                   // The handoverLogin already updated AuthContext, but refresh to ensure sync
                   await checkAuthStatus();
                   
-                  // Refresh broadcast data
-                  // We fetch it to ensure local cache is hot, but Context update happens via WebSocket
-                  await broadcastService.getById(currentBroadcast.id);
+                  // Fetch and update broadcast data immediately to reflect handover
+                  const updatedBroadcastResponse = await broadcastService.getById(currentBroadcast.id);
+                  if (updatedBroadcastResponse.data) {
+                    // Update the context with the latest broadcast state
+                    updateCurrentBroadcast(updatedBroadcastResponse.data);
+                    logger.info('DJDashboard: Broadcast state updated after handover', {
+                      broadcastId: updatedBroadcastResponse.data.id,
+                      newActiveDJ: updatedBroadcastResponse.data.currentActiveDJ?.id
+                    });
+                  }
                   
                   // Show success notification
                   const djName = handoverData?.user?.name ||
@@ -2355,12 +2395,12 @@ export default function DJDashboard() {
                 </div>
 
                 {/* Main Content Area - Three Column Layout */}
-                {/* Cards are responsive: max 777px, adapt to viewport height accounting for sticky header, min 400px */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-12 gap-6 items-start">
+                {/* On large screens: three columns; on xl: 3/6/3 layout with wider chat in the center */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-12 gap-6 items-stretch">
                   {/* Left Column: Song Requests */}
-                  <div className="order-2 lg:order-2 lg:col-span-1 xl:col-span-3">
+                  <div className="order-2 lg:order-1 lg:col-span-1 xl:col-span-3">
                     {/* Song Requests Card */}
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[360px] sm:min-h-[420px] lg:min-h-[460px] max-h-[85vh]">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[400px] sm:min-h-[460px] max-h-[90vh] h-full">
                       <div className="bg-gold-500 text-maroon-900 px-4 py-3 border-b border-gold-400 flex-shrink-0">
                       <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
@@ -2455,8 +2495,8 @@ export default function DJDashboard() {
                   </div>
 
                   {/* Center Column: Live Chat - Main Focus */}
-                  <div className="order-1 lg:order-1 lg:col-span-2 xl:col-span-6 w-full">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[400px] sm:min-h-[460px] max-h-[90vh]">
+                  <div className="order-1 lg:order-2 lg:col-span-1 xl:col-span-6 w-full">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[400px] sm:min-h-[460px] max-h-[90vh] h-full">
                       {/* Header */}
                       <div className="bg-maroon-600 text-white px-3 sm:px-5 py-3 sm:py-4 border-b border-maroon-700 flex-shrink-0">
                         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -2614,6 +2654,13 @@ export default function DJDashboard() {
 
                       {/* Input Area - Outside messages container, at bottom of card */}
                       <div className="border-t border-gray-200 dark:border-gray-700 p-3 sm:p-4 bg-gray-50 dark:bg-gray-900/50 flex-shrink-0">
+                        {slowModeEnabled && slowModeSeconds > 0 && (
+                          <p className="text-[11px] text-amber-700 dark:text-amber-400 mb-2 text-center">
+                            Slow Mode is enabled.{" "}
+                            Messages may be delayed by up to {slowModeSeconds} second
+                            {slowModeSeconds === 1 ? "" : "s"}.
+                          </p>
+                        )}
                         <form onSubmit={handleChatSubmit} className="flex flex-col sm:flex-row gap-2 sm:items-center">
                           <input
                               type="text"
@@ -2638,7 +2685,7 @@ export default function DJDashboard() {
 
                   {/* Right Column: Polls */}
                   <div className="order-3 lg:order-3 lg:col-span-1 xl:col-span-3">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[360px] sm:min-h-[420px] lg:min-h-[460px] max-h-[85vh]">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[400px] sm:min-h-[460px] max-h-[90vh] h-full">
                       <div className="bg-maroon-700 text-white px-4 py-3 border-b border-maroon-800 flex-shrink-0">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">

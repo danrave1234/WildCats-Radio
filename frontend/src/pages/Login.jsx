@@ -92,8 +92,8 @@ export default function Login() {
 
   return (
     <AuthBackground contentClassName="px-4 sm:px-6 py-6 sm:py-10">
-      <div className="w-full flex flex-col items-center justify-start min-h-screen relative">
-        <div className="w-full max-w-sm sm:max-w-md lg:max-w-lg my-auto">
+      <div className="w-full flex flex-col items-center justify-center relative">
+        <div className="w-full max-w-sm sm:max-w-md lg:max-w-lg">
           {/* Back to Home */}
           <div className="w-full mb-2">
             <Link to="/" className="inline-flex items-center gap-2 text-sm font-medium text-wildcats-yellow hover:text-wildcats-yellow/90 transition-colors">

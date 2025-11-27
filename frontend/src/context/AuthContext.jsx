@@ -189,7 +189,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Handover login function - for account switching during DJ handover
+  // Handover login function - for account switching during DJ handover (shared PC setup)
   const handoverLogin = async (handoverData) => {
     try {
       setLoading(true);

@@ -184,12 +184,12 @@ public class UserController {
                 throw new IllegalArgumentException("Broadcast must be LIVE");
             }
             
-            // 2. Validate new DJ exists and has DJ role
+            // 2. Validate new DJ exists and has DJ or MODERATOR role
             UserEntity newDJ = userRepository.findById(request.getNewDJId())
                     .orElseThrow(() -> new IllegalArgumentException("New DJ not found"));
             
-            if (newDJ.getRole() != UserEntity.UserRole.DJ) {
-                throw new IllegalArgumentException("New DJ must have DJ role");
+            if (newDJ.getRole() != UserEntity.UserRole.DJ && newDJ.getRole() != UserEntity.UserRole.MODERATOR) {
+                throw new IllegalArgumentException("New DJ must have DJ or MODERATOR role");
             }
             
             if (!newDJ.isActive()) {
@@ -275,7 +275,7 @@ public class UserController {
             UserDetails userDetails = userService.loadUserByUsername(newDJ.getEmail());
             String token = jwtUtil.generateToken(userDetails);
             
-            // 9. Set HttpOnly cookies with new token
+            // 9. Set HttpOnly cookies with new token (for shared PC account switching)
             Cookie tokenCookie = new Cookie("token", token);
             tokenCookie.setHttpOnly(true);
             tokenCookie.setSecure(useSecureCookies);

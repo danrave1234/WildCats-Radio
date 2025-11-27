@@ -237,6 +237,17 @@ public class BroadcastService {
         broadcast.setSlowModeEnabled(isEnabled);
         broadcast.setSlowModeSeconds(secs);
         BroadcastEntity saved = broadcastRepository.save(broadcast);
+
+        // Notify all listeners that the broadcast configuration (including slow mode) changed
+        try {
+            Map<String, Object> broadcastUpdatedMessage = new java.util.HashMap<>();
+            broadcastUpdatedMessage.put("type", "BROADCAST_UPDATED");
+            broadcastUpdatedMessage.put("broadcast", BroadcastDTO.fromEntity(saved));
+            messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastUpdatedMessage);
+        } catch (Exception e) {
+            logger.warn("Failed to send broadcast update WebSocket message after slow mode change", e);
+        }
+
         return BroadcastDTO.fromEntity(saved);
     }
 
@@ -465,15 +476,27 @@ public class BroadcastService {
                     );
                     
                     circuitBreaker.recordSuccess();
-                    return existing.get();
+                    BroadcastEntity existingBroadcast = existing.get();
+                    existingBroadcast.setEndResultType(BroadcastEntity.BroadcastEndResultType.IDEMPOTENT_DUPLICATE);
+                    existingBroadcast.setVerificationRetried(false);
+                    return existingBroadcast;
                 }
             }
 
-            BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
+            BroadcastEntity broadcast = broadcastRepository.findByIdForUpdate(broadcastId)
                     .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
             // State machine validation
             BroadcastEntity.BroadcastStatus currentStatus = broadcast.getStatus();
+            if (BroadcastEntity.BroadcastStatus.ENDED.equals(currentStatus)) {
+                logger.info("Broadcast {} already ended. Idempotent no-op.", broadcastId);
+                if (circuitBreaker != null) {
+                    circuitBreaker.recordSuccess();
+                }
+                broadcast.setEndResultType(BroadcastEntity.BroadcastEndResultType.NO_OP_ALREADY_ENDED);
+                broadcast.setVerificationRetried(false);
+                return broadcast;
+            }
             if (!currentStatus.canTransitionTo(BroadcastEntity.BroadcastStatus.ENDED)) {
                 String errorMsg = String.format("Cannot end broadcast in state: %s. Valid transitions: LIVE->ENDED, TESTING->ENDED", currentStatus);
                 logger.warn(errorMsg);
@@ -488,20 +511,22 @@ public class BroadcastService {
             BroadcastEntity.BroadcastStatus oldStatus = broadcast.getStatus();
 
             // Atomic update
-            broadcast.setActualEnd(LocalDateTime.now());
+            LocalDateTime endTimestamp = LocalDateTime.now();
+            broadcast.setActualEnd(endTimestamp);
             broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
             if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
                 broadcast.setEndIdempotencyKey(idempotencyKey);
                 logger.info("Setting end idempotency key: {} for broadcast {}", idempotencyKey, broadcastId);
             }
 
-            BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
-            broadcastRepository.flush(); // Force immediate write to database
+            BroadcastEntity savedBroadcast = broadcastRepository.saveAndFlush(broadcast);
+            BroadcastEntity finalBroadcast = verifyEndStateWithRetry(savedBroadcast.getId(), endTimestamp);
+            finalBroadcast.setEndResultType(BroadcastEntity.BroadcastEndResultType.SUCCESS);
             
             logger.info("Broadcast ended: ID={}, Status={}, EndIdempotencyKey={}", 
-                savedBroadcast.getId(),
-                savedBroadcast.getStatus(),
-                savedBroadcast.getEndIdempotencyKey() != null ? savedBroadcast.getEndIdempotencyKey() : "null");
+                finalBroadcast.getId(),
+                finalBroadcast.getStatus(),
+                finalBroadcast.getEndIdempotencyKey() != null ? finalBroadcast.getEndIdempotencyKey() : "null");
 
             // CRITICAL FIX: Clear all active broadcasts from IcecastService to ensure stream status is updated
             // This fixes the issue where the stream still shows as live after ending
@@ -515,8 +540,8 @@ public class BroadcastService {
             
             activityLogService.logBroadcastStateTransition(
                 dj,
-                savedBroadcast.getId(),
-                savedBroadcast.getTitle(),
+                finalBroadcast.getId(),
+                finalBroadcast.getTitle(),
                 oldStatus.toString(),
                 BroadcastEntity.BroadcastStatus.ENDED.toString(),
                 "Manual end by DJ"
@@ -526,7 +551,7 @@ public class BroadcastService {
             activityLogService.logActivity(
                 dj,
                 ActivityLogEntity.ActivityType.BROADCAST_END,
-                "Broadcast ended: " + savedBroadcast.getTitle()
+                "Broadcast ended: " + finalBroadcast.getTitle()
             );
 
             // Record success in circuit breaker
@@ -543,20 +568,20 @@ public class BroadcastService {
             CompletableFuture.runAsync(() -> {
                 try {
                     // Send notification to all users that the broadcast has ended
-                    String notificationMessage = "Broadcast ended: " + savedBroadcast.getTitle();
+                    String notificationMessage = "Broadcast ended: " + finalBroadcast.getTitle();
                     sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_ENDED);
 
                     // Send WebSocket message for immediate UI updates
                     Map<String, Object> broadcastEndedMessage = new java.util.HashMap<>();
                     broadcastEndedMessage.put("type", "BROADCAST_ENDED");
-                    broadcastEndedMessage.put("broadcast", BroadcastDTO.fromEntity(savedBroadcast));
+                    broadcastEndedMessage.put("broadcast", BroadcastDTO.fromEntity(finalBroadcast));
                     messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastEndedMessage);
                 } catch (Exception e) {
                     logger.error("Error sending broadcast end notifications", e);
                 }
             });
 
-            return savedBroadcast;
+            return finalBroadcast;
         } catch (IllegalStateException e) {
             // Re-throw state machine validation errors
             throw e;
@@ -583,11 +608,20 @@ public class BroadcastService {
         }
 
         try {
-            BroadcastEntity broadcast = broadcastRepository.findById(broadcastId)
+            BroadcastEntity broadcast = broadcastRepository.findByIdForUpdate(broadcastId)
                     .orElseThrow(() -> new IllegalArgumentException("Broadcast not found"));
 
             // State machine validation
             BroadcastEntity.BroadcastStatus currentStatus = broadcast.getStatus();
+            if (BroadcastEntity.BroadcastStatus.ENDED.equals(currentStatus)) {
+                logger.info("Broadcast {} already ended (auto path). Idempotent no-op.", broadcastId);
+                if (circuitBreaker != null) {
+                    circuitBreaker.recordSuccess();
+                }
+                broadcast.setEndResultType(BroadcastEntity.BroadcastEndResultType.NO_OP_ALREADY_ENDED);
+                broadcast.setVerificationRetried(false);
+                return broadcast;
+            }
             if (!currentStatus.canTransitionTo(BroadcastEntity.BroadcastStatus.ENDED)) {
                 String errorMsg = String.format("Cannot end broadcast in state: %s. Valid transitions: LIVE->ENDED, TESTING->ENDED", currentStatus);
                 logger.warn(errorMsg);
@@ -599,10 +633,13 @@ public class BroadcastService {
             BroadcastEntity.BroadcastStatus oldStatus = broadcast.getStatus();
 
             // Atomic update
-            broadcast.setActualEnd(LocalDateTime.now());
+            LocalDateTime endTimestamp = LocalDateTime.now();
+            broadcast.setActualEnd(endTimestamp);
             broadcast.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
 
-            BroadcastEntity savedBroadcast = broadcastRepository.save(broadcast);
+            BroadcastEntity savedBroadcast = broadcastRepository.saveAndFlush(broadcast);
+            BroadcastEntity finalBroadcast = verifyEndStateWithRetry(savedBroadcast.getId(), endTimestamp);
+            finalBroadcast.setEndResultType(BroadcastEntity.BroadcastEndResultType.SUCCESS);
 
             // CRITICAL FIX: Clear all active broadcasts from IcecastService to ensure stream status is updated
             icecastService.clearAllActiveBroadcasts();
@@ -610,8 +647,8 @@ public class BroadcastService {
             // Log state transition for audit trail (system-level, no user)
             activityLogService.logBroadcastStateTransition(
                 null, // System event
-                savedBroadcast.getId(),
-                savedBroadcast.getTitle(),
+                finalBroadcast.getId(),
+                finalBroadcast.getTitle(),
                 oldStatus.toString(),
                 BroadcastEntity.BroadcastStatus.ENDED.toString(),
                 "Auto-end (no user context)"
@@ -622,7 +659,7 @@ public class BroadcastService {
                 circuitBreaker.recordSuccess();
             }
 
-            logger.info("Broadcast ended without user info: {}", savedBroadcast.getTitle());
+            logger.info("Broadcast ended without user info: {}", finalBroadcast.getTitle());
 
             // Cancel any ongoing reconnection attempts when broadcast ends
             if (reconnectionManager != null) {
@@ -634,14 +671,14 @@ public class BroadcastService {
                 try {
                     Map<String, Object> broadcastEndedMessage = new java.util.HashMap<>();
                     broadcastEndedMessage.put("type", "BROADCAST_ENDED");
-                    broadcastEndedMessage.put("broadcast", BroadcastDTO.fromEntity(savedBroadcast));
+                    broadcastEndedMessage.put("broadcast", BroadcastDTO.fromEntity(finalBroadcast));
                     messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastEndedMessage);
                 } catch (Exception e) {
                     logger.error("Error sending broadcast end notification", e);
                 }
             });
 
-            return savedBroadcast;
+            return finalBroadcast;
         } catch (IllegalStateException e) {
             throw e;
         } catch (Exception e) {
@@ -651,6 +688,38 @@ public class BroadcastService {
             logger.error("Error ending broadcast", e);
             throw e;
         }
+    }
+
+    private BroadcastEntity verifyEndStateWithRetry(Long broadcastId, LocalDateTime fallbackEndTime) {
+        BroadcastEntity verified = broadcastRepository.findByIdForUpdate(broadcastId)
+                .orElseThrow(() -> new IllegalArgumentException("Broadcast not found during verification"));
+
+        if (BroadcastEntity.BroadcastStatus.ENDED.equals(verified.getStatus()) && verified.getActualEnd() != null) {
+            verified.setVerificationRetried(false);
+            return verified;
+        }
+
+        logger.warn("Broadcast {} end state not persisted after initial save. Retrying force-write.", broadcastId);
+
+        verified.setStatus(BroadcastEntity.BroadcastStatus.ENDED);
+        if (verified.getActualEnd() == null) {
+            verified.setActualEnd(fallbackEndTime != null ? fallbackEndTime : LocalDateTime.now());
+        }
+
+        broadcastRepository.saveAndFlush(verified);
+
+        BroadcastEntity forcedVerification = broadcastRepository.findByIdForUpdate(broadcastId)
+                .orElseThrow(() -> new IllegalArgumentException("Broadcast not found after force-write"));
+
+        if (!BroadcastEntity.BroadcastStatus.ENDED.equals(forcedVerification.getStatus()) ||
+                forcedVerification.getActualEnd() == null) {
+            logger.error("Broadcast {} failed to persist ENDED state even after retry.", broadcastId);
+            throw new IllegalStateException("Unable to persist broadcast end state");
+        }
+
+        logger.info("Broadcast {} end state confirmed after retry.", broadcastId);
+        forcedVerification.setVerificationRetried(true);
+        return forcedVerification;
     }
 
     public BroadcastEntity testBroadcast(Long broadcastId, UserEntity dj) {
