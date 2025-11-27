@@ -6,16 +6,18 @@ const EnhancedScrollArea = React.forwardRef(({
   className, 
   children, 
   orientation = "vertical",
+  autoHide = true,
   ...props 
 }, ref) => {
   const scrollAreaRef = React.useRef(null)
   const viewportRef = React.useRef(null)
   const timeoutRef = React.useRef(null)
   const [isDragging, setIsDragging] = React.useState(false)
-  const [isScrollbarVisible, setIsScrollbarVisible] = React.useState(false)
+  const [isScrollbarVisible, setIsScrollbarVisible] = React.useState(!autoHide)
 
   // Handle scroll visibility with auto-hide
   const showScrollbar = React.useCallback(() => {
+    if (!autoHide) return
     setIsScrollbarVisible(true)
     
     // Clear existing timeout
@@ -29,18 +31,29 @@ const EnhancedScrollArea = React.forwardRef(({
         setIsScrollbarVisible(false)
       }
     }, 1000) // Hide after 1 second of no scrolling
-  }, [isDragging])
+  }, [autoHide, isDragging])
 
   const hideScrollbar = React.useCallback(() => {
+    if (!autoHide) return
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current)
     }
     if (!isDragging) {
       setIsScrollbarVisible(false)
     }
-  }, [isDragging])
+  }, [autoHide, isDragging])
 
   React.useEffect(() => {
+    if (!autoHide) {
+      setIsScrollbarVisible(true)
+    }
+  }, [autoHide])
+
+  React.useEffect(() => {
+    if (!autoHide) {
+      return
+    }
+
     const scrollArea = scrollAreaRef.current
     const viewport = viewportRef.current
     if (!scrollArea || !viewport) return
@@ -116,22 +129,26 @@ const EnhancedScrollArea = React.forwardRef(({
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
-  }, [isDragging, showScrollbar, hideScrollbar])
+  }, [autoHide, isDragging, showScrollbar, hideScrollbar])
 
   return (
     <ScrollArea 
       ref={(node) => {
         scrollAreaRef.current = node
+        let forwardedNode = node
         // Also get reference to the viewport
         if (node) {
           const viewport = node.querySelector('[data-radix-scroll-area-viewport]')
           viewportRef.current = viewport
+          if (viewport) {
+            forwardedNode = viewport
+          }
         }
         if (ref) {
           if (typeof ref === 'function') {
-            ref(node)
+            ref(forwardedNode)
           } else {
-            ref.current = node
+            ref.current = forwardedNode
           }
         }
       }}
@@ -147,9 +164,11 @@ const EnhancedScrollArea = React.forwardRef(({
         orientation={orientation}
         className={cn(
           "transition-all duration-250 ease-out",
-          isScrollbarVisible || isDragging 
-            ? "opacity-100" 
-            : "opacity-0 pointer-events-none",
+          autoHide
+            ? isScrollbarVisible || isDragging 
+              ? "opacity-100" 
+              : "opacity-0 pointer-events-none"
+            : "opacity-100",
           isDragging && "scale-110"
         )}
       />

@@ -103,9 +103,11 @@ export default function ListenerDashboard() {
   // Poll state
   const [activePoll, setActivePoll] = useState(null);
   const [userVotes, setUserVotes] = useState({});
+  // When a poll ends and is removed from the backend, we briefly
+  // keep showing the last poll's results in the chat header
+  const [endedPollSnapshot, setEndedPollSnapshot] = useState(null);
+  const [showEndedPoll, setShowEndedPoll] = useState(false);
 
-  // UI state
-  const [activeTab, setActiveTab] = useState("poll");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [_currentSong, _setCurrentSong] = useState(null);
   const [recoveryNotification, setRecoveryNotification] = useState(null);
@@ -128,6 +130,13 @@ export default function ListenerDashboard() {
 
   // Missing pollLoading state
   const [pollLoading, setPollLoading] = useState(false);
+  useEffect(() => {
+    if (activePoll && activePoll.active === false) {
+      setActivePoll(null);
+      setSelectedPollOption(null);
+    }
+  }, [activePoll?.active]);
+
 
   // Chat timestamp update state
   const [_chatTimestampTick, _setChatTimestampTick] = useState(0);
@@ -152,7 +161,11 @@ export default function ListenerDashboard() {
   const wsConnectingRef = useRef(false); // Prevent duplicate WebSocket connections
 
   // UI refs
-  const chatContainerRef = useRef(null);
+  // Separate refs for desktop and mobile chat containers – both render the
+  // same messages but in different layouts. We listen to scroll events on
+  // both and treat the user as "at bottom" if either container is at bottom.
+  const desktopChatContainerRef = useRef(null);
+  const mobileChatContainerRef = useRef(null);
   const abortControllerRef = useRef(null);
 
   // Audio refs from ListenerDashboard2.jsx
@@ -426,19 +439,58 @@ export default function ListenerDashboard() {
 
   // Volume is managed by StreamingContext
 
-  // Add this helper function at the top of the component
-  const isAtBottom = (container) => {
-    if (!container) return true;
+  // Chat scrolling helpers – aligned with DJDashboard behavior, but aware of
+  // the fact that ListenerDashboard renders *two* chat containers (desktop
+  // and mobile). We treat a container as "active" only if it can actually
+  // scroll (non-zero height and scrollHeight > clientHeight).
+  const getContainerScrollState = (container) => {
+    if (!container) {
+      return { active: false, atBottom: true };
+    }
+
     const { scrollTop, scrollHeight, clientHeight } = container;
-    return Math.abs(scrollHeight - clientHeight - scrollTop) < 10;
+    const canScroll = clientHeight > 0 && scrollHeight > clientHeight + 1;
+
+    if (!canScroll) {
+      // Container exists but has no scrollable overflow (or is effectively
+      // hidden). Treat it as inactive so it doesn't interfere with the
+      // visible layout's scroll state.
+      return { active: false, atBottom: true };
+    }
+
+    const distanceFromBottom = scrollHeight - clientHeight - scrollTop;
+    const atBottom = Math.abs(distanceFromBottom) < 10;
+    return { active: true, atBottom };
   };
 
-  // Function to scroll to bottom
+  const anyContainerAtBottom = () => {
+    const desktopState = getContainerScrollState(desktopChatContainerRef.current);
+    const mobileState = getContainerScrollState(mobileChatContainerRef.current);
+
+    // If at least one container is active, consider us "at bottom" if any
+    // active container is at bottom. Hidden/inactive containers are ignored.
+    const anyActive = desktopState.active || mobileState.active;
+    if (!anyActive) return true;
+
+    return (
+      (desktopState.active && desktopState.atBottom) ||
+      (mobileState.active && mobileState.atBottom)
+    );
+  };
+
+  // Function to scroll to bottom – scroll both desktop and mobile containers
+  // so whichever layout is currently visible stays pinned to the latest messages.
   const scrollToBottom = () => {
-    const container = chatContainerRef.current;
-    if (container) {
-      container.scrollTop = container.scrollHeight;
+    const desktop = desktopChatContainerRef.current;
+    const mobile = mobileChatContainerRef.current;
+
+    if (desktop) {
+      desktop.scrollTop = desktop.scrollHeight;
     }
+    if (mobile) {
+      mobile.scrollTop = mobile.scrollHeight;
+    }
+    setShowScrollBottom(false);
   };
 
   // Fetch initial chat messages when broadcast becomes available
@@ -469,22 +521,17 @@ export default function ListenerDashboard() {
         // Double-check that the response is for the current broadcast
         const newMessages = response.data.filter(msg => msg.broadcastId === requestBroadcastId);
 
-        // Check if we're at the bottom before updating messages
-        const container = chatContainerRef.current;
-        const wasAtBottom = isAtBottom(container);
-
         // Update messages only if still the same broadcast
         if (currentBroadcastId === requestBroadcastId) {
           setChatMessages(newMessages);
 
-          // Only scroll if user was already at the bottom
-          if (wasAtBottom) {
-            setTimeout(() => {
-              if (container) {
-                container.scrollTop = container.scrollHeight;
-              }
-            }, 100);
-          }
+          // On initial/history fetch for a broadcast, scroll to bottom once
+          // so the listener starts at the latest messages. If they scroll up
+          // afterwards, the scroll listener / isAtBottom check will prevent
+          // further forced scrolling.
+          setTimeout(() => {
+            scrollToBottom();
+          }, 100);
         }
       } catch (error) {
         // Ignore aborted requests
@@ -596,8 +643,9 @@ export default function ListenerDashboard() {
                 return prev;
               }
 
-              // Create a new array instead of modifying the existing one
-              const wasAtBottom = isAtBottom(chatContainerRef.current);
+              // Check if we were at (or very near) the bottom *before*
+              // appending this new message on either layout.
+              const wasAtBottom = anyContainerAtBottom();
               // Always scroll if it's the current user's message
               const isOwnMessage = currentUser && newMessage.userId === currentUser.id;
 
@@ -608,11 +656,10 @@ export default function ListenerDashboard() {
 
               // Auto-scroll logic:
               // - Always scroll if it's the user's own message
-              // - Only scroll if user was already at bottom for other messages
+              // - Only scroll for other messages if we were already at/near bottom
               if (isOwnMessage || wasAtBottom) {
                 setTimeout(() => {
                   scrollToBottom();
-                  setShowScrollBottom(false);
                 }, 50);
               }
               return updated;
@@ -626,8 +673,17 @@ export default function ListenerDashboard() {
             logger.warn('Listener Dashboard: WebSocket not confirmed working after 3 seconds, refreshing messages');
             // Fallback - fetch messages again if WebSocket isn't working
             chatService.getMessages(currentBroadcastId).then(response => {
-              setChatMessages(response.data);
-            }).catch(error => {
+                setChatMessages(response.data);
+
+                // If the user was at/near the bottom when we refreshed via
+                // HTTP (i.e., they were following the chat), keep them
+                // anchored to the latest messages.
+                if (anyContainerAtBottom()) {
+                  setTimeout(() => {
+                    scrollToBottom();
+                  }, 50);
+                }
+              }).catch(error => {
               logger.error('Listener Dashboard: Error fetching messages during fallback:', error);
             });
           }
@@ -1042,7 +1098,7 @@ export default function ListenerDashboard() {
   // Track broadcast ID changes for debugging
   useEffect(() => {
     logger.debug('Listener Dashboard: Broadcast ID changed to:', currentBroadcastId, 'session:', broadcastSession);
-    
+
     // If we have a valid broadcast ID, ensure WebSocket connections are set up
     if (currentBroadcastId && currentBroadcastId > 0) {
       logger.debug('Listener Dashboard: Valid broadcast ID detected, ensuring WebSocket connections are active');
@@ -1059,32 +1115,51 @@ export default function ListenerDashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Update the scroll event listener
-  // Scroll detection: Show/hide scroll-to-bottom button
+  // Update the scroll event listeners on both desktop and mobile chat
+  // containers. Show the scroll-to-bottom button when either container
+  // is not at the bottom.
   useEffect(() => {
-    const container = chatContainerRef.current;
-    if (!container) return;
+    const desktop = desktopChatContainerRef.current;
+    const mobile = mobileChatContainerRef.current;
+
+    if (!desktop && !mobile) return;
 
     const handleScroll = () => {
-      setShowScrollBottom(!isAtBottom(container));
+      const desktopState = getContainerScrollState(desktop);
+      const mobileState = getContainerScrollState(mobile);
+
+      const anyActive = desktopState.active || mobileState.active;
+      const atBottom = !anyActive
+        ? true
+        : (desktopState.active && desktopState.atBottom) ||
+          (mobileState.active && mobileState.atBottom);
+      setShowScrollBottom(!atBottom);
     };
 
-    container.addEventListener('scroll', handleScroll);
+    if (desktop) {
+      desktop.addEventListener('scroll', handleScroll);
+    }
+    if (mobile) {
+      mobile.addEventListener('scroll', handleScroll);
+    }
+
     // Check initial state
     handleScroll();
 
-    return () => container.removeEventListener('scroll', handleScroll);
+    return () => {
+      if (desktop) {
+        desktop.removeEventListener('scroll', handleScroll);
+      }
+      if (mobile) {
+        mobile.removeEventListener('scroll', handleScroll);
+      }
+    };
   }, [chatMessages.length]); // Re-check when messages change
 
-  // Auto-scroll to bottom on initial load
-  useEffect(() => {
-    if (chatMessages.length > 0) {
-      setTimeout(() => {
-        scrollToBottom();
-        setShowScrollBottom(false);
-      }, 100);
-    }
-  }, [currentBroadcastId]); // Scroll when broadcast changes
+  // (Chat auto-follow behavior is now controlled via checking isAtBottom
+  // right before appending new messages and by this scroll listener that
+  // toggles the scroll-to-bottom button. We no longer keep a separate
+  // "pinned" ref.)
 
   // Slow mode countdown: decrement remaining wait seconds each second, then clear
   useEffect(() => {
@@ -1817,9 +1892,14 @@ export default function ListenerDashboard() {
     }
   };
 
-  // Render chat messages - matching DJDashboard structure
-  const renderChatMessages = () => (
-    <div className="h-full min-h-0 overflow-y-auto p-3 sm:p-4 space-y-3 custom-scrollbar chat-messages-container" ref={chatContainerRef}>
+  // Render chat messages - using two containers (desktop and mobile layouts)
+  // that share the same messages but have separate refs so we can track
+  // scroll position correctly in both.
+  const renderChatMessages = (variant) => (
+    <div
+      className="h-full overflow-y-auto p-3 sm:p-4 space-y-3 custom-scrollbar chat-messages-container"
+      ref={variant === 'mobile' ? mobileChatContainerRef : desktopChatContainerRef}
+    >
       {chatMessages.length === 0 ? (
         <div className="text-center text-gray-500 dark:text-gray-400 py-8 sm:py-12">
           <ChatBubbleLeftRightIcon className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-3 opacity-30" />
@@ -1983,6 +2063,126 @@ export default function ListenerDashboard() {
           </>
         )}
       </form>
+      </div>
+    );
+  };
+
+  const renderPollBanner = () => {
+    if (!activePoll) {
+      return null;
+    }
+
+    const canVote =
+      currentUser &&
+      activePoll &&
+      activePoll.active &&
+      !activePoll.userVoted &&
+      currentBroadcast?.status === 'LIVE' &&
+      !pollLoading;
+
+    const showResults =
+      activePoll && (!activePoll.active || (activePoll.userVoted && currentUser));
+
+    const optionList = activePoll?.options || [];
+
+    return (
+      <div className="bg-gradient-to-br from-white via-maroon-50/40 to-white dark:from-slate-900 dark:via-maroon-900/10 dark:to-slate-900 border-b border-slate-200/70 dark:border-slate-700/70 shadow-[0_4px_20px_rgba(128,0,32,0.05)] dark:shadow-none px-3 sm:px-4 py-3 sticky top-0 z-10 space-y-3">
+        <h4 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-white">
+          {activePoll.question || activePoll.title}
+        </h4>
+        {pollLoading ? (
+          <div className="space-y-2">
+            <div className="h-3.5 bg-slate-200 dark:bg-slate-700 rounded w-2/3 animate-pulse" />
+            <div className="h-10 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse" />
+            <div className="h-10 bg-slate-200 dark:bg-slate-800 rounded-lg animate-pulse" />
+          </div>
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              {optionList.map((option) => {
+                const votes = option.votes || 0;
+                const percentage =
+                  activePoll.totalVotes && showResults
+                    ? Math.round((votes / activePoll.totalVotes) * 100) || 0
+                    : 0;
+                const isSelected = selectedPollOption === option.id;
+                const isUserChoice = activePoll.userVotedFor === option.id;
+                const canInteract =
+                  currentUser && activePoll.active && !activePoll.userVoted && currentBroadcast?.status === 'LIVE';
+
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => canInteract && handlePollOptionSelect(option.id)}
+                    disabled={!canInteract}
+                    className={`w-full text-left border rounded-lg px-3 py-2.5 transition-all duration-200 ${
+                      !currentUser
+                        ? 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 cursor-not-allowed opacity-75'
+                        : showResults
+                          ? isUserChoice
+                            ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 shadow-sm'
+                            : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800'
+                          : isSelected
+                            ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/30 shadow-md'
+                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-maroon-300 dark:hover:border-maroon-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold text-slate-900 dark:text-white">
+                        {option.optionText || option.text}
+                      </span>
+                      {showResults ? (
+                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                          {percentage}%
+                        </span>
+                      ) : (
+                        canInteract && (
+                          <span
+                            className={`w-3 h-3 rounded-full border ${
+                              isSelected ? 'bg-maroon-500 border-maroon-500' : 'border-slate-400'
+                            }`}
+                          />
+                        )
+                      )}
+                    </div>
+                    {showResults && (
+                      <div className="mt-2">
+                        <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className={`h-1.5 rounded-full ${
+                              isUserChoice ? 'bg-emerald-500' : 'bg-maroon-500/70'
+                            }`}
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                          {votes} {votes === 1 ? 'vote' : 'votes'}
+                        </p>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {currentUser && activePoll.active && !activePoll.userVoted && (
+              <div>
+                <button
+                  onClick={handlePollVote}
+                  disabled={!canVote || !selectedPollOption || pollLoading}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm ${
+                    canVote && selectedPollOption && !pollLoading
+                      ? 'bg-gold-500 text-maroon-900 hover:bg-gold-600 hover:shadow-md'
+                      : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed'
+                  }`}
+                >
+                  {pollLoading ? 'Submitting...' : 'Vote now'}
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
     );
   };
@@ -2156,250 +2356,9 @@ export default function ListenerDashboard() {
 
       {/* Desktop layout */}
       <div className="hidden lg:grid lg:grid-cols-3 gap-6 lg:gap-8">
-        {/* Desktop Left Column - Broadcast + Poll */}
+        {/* Desktop Left Column - Broadcast */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Spotify-style Music Player */}
           <SpotifyPlayer broadcast={currentBroadcast} currentDJ={currentActiveDJ} />
-
-          {/* Desktop Poll section */}
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden flex-grow">
-            {/* Tab header */}
-            <div className="flex border-b border-slate-200 dark:border-slate-700">
-              <button
-                onClick={() => setActiveTab("poll")}
-                className={`flex-1 py-4 px-6 text-center text-sm font-semibold transition-all duration-200 ${
-                  activeTab === "poll"
-                    ? "border-b-2 border-maroon-600 text-maroon-600 dark:border-maroon-500 dark:text-maroon-400 bg-maroon-50/50 dark:bg-maroon-900/20"
-                    : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50"
-                }`}
-              >
-                <div className="flex justify-center items-center">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-5 w-5 mr-2"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                    />
-                  </svg>
-                  Poll
-                </div>
-              </button>
-            </div>
-
-            {/* Desktop Tab content */}
-            <div className="bg-white dark:bg-slate-800 flex-grow flex flex-col min-h-[360px] md:min-h-[420px] lg:min-h-[460px]">
-              {activeTab === "poll" && (
-                <div className="p-8 flex-grow flex flex-col h-full">
-                  {currentBroadcast?.status === 'LIVE' ? (
-                    <>
-                      {pollLoading && !activePoll ? (
-                        <div className="text-center py-8 flex-grow flex items-center justify-center">
-                          <p className="text-gray-500 dark:text-gray-400 animate-pulse">Loading polls...</p>
-                        </div>
-                      ) : activePoll ? (
-                        <div className="flex-grow flex flex-col">
-                          {/* Poll Question */}
-                          <div className="mb-6">
-                            <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-3 font-montserrat">
-                              {activePoll.question || activePoll.title}
-                            </h3>
-                            <div className="text-sm text-slate-600 dark:text-slate-400 font-medium">
-                              {!activePoll.active ? (
-                                <span className="text-orange-600 dark:text-orange-400 font-semibold">Poll has ended - View results below</span>
-                              ) : !currentUser 
-                                ? 'Login to participate in the poll'
-                                : activePoll.userVoted 
-                                  ? 'You have voted' 
-                                  : 'Choose your answer and click Vote'
-                              }
-                            </div>
-                          </div>
-
-                          {/* Poll Options */}
-                          <div className="space-y-3 mb-6 flex-grow">
-                            {activePoll.options.map((option) => {
-                              // Show percentages if poll is ended OR user has voted
-                              const showResults = !activePoll.active || (activePoll.userVoted && currentUser);
-                              const percentage = (activePoll.totalVotes > 0 && showResults)
-                                ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 
-                                : 0;
-                              const isSelected = selectedPollOption === option.id;
-                              const isUserChoice = activePoll.userVotedFor === option.id;
-                              const canInteract = currentUser && !activePoll.userVoted && activePoll.active;
-
-                              return (
-                                <div key={option.id} className="space-y-2">
-                                  <div 
-                                    className={`w-full border-2 rounded-lg overflow-hidden transition-all duration-200 ${
-                                      !currentUser
-                                        ? 'border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 cursor-not-allowed opacity-75'
-                                        : activePoll.userVoted 
-                                          ? isUserChoice
-                                            ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30 shadow-md'
-                                            : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700'
-                                          : isSelected
-                                            ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20 cursor-pointer shadow-md'
-                                            : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 hover:border-maroon-300 dark:hover:border-maroon-600 hover:bg-maroon-50/50 dark:hover:bg-maroon-900/20 cursor-pointer transition-all'
-                                    }`}
-                                    onClick={() => canInteract && handlePollOptionSelect(option.id)}
-                                  >
-                                    <div className="p-4">
-                                      <div className="flex items-center justify-between">
-                                        <span className="text-base font-semibold text-slate-900 dark:text-white">
-                                          {option.optionText || option.text}
-                                        </span>
-                                        <div className="flex items-center">
-                                          {showResults && (
-                                            <span className="text-xs text-gray-600 dark:text-gray-400 mr-2">
-                                              {option.votes || 0} votes
-                                            </span>
-                                          )}
-                                          {isSelected && canInteract && (
-                                            <div className="w-4 h-4 bg-maroon-500 rounded-full flex items-center justify-center">
-                                              <div className="w-2 h-2 bg-white rounded-full"></div>
-                                            </div>
-                                          )}
-                                          {isUserChoice && (activePoll.userVoted && currentUser) && (
-                                            <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
-                                              <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                              </svg>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      {/* Progress bar - show for ended polls or when user has voted */}
-                                      {showResults && (
-                                        <div className="mt-3">
-                                          <div className="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-2.5 overflow-hidden">
-                                            <div 
-                                              className={`h-2.5 rounded-full transition-all duration-300 ${
-                                                isUserChoice ? 'bg-emerald-500' : 'bg-slate-400'
-                                              }`}
-                                              style={{ width: `${percentage}%` }}
-                                            />
-                                          </div>
-                                          <div className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1.5">
-                                            {percentage}% • {option.votes || 0} {option.votes === 1 ? 'vote' : 'votes'}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {/* Vote Button */}
-                          <div className="mt-auto flex justify-center">
-                            {!currentUser ? (
-                              <div className="text-center">
-                                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 font-medium">
-                                  Login to participate in polls
-                                </p>
-                                <div className="flex space-x-3 justify-center">
-                                  <button
-                                    onClick={handleLoginRedirect}
-                                    className="flex items-center px-5 py-2.5 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-semibold rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
-                                  >
-                                    <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
-                                    Login
-                                  </button>
-                                  <button
-                                    onClick={handleRegisterRedirect}
-                                    className="flex items-center px-5 py-2.5 bg-gold-500 hover:bg-gold-600 text-maroon-900 text-sm font-semibold rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
-                                  >
-                                    <UserPlusIcon className="h-4 w-4 mr-2" />
-                                    Register
-                                  </button>
-                                </div>
-                              </div>
-                            ) : activePoll.userVoted ? (
-                              <div className="text-center">
-                                <div className="text-sm text-slate-600 dark:text-slate-400 mb-3 font-semibold">
-                                  Total votes: {activePoll.totalVotes || 0}
-                                </div>
-                                <span className="inline-flex items-center px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg shadow-md font-semibold transition-colors">
-                                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                  </svg>
-                                  You have voted
-                                </span>
-                              </div>
-                            ) : !activePoll.active ? (
-                              <div className="text-center">
-                                <div className="text-sm text-slate-600 dark:text-slate-400 mb-3 font-semibold">
-                                  Total votes: {activePoll.totalVotes || 0}
-                                </div>
-                                <span className="inline-flex items-center px-6 py-3 bg-orange-500 text-white rounded-lg shadow-md font-semibold">
-                                  Poll Ended
-                                </span>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={handlePollVote}
-                                disabled={!selectedPollOption || pollLoading || !activePoll.active}
-                                className={`px-10 py-3 rounded-lg font-semibold transition-all duration-200 shadow-md ${
-                                  selectedPollOption && !pollLoading && activePoll.active
-                                    ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105' 
-                                    : 'bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed'
-                                }`}
-                              >
-                                {pollLoading ? (
-                                  <span className="flex items-center gap-2">
-                                    <div className="w-4 h-4 border-2 border-maroon-900 border-t-transparent rounded-full animate-spin"></div>
-                                    Voting...
-                                  </span>
-                                ) : 'Vote'}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-center h-full">
-                          <div className="text-center w-full px-4">
-                            <div className="mb-8">
-                              <div className="w-20 h-20 mx-auto mb-6 rounded-xl bg-gradient-to-br from-maroon-600 to-maroon-700 flex items-center justify-center shadow-lg border border-maroon-500">
-                                <svg className="w-10 h-10 text-gold-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                </svg>
-                              </div>
-                              <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-3 font-montserrat">No Poll Available</h3>
-                              <p className="text-base text-slate-600 dark:text-slate-400 mb-2 font-medium">
-                                Waiting for the DJ to create a poll
-                              </p>
-                              <p className="text-sm text-slate-500 dark:text-slate-400">
-                                Polls will appear here automatically when created
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="flex items-center justify-center h-full">
-                      <div className="text-center w-full">
-                        <div className="mb-8">
-                          <h3 className="text-xl font-medium text-gray-900 dark:text-white">Vote</h3>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">selects which you prefer the most?</p>
-                        </div>
-                        <p className="text-gray-500 dark:text-gray-400">Polls are only available during live broadcasts</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
         </div>
 
         {/* Desktop Right Column - Live Chat */}
@@ -2409,40 +2368,42 @@ export default function ListenerDashboard() {
             <p className="text-xs opacity-90 font-medium">{Math.max(listenerCount, localListenerCount)} listeners online</p>
           </div>
 
-          <div className="bg-white dark:bg-slate-800 border border-t-0 border-slate-200 dark:border-slate-700 rounded-b-xl flex-grow flex flex-col min-h-[420px] md:min-h-[480px] lg:min-h-[520px] max-h-[80vh] shadow-lg">
-            {currentBroadcast?.status === 'LIVE' ? (
-              <div className="flex flex-col h-full">
-                <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
-                  {renderChatMessages()}
-
-                  {/* Scroll to bottom button - Minimalist design matching DJDashboard */}
-                {showScrollBottom && (
-                    <div className="absolute bottom-4 right-4 z-10">
-                    <button
-                      onClick={scrollToBottom}
-                        className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full w-10 h-10 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
-                      aria-label="Scroll to bottom"
-                        title="Scroll to latest messages"
-                    >
-                      <svg 
-                        xmlns="http://www.w3.org/2000/svg" 
-                        className="h-5 w-5" 
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                      >
-                        <path 
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </button>
+          <div className="bg-white dark:bg-slate-800 border border-t-0 border-slate-200 dark:border-slate-700 rounded-b-xl flex flex-col min-h-[420px] h-[520px] sm:h-[560px] max-h-[75vh] shadow-lg">
+            <div className="flex flex-col h-full">
+              <div className="flex-shrink-0">
+                {renderPollBanner()}
+              </div>
+              {currentBroadcast?.status === 'LIVE' ? (
+                <>
+                  <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
+                    {renderChatMessages('desktop')}
+                    {showScrollBottom && (
+                      <div className="absolute bottom-4 right-4 z-10">
+                        <button
+                          onClick={scrollToBottom}
+                          className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full w-10 h-10 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
+                          aria-label="Scroll to bottom"
+                          title="Scroll to latest messages"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="h-5 w-5"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M19 9l-7 7-7-7"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-                </div>
-                <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800 overflow-hidden">
+                  <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800 overflow-hidden">
                   {!currentUser ? (
                     <div className="p-4 text-center">
                       <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 font-medium">
@@ -2578,19 +2539,22 @@ export default function ListenerDashboard() {
                     </>
                   )}
                 </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-maroon-700 flex items-center justify-center shadow-lg mb-4 border border-maroon-600">
-                    <svg className="w-8 h-8 text-gold-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
+                </>
+              ) : (
+                <div className="flex-1 flex items-center justify-center px-4 text-center">
+                  <div>
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-maroon-700 flex items-center justify-center shadow-lg border border-maroon-600">
+                      <svg className="w-8 h-8 text-gold-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-400 font-medium">
+                      Live chat is only available during broadcasts
+                    </p>
                   </div>
-                  <p className="text-slate-600 dark:text-slate-400 font-medium">Live chat is only available during broadcasts</p>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
 
@@ -2615,279 +2579,69 @@ export default function ListenerDashboard() {
           </div>
         )}
 
-        {/* Mobile Tabs */}
         <div className="card-modern overflow-hidden">
-          {/* Tab headers */}
-          <div className="flex border-b border-slate-200/50 dark:border-slate-700/50">
-            <button
-              onClick={() => setActiveTab("chat")}
-              className={`flex-1 py-4 px-4 text-center text-sm font-semibold transition-all duration-200 ${
-                activeTab === "chat"
-                  ? "border-b-2 border-radio-600 text-radio-600 dark:border-radio-400 dark:text-radio-400 bg-gradient-to-b from-radio-50 to-transparent dark:from-radio-950/30"
-                  : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 hover:bg-slate-50/50 dark:hover:bg-slate-800/50"
-              }`}
-            >
-              Live Chat
-            </button>
-            <button
-              onClick={() => setActiveTab("poll")}
-              className={`flex-1 py-4 px-4 text-center text-sm font-semibold transition-all duration-200 ${
-                activeTab === "poll"
-                  ? "border-b-2 border-radio-600 text-radio-600 dark:border-radio-400 dark:text-radio-400 bg-gradient-to-b from-radio-50 to-transparent dark:from-radio-950/30"
-                  : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 hover:bg-slate-50/50 dark:hover:bg-slate-800/50"
-              }`}
-            >
-              Poll
-            </button>
+          <div className="bg-maroon-700 dark:bg-maroon-800 text-white p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.2em] text-white/70 font-semibold">Community</p>
+                <h3 className="font-bold text-lg font-montserrat">Live Chat</h3>
+              </div>
+              <span className="text-xs font-medium">{Math.max(listenerCount, localListenerCount)} online</span>
+            </div>
           </div>
 
-          {/* Mobile Tab content */}
-          <div className="bg-white dark:bg-slate-800 flex-grow flex flex-col min-h-[360px] max-h-[80vh]">
-            {activeTab === "chat" && (
-              <div className="animate-fade-in flex flex-col h-full">
-                <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
-                {renderChatMessages()}
-
-                  {/* Scroll to bottom button - Minimalist design */}
-                  {showScrollBottom && (
-                    <div className="absolute bottom-4 right-4 z-10">
-                      <button
-                        onClick={scrollToBottom}
-                        className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full w-10 h-10 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
-                        aria-label="Scroll to bottom"
-                        title="Scroll to latest messages"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          className="h-5 w-5"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M19 9l-7 7-7-7"
-                          />
-                        </svg>
-                      </button>
+          <div className="bg-white dark:bg-slate-800 flex flex-col min-h-[420px] h-[500px] max-h-[75vh]">
+            <div className="flex flex-col h-full">
+              <div className="flex-shrink-0">{renderPollBanner()}</div>
+              {currentBroadcast?.status === 'LIVE' ? (
+                <>
+                  <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
+                    <div className="flex-1 min-h-0">
+                      {renderChatMessages('mobile')}
                     </div>
-                  )}
-                </div>
-                <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800">
-                {renderChatInput()}
-                </div>
-              </div>
-            )}
-            {activeTab === "poll" && (
-              <div className="animate-fade-in p-6 flex flex-col h-full">
-                {currentBroadcast?.status === 'LIVE' ? (
-                  <>
-                    {pollLoading && !activePoll ? (
-                      <div className="text-center py-8 flex-grow flex items-center justify-center">
-                        <p className="text-gray-500 dark:text-gray-400 animate-pulse">Loading polls...</p>
-                      </div>
-                    ) : activePoll ? (
-                      <div className="flex-grow flex flex-col">
-                        {/* Poll Question */}
-                        <div className="mb-6">
-                          <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-3 font-montserrat">
-                            {activePoll.question || activePoll.title}
-                          </h3>
-                          <div className="text-sm text-slate-600 dark:text-slate-400 font-medium">
-                            {!activePoll.active ? (
-                              <span className="text-orange-600 dark:text-orange-400 font-semibold">Poll has ended - View results below</span>
-                            ) : !currentUser 
-                              ? 'Login to participate in the poll'
-                              : activePoll.userVoted 
-                                ? 'You have voted' 
-                                : 'Choose your answer and click Vote'
-                            }
-                          </div>
-                        </div>
-
-                        {/* Poll Options */}
-                        <div className="space-y-3 mb-6 flex-grow">
-                          {activePoll.options.map((option) => {
-                            const showResults = !activePoll.active || (activePoll.userVoted && currentUser);
-                            const percentage = (activePoll.totalVotes > 0 && showResults)
-                              ? Math.round((option.votes / activePoll.totalVotes) * 100) || 0 
-                              : 0;
-                            const isSelected = selectedPollOption === option.id;
-                            const isUserChoice = activePoll.userVotedFor === option.id;
-                            const canInteract = currentUser && !activePoll.userVoted && activePoll.active;
-
-                            return (
-                              <div key={option.id} className="space-y-2">
-                                <div 
-                                  className={`w-full border-2 rounded-lg overflow-hidden transition-all duration-200 ${
-                                    !currentUser
-                                      ? 'border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 cursor-not-allowed opacity-75'
-                                      : activePoll.userVoted 
-                                        ? isUserChoice
-                                          ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30 shadow-md'
-                                          : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700'
-                                        : isSelected
-                                          ? 'border-maroon-500 bg-maroon-50 dark:bg-maroon-900/20 cursor-pointer shadow-md'
-                                          : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 hover:border-maroon-300 dark:hover:border-maroon-600 hover:bg-maroon-50/50 dark:hover:bg-maroon-900/20 cursor-pointer transition-all'
-                                  }`}
-                                  onClick={() => canInteract && handlePollOptionSelect(option.id)}
-                                >
-                                  <div className="p-4">
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-sm font-semibold text-slate-900 dark:text-white">
-                                        {option.optionText || option.text}
-                                      </span>
-                                      <div className="flex items-center">
-                                        {showResults && (
-                                          <span className="text-xs text-gray-600 dark:text-gray-400 mr-2">
-                                            {option.votes || 0} votes
-                                          </span>
-                                        )}
-                                        {isSelected && canInteract && (
-                                          <div className="w-4 h-4 bg-maroon-500 rounded-full flex items-center justify-center">
-                                            <div className="w-2 h-2 bg-white rounded-full"></div>
-                                          </div>
-                                        )}
-                                        {isUserChoice && (activePoll.userVoted && currentUser) && (
-                                          <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
-                                            <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                            </svg>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                    {/* Progress bar */}
-                                    {showResults && (
-                                      <div className="mt-3">
-                                        <div className="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-2.5 overflow-hidden">
-                                          <div 
-                                            className={`h-2.5 rounded-full transition-all duration-300 ${
-                                              isUserChoice ? 'bg-emerald-500' : 'bg-slate-400'
-                                            }`}
-                                            style={{ width: `${percentage}%` }}
-                                          />
-                                        </div>
-                                        <div className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1.5">
-                                          {percentage}% • {option.votes || 0} {option.votes === 1 ? 'vote' : 'votes'}
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        {/* Vote Button */}
-                        <div className="mt-auto flex justify-center">
-                          {!currentUser ? (
-                            <div className="text-center">
-                              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 font-medium">
-                                Login to participate in polls
-                              </p>
-                              <div className="flex space-x-3 justify-center">
-                                <button
-                                  onClick={handleLoginRedirect}
-                                  className="flex items-center px-5 py-2.5 bg-maroon-600 hover:bg-maroon-700 text-white text-sm font-semibold rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
-                                >
-                                  <ArrowRightOnRectangleIcon className="h-4 w-4 mr-2" />
-                                  Login
-                                </button>
-                                <button
-                                  onClick={handleRegisterRedirect}
-                                  className="flex items-center px-5 py-2.5 bg-gold-500 hover:bg-gold-600 text-maroon-900 text-sm font-semibold rounded-lg transition-all shadow-md hover:shadow-lg hover:scale-105"
-                                >
-                                  <UserPlusIcon className="h-4 w-4 mr-2" />
-                                  Register
-                                </button>
-                              </div>
-                            </div>
-                          ) : activePoll.userVoted ? (
-                            <div className="text-center">
-                              <div className="text-sm text-slate-600 dark:text-slate-400 mb-3 font-semibold">
-                                Total votes: {activePoll.totalVotes || 0}
-                              </div>
-                              <span className="inline-flex items-center px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg shadow-md font-semibold transition-colors">
-                                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                </svg>
-                                You have voted
-                              </span>
-                            </div>
-                          ) : !activePoll.active ? (
-                            <div className="text-center">
-                              <div className="text-sm text-slate-600 dark:text-slate-400 mb-3 font-semibold">
-                                Total votes: {activePoll.totalVotes || 0}
-                              </div>
-                              <span className="inline-flex items-center px-6 py-3 bg-orange-500 text-white rounded-lg shadow-md font-semibold">
-                                Poll Ended
-                              </span>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={handlePollVote}
-                              disabled={!selectedPollOption || pollLoading || !activePoll.active}
-                              className={`px-10 py-3 rounded-lg font-semibold transition-all duration-200 shadow-md ${
-                                selectedPollOption && !pollLoading && activePoll.active
-                                  ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105' 
-                                  : 'bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed'
-                              }`}
-                            >
-                              {pollLoading ? (
-                                <span className="flex items-center gap-2">
-                                  <div className="w-4 h-4 border-2 border-maroon-900 border-t-transparent rounded-full animate-spin"></div>
-                                  Voting...
-                                </span>
-                              ) : 'Vote'}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center h-full">
-                        <div className="text-center w-full px-4">
-                          <div className="mb-8">
-                            <div className="w-20 h-20 mx-auto mb-6 rounded-xl bg-gradient-to-br from-maroon-600 to-maroon-700 flex items-center justify-center shadow-lg border border-maroon-500">
-                              <svg className="w-10 h-10 text-gold-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                              </svg>
-                            </div>
-                            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-3 font-montserrat">No Poll Available</h3>
-                            <p className="text-sm text-slate-600 dark:text-slate-400 mb-2 font-medium">
-                              Waiting for the DJ to create a poll
-                            </p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                              Polls will appear here automatically when created
-                            </p>
-                          </div>
-                          <div className="inline-flex items-center px-4 py-2 rounded-lg bg-maroon-50 dark:bg-maroon-900/20 border border-maroon-200 dark:border-maroon-700">
-                            <svg className="w-5 h-5 text-maroon-600 dark:text-maroon-400 mr-2 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <span className="text-xs font-medium text-maroon-700 dark:text-maroon-300">Live broadcast active</span>
-                          </div>
-                        </div>
+                    {showScrollBottom && (
+                      <div className="absolute bottom-4 right-4 z-10">
+                        <button
+                          onClick={scrollToBottom}
+                          className="bg-maroon-600 hover:bg-maroon-700 text-white rounded-full w-10 h-10 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out flex items-center justify-center hover:scale-110 border border-maroon-500"
+                          aria-label="Scroll to bottom"
+                          title="Scroll to latest messages"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="h-5 w-5"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M19 9l-7 7-7-7"
+                            />
+                          </svg>
+                        </button>
                       </div>
                     )}
-                  </>
-                ) : (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center w-full px-4">
-                      <div className="mb-8">
-                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Vote</h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Select which you prefer the most?</p>
-                      </div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Polls are only available during live broadcasts</p>
-                    </div>
                   </div>
-                )}
-              </div>
-            )}
+                  <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 mt-auto bg-white dark:bg-slate-800">
+                    {renderChatInput()}
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 flex items-center justify-center px-4 text-center">
+                  <div>
+                    <p className="text-slate-600 dark:text-slate-400 font-medium mb-2">
+                      Live chat is only available during broadcasts
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-500">
+                      Poll results will remain here for reference
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

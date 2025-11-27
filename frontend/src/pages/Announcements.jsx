@@ -22,6 +22,8 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   Send,
   Calendar,
   Pin,
@@ -71,6 +73,7 @@ const Announcements = () => {
     scheduledFor: '',
     expiresAt: ''
   });
+  const [expandedAnnouncements, setExpandedAnnouncements] = useState({});
 
   // Permission checks
   const isDJ = currentUser && currentUser.role === 'DJ';
@@ -447,6 +450,45 @@ const Announcements = () => {
     return badges[status] || '';
   };
 
+  const toggleExpand = (id) => {
+    setExpandedAnnouncements((prev) => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
+
+  const getSortedAnnouncements = () => {
+    return [...announcements].sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      const dateA = new Date(a.createdAt || a.publishedAt || 0);
+      const dateB = new Date(b.createdAt || b.publishedAt || 0);
+      return dateB - dateA;
+    });
+  };
+
+  const getFeaturedAndPast = () => {
+    if (announcements.length === 0) {
+      return { featured: null, past: [] };
+    }
+    const sorted = getSortedAnnouncements();
+    return {
+      featured: sorted[0],
+      past: sorted.slice(1)
+    };
+  };
+
+  const getTruncatedContent = (text = '', id, limit) => {
+    const clean = text.trim();
+    if (!clean) return '';
+    if (expandedAnnouncements[id] || clean.length <= limit) {
+      return clean;
+    }
+    return `${clean.slice(0, limit).trim()}…`;
+  };
+
+  const needsTruncate = (text = '', limit) => text.trim().length > limit;
+
   // Check if user can edit/delete
   const canEditDelete = (announcement) => {
     if (isModerator) return true;
@@ -455,6 +497,11 @@ const Announcements = () => {
     }
     return false;
   };
+
+  const isPublishedView = activeTab === 'published';
+  const { featured: featuredAnnouncement, past: pastAnnouncements } = isPublishedView
+    ? getFeaturedAndPast()
+    : { featured: null, past: [] };
 
   return (
     <>
@@ -569,194 +616,318 @@ const Announcements = () => {
                 )}
               </div>
             ) : (
-              <div className="flex flex-col space-y-8">
-                {announcements.map((announcement) => (
-                  <article
-                    key={announcement.id}
-                    className="relative flex flex-col rounded-2xl border border-slate-800/60 bg-slate-900/80 shadow-xl backdrop-blur-md transition-all hover:border-wildcats-yellow/30 overflow-hidden"
-                  >
-                    {/* Header with Category and Meta */}
-                    <div className="px-6 pt-6 pb-4 border-b border-slate-800/50 bg-slate-950/20">
-                      <div className="flex items-center justify-between gap-4 mb-3">
-                        <span className="inline-flex items-center px-3 py-1 rounded-full bg-wildcats-maroon/20 border border-wildcats-maroon/30 text-wildcats-yellow text-xs font-bold uppercase tracking-wider">
-                          {announcement.category || 'News / Announcement'}
-                        </span>
-                        <div className="flex items-center gap-3 text-slate-400 text-sm">
-                          <div className="flex items-center gap-1.5">
-                            <User className="w-3.5 h-3.5 text-slate-500" />
-                            <span className="font-medium text-slate-300">{announcement.createdByName}</span>
+              <>
+                {isPublishedView ? (
+                  <div className="space-y-10">
+                    {featuredAnnouncement && (
+                      <article className="relative flex flex-col rounded-2xl border border-wildcats-yellow/30 bg-slate-900/90 shadow-[0_30px_80px_rgba(0,0,0,0.5)] overflow-hidden">
+                        <div className="px-6 pt-6 pb-4 border-b border-slate-800/50 bg-gradient-to-r from-slate-950/80 to-slate-900/60">
+                          <div className="flex items-center justify-between gap-4 mb-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {featuredAnnouncement.pinned && (
+                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-wildcats-yellow/20 border border-wildcats-yellow/40 text-wildcats-yellow text-[11px] font-bold uppercase tracking-widest">
+                                  <Pin className="w-3.5 h-3.5" />
+                                  Pinned Announcement
+                                </span>
+                              )}
+                              <span className="inline-flex items-center px-3 py-1 rounded-full bg-wildcats-maroon/20 border border-wildcats-maroon/30 text-wildcats-yellow text-[11px] font-bold uppercase tracking-widest">
+                                {featuredAnnouncement.category || 'Latest Update'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 text-slate-300 text-sm">
+                              <div className="flex items-center gap-1.5 text-slate-200">
+                                <User className="w-3.5 h-3.5 text-slate-400" />
+                                {featuredAnnouncement.createdByName}
+                              </div>
+                              <span className="text-slate-600">•</span>
+                              <span>{format(new Date(featuredAnnouncement.createdAt), 'MMM d, yyyy')}</span>
+                            </div>
                           </div>
-                          <span className="text-slate-600">•</span>
-                          <span>{format(new Date(announcement.createdAt), 'MMM d, yyyy')}</span>
+                          <h2 className="text-3xl font-bold text-white leading-tight mb-3">
+                            {featuredAnnouncement.title}
+                          </h2>
                         </div>
-                      </div>
-
-                      <h2 className="text-3xl font-bold text-white leading-tight tracking-tight mb-3">
-                        {announcement.title}
-                      </h2>
-
-                      {/* Status Badges */}
-                      <div className="flex flex-wrap gap-2">
-                        {isModerator && (
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${getStatusBadge(announcement.status)}`}>
-                            {announcement.status}
-                          </span>
+                        {featuredAnnouncement.imageUrl && (
+                          <div className="w-full bg-black/20 border-b border-slate-800/50">
+                            <img
+                              src={featuredAnnouncement.imageUrl}
+                              alt={featuredAnnouncement.title}
+                              className="w-full h-auto max-h-[420px] object-contain mx-auto"
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                              }}
+                            />
+                          </div>
                         )}
-                        {announcement.scheduledFor && (
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-500/10 border border-blue-500/20 text-blue-300 flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {format(new Date(announcement.scheduledFor), 'MMM d, h:mm a')}
-                          </span>
-                        )}
-                        {announcement.pinned && (
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-wildcats-yellow/10 border border-wildcats-yellow/20 text-wildcats-yellow flex items-center gap-1">
-                            <Pin className="w-3 h-3" />
-                            PINNED
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Image Banner */}
-                    {announcement.imageUrl && (
-                      <div className="w-full bg-black/20 border-b border-slate-800/50">
-                        <img
-                          src={announcement.imageUrl}
-                          alt={announcement.title}
-                          className="w-full h-auto max-h-[500px] object-contain mx-auto"
-                          onError={(e) => {
-                            e.target.style.display = 'none';
-                          }}
-                        />
-                      </div>
+                        <div className="px-6 py-8">
+                          <div className="prose prose-invert max-w-none">
+                            <p className="text-slate-200 text-lg leading-relaxed whitespace-pre-line">
+                              {getTruncatedContent(featuredAnnouncement.content, featuredAnnouncement.id, 900)}
+                            </p>
+                          </div>
+                          {needsTruncate(featuredAnnouncement.content || '', 900) && (
+                            <button
+                              onClick={() => toggleExpand(featuredAnnouncement.id)}
+                              className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-wildcats-yellow hover:text-white transition"
+                            >
+                              {expandedAnnouncements[featuredAnnouncement.id] ? 'Show Less' : 'Show More'}
+                              {expandedAnnouncements[featuredAnnouncement.id] ? (
+                                <ChevronUp className="w-4 h-4" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4" />
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </article>
                     )}
 
-                    {/* Content */}
-                    <div className="px-6 py-6">
-                      <div className="prose prose-invert max-w-none">
-                        <p className="text-slate-300 text-lg leading-relaxed whitespace-pre-line">
-                          {(announcement.content || '').trim()}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Footer / Actions */}
-                    {(isDJ || isModerator) && (
-                      <div className="mt-auto px-6 py-4 bg-slate-950/30 border-t border-slate-800/50 flex flex-wrap items-center justify-between gap-4">
-                        <div className="flex flex-col gap-1 text-xs">
-                           {isModerator && announcement.status === 'PUBLISHED' && announcement.approvedByName && (
-                              <div className="flex items-center gap-1.5 text-emerald-400">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Approved by {announcement.approvedByName}</span>
-                              </div>
-                           )}
-                           {announcement.status === 'REJECTED' && announcement.rejectionReason && (
-                              <div className="text-red-300">
-                                <span className="font-bold">Reason:</span> {announcement.rejectionReason}
-                              </div>
-                           )}
-                           {announcement.expiresAt && announcement.status !== 'ARCHIVED' && (
-                              <div className="text-amber-200/80 flex items-center gap-1.5">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                <span>Expires {format(new Date(announcement.expiresAt), 'PPp')}</span>
-                              </div>
-                           )}
+                    {pastAnnouncements.length > 0 && (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-xl font-semibold text-white">Past Announcements</h3>
+                          <span className="text-sm text-slate-400">
+                            {pastAnnouncements.length} {pastAnnouncements.length === 1 ? 'update' : 'updates'}
+                          </span>
                         </div>
-
-                        <div className="flex flex-wrap gap-2 ml-auto">
-                          {/* DJ Actions */}
-                          {isDJ && canEditDelete(announcement) && announcement.status === 'DRAFT' && (
-                            <>
-                              <button
-                                onClick={() => handleEdit(announcement)}
-                                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-300 hover:bg-blue-500/20 transition-colors border border-blue-500/10"
-                              >
-                                <Edit className="w-3.5 h-3.5" />
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => handleOpenDeleteDraft(announcement)}
-                                className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/20 transition-colors border border-red-500/10"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                Delete
-                              </button>
-                            </>
-                          )}
-                          
-                          {isDJ && announcement.createdById === currentUser?.id && announcement.status === 'REJECTED' && (
-                            <>
-                              <button
-                                onClick={() => handleEdit(announcement)}
-                                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-300 hover:bg-blue-500/20 transition-colors border border-blue-500/10"
-                              >
-                                <Edit className="w-3.5 h-3.5" />
-                                Revise
-                              </button>
-                              <button
-                                onClick={() => handleResubmit(announcement.id)}
-                                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 transition-colors border border-emerald-500/10"
-                              >
-                                <Send className="w-3.5 h-3.5" />
-                                Resubmit
-                              </button>
-                            </>
-                          )}
-
-                          {/* Moderator Actions */}
-                          {isModerator && (
-                            <>
-                              {announcement.status === 'DRAFT' && (
-                                <>
-                                  <button onClick={() => handleOpenPublish(announcement)} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/10">
-                                    <Send className="w-3.5 h-3.5" /> Publish
-                                  </button>
-                                  <button onClick={() => handleOpenSchedule(announcement)} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500/10 px-3 py-2 text-sm font-medium text-indigo-300 hover:bg-indigo-500/20 border border-indigo-500/10">
-                                    <Calendar className="w-3.5 h-3.5" /> Schedule
-                                  </button>
-                                  <button onClick={() => handleOpenReject(announcement)} className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/20 border border-red-500/10">
-                                    <X className="w-3.5 h-3.5" /> Reject
-                                  </button>
-                                </>
-                              )}
-
-                              {announcement.status === 'PUBLISHED' && (
-                                <>
-                                  <button onClick={() => handleTogglePin(announcement)} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors border ${announcement.pinned ? 'bg-wildcats-yellow/10 border-wildcats-yellow/20 text-wildcats-yellow' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}>
-                                    {announcement.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
-                                    {announcement.pinned ? 'Unpin' : 'Pin'}
-                                  </button>
-                                  <button onClick={() => handleArchive(announcement.id)} className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-200 hover:bg-amber-500/20 border border-amber-500/10">
-                                    <Archive className="w-3.5 h-3.5" /> Archive
-                                  </button>
-                                </>
-                              )}
-
-                              {announcement.status === 'SCHEDULED' && (
-                                <button onClick={() => handleDelete(announcement.id)} className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/20 border border-red-500/10">
-                                  <Trash2 className="w-3.5 h-3.5" /> Delete
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                          {pastAnnouncements.map((announcement) => (
+                            <article
+                              key={announcement.id}
+                              className="rounded-2xl border border-slate-800/60 bg-slate-900/70 p-5 flex flex-col gap-4 shadow-lg h-full min-h-[320px]"
+                            >
+                              <div className="w-full overflow-hidden rounded-xl border border-slate-800/50 bg-black/30 aspect-[16/9] flex items-center justify-center">
+                                {announcement.imageUrl ? (
+                                  <img
+                                    src={announcement.imageUrl}
+                                    alt={announcement.title}
+                                    className="h-full w-full object-contain"
+                                    onError={(e) => {
+                                      e.target.style.display = 'none';
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-slate-400">
+                                    <Megaphone className="w-10 h-10 text-slate-500" />
+                                    <span className="text-xs uppercase tracking-wide">No image provided</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="space-y-2 flex-1">
+                                <div className="flex items-center justify-between text-xs text-slate-400">
+                                  <span>{announcement.category || 'Update'}</span>
+                                  <span>{format(new Date(announcement.createdAt), 'MMM d')}</span>
+                                </div>
+                                <h4 className="text-lg font-semibold text-white line-clamp-2">{announcement.title}</h4>
+                              </div>
+                              <p className="text-sm text-slate-300 whitespace-pre-line flex-1">
+                                {getTruncatedContent(announcement.content, announcement.id, 280)}
+                              </p>
+                              {needsTruncate(announcement.content || '', 280) && (
+                                <button
+                                  onClick={() => toggleExpand(announcement.id)}
+                                  className="text-sm font-semibold text-wildcats-yellow hover:text-white transition self-start"
+                                >
+                                  {expandedAnnouncements[announcement.id] ? 'Show Less' : 'Show More'}
                                 </button>
                               )}
-
-                              {announcement.status === 'ARCHIVED' && (
-                                <>
-                                  <button onClick={() => handleUnarchive(announcement.id)} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/10">
-                                    <ArchiveRestore className="w-3.5 h-3.5" /> Restore
-                                  </button>
-                                  <button onClick={() => handleOpenDeleteArchived(announcement)} className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/20 border border-red-500/10">
-                                    <Trash2 className="w-3.5 h-3.5" /> Delete
-                                  </button>
-                                </>
-                              )}
-                            </>
-                          )}
+                            </article>
+                          ))}
                         </div>
                       </div>
                     )}
-                  </article>
-                ))}
-              </div>
-          )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col space-y-8">
+                    {announcements.map((announcement) => (
+                      <article
+                        key={announcement.id}
+                        className="relative flex flex-col rounded-2xl border border-slate-800/60 bg-slate-900/80 shadow-xl backdrop-blur-md transition-all hover:border-wildcats-yellow/30 overflow-hidden"
+                      >
+                        {/* Header with Category and Meta */}
+                        <div className="px-6 pt-6 pb-4 border-b border-slate-800/50 bg-slate-950/20">
+                          <div className="flex items-center justify-between gap-4 mb-3">
+                            <span className="inline-flex items-center px-3 py-1 rounded-full bg-wildcats-maroon/20 border border-wildcats-maroon/30 text-wildcats-yellow text-xs font-bold uppercase tracking-wider">
+                              {announcement.category || 'News / Announcement'}
+                            </span>
+                            <div className="flex items-center gap-3 text-slate-400 text-sm">
+                              <div className="flex items-center gap-1.5">
+                                <User className="w-3.5 h-3.5 text-slate-500" />
+                                <span className="font-medium text-slate-300">{announcement.createdByName}</span>
+                              </div>
+                              <span className="text-slate-600">•</span>
+                              <span>{format(new Date(announcement.createdAt), 'MMM d, yyyy')}</span>
+                            </div>
+                          </div>
+
+                          <h2 className="text-3xl font-bold text-white leading-tight tracking-tight mb-3">
+                            {announcement.title}
+                          </h2>
+
+                          {/* Status Badges */}
+                          <div className="flex flex-wrap gap-2">
+                            {isModerator && (
+                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${getStatusBadge(announcement.status)}`}>
+                                {announcement.status}
+                              </span>
+                            )}
+                            {announcement.scheduledFor && (
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-500/10 border border-blue-500/20 text-blue-300 flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {format(new Date(announcement.scheduledFor), 'MMM d, h:mm a')}
+                              </span>
+                            )}
+                            {announcement.pinned && (
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-wildcats-yellow/10 border border-wildcats-yellow/20 text-wildcats-yellow flex items-center gap-1">
+                                <Pin className="w-3 h-3" />
+                                PINNED
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Image Banner */}
+                        {announcement.imageUrl && (
+                          <div className="w-full bg-black/20 border-b border-slate-800/50">
+                            <img
+                              src={announcement.imageUrl}
+                              alt={announcement.title}
+                              className="w-full h-auto max-h-[500px] object-contain mx-auto"
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                              }}
+                            />
+                          </div>
+                        )}
+
+                    {/* Content */}
+                        <div className="px-6 py-6">
+                          <div className="prose prose-invert max-w-none">
+                            <p className="text-slate-300 text-lg leading-relaxed whitespace-pre-line">
+                              {(announcement.content || '').trim()}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Footer / Actions */}
+                        {(isDJ || isModerator) && (
+                          <div className="mt-auto px-6 py-4 bg-slate-950/30 border-t border-slate-800/50 flex flex-wrap items-center justify-between gap-4">
+                            <div className="flex flex-col gap-1 text-xs">
+                               {isModerator && announcement.status === 'PUBLISHED' && announcement.approvedByName && (
+                                  <div className="flex items-center gap-1.5 text-emerald-400">
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>Approved by {announcement.approvedByName}</span>
+                                  </div>
+                               )}
+                               {announcement.status === 'REJECTED' && announcement.rejectionReason && (
+                                  <div className="text-red-300">
+                                    <span className="font-bold">Reason:</span> {announcement.rejectionReason}
+                                  </div>
+                               )}
+                               {announcement.expiresAt && announcement.status !== 'ARCHIVED' && (
+                                  <div className="text-amber-200/80 flex items-center gap-1.5">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    <span>Expires {format(new Date(announcement.expiresAt), 'PPp')}</span>
+                                  </div>
+                               )}
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 ml-auto">
+                              {/* DJ Actions */}
+                              {isDJ && canEditDelete(announcement) && announcement.status === 'DRAFT' && (
+                                <>
+                                  <button
+                                    onClick={() => handleEdit(announcement)}
+                                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-300 hover:bg-blue-500/20 transition-colors border border-blue-500/10"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenDeleteDraft(announcement)}
+                                    className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/20 transition-colors border border-red-500/10"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    Delete
+                                  </button>
+                                </>
+                              )}
+                              
+                              {isDJ && announcement.createdById === currentUser?.id && announcement.status === 'REJECTED' && (
+                                <>
+                                  <button
+                                    onClick={() => handleEdit(announcement)}
+                                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/10 px-3 py-2 text-sm font-medium text-blue-300 hover:bg-blue-500/20 transition-colors border border-blue-500/10"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                    Revise
+                                  </button>
+                                  <button
+                                    onClick={() => handleResubmit(announcement.id)}
+                                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 transition-colors border border-emerald-500/10"
+                                  >
+                                    <Send className="w-3.5 h-3.5" />
+                                    Resubmit
+                                  </button>
+                                </>
+                              )}
+
+                              {/* Moderator Actions */}
+                              {isModerator && (
+                                <>
+                                  {announcement.status === 'DRAFT' && (
+                                    <>
+                                      <button onClick={() => handleOpenPublish(announcement)} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/10">
+                                        <Send className="w-3.5 h-3.5" /> Publish
+                                      </button>
+                                      <button onClick={() => handleOpenSchedule(announcement)} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500/10 px-3 py-2 text-sm font-medium text-indigo-300 hover:bg-indigo-500/20 border border-indigo-500/10">
+                                        <Calendar className="w-3.5 h-3.5" /> Schedule
+                                      </button>
+                                      <button onClick={() => handleOpenReject(announcement)} className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/20 border border-red-500/10">
+                                        <X className="w-3.5 h-3.5" /> Reject
+                                      </button>
+                                    </>
+                                  )}
+
+                                  {announcement.status === 'PUBLISHED' && (
+                                    <>
+                                      <button onClick={() => handleTogglePin(announcement)} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors border ${announcement.pinned ? 'bg-wildcats-yellow/10 border-wildcats-yellow/20 text-wildcats-yellow' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}>
+                                        {announcement.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                                        {announcement.pinned ? 'Unpin' : 'Pin'}
+                                      </button>
+                                      <button onClick={() => handleArchive(announcement.id)} className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-200 hover:bg-amber-500/20 border border-amber-500/10">
+                                        <Archive className="w-3.5 h-3.5" /> Archive
+                                      </button>
+                                    </>
+                                  )}
+
+                                  {announcement.status === 'SCHEDULED' && (
+                                    <button onClick={() => handleDelete(announcement.id)} className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/20 border border-red-500/10">
+                                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                                    </button>
+                                  )}
+
+                                  {announcement.status === 'ARCHIVED' && (
+                                    <>
+                                      <button onClick={() => handleUnarchive(announcement.id)} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/10">
+                                        <ArchiveRestore className="w-3.5 h-3.5" /> Restore
+                                      </button>
+                                      <button onClick={() => handleOpenDeleteArchived(announcement)} className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 px-3 py-2 text-sm font-medium text-red-300 hover:bg-red-500/20 border border-red-500/10">
+                                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                                      </button>
+                                    </>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
 
             {totalPages > 1 && (
               <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
