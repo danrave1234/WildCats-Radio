@@ -13,11 +13,14 @@ import {
   Platform,
   Animated,
   Easing,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
+import { useAuth } from '../../context/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 const screenHeight = Dimensions.get('window').height;
@@ -25,11 +28,13 @@ const screenWidth = Dimensions.get('window').width;
 
 const LoginScreen: React.FC = () => {
   const router = useRouter();
+  const { login, loading, error: authError } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+  const [error, setError] = useState('');
   const translateY = useRef(new Animated.Value(0)).current;
   const translateX = useRef(new Animated.Value(0)).current;
   const emailBorderColor = useRef(new Animated.Value(0)).current;
@@ -68,14 +73,32 @@ const LoginScreen: React.FC = () => {
     }, [translateY, translateX, localParams.direction, localParams.fromWelcome])
   );
 
-  const handleLogin = () => {
-    // Functionality will be added later
-    console.log('Login pressed');
+  const handleLogin = async () => {
+    setError('');
+    
+    if (!email.trim()) {
+      setError('Please enter your email address');
+      return;
+    }
+    
+    if (!password) {
+      setError('Please enter your password');
+      return;
+    }
+
+    try {
+      await login({ email, password });
+      // Navigate to home screen on successful login
+      router.replace('/(tabs)/home' as any);
+    } catch (err: any) {
+      const errorMessage = err.message || 'Login failed. Please try again.';
+      setError(errorMessage);
+    }
   };
 
   const handleForgotPassword = () => {
     // Functionality will be added later
-    console.log('Forgot password pressed');
+    Alert.alert('Forgot Password', 'This feature will be available soon.');
   };
 
   // Animate border color on focus
@@ -286,6 +309,13 @@ const LoginScreen: React.FC = () => {
               </Animated.View>
             </View>
 
+            {(error || authError) && (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle" size={16} color="#ef4444" />
+                <Text style={styles.errorText}>{error || authError}</Text>
+              </View>
+            )}
+
             <TouchableOpacity
               onPress={handleForgotPassword}
               style={styles.forgotButton}
@@ -297,12 +327,17 @@ const LoginScreen: React.FC = () => {
 
             <TouchableOpacity
               onPress={handleLogin}
-              style={styles.loginButton}
+              style={[styles.loginButton, loading && styles.loginButtonDisabled]}
               activeOpacity={0.8}
+              disabled={loading}
             >
-              <Text style={styles.loginButtonText}>
-                Log In
-              </Text>
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.loginButtonText}>
+                  Log In
+                </Text>
+              )}
             </TouchableOpacity>
 
             <View style={styles.signupLinkContainer}>
@@ -570,6 +605,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#91403E', // cordovan
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    gap: 8,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#ef4444',
+    fontWeight: '500',
+  },
+  loginButtonDisabled: {
+    opacity: 0.6,
   },
 });
 

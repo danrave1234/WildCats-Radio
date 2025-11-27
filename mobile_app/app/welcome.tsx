@@ -1,14 +1,23 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { SafeAreaView, View, Text, Image, TouchableOpacity, StyleSheet, Dimensions, Animated, Easing } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useAuth } from '../context/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 const screenWidth = Dimensions.get('window').width;
 
 const WelcomeScreen: React.FC = () => {
   const router = useRouter();
+  const { isAuthenticated, loading } = useAuth();
   const translateX = useRef(new Animated.Value(0)).current;
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!loading && isAuthenticated) {
+      router.replace('/(tabs)/home' as any);
+    }
+  }, [isAuthenticated, loading, router]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -16,6 +25,11 @@ const WelcomeScreen: React.FC = () => {
       translateX.setValue(0);
     }, [translateX])
   );
+
+  // Don't render welcome screen if authenticated or still loading
+  if (loading || isAuthenticated) {
+    return null;
+  }
 
   const handleLogin = () => {
     Animated.timing(translateX, {
@@ -40,7 +54,7 @@ const WelcomeScreen: React.FC = () => {
   };
 
   const handleNotNow = () => {
-    router.push('/(tabs)');
+    router.push('/(tabs)/home' as any);
   };
 
   return (

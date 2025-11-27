@@ -14,11 +14,14 @@ import {
   Animated,
   Easing,
   Modal,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
+import { useAuth } from '../../context/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 const screenHeight = Dimensions.get('window').height;
@@ -33,6 +36,7 @@ const genderOptions = [
 
 const SignupScreen: React.FC = () => {
   const router = useRouter();
+  const { register, login, loading, error: authError } = useAuth();
   const [firstname, setFirstname] = useState('');
   const [lastname, setLastname] = useState('');
   const [email, setEmail] = useState('');
@@ -40,6 +44,7 @@ const SignupScreen: React.FC = () => {
   const [gender, setGender] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [showGenderDropdown, setShowGenderDropdown] = useState(false);
   const [showSignupModal, setShowSignupModal] = useState(false);
@@ -49,6 +54,7 @@ const SignupScreen: React.FC = () => {
   const [birthdateFocused, setBirthdateFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [confirmPasswordFocused, setConfirmPasswordFocused] = useState(false);
+  const [error, setError] = useState('');
   const translateY = useRef(new Animated.Value(0)).current;
   const translateX = useRef(new Animated.Value(0)).current;
   const firstnameBorderColor = useRef(new Animated.Value(0)).current;
@@ -118,9 +124,78 @@ const SignupScreen: React.FC = () => {
     setBirthdate(formatted);
   };
 
-  const handleSignUp = () => {
-    // Functionality will be added later
-    console.log('Sign up pressed');
+  const handleSignUp = async () => {
+    setError('');
+
+    // Validate password match
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    // Validate password length
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long');
+      return;
+    }
+
+    // Validate birthdate (must be at least 13 years old)
+    if (birthdate) {
+      // Convert mm/dd/yyyy to Date
+      const [month, day, year] = birthdate.split('/');
+      if (month && day && year) {
+        const birthDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        const today = new Date();
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const monthDiff = today.getMonth() - birthDate.getMonth();
+
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+          age--;
+        }
+
+        if (age < 13) {
+          setError('You must be at least 13 years old to register');
+          return;
+        }
+      } else {
+        setError('Please enter a valid date of birth');
+        return;
+      }
+    } else {
+      setError('Please enter your date of birth');
+      return;
+    }
+
+    try {
+      // Convert birthdate from mm/dd/yyyy to yyyy-mm-dd format
+      const [month, day, year] = birthdate.split('/');
+      const formattedBirthdate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+
+      await register({
+        firstname,
+        lastname,
+        email,
+        password,
+        birthdate: formattedBirthdate,
+        gender: gender || undefined,
+      });
+
+      // Automatically log in the user after successful registration
+      try {
+        await login({ email, password });
+        // Navigate to home after successful login
+        setShowSignupModal(false);
+        router.replace('/(tabs)/home' as any);
+      } catch (loginErr: any) {
+        // If auto-login fails, show error but don't block navigation
+        setError('Account created but login failed. Please log in manually.');
+        setShowSignupModal(false);
+        router.push({ pathname: '/auth/login', params: { direction: 'fromTop' } } as any);
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || 'Registration failed. Please try again.';
+      setError(errorMessage);
+    }
   };
 
   const navigateToLogin = () => {
@@ -442,15 +517,20 @@ const SignupScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
 
-          <ScrollView
-            style={styles.modalScrollView}
-            contentContainerStyle={styles.modalScrollContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            onScrollBeginDrag={() => setShowGenderDropdown(false)}
-            scrollEventThrottle={16}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.modalKeyboardView}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
-            <View style={styles.modalContent}>
+            <ScrollView
+              style={styles.modalScrollView}
+              contentContainerStyle={styles.modalScrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              onScrollBeginDrag={() => setShowGenderDropdown(false)}
+              scrollEventThrottle={16}
+            >
+              <View style={styles.modalContent}>
               <Text style={styles.modalContentTitle}>Create your account</Text>
               <Text style={styles.modalContentSubtitle}>Enter your details below to create your account</Text>
               <View style={styles.inputContainer}>
@@ -590,12 +670,23 @@ const SignupScreen: React.FC = () => {
                         placeholderTextColor="#64748b"
                         value={password}
                         onChangeText={setPassword}
-                        secureTextEntry
+                        secureTextEntry={!showPassword}
                         autoCapitalize="none"
                         autoCorrect={false}
                         onFocus={() => setPasswordFocused(true)}
                         onBlur={() => setPasswordFocused(false)}
                       />
+                      <TouchableOpacity
+                        onPress={() => setShowPassword(!showPassword)}
+                        style={styles.modalPasswordToggle}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                          size={20}
+                          color={passwordFocused ? "#FFC30B" : "#94a3b8"}
+                        />
+                      </TouchableOpacity>
                     </Animated.View>
               </View>
 
@@ -609,14 +700,32 @@ const SignupScreen: React.FC = () => {
                         placeholderTextColor="#64748b"
                         value={confirmPassword}
                         onChangeText={setConfirmPassword}
-                        secureTextEntry
+                        secureTextEntry={!showPassword}
                         autoCapitalize="none"
                         autoCorrect={false}
                         onFocus={() => setConfirmPasswordFocused(true)}
                         onBlur={() => setConfirmPasswordFocused(false)}
                       />
+                      <TouchableOpacity
+                        onPress={() => setShowPassword(!showPassword)}
+                        style={styles.modalPasswordToggle}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                          size={20}
+                          color={confirmPasswordFocused ? "#FFC30B" : "#94a3b8"}
+                        />
+                      </TouchableOpacity>
                     </Animated.View>
               </View>
+
+              {(error || authError) && (
+                <View style={styles.modalErrorContainer}>
+                  <Ionicons name="alert-circle" size={16} color="#ef4444" />
+                  <Text style={styles.modalErrorText}>{error || authError}</Text>
+                </View>
+              )}
 
               <View style={styles.modalTermsContainer}>
                     <TouchableOpacity
@@ -643,20 +752,22 @@ const SignupScreen: React.FC = () => {
               </View>
 
               <TouchableOpacity
-                    onPress={() => {
-                      handleSignUp();
-                      setShowSignupModal(false);
-                    }}
-                    style={[styles.modalSignupButton, !agreedToTerms && styles.modalSignupButtonDisabled]}
+                    onPress={handleSignUp}
+                    style={[styles.modalSignupButton, (!agreedToTerms || loading) && styles.modalSignupButtonDisabled]}
                     activeOpacity={0.8}
-                    disabled={!agreedToTerms}
+                    disabled={!agreedToTerms || loading}
                   >
-                    <Text style={styles.modalSignupButtonText}>
-                      Create Account
-                    </Text>
+                    {loading ? (
+                      <ActivityIndicator color="#000000" />
+                    ) : (
+                      <Text style={styles.modalSignupButtonText}>
+                        Create Account
+                      </Text>
+                    )}
                   </TouchableOpacity>
-            </View>
-          </ScrollView>
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
@@ -1053,11 +1164,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  modalKeyboardView: {
+    flex: 1,
+  },
   modalScrollView: {
     flex: 1,
   },
   modalScrollContent: {
     paddingBottom: 40,
+    flexGrow: 1,
   },
   modalContent: {
     padding: 24,
@@ -1123,7 +1238,17 @@ const styles = StyleSheet.create({
     height: 48,
     color: '#e2e8f0', // slate-200
     fontSize: 16,
-    paddingRight: 16,
+    paddingRight: 8,
+  },
+  modalPasswordToggle: {
+    padding: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
   },
   modalHelperText: {
     fontSize: 12,
@@ -1255,6 +1380,23 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontSize: 16,
     fontWeight: '600',
+  },
+  modalErrorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    gap: 8,
+  },
+  modalErrorText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#ef4444',
+    fontWeight: '500',
   },
 });
 
