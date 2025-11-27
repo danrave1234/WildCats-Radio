@@ -17,12 +17,16 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { getAllAnnouncements, AnnouncementDTO } from '../../services/userService';
+import { useAuth } from '../../context/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 
 const HomeScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { isAuthenticated } = useAuth();
   const [announcements, setAnnouncements] = useState<AnnouncementDTO[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -168,6 +172,24 @@ const HomeScreen: React.FC = () => {
         {/* Home Title - Fixed at top */}
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>Home</Text>
+          {!isAuthenticated && (
+            <View style={styles.headerAuthButtons}>
+              <TouchableOpacity
+                style={styles.headerLoginButton}
+                onPress={() => router.push('/auth/login' as any)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.headerLoginButtonText}>Log in</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.headerSignupButton}
+                onPress={() => router.push('/auth/signup' as any)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.headerSignupButtonText}>Sign up</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         <ScrollView
@@ -223,6 +245,24 @@ const HomeScreen: React.FC = () => {
         {/* Home Title - Fixed at top */}
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>Home</Text>
+          {!isAuthenticated && (
+            <View style={styles.headerAuthButtons}>
+              <TouchableOpacity
+                style={styles.headerLoginButton}
+                onPress={() => router.push('/auth/login' as any)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.headerLoginButtonText}>Log in</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.headerSignupButton}
+                onPress={() => router.push('/auth/signup' as any)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.headerSignupButtonText}>Sign up</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         <ScrollView
@@ -297,6 +337,24 @@ const HomeScreen: React.FC = () => {
       {/* Home Title - Fixed at top */}
       <View style={styles.headerTitleContainer}>
         <Text style={styles.headerTitle}>Home</Text>
+        {!isAuthenticated && (
+          <View style={styles.headerAuthButtons}>
+            <TouchableOpacity
+              style={styles.headerLoginButton}
+              onPress={() => router.push('/auth/login' as any)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.headerLoginButtonText}>Log in</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerSignupButton}
+              onPress={() => router.push('/auth/signup' as any)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.headerSignupButtonText}>Sign up</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       <ScrollView
@@ -721,11 +779,47 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     zIndex: 10,
     backgroundColor: 'transparent',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   headerTitle: {
     fontSize: 32,
     fontWeight: 'bold',
     color: '#e2e8f0',
+  },
+  headerAuthButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  headerLoginButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(145, 64, 62, 0.5)',
+  },
+  headerLoginButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#91403E',
+  },
+  headerSignupButton: {
+    backgroundColor: '#91403E',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    shadowColor: '#91403E',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  headerSignupButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   titleContainer: {
     paddingHorizontal: 20,

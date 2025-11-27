@@ -48,6 +48,9 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
   // Notification badge state
   const [unreadCount, setUnreadCount] = useState(0);
   
+  // Calculate total tab bar height including safe area (needed for effects)
+  const totalTabBarHeight = BASE_TAB_BAR_HEIGHT + insets.bottom;
+  
   // Fetch unread notification count
   const fetchUnreadCount = useCallback(async () => {
     if (!isAuthenticated) {
@@ -78,13 +81,62 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
   
   // Refresh count when navigating to inbox tab
   useEffect(() => {
+    if (!state?.routes || state.index === undefined) return;
     const currentRoute = state.routes[state.index];
     if (currentRoute?.name === 'inbox') {
       fetchUnreadCount();
     }
-  }, [state.index, fetchUnreadCount]);
+  }, [state?.index, state?.routes, fetchUnreadCount]);
 
-  // Safety check for required props
+  // Effect to position underline based on current tab without animation
+  useEffect(() => {
+    if (!state || state.index === undefined || !state.routes) return;
+    
+    const currentRouteKey = state.routes[state.index]?.key;
+    if (!currentRouteKey) return;
+    
+    // Handle broadcast tab special case
+    const isCurrentBroadcast = state.routes[state.index]?.name === 'broadcast';
+    
+    // Set opacity based on whether broadcast is selected (no animation)
+    underlineOpacity.setValue(isCurrentBroadcast ? 0 : 1); // Hide when broadcast is selected
+    
+    // Only update position if it's not the broadcast tab
+    if (!isCurrentBroadcast) {
+      const currentTabLayout = tabLayouts[currentRouteKey];
+      if (currentTabLayout && currentTabLayout.width > 0) {
+        // Set position directly without animation
+        underlinePosition.setValue(currentTabLayout.x);
+        underlineWidth.setValue(currentTabLayout.width);
+        if (!isInitialLayoutDone) {
+          setIsInitialLayoutDone(true);
+        }
+      }
+    }
+  }, [state?.index, state?.routes, tabLayouts, underlinePosition, underlineWidth, underlineOpacity, isInitialLayoutDone]);
+
+  // Effect to handle tab bar hide/show animation based on notification state
+  useEffect(() => {
+    if (isNotificationOpen) {
+      // Hide tab bar by sliding down for notifications
+      Animated.timing(tabBarTranslateY, {
+        toValue: totalTabBarHeight + 20,
+        duration: 250,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    } else {
+      // Show tab bar by sliding up
+      Animated.timing(tabBarTranslateY, {
+        toValue: 0,
+        duration: 350,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isNotificationOpen, tabBarTranslateY, totalTabBarHeight]);
+
+  // Safety check for required props (AFTER all hooks)
   if (!state || !state.routes || !descriptors || !navigation) {
     return (
       <View style={styles.container}>
@@ -117,57 +169,6 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
 
   // Check if current tab is the broadcast tab
   const isBroadcastSelected = currentRoute && currentRoute.name === 'broadcast';
-
-  // Effect to position underline based on current tab without animation
-  useEffect(() => {
-    if (!state || state.index === undefined || !state.routes) return;
-    
-    const currentRouteKey = state.routes[state.index]?.key;
-    if (!currentRouteKey) return;
-    
-    // Handle broadcast tab special case
-    const isCurrentBroadcast = state.routes[state.index]?.name === 'broadcast';
-    
-    // Set opacity based on whether broadcast is selected (no animation)
-    underlineOpacity.setValue(isCurrentBroadcast ? 0 : 1); // Hide when broadcast is selected
-    
-    // Only update position if it's not the broadcast tab
-    if (!isCurrentBroadcast) {
-      const currentTabLayout = tabLayouts[currentRouteKey];
-      if (currentTabLayout && currentTabLayout.width > 0) {
-        // Set position directly without animation
-        underlinePosition.setValue(currentTabLayout.x);
-        underlineWidth.setValue(currentTabLayout.width);
-        if (!isInitialLayoutDone) {
-          setIsInitialLayoutDone(true);
-        }
-      }
-    }
-  }, [state?.index, tabLayouts, underlinePosition, underlineWidth, underlineOpacity, isInitialLayoutDone]);
-
-  // Calculate total tab bar height including safe area
-  const totalTabBarHeight = BASE_TAB_BAR_HEIGHT + insets.bottom;
-
-  // Effect to handle tab bar hide/show animation based on notification state
-  useEffect(() => {
-    if (isNotificationOpen) {
-      // Hide tab bar by sliding down for notifications
-      Animated.timing(tabBarTranslateY, {
-        toValue: totalTabBarHeight + 20,
-        duration: 250,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    } else {
-      // Show tab bar by sliding up
-      Animated.timing(tabBarTranslateY, {
-        toValue: 0,
-        duration: 350,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [isNotificationOpen, tabBarTranslateY, totalTabBarHeight]);
 
   return (
     <Animated.View style={[styles.container, animatedStyle, {

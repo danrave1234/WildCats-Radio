@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import ScheduleSkeleton from '../../components/ScheduleSkeleton';
 import {
   format,
@@ -51,6 +51,7 @@ const DAY_CELL_SIZE = calculateDayCellSize();
 
 const ScheduleScreen: React.FC = () => {
   const { isAuthenticated } = useAuth();
+  const router = useRouter();
   const params = useLocalSearchParams();
   const [upcomingBroadcasts, setUpcomingBroadcasts] = useState<Broadcast[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -280,7 +281,7 @@ const ScheduleScreen: React.FC = () => {
     );
   }
 
-  if (error) {
+  if (error && isAuthenticated) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.errorContainer}>
@@ -293,6 +294,100 @@ const ScheduleScreen: React.FC = () => {
           >
             <Text style={styles.errorButtonText}>Try Again</Text>
           </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Show blurred background with Login/Sign Up buttons when not authenticated
+  if (!isAuthenticated) {
+    return (
+      <SafeAreaView style={styles.container}>
+        {/* Base black background */}
+        <View style={styles.backgroundBase} />
+        
+        {/* Radial gradient overlay - top center */}
+        <LinearGradient
+          colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0.5)']}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={styles.gradientOverlay1}
+        />
+        
+        {/* Maroon gradient - bottom left */}
+        <LinearGradient
+          colors={['rgba(127,29,29,0.35)', 'transparent']}
+          start={{ x: 0, y: 1 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.gradientMaroon1}
+        />
+        
+        {/* Yellow gradient - top right */}
+        <LinearGradient
+          colors={['rgba(251,191,36,0.18)', 'transparent']}
+          start={{ x: 1, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.gradientYellow1}
+        />
+        
+        {/* Large maroon/yellow gradient blur - top right */}
+        <LinearGradient
+          colors={['rgba(251,191,36,0.50)', 'rgba(127,29,29,0.45)', 'transparent']}
+          start={{ x: 1, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.gradientBlur1}
+        />
+        
+        {/* Large maroon/rose gradient blur - bottom left */}
+        <LinearGradient
+          colors={['rgba(127,29,29,0.60)', 'rgba(225,29,72,0.45)', 'transparent']}
+          start={{ x: 0, y: 1 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.gradientBlur2}
+        />
+
+        {/* Blur overlay */}
+        <View style={styles.blurOverlay} />
+        
+        {/* Content with blur effect */}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          style={styles.scrollView}
+          scrollEnabled={false}
+        >
+          {/* Screen Title */}
+          <View style={styles.titleSection}>
+            <Text style={styles.title}>Broadcast Schedule</Text>
+            <Text style={styles.subtitle}>Discover upcoming shows and plan your listening</Text>
+          </View>
+        </ScrollView>
+
+        {/* Login/Sign Up buttons overlay */}
+        <View style={styles.authOverlay}>
+          <View style={styles.authCard}>
+            <Ionicons name="lock-closed-outline" size={48} color="#91403E" />
+            <Text style={styles.authTitle}>Sign In Required</Text>
+            <Text style={styles.authSubtitle}>
+              Please sign in to view the broadcast schedule
+            </Text>
+            <View style={styles.authButtons}>
+              <TouchableOpacity
+                style={styles.authLoginButton}
+                onPress={() => router.push('/auth/login' as any)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.authLoginButtonText}>Log in</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.authSignupButton}
+                onPress={() => router.push('/auth/signup' as any)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.authSignupButtonText}>Sign up</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -1200,6 +1295,95 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 16,
+  },
+  blurOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    zIndex: 5,
+  },
+  authOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    paddingHorizontal: 32,
+  },
+  authCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 24,
+    padding: 32,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    width: '100%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  authTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#e2e8f0',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  authSubtitle: {
+    fontSize: 16,
+    color: '#94a3b8',
+    textAlign: 'center',
+    marginBottom: 32,
+    lineHeight: 24,
+  },
+  authButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  authLoginButton: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(145, 64, 62, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  authLoginButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#91403E',
+  },
+  authSignupButton: {
+    flex: 1,
+    backgroundColor: '#91403E',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#91403E',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  authSignupButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
 
