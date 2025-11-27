@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet, Dimensions, Platform, Animated, Easing } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
+import { getUnreadCount } from '../../services/userService';
 
 const { width, height } = Dimensions.get('window');
 const BASE_TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 70 : 60;
@@ -43,6 +44,45 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
   
   // Tab bar hide animation
   const tabBarTranslateY = useRef(new Animated.Value(0)).current;
+  
+  // Notification badge state
+  const [unreadCount, setUnreadCount] = useState(0);
+  
+  // Fetch unread notification count
+  const fetchUnreadCount = useCallback(async () => {
+    if (!isAuthenticated) {
+      setUnreadCount(0);
+      return;
+    }
+    
+    try {
+      const result = await getUnreadCount();
+      if (typeof result === 'number') {
+        setUnreadCount(result);
+      } else {
+        setUnreadCount(0);
+      }
+    } catch (error) {
+      console.error('Failed to fetch unread count:', error);
+      setUnreadCount(0);
+    }
+  }, [isAuthenticated]);
+  
+  // Fetch unread count on mount and when authentication changes
+  useEffect(() => {
+    fetchUnreadCount();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, [fetchUnreadCount]);
+  
+  // Refresh count when navigating to inbox tab
+  useEffect(() => {
+    const currentRoute = state.routes[state.index];
+    if (currentRoute?.name === 'inbox') {
+      fetchUnreadCount();
+    }
+  }, [state.index, fetchUnreadCount]);
 
   // Safety check for required props
   if (!state || !state.routes || !descriptors || !navigation) {
@@ -306,6 +346,14 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
                   color={isFocused ? MIKADO_YELLOW : TEXT_COLOR}
                   size={isFocused ? ICON_SIZE + 3 : ICON_SIZE}
                 />
+                {/* Notification badge for inbox tab */}
+                {route.name === 'inbox' && unreadCount > 0 && (
+                  <View style={styles.notificationBadge}>
+                    <Text style={styles.notificationBadgeText}>
+                      {unreadCount > 99 ? '99+' : unreadCount.toString()}
+                    </Text>
+                  </View>
+                )}
               </View>
               <Text style={[
                 styles.tabLabel, 
@@ -449,6 +497,31 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 3,
     fontWeight: '500',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -8,
+    backgroundColor: MIKADO_YELLOW,
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#020617',
+    shadowColor: MIKADO_YELLOW,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  notificationBadgeText: {
+    color: '#000000',
+    fontSize: 10,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });
 
