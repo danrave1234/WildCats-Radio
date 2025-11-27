@@ -126,11 +126,17 @@ const WelcomeScreen: React.FC = () => {
           activeOpacity={0.8}
         >
           <LinearGradient
-            colors={['#91403E', '#7F1D1D', '#91403E']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
+            colors={['#A04A47', '#91403E', '#7F1D1D']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
             style={styles.loginButtonGradient}
           >
+            <LinearGradient
+              colors={['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0)', 'rgba(0, 0, 0, 0.1)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.shineOverlay}
+            />
             <Text style={styles.loginButtonText}>
               Log In
             </Text>
@@ -143,11 +149,17 @@ const WelcomeScreen: React.FC = () => {
           activeOpacity={0.8}
         >
           <LinearGradient
-            colors={['#FFC30B', '#FBBF24', '#FFC30B']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
+            colors={['#FFD93D', '#FFC30B', '#E6A800']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
             style={styles.signupButtonGradient}
           >
+            <LinearGradient
+              colors={['rgba(255, 255, 255, 0.25)', 'rgba(255, 255, 255, 0)', 'rgba(0, 0, 0, 0.1)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.shineOverlay}
+            />
             <Text style={styles.signupButtonText}>
               Sign Up
             </Text>
@@ -264,11 +276,22 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+    borderRadius: 8,
+  },
+  shineOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
   },
   loginButtonText: {
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '600',
+    letterSpacing: 0.5,
   },
   signupButton: {
     width: '100%',
@@ -285,11 +308,14 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+    borderRadius: 8,
   },
   signupButtonText: {
     color: '#000000',
     fontSize: 18,
     fontWeight: '600',
+    letterSpacing: 0.5,
   },
   notNowButton: {
     width: '100%',

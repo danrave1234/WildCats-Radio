@@ -442,11 +442,17 @@ const SignupScreen: React.FC = () => {
               activeOpacity={0.8}
             >
               <LinearGradient
-                colors={['#FFC30B', '#FBBF24', '#FFC30B']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
+                colors={['#FFD93D', '#FFC30B', '#E6A800']}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
                 style={styles.createAccountButtonGradient}
               >
+                <LinearGradient
+                  colors={['rgba(255, 255, 255, 0.25)', 'rgba(255, 255, 255, 0)', 'rgba(0, 0, 0, 0.1)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 0, y: 1 }}
+                  style={styles.shineOverlay}
+                />
                 <Text style={styles.createAccountButtonText}>
                   Create Account
                 </Text>
@@ -765,11 +771,17 @@ const SignupScreen: React.FC = () => {
                     disabled={!agreedToTerms || loading}
                   >
                     <LinearGradient
-                      colors={['#FFC30B', '#FBBF24', '#FFC30B']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
+                      colors={['#FFD93D', '#FFC30B', '#E6A800']}
+                      start={{ x: 0.5, y: 0 }}
+                      end={{ x: 0.5, y: 1 }}
                       style={styles.modalSignupButtonGradient}
                     >
+                      <LinearGradient
+                        colors={['rgba(255, 255, 255, 0.25)', 'rgba(255, 255, 255, 0)', 'rgba(0, 0, 0, 0.1)']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 0, y: 1 }}
+                        style={styles.modalShineOverlay}
+                      />
                       {loading ? (
                         <ActivityIndicator color="#000000" />
                       ) : (
@@ -1106,11 +1118,22 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+    borderRadius: 8,
+  },
+  shineOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
   },
   createAccountButtonText: {
     color: '#000000',
     fontSize: 18,
     fontWeight: 'bold',
+    letterSpacing: 0.5,
   },
   // Modal Styles
   modalContainer: {
@@ -1390,6 +1413,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
+    borderRadius: 8,
+  },
+  modalShineOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
   },
   modalSignupButtonDisabled: {
     opacity: 0.6,
@@ -1398,6 +1431,7 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontSize: 16,
     fontWeight: '600',
+    letterSpacing: 0.5,
   },
   modalErrorContainer: {
     flexDirection: 'row',

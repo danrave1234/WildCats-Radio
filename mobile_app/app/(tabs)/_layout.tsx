@@ -16,6 +16,30 @@ export default function TabLayout() {
           title: 'Home',
         }}
       />
+      <Tabs.Screen
+        name="schedule"
+        options={{
+          title: 'Schedule',
+        }}
+      />
+      <Tabs.Screen
+        name="broadcast"
+        options={{
+          title: 'Broadcast',
+        }}
+      />
+      <Tabs.Screen
+        name="inbox"
+        options={{
+          title: 'Notifications',
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Menu',
+        }}
+      />
     </Tabs>
   );
 }

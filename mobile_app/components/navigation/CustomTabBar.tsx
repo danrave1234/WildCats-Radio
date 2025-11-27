@@ -63,9 +63,10 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
     return null;
   }
 
-  // Only show tab bar on home screen
-  const isHomeScreen = currentRoute?.name === 'home';
-  if (!isHomeScreen) {
+  // Show tab bar on all tab screens
+  const tabScreens = ['home', 'schedule', 'broadcast', 'inbox', 'profile'];
+  const isTabScreen = currentRoute?.name && tabScreens.includes(currentRoute.name);
+  if (!isTabScreen) {
     return null;
   }
 
@@ -74,6 +75,9 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
     ? { transform: tabBarStyle.transform } 
     : {};
 
+  // Check if current tab is the broadcast tab
+  const isBroadcastSelected = currentRoute && currentRoute.name === 'broadcast';
+
   // Effect to position underline based on current tab without animation
   useEffect(() => {
     if (!state || state.index === undefined || !state.routes) return;
@@ -81,16 +85,25 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
     const currentRouteKey = state.routes[state.index]?.key;
     if (!currentRouteKey) return;
     
-    const currentTabLayout = tabLayouts[currentRouteKey];
-    if (currentTabLayout && currentTabLayout.width > 0) {
-      // Set position directly without animation
-      underlinePosition.setValue(currentTabLayout.x);
-      underlineWidth.setValue(currentTabLayout.width);
-      if (!isInitialLayoutDone) {
-        setIsInitialLayoutDone(true);
+    // Handle broadcast tab special case
+    const isCurrentBroadcast = state.routes[state.index]?.name === 'broadcast';
+    
+    // Set opacity based on whether broadcast is selected (no animation)
+    underlineOpacity.setValue(isCurrentBroadcast ? 0 : 1); // Hide when broadcast is selected
+    
+    // Only update position if it's not the broadcast tab
+    if (!isCurrentBroadcast) {
+      const currentTabLayout = tabLayouts[currentRouteKey];
+      if (currentTabLayout && currentTabLayout.width > 0) {
+        // Set position directly without animation
+        underlinePosition.setValue(currentTabLayout.x);
+        underlineWidth.setValue(currentTabLayout.width);
+        if (!isInitialLayoutDone) {
+          setIsInitialLayoutDone(true);
+        }
       }
     }
-  }, [state?.index, tabLayouts, underlinePosition, underlineWidth, isInitialLayoutDone]);
+  }, [state?.index, tabLayouts, underlinePosition, underlineWidth, underlineOpacity, isInitialLayoutDone]);
 
   // Calculate total tab bar height including safe area
   const totalTabBarHeight = BASE_TAB_BAR_HEIGHT + insets.bottom;
@@ -165,7 +178,25 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
       />
       
       <View style={styles.tabBar}>
-        {state.routes.map((route, index) => {
+        {/* Reorder routes to: Home - Schedule - Broadcast - Inbox - Profile */}
+        {(() => {
+          const routeOrder = ['home', 'schedule', 'broadcast', 'inbox', 'profile'];
+          const routeMap = new Map(state.routes.map(route => [route.name, route]));
+          
+          // Build reordered array based on desired order
+          const reorderedRoutes = routeOrder
+            .map(name => routeMap.get(name))
+            .filter((route): route is typeof state.routes[0] => route !== undefined);
+          
+          // Add any routes that weren't in the order list (fallback)
+          state.routes.forEach(route => {
+            if (!routeOrder.includes(route.name)) {
+              reorderedRoutes.push(route);
+            }
+          });
+          
+          return reorderedRoutes;
+        })().map((route, index) => {
           if (!route || !route.key) return null;
           
           const descriptor = descriptors[route.key];
@@ -173,6 +204,14 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
           
           const { options } = descriptor;
           let label = (typeof options?.title === 'string' ? options.title : route.name) || 'Tab';
+          // Change "Profile" to "Menu"
+          if (route.name === 'profile') {
+            label = 'Menu';
+          }
+          // Change "Inbox" to "Notifications"
+          if (route.name === 'inbox') {
+            label = 'Notifications';
+          }
           const tabAccessibilityLabel = options.tabBarAccessibilityLabel || `${label} tab`;
 
           // Check if this route is focused
@@ -204,17 +243,47 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
             if (focused) {
               switch (routeName) {
                 case 'home': return 'home';
+                case 'schedule': return 'calendar';
+                case 'broadcast': return 'radio';
+                case 'inbox': return 'notifications';
+                case 'profile': return 'person';
                 default: return 'alert-circle';
               }
             } else {
               switch (routeName) {
                 case 'home': return 'home-outline';
+                case 'schedule': return 'calendar-outline';
+                case 'broadcast': return 'radio-outline';
+                case 'inbox': return 'notifications-outline';
+                case 'profile': return 'person-outline';
                 default: return 'alert-circle-outline';
               }
             }
           };
 
           const iconName = getIconName(route.name, isFocused);
+
+          // Special handling for broadcast tab (center button)
+          if (route.name === 'broadcast') {
+            return (
+              <TouchableOpacity
+                key={route.key}
+                accessibilityRole="button"
+                accessibilityState={isFocused ? { selected: true } : {}}
+                accessibilityLabel={tabAccessibilityLabel}
+                onPress={onPress}
+                onLongPress={onLongPress}
+                style={styles.centerTabButton}
+              >
+                <View style={styles.centerIconContainer}>
+                  {/* Solid background overlay to prevent seeing through */}
+                  <View style={styles.innerShadow} />
+                  {/* Radio icon on top */}
+                  <TabBarIcon name={iconName} size={ICON_SIZE + 10} color={MIKADO_YELLOW} />
+                </View>
+              </TouchableOpacity>
+            );
+          }
 
           return (
             <TouchableOpacity
@@ -338,6 +407,43 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 8,
     height: '100%',
+  },
+  centerTabButton: {
+    width: FOCUSED_ICON_CONTAINER_SIZE + 14, 
+    height: FOCUSED_ICON_CONTAINER_SIZE + 14,
+    alignItems: 'center',
+    justifyContent: 'center', 
+    marginTop: Platform.OS === 'ios' ? 0 : 5,
+  },
+  centerIconContainer: {
+    width: FOCUSED_ICON_CONTAINER_SIZE,
+    height: FOCUSED_ICON_CONTAINER_SIZE,
+    borderRadius: FOCUSED_ICON_CONTAINER_SIZE / 2,
+    backgroundColor: CORDOVAN_COLOR,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+    borderWidth: 2,
+    borderColor: MIKADO_YELLOW,
+    overflow: 'hidden',
+  },
+  innerShadow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: FOCUSED_ICON_CONTAINER_SIZE / 2 - 2,
+    backgroundColor: CORDOVAN_COLOR,
+    opacity: 0.9,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
   tabLabel: {
     fontSize: 11,
