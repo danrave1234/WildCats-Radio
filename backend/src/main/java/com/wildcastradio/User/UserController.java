@@ -86,6 +86,9 @@ public class UserController {
     @Value("${app.security.cookie.secure:false}")
     private boolean useSecureCookies;
 
+    @Value("${app.production:false}")
+    private boolean isProduction;
+
     public UserController(UserService userService, LoginAttemptLimiter loginAttemptLimiter) {
         this.userService = userService;
         this.loginAttemptLimiter = loginAttemptLimiter;
@@ -348,50 +351,145 @@ public class UserController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<?> logoutUser(Authentication authentication, HttpServletResponse response) {
-        if (authentication != null) {
+    public ResponseEntity<?> logoutUser(Authentication authentication, HttpServletRequest request, HttpServletResponse response) {
+        try {
+            // Always attempt to clear auth cookies, even if the backend does not currently
+            // see the user as authenticated. This keeps logout idempotent and fixes cases
+            // where Google OAuth cookies exist in the browser but the JWT filter rejected
+            // the token for this particular request.
+            clearAuthCookies(request, response);
+
+            // If there's no authenticated user, we still consider this a successful logout
+            // from the client perspective.
+            if (authentication == null) {
+                logger.warn("Logout attempt without authentication - cookies cleared");
+                Map<String, Object> responseBody = new HashMap<>();
+                responseBody.put("success", true);
+                responseBody.put("message", "Logged out (no active session)");
+                return ResponseEntity.ok(responseBody);
+            }
+
             UserEntity user = userService.getUserByEmail(authentication.getName())
                     .orElse(null);
             
-            if (user != null) {
-                // Check if user is active DJ of LIVE broadcast
-                Optional<BroadcastEntity> activeBroadcast = broadcastRepository
-                    .findByCurrentActiveDJAndStatus(user, BroadcastEntity.BroadcastStatus.LIVE);
+            if (user == null) {
+                logger.warn("Logout attempt for non-existent user: {}", authentication.getName());
+                Map<String, Object> responseBody = new HashMap<>();
+                responseBody.put("success", true);
+                responseBody.put("message", "Logged out (user not found)");
+                return ResponseEntity.ok(responseBody);
+            }
+
+            // Check if user is active DJ of LIVE broadcast
+            Optional<BroadcastEntity> activeBroadcast = broadcastRepository
+                .findByCurrentActiveDJAndStatus(user, BroadcastEntity.BroadcastStatus.LIVE);
+            
+            if (activeBroadcast.isPresent()) {
+                BroadcastEntity broadcast = activeBroadcast.get();
+                logger.warn("Logout blocked: User {} (ID: {}) attempted to logout while actively broadcasting broadcast {} (ID: {})", 
+                    user.getEmail(), user.getId(), broadcast.getTitle(), broadcast.getId());
                 
-                if (activeBroadcast.isPresent()) {
-                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                        .body(Map.of("error", 
-                            "Cannot logout while actively broadcasting. Please hand over the broadcast first."));
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("error", "Cannot logout while actively broadcasting. Please hand over the broadcast first.");
+                errorResponse.put("code", "LOGOUT_FORBIDDEN_ACTIVE_DJ");
+                errorResponse.put("broadcastId", broadcast.getId());
+                errorResponse.put("broadcastTitle", broadcast.getTitle());
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+            }
+
+            logger.info("User {} (ID: {}) logged out successfully", user.getEmail(), user.getId());
+            
+            Map<String, Object> successResponse = new HashMap<>();
+            successResponse.put("success", true);
+            successResponse.put("message", "Logged out successfully");
+            return ResponseEntity.ok(successResponse);
+            
+        } catch (Exception e) {
+            logger.error("Unexpected error during logout", e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("error", "An unexpected error occurred during logout");
+            errorResponse.put("code", "LOGOUT_ERROR");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    /**
+     * Clear authentication cookies for both standard login and Google OAuth flows.
+     *
+     * This mirrors the cookie attributes used when issuing cookies in SecurityConfig's
+     * OAuth2 success handler (domain, Secure, SameSite) and also clears legacy host-only
+     * cookies that may have been created without an explicit domain.
+     */
+    private void clearAuthCookies(HttpServletRequest request, HttpServletResponse response) {
+        // Match SecurityConfig: in production we always force Secure + SameSite=None
+        boolean shouldUseSecureCookies = isProduction || useSecureCookies;
+
+        // Derive root domain similarly to SecurityConfig#setCookieDomain/extractRootDomain
+        String host = request.getHeader("Host");
+        if (host == null || host.isEmpty()) {
+            host = request.getServerName();
+        }
+
+        String domain = host != null ? host.split(":")[0] : null;
+        String rootDomain = null;
+
+        if (domain != null && !domain.contains("localhost") && !domain.contains("127.0.0.1")) {
+            // Handle common two-part TLDs first (e.g., example.co.uk)
+            String[] twoPartTlds = {".co.uk", ".com.au", ".co.za", ".co.nz", ".com.br", ".co.jp"};
+            boolean matchedTwoPart = false;
+            for (String tld : twoPartTlds) {
+                if (domain.endsWith(tld)) {
+                    String withoutTld = domain.substring(0, domain.length() - tld.length());
+                    int lastDot = withoutTld.lastIndexOf('.');
+                    if (lastDot > 0) {
+                        rootDomain = withoutTld.substring(lastDot + 1) + tld;
+                    } else {
+                        rootDomain = domain;
+                    }
+                    matchedTwoPart = true;
+                    break;
+                }
+            }
+
+            if (!matchedTwoPart) {
+                String[] parts = domain.split("\\.");
+                if (parts.length >= 2) {
+                    rootDomain = parts[parts.length - 2] + "." + parts[parts.length - 1];
+                } else {
+                    rootDomain = domain;
                 }
             }
         }
 
-        // Clear all authentication cookies
-        Cookie tokenCookie = new Cookie("token", "");
-        tokenCookie.setHttpOnly(true);
-        tokenCookie.setSecure(useSecureCookies);
-        tokenCookie.setPath("/");
-        tokenCookie.setMaxAge(0); // Expire immediately
-        tokenCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
-        response.addCookie(tokenCookie);
-        
-        Cookie userIdCookie = new Cookie("userId", "");
-        userIdCookie.setHttpOnly(true);
-        userIdCookie.setSecure(useSecureCookies);
-        userIdCookie.setPath("/");
-        userIdCookie.setMaxAge(0); // Expire immediately
-        userIdCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
-        response.addCookie(userIdCookie);
-        
-        Cookie userRoleCookie = new Cookie("userRole", "");
-        userRoleCookie.setHttpOnly(true);
-        userRoleCookie.setSecure(useSecureCookies);
-        userRoleCookie.setPath("/");
-        userRoleCookie.setMaxAge(0); // Expire immediately
-        userRoleCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
-        response.addCookie(userRoleCookie);
-        
-        return ResponseEntity.ok(Map.of("success", true, "message", "Logged out successfully"));
+        // Helper to add both root-domain and host-only deletion cookies
+        addDeletionCookie("token", shouldUseSecureCookies, rootDomain, response);
+        addDeletionCookie("userId", shouldUseSecureCookies, rootDomain, response);
+        addDeletionCookie("userRole", shouldUseSecureCookies, rootDomain, response);
+    }
+
+    private void addDeletionCookie(String name, boolean shouldUseSecureCookies, String rootDomain, HttpServletResponse response) {
+        // Root-domain deletion cookie (matches OAuth2 cookies)
+        if (rootDomain != null && !rootDomain.isEmpty()) {
+            Cookie cookie = new Cookie(name, "");
+            cookie.setHttpOnly(true);
+            cookie.setSecure(shouldUseSecureCookies);
+            cookie.setPath("/");
+            cookie.setMaxAge(0);
+            cookie.setAttribute("SameSite", shouldUseSecureCookies ? "None" : "Lax");
+            cookie.setDomain(rootDomain);
+            response.addCookie(cookie);
+        }
+
+        // Host-only deletion cookie for legacy sessions (no explicit domain)
+        Cookie hostOnlyCookie = new Cookie(name, "");
+        hostOnlyCookie.setHttpOnly(true);
+        hostOnlyCookie.setSecure(shouldUseSecureCookies);
+        hostOnlyCookie.setPath("/");
+        hostOnlyCookie.setMaxAge(0);
+        hostOnlyCookie.setAttribute("SameSite", shouldUseSecureCookies ? "None" : "Lax");
+        response.addCookie(hostOnlyCookie);
     }
 
     @PostMapping("/verify")

@@ -51,7 +51,7 @@ import { useTheme } from "../context/ThemeContext.jsx";
 import QRCode from "react-qr-code";
 
 const Header = ({ onMobileMenuToggle }) => {
-  const { currentUser, isAuthenticated, logout, loading: authLoading } = useAuth();
+  const { currentUser, isAuthenticated, logout, loading: authLoading, error: authError } = useAuth();
   const { isLive, recovering, healthBroadcastLive, healthy } = useStreaming();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -111,9 +111,16 @@ const Header = ({ onMobileMenuToggle }) => {
     setIsLogoutDialogOpen(true);
   };
 
-  const handleLogoutConfirm = () => {
-    setIsLogoutDialogOpen(false);
-    logout();
+  const handleLogoutConfirm = async () => {
+    try {
+      await logout();
+      // If logout succeeds, navigate to login
+      navigate('/login', { replace: true });
+    } catch (err) {
+      // Error is already set in AuthContext, just keep dialog open to show error
+      // The error will be displayed via AuthContext.error
+      console.error('Logout failed:', err);
+    }
   };
 
   const handleLogoutCancel = () => {
@@ -628,18 +635,37 @@ const Header = ({ onMobileMenuToggle }) => {
         <AlertDialogContent className="rounded-none">
           <AlertDialogHeader>
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will sign you out of your account. You will need to sign in again to access your dashboard.
-            </AlertDialogDescription>
+            {authError && authError.includes('Cannot logout') ? (
+              <div className="space-y-2">
+                <div className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                  <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-red-800 dark:text-red-300">
+                      {authError}
+                    </div>
+                    <div className="text-xs text-red-600 dark:text-red-400 mt-1">
+                      You must hand over the broadcast to another DJ before logging out.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <AlertDialogDescription>
+                This will sign you out of your account. You will need to sign in again to access your dashboard.
+              </AlertDialogDescription>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleLogoutCancel} className="rounded-none">Cancel</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleLogoutConfirm}
-              className="bg-maroon-700 hover:bg-maroon-800 text-white rounded-lg"
-            >
-              Sign Out
-            </AlertDialogAction>
+            {!authError || !authError.includes('Cannot logout') ? (
+              <AlertDialogAction 
+                onClick={handleLogoutConfirm}
+                className="bg-maroon-700 hover:bg-maroon-800 text-white rounded-lg"
+                disabled={authLoading}
+              >
+                {authLoading ? 'Signing out...' : 'Sign Out'}
+              </AlertDialogAction>
+            ) : null}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

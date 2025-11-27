@@ -510,10 +510,10 @@ const Announcements = () => {
         description="Latest announcements and news from Wildcat Radio - Cebu Institute of Technology University (CITU). Stay updated with campus events and broadcast schedules."
         keywords="wildcat radio announcements, CITU news, campus radio news, CIT radio updates, university announcements, campus events"
       />
-      <div className="min-h-screen text-slate-50 py-10">
+      <div className="min-h-screen bg-background text-foreground py-10">
         <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="text-sm text-slate-400">
+            <div className="text-sm text-muted-foreground">
               Manage campus updates, drafts, schedules, and archived notices in one place.
             </div>
             {canCreate && (
@@ -527,7 +527,7 @@ const Announcements = () => {
             )}
           </div>
 
-          <div className="rounded-3xl border border-slate-800 bg-slate-900/50 p-6 space-y-6 shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
+          <div className="rounded-3xl border border-border bg-card/50 dark:bg-slate-900/50 p-6 space-y-6 shadow-lg dark:shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
             {tabs.length > 1 && (
               <div className="flex flex-wrap items-center gap-3">
                 {tabs.map((tab) => {
@@ -540,7 +540,9 @@ const Announcements = () => {
                         setCurrentPage(0);
                       }}
                       className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${
-                        active ? 'bg-white text-maroon-700 shadow-lg' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                        active 
+                          ? 'bg-primary text-primary-foreground shadow-lg' 
+                          : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                       }`}
                     >
                       {tab.label}
@@ -551,7 +553,7 @@ const Announcements = () => {
             )}
 
             {error && (
-              <div className="p-4 bg-red-900/30 border border-red-800 text-red-200 rounded-2xl">
+              <div className="p-4 bg-destructive/10 dark:bg-red-900/30 border border-destructive/20 dark:border-red-800 text-destructive dark:text-red-200 rounded-2xl">
                 {error}
               </div>
             )}
@@ -564,43 +566,100 @@ const Announcements = () => {
                     100% { transform: translateX(100%); }
                   }
                 `}</style>
-                {/* Match one-card-per-row layout */}
-                <div className="grid grid-cols-1 gap-6">
-                  {[...Array(4)].map((_, idx) => (
-                    <div
-                      key={idx}
-                      className="relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/70 p-5"
-                    >
+                {isPublishedView ? (
+                  <div className="space-y-10">
+                    {/* Featured announcement skeleton */}
+                    <div className="relative overflow-hidden rounded-2xl border border-border bg-muted/70 dark:bg-slate-900/70">
                       <div className="absolute inset-0 pointer-events-none overflow-hidden">
                         <div
-                          className="absolute inset-0 bg-gradient-to-r from-transparent via-slate-500/25 to-transparent"
+                          className="absolute inset-0 bg-gradient-to-r from-transparent via-muted-foreground/25 dark:via-slate-500/25 to-transparent"
                           style={{ animation: 'announcement-shimmer 1.4s linear infinite' }}
                         />
                       </div>
-
-                      <div className="relative space-y-4">
-                        <div className="h-3 w-24 rounded-full bg-slate-800" />
-                        <div className="h-5 w-3/4 rounded-full bg-slate-800" />
-                        <div className="h-4 w-1/2 rounded-full bg-slate-800" />
-                        <div className="h-32 w-full rounded-2xl bg-slate-800" />
-                        <div className="flex gap-2 mt-2">
-                          <div className="h-8 w-20 rounded-full bg-slate-800" />
-                          <div className="h-8 w-20 rounded-full bg-slate-800" />
+                      <div className="relative p-6 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="h-6 w-32 rounded-full bg-muted dark:bg-slate-800" />
+                          <div className="h-4 w-24 rounded-full bg-muted dark:bg-slate-800" />
                         </div>
+                        <div className="h-8 w-3/4 rounded-full bg-muted dark:bg-slate-800" />
+                        <div className="aspect-video w-full rounded-2xl bg-muted dark:bg-slate-800" />
+                        <div className="h-4 w-full rounded-full bg-muted dark:bg-slate-800" />
+                        <div className="h-4 w-5/6 rounded-full bg-muted dark:bg-slate-800" />
+                        <div className="h-4 w-4/6 rounded-full bg-muted dark:bg-slate-800" />
                       </div>
                     </div>
-                  ))}
-                </div>
+                    {/* Past announcements skeleton - 3 column grid */}
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="h-6 w-48 rounded-full bg-slate-800" />
+                        <div className="h-4 w-20 rounded-full bg-slate-800" />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                        {[...Array(6)].map((_, idx) => (
+                          <div
+                            key={idx}
+                            className="relative overflow-hidden rounded-2xl border border-border bg-muted/70 dark:bg-slate-900/70 p-5 flex flex-col gap-4"
+                          >
+                            <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                              <div
+                                className="absolute inset-0 bg-gradient-to-r from-transparent via-muted-foreground/25 dark:via-slate-500/25 to-transparent"
+                                style={{ animation: 'announcement-shimmer 1.4s linear infinite' }}
+                              />
+                            </div>
+                            <div className="relative aspect-video w-full rounded-xl bg-muted dark:bg-slate-800" />
+                            <div className="relative space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div className="h-3 w-16 rounded-full bg-muted dark:bg-slate-800" />
+                                <div className="h-3 w-16 rounded-full bg-muted dark:bg-slate-800" />
+                              </div>
+                              <div className="h-5 w-full rounded-full bg-muted dark:bg-slate-800" />
+                              <div className="h-4 w-5/6 rounded-full bg-muted dark:bg-slate-800" />
+                              <div className="h-4 w-4/6 rounded-full bg-muted dark:bg-slate-800" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Match one-card-per-row layout for non-published views */
+                  <div className="grid grid-cols-1 gap-6">
+                    {[...Array(4)].map((_, idx) => (
+                      <div
+                        key={idx}
+                        className="relative overflow-hidden rounded-3xl border border-border bg-muted/70 dark:bg-slate-900/70 p-5"
+                      >
+                        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                          <div
+                            className="absolute inset-0 bg-gradient-to-r from-transparent via-muted-foreground/25 dark:via-slate-500/25 to-transparent"
+                            style={{ animation: 'announcement-shimmer 1.4s linear infinite' }}
+                          />
+                        </div>
+
+                        <div className="relative space-y-4">
+                          <div className="h-3 w-24 rounded-full bg-muted dark:bg-slate-800" />
+                          <div className="h-5 w-3/4 rounded-full bg-muted dark:bg-slate-800" />
+                          <div className="h-4 w-1/2 rounded-full bg-muted dark:bg-slate-800" />
+                          <div className="h-32 w-full rounded-2xl bg-muted dark:bg-slate-800" />
+                          <div className="flex gap-2 mt-2">
+                            <div className="h-8 w-20 rounded-full bg-muted dark:bg-slate-800" />
+                            <div className="h-8 w-20 rounded-full bg-muted dark:bg-slate-800" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : announcements.length === 0 ? (
-              <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-10 text-center shadow-inner">
-                <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-slate-800 flex items-center justify-center">
-                  <Megaphone className="h-8 w-8 text-slate-400" />
+              <div className="rounded-3xl border border-border bg-card/40 dark:bg-slate-900/40 p-10 text-center shadow-inner">
+                <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-muted dark:bg-slate-800 flex items-center justify-center">
+                  <Megaphone className="h-8 w-8 text-muted-foreground" />
                 </div>
-                <h2 className="text-2xl font-semibold text-white mb-2">
+                <h2 className="text-2xl font-semibold text-foreground mb-2">
                   No announcements {activeTab !== 'published' && `in ${activeTab}`}
                 </h2>
-                <p className="text-slate-300 max-w-md mx-auto">
+                <p className="text-muted-foreground max-w-md mx-auto">
                   {activeTab === 'my-drafts'
                     ? 'Your creative canvas is empty. Start crafting the next big update!'
                     : 'Check back later for fresh campus broadcasts.'}
@@ -620,35 +679,35 @@ const Announcements = () => {
                 {isPublishedView ? (
                   <div className="space-y-10">
                     {featuredAnnouncement && (
-                      <article className="relative flex flex-col rounded-2xl border border-wildcats-yellow/30 bg-slate-900/90 shadow-[0_30px_80px_rgba(0,0,0,0.5)] overflow-hidden">
-                        <div className="px-6 pt-6 pb-4 border-b border-slate-800/50 bg-gradient-to-r from-slate-950/80 to-slate-900/60">
+                      <article className="relative flex flex-col rounded-2xl border border-wildcats-yellow/30 bg-card dark:bg-slate-900/90 shadow-lg dark:shadow-[0_30px_80px_rgba(0,0,0,0.5)] overflow-hidden">
+                        <div className="px-6 pt-6 pb-4 border-b border-border dark:border-slate-800/50 bg-gradient-to-r from-background/80 to-card/60 dark:from-slate-950/80 dark:to-slate-900/60">
                           <div className="flex items-center justify-between gap-4 mb-3">
                             <div className="flex flex-wrap items-center gap-2">
                               {featuredAnnouncement.pinned && (
-                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-wildcats-yellow/20 border border-wildcats-yellow/40 text-wildcats-yellow text-[11px] font-bold uppercase tracking-widest">
+                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-wildcats-yellow/20 border border-wildcats-yellow/40 text-wildcats-maroon dark:text-wildcats-yellow text-[11px] font-bold uppercase tracking-widest">
                                   <Pin className="w-3.5 h-3.5" />
                                   Pinned Announcement
                                 </span>
                               )}
-                              <span className="inline-flex items-center px-3 py-1 rounded-full bg-wildcats-maroon/20 border border-wildcats-maroon/30 text-wildcats-yellow text-[11px] font-bold uppercase tracking-widest">
+                              <span className="inline-flex items-center px-3 py-1 rounded-full bg-wildcats-maroon/20 border border-wildcats-maroon/30 text-wildcats-maroon dark:text-wildcats-yellow text-[11px] font-bold uppercase tracking-widest">
                                 {featuredAnnouncement.category || 'Latest Update'}
                               </span>
                             </div>
-                            <div className="flex items-center gap-3 text-slate-300 text-sm">
-                              <div className="flex items-center gap-1.5 text-slate-200">
-                                <User className="w-3.5 h-3.5 text-slate-400" />
+                            <div className="flex items-center gap-3 text-muted-foreground dark:text-slate-300 text-sm">
+                              <div className="flex items-center gap-1.5 text-foreground dark:text-slate-200">
+                                <User className="w-3.5 h-3.5 text-muted-foreground dark:text-slate-400" />
                                 {featuredAnnouncement.createdByName}
                               </div>
-                              <span className="text-slate-600">•</span>
+                              <span className="text-muted-foreground/60 dark:text-slate-600">•</span>
                               <span>{format(new Date(featuredAnnouncement.createdAt), 'MMM d, yyyy')}</span>
                             </div>
                           </div>
-                          <h2 className="text-3xl font-bold text-white leading-tight mb-3">
+                          <h2 className="text-3xl font-bold text-foreground leading-tight mb-3">
                             {featuredAnnouncement.title}
                           </h2>
                         </div>
                         {featuredAnnouncement.imageUrl && (
-                          <div className="w-full bg-black/20 border-b border-slate-800/50">
+                          <div className="w-full bg-muted/20 dark:bg-black/20 border-b border-border dark:border-slate-800/50">
                             <img
                               src={featuredAnnouncement.imageUrl}
                               alt={featuredAnnouncement.title}
@@ -660,15 +719,15 @@ const Announcements = () => {
                           </div>
                         )}
                         <div className="px-6 py-8">
-                          <div className="prose prose-invert max-w-none">
-                            <p className="text-slate-200 text-lg leading-relaxed whitespace-pre-line">
+                          <div className="prose prose-invert dark:prose-invert max-w-none">
+                            <p className="text-foreground/90 dark:text-slate-200 text-lg leading-relaxed whitespace-pre-line">
                               {getTruncatedContent(featuredAnnouncement.content, featuredAnnouncement.id, 900)}
                             </p>
                           </div>
                           {needsTruncate(featuredAnnouncement.content || '', 900) && (
                             <button
                               onClick={() => toggleExpand(featuredAnnouncement.id)}
-                              className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-wildcats-yellow hover:text-white transition"
+                              className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-wildcats-maroon hover:text-wildcats-maroon/80 dark:text-wildcats-yellow dark:hover:text-white transition"
                             >
                               {expandedAnnouncements[featuredAnnouncement.id] ? 'Show Less' : 'Show More'}
                               {expandedAnnouncements[featuredAnnouncement.id] ? (
@@ -685,8 +744,8 @@ const Announcements = () => {
                     {pastAnnouncements.length > 0 && (
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
-                          <h3 className="text-xl font-semibold text-white">Past Announcements</h3>
-                          <span className="text-sm text-slate-400">
+                          <h3 className="text-xl font-semibold text-foreground">Past Announcements</h3>
+                          <span className="text-sm text-muted-foreground">
                             {pastAnnouncements.length} {pastAnnouncements.length === 1 ? 'update' : 'updates'}
                           </span>
                         </div>
@@ -694,9 +753,9 @@ const Announcements = () => {
                           {pastAnnouncements.map((announcement) => (
                             <article
                               key={announcement.id}
-                              className="rounded-2xl border border-slate-800/60 bg-slate-900/70 p-5 flex flex-col gap-4 shadow-lg h-full min-h-[320px]"
+                              className="rounded-2xl border border-border dark:border-slate-800/60 bg-card/70 dark:bg-slate-900/70 p-5 flex flex-col gap-4 shadow-lg h-full min-h-[320px]"
                             >
-                              <div className="w-full overflow-hidden rounded-xl border border-slate-800/50 bg-black/30 aspect-[16/9] flex items-center justify-center">
+                              <div className="w-full overflow-hidden rounded-xl border border-border dark:border-slate-800/50 bg-muted/30 dark:bg-black/30 aspect-[16/9] flex items-center justify-center">
                                 {announcement.imageUrl ? (
                                   <img
                                     src={announcement.imageUrl}
@@ -707,26 +766,26 @@ const Announcements = () => {
                                     }}
                                   />
                                 ) : (
-                                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-slate-400">
-                                    <Megaphone className="w-10 h-10 text-slate-500" />
+                                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground">
+                                    <Megaphone className="w-10 h-10 text-muted-foreground/60" />
                                     <span className="text-xs uppercase tracking-wide">No image provided</span>
                                   </div>
                                 )}
                               </div>
                               <div className="space-y-2 flex-1">
-                                <div className="flex items-center justify-between text-xs text-slate-400">
+                                <div className="flex items-center justify-between text-xs text-muted-foreground">
                                   <span>{announcement.category || 'Update'}</span>
                                   <span>{format(new Date(announcement.createdAt), 'MMM d')}</span>
                                 </div>
-                                <h4 className="text-lg font-semibold text-white line-clamp-2">{announcement.title}</h4>
+                                <h4 className="text-lg font-semibold text-foreground line-clamp-2">{announcement.title}</h4>
                               </div>
-                              <p className="text-sm text-slate-300 whitespace-pre-line flex-1">
+                              <p className="text-sm text-foreground/80 dark:text-slate-300 whitespace-pre-line flex-1">
                                 {getTruncatedContent(announcement.content, announcement.id, 280)}
                               </p>
                               {needsTruncate(announcement.content || '', 280) && (
                                 <button
                                   onClick={() => toggleExpand(announcement.id)}
-                                  className="text-sm font-semibold text-wildcats-yellow hover:text-white transition self-start"
+                                  className="text-sm font-semibold text-wildcats-maroon hover:text-wildcats-maroon/80 dark:text-wildcats-yellow dark:hover:text-white transition self-start"
                                 >
                                   {expandedAnnouncements[announcement.id] ? 'Show Less' : 'Show More'}
                                 </button>
@@ -742,25 +801,25 @@ const Announcements = () => {
                     {announcements.map((announcement) => (
                       <article
                         key={announcement.id}
-                        className="relative flex flex-col rounded-2xl border border-slate-800/60 bg-slate-900/80 shadow-xl backdrop-blur-md transition-all hover:border-wildcats-yellow/30 overflow-hidden"
+                        className="relative flex flex-col rounded-2xl border border-border dark:border-slate-800/60 bg-card/80 dark:bg-slate-900/80 shadow-xl backdrop-blur-md transition-all hover:border-wildcats-yellow/30 overflow-hidden"
                       >
                         {/* Header with Category and Meta */}
-                        <div className="px-6 pt-6 pb-4 border-b border-slate-800/50 bg-slate-950/20">
+                        <div className="px-6 pt-6 pb-4 border-b border-border dark:border-slate-800/50 bg-background/20 dark:bg-slate-950/20">
                           <div className="flex items-center justify-between gap-4 mb-3">
-                            <span className="inline-flex items-center px-3 py-1 rounded-full bg-wildcats-maroon/20 border border-wildcats-maroon/30 text-wildcats-yellow text-xs font-bold uppercase tracking-wider">
+                            <span className="inline-flex items-center px-3 py-1 rounded-full bg-wildcats-maroon/20 border border-wildcats-maroon/30 text-wildcats-maroon dark:text-wildcats-yellow text-xs font-bold uppercase tracking-wider">
                               {announcement.category || 'News / Announcement'}
                             </span>
-                            <div className="flex items-center gap-3 text-slate-400 text-sm">
+                            <div className="flex items-center gap-3 text-muted-foreground dark:text-slate-400 text-sm">
                               <div className="flex items-center gap-1.5">
-                                <User className="w-3.5 h-3.5 text-slate-500" />
-                                <span className="font-medium text-slate-300">{announcement.createdByName}</span>
+                                <User className="w-3.5 h-3.5 text-muted-foreground/60 dark:text-slate-500" />
+                                <span className="font-medium text-foreground dark:text-slate-300">{announcement.createdByName}</span>
                               </div>
-                              <span className="text-slate-600">•</span>
+                              <span className="text-muted-foreground/60 dark:text-slate-600">•</span>
                               <span>{format(new Date(announcement.createdAt), 'MMM d, yyyy')}</span>
                             </div>
                           </div>
 
-                          <h2 className="text-3xl font-bold text-white leading-tight tracking-tight mb-3">
+                          <h2 className="text-3xl font-bold text-foreground leading-tight tracking-tight mb-3">
                             {announcement.title}
                           </h2>
 
@@ -778,7 +837,7 @@ const Announcements = () => {
                               </span>
                             )}
                             {announcement.pinned && (
-                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-wildcats-yellow/10 border border-wildcats-yellow/20 text-wildcats-yellow flex items-center gap-1">
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-wildcats-yellow/10 border border-wildcats-yellow/20 text-wildcats-maroon dark:text-wildcats-yellow flex items-center gap-1">
                                 <Pin className="w-3 h-3" />
                                 PINNED
                               </span>
@@ -788,7 +847,7 @@ const Announcements = () => {
 
                         {/* Image Banner */}
                         {announcement.imageUrl && (
-                          <div className="w-full bg-black/20 border-b border-slate-800/50">
+                          <div className="w-full bg-muted/20 dark:bg-black/20 border-b border-border dark:border-slate-800/50">
                             <img
                               src={announcement.imageUrl}
                               alt={announcement.title}
@@ -802,8 +861,8 @@ const Announcements = () => {
 
                     {/* Content */}
                         <div className="px-6 py-6">
-                          <div className="prose prose-invert max-w-none">
-                            <p className="text-slate-300 text-lg leading-relaxed whitespace-pre-line">
+                          <div className="prose prose-invert dark:prose-invert max-w-none">
+                            <p className="text-foreground/80 dark:text-slate-300 text-lg leading-relaxed whitespace-pre-line">
                               {(announcement.content || '').trim()}
                             </p>
                           </div>
@@ -811,7 +870,7 @@ const Announcements = () => {
 
                         {/* Footer / Actions */}
                         {(isDJ || isModerator) && (
-                          <div className="mt-auto px-6 py-4 bg-slate-950/30 border-t border-slate-800/50 flex flex-wrap items-center justify-between gap-4">
+                          <div className="mt-auto px-6 py-4 bg-background/30 dark:bg-slate-950/30 border-t border-border dark:border-slate-800/50 flex flex-wrap items-center justify-between gap-4">
                             <div className="flex flex-col gap-1 text-xs">
                                {isModerator && announcement.status === 'PUBLISHED' && announcement.approvedByName && (
                                   <div className="flex items-center gap-1.5 text-emerald-400">
@@ -891,7 +950,7 @@ const Announcements = () => {
 
                                   {announcement.status === 'PUBLISHED' && (
                                     <>
-                                      <button onClick={() => handleTogglePin(announcement)} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors border ${announcement.pinned ? 'bg-wildcats-yellow/10 border-wildcats-yellow/20 text-wildcats-yellow' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}>
+                                      <button onClick={() => handleTogglePin(announcement)} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors border ${announcement.pinned ? 'bg-wildcats-yellow/10 border-wildcats-yellow/20 text-wildcats-maroon dark:text-wildcats-yellow' : 'bg-muted border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground'}`}>
                                         {announcement.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
                                         {announcement.pinned ? 'Unpin' : 'Pin'}
                                       </button>
@@ -934,18 +993,18 @@ const Announcements = () => {
                 <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 0}
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-800 px-4 py-2 text-slate-200 disabled:opacity-40"
+                  className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-foreground disabled:opacity-40"
                 >
                   <ChevronLeft className="w-4 h-4" />
                   Previous
                 </button>
-                <span className="text-slate-300">
+                <span className="text-foreground/80">
                   Page {currentPage + 1} of {totalPages}
                 </span>
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage >= totalPages - 1}
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-800 px-4 py-2 text-slate-200 disabled:opacity-40"
+                  className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-foreground disabled:opacity-40"
                 >
                   Next
                   <ChevronRight className="w-4 h-4" />
