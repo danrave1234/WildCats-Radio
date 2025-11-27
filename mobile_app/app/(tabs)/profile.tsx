@@ -552,16 +552,16 @@ const ProfileScreen: React.FC = () => {
       <LinearGradient colors={['rgba(251,191,36,0.4)', 'rgba(127,29,29,0.3)', 'transparent']} start={{ x: 1, y: 0 }} end={{ x: 0, y: 1 }} style={styles.gradientBlur1} />
       <LinearGradient colors={['rgba(127,29,29,0.3)', 'rgba(225,29,72,0.2)', 'transparent']} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={styles.gradientBlur2} />
 
+      {/* Menu Title - Fixed at top */}
+      <View style={styles.titleContainer}>
+        <Text style={styles.title}>Menu</Text>
+      </View>
+
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Menu Title */}
-        <View style={styles.titleContainer}>
-          <Text style={styles.title}>Menu</Text>
-        </View>
-
         {/* User Profile Section with Dropdown */}
         {isAuthenticated && userData ? (
           <View style={styles.profileCard}>
@@ -795,7 +795,7 @@ const ProfileScreen: React.FC = () => {
               style={styles.logoutButton}
               activeOpacity={0.8}
             >
-              <Ionicons name="log-out-outline" size={22} color="#EF4444" />
+              <Ionicons name="log-out-outline" size={22} color="#FFFFFF" />
               <Text style={styles.logoutButtonText}>Log out</Text>
             </TouchableOpacity>
           </View>
@@ -1690,6 +1690,7 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingBottom: 16,
     zIndex: 10,
+    backgroundColor: 'transparent',
   },
   title: {
     fontSize: 32,
@@ -1914,24 +1915,24 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   logoutButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#EF4444',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderColor: 'rgba(239, 68, 68, 0.5)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
+    paddingVertical: 12,
     shadowColor: '#EF4444',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 2,
+    elevation: 5,
   },
   logoutButtonText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#EF4444',
+    color: '#FFFFFF',
     marginLeft: 8,
   },
   // Modal styles
