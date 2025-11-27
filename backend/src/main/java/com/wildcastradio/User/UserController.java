@@ -348,50 +348,119 @@ public class UserController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<?> logoutUser(Authentication authentication, HttpServletResponse response) {
-        if (authentication != null) {
+    public ResponseEntity<?> logoutUser(Authentication authentication, HttpServletRequest request, HttpServletResponse response) {
+        try {
+            // Check if user is authenticated
+            if (authentication == null) {
+                logger.warn("Logout attempt without authentication");
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("error", "Unauthorized: No active session found");
+                errorResponse.put("code", "UNAUTHORIZED");
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+            }
+
             UserEntity user = userService.getUserByEmail(authentication.getName())
                     .orElse(null);
             
-            if (user != null) {
-                // Check if user is active DJ of LIVE broadcast
-                Optional<BroadcastEntity> activeBroadcast = broadcastRepository
-                    .findByCurrentActiveDJAndStatus(user, BroadcastEntity.BroadcastStatus.LIVE);
+            if (user == null) {
+                logger.warn("Logout attempt for non-existent user: {}", authentication.getName());
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("error", "User not found");
+                errorResponse.put("code", "USER_NOT_FOUND");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+            }
+
+            // Check if user is active DJ of LIVE broadcast
+            Optional<BroadcastEntity> activeBroadcast = broadcastRepository
+                .findByCurrentActiveDJAndStatus(user, BroadcastEntity.BroadcastStatus.LIVE);
+            
+            if (activeBroadcast.isPresent()) {
+                BroadcastEntity broadcast = activeBroadcast.get();
+                logger.warn("Logout blocked: User {} (ID: {}) attempted to logout while actively broadcasting broadcast {} (ID: {})", 
+                    user.getEmail(), user.getId(), broadcast.getTitle(), broadcast.getId());
                 
-                if (activeBroadcast.isPresent()) {
-                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                        .body(Map.of("error", 
-                            "Cannot logout while actively broadcasting. Please hand over the broadcast first."));
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("success", false);
+                errorResponse.put("error", "Cannot logout while actively broadcasting. Please hand over the broadcast first.");
+                errorResponse.put("code", "LOGOUT_FORBIDDEN_ACTIVE_DJ");
+                errorResponse.put("broadcastId", broadcast.getId());
+                errorResponse.put("broadcastTitle", broadcast.getTitle());
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+            }
+            // Clear all authentication cookies
+            // IMPORTANT: For users authenticated via OAuth, cookies were issued with a root domain
+            // (e.g., wildcat-radio.live) using SecurityConfig#setCookieDomain. To reliably delete
+            // those cookies, the logout cookies must use the same domain + path.
+            // Hence we derive the root domain from the current request host.
+
+            String host = request.getHeader("Host");
+            if (host == null || host.isEmpty()) {
+                host = request.getServerName();
+            }
+            String domain = host != null ? host.split(":")[0] : null;
+
+            // Only set a domain for non-local environments; localhost cookies should remain host-only
+            String rootDomain = null;
+            if (domain != null && !domain.contains("localhost") && !domain.contains("127.0.0.1")) {
+                String[] parts = domain.split("\\.");
+                if (parts.length >= 2) {
+                    rootDomain = parts[parts.length - 2] + "." + parts[parts.length - 1];
+                } else {
+                    rootDomain = domain;
                 }
             }
-        }
 
-        // Clear all authentication cookies
-        Cookie tokenCookie = new Cookie("token", "");
-        tokenCookie.setHttpOnly(true);
-        tokenCookie.setSecure(useSecureCookies);
-        tokenCookie.setPath("/");
-        tokenCookie.setMaxAge(0); // Expire immediately
-        tokenCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
-        response.addCookie(tokenCookie);
-        
-        Cookie userIdCookie = new Cookie("userId", "");
-        userIdCookie.setHttpOnly(true);
-        userIdCookie.setSecure(useSecureCookies);
-        userIdCookie.setPath("/");
-        userIdCookie.setMaxAge(0); // Expire immediately
-        userIdCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
-        response.addCookie(userIdCookie);
-        
-        Cookie userRoleCookie = new Cookie("userRole", "");
-        userRoleCookie.setHttpOnly(true);
-        userRoleCookie.setSecure(useSecureCookies);
-        userRoleCookie.setPath("/");
-        userRoleCookie.setMaxAge(0); // Expire immediately
-        userRoleCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
-        response.addCookie(userRoleCookie);
-        
-        return ResponseEntity.ok(Map.of("success", true, "message", "Logged out successfully"));
+            // Configure and add deletion cookies that match auth cookies
+            Cookie tokenCookie = new Cookie("token", "");
+            tokenCookie.setHttpOnly(true);
+            tokenCookie.setSecure(useSecureCookies);
+            tokenCookie.setPath("/");
+            tokenCookie.setMaxAge(0); // Expire immediately
+            tokenCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
+            if (rootDomain != null && !rootDomain.isEmpty()) {
+                tokenCookie.setDomain(rootDomain);
+            }
+            response.addCookie(tokenCookie);
+
+            Cookie userIdCookie = new Cookie("userId", "");
+            userIdCookie.setHttpOnly(true);
+            userIdCookie.setSecure(useSecureCookies);
+            userIdCookie.setPath("/");
+            userIdCookie.setMaxAge(0); // Expire immediately
+            userIdCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
+            if (rootDomain != null && !rootDomain.isEmpty()) {
+                userIdCookie.setDomain(rootDomain);
+            }
+            response.addCookie(userIdCookie);
+
+            Cookie userRoleCookie = new Cookie("userRole", "");
+            userRoleCookie.setHttpOnly(true);
+            userRoleCookie.setSecure(useSecureCookies);
+            userRoleCookie.setPath("/");
+            userRoleCookie.setMaxAge(0); // Expire immediately
+            userRoleCookie.setAttribute("SameSite", useSecureCookies ? "None" : "Lax");
+            if (rootDomain != null && !rootDomain.isEmpty()) {
+                userRoleCookie.setDomain(rootDomain);
+            }
+            response.addCookie(userRoleCookie);
+            
+            logger.info("User {} (ID: {}) logged out successfully", user.getEmail(), user.getId());
+            
+            Map<String, Object> successResponse = new HashMap<>();
+            successResponse.put("success", true);
+            successResponse.put("message", "Logged out successfully");
+            return ResponseEntity.ok(successResponse);
+            
+        } catch (Exception e) {
+            logger.error("Unexpected error during logout", e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("error", "An unexpected error occurred during logout");
+            errorResponse.put("code", "LOGOUT_ERROR");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
     }
 
     @PostMapping("/verify")
