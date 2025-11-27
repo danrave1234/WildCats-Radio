@@ -635,25 +635,25 @@ const Header = ({ onMobileMenuToggle }) => {
         <AlertDialogContent className="rounded-none">
           <AlertDialogHeader>
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {authError && authError.includes('Cannot logout') ? (
-                <div className="space-y-2">
-                  <div className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
-                    <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-red-800 dark:text-red-300">
-                        {authError}
-                      </p>
-                      <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                        You must hand over the broadcast to another DJ before logging out.
-                      </p>
+            {authError && authError.includes('Cannot logout') ? (
+              <div className="space-y-2">
+                <div className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                  <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-red-800 dark:text-red-300">
+                      {authError}
+                    </div>
+                    <div className="text-xs text-red-600 dark:text-red-400 mt-1">
+                      You must hand over the broadcast to another DJ before logging out.
                     </div>
                   </div>
                 </div>
-              ) : (
-                <p>This will sign you out of your account. You will need to sign in again to access your dashboard.</p>
-              )}
-            </AlertDialogDescription>
+              </div>
+            ) : (
+              <AlertDialogDescription>
+                This will sign you out of your account. You will need to sign in again to access your dashboard.
+              </AlertDialogDescription>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleLogoutCancel} className="rounded-none">Cancel</AlertDialogCancel>
