@@ -441,9 +441,16 @@ const SignupScreen: React.FC = () => {
               style={styles.createAccountButton}
               activeOpacity={0.8}
             >
-              <Text style={styles.createAccountButtonText}>
-                Create Account
-              </Text>
+              <LinearGradient
+                colors={['#FFC30B', '#FBBF24', '#FFC30B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.createAccountButtonGradient}
+              >
+                <Text style={styles.createAccountButtonText}>
+                  Create Account
+                </Text>
+              </LinearGradient>
             </TouchableOpacity>
 
             <View style={styles.loginLinkContainer}>
@@ -757,13 +764,20 @@ const SignupScreen: React.FC = () => {
                     activeOpacity={0.8}
                     disabled={!agreedToTerms || loading}
                   >
-                    {loading ? (
-                      <ActivityIndicator color="#000000" />
-                    ) : (
-                      <Text style={styles.modalSignupButtonText}>
-                        Create Account
-                      </Text>
-                    )}
+                    <LinearGradient
+                      colors={['#FFC30B', '#FBBF24', '#FFC30B']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.modalSignupButtonGradient}
+                    >
+                      {loading ? (
+                        <ActivityIndicator color="#000000" />
+                      ) : (
+                        <Text style={styles.modalSignupButtonText}>
+                          Create Account
+                        </Text>
+                      )}
+                    </LinearGradient>
                   </TouchableOpacity>
               </View>
             </ScrollView>
@@ -1079,17 +1093,19 @@ const styles = StyleSheet.create({
   },
   createAccountButton: {
     width: '100%',
-    backgroundColor: '#FFC30B', // mikado_yellow
-    paddingVertical: 14,
     borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 24,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 5,
+  },
+  createAccountButtonGradient: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   createAccountButtonText: {
     color: '#000000',
@@ -1362,16 +1378,18 @@ const styles = StyleSheet.create({
   },
   modalSignupButton: {
     width: '100%',
-    backgroundColor: '#FFC30B', // mikado_yellow
-    paddingVertical: 12,
     borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 5,
+  },
+  modalSignupButtonGradient: {
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   modalSignupButtonDisabled: {
     opacity: 0.6,

@@ -331,13 +331,20 @@ const LoginScreen: React.FC = () => {
               activeOpacity={0.8}
               disabled={loading}
             >
-              {loading ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.loginButtonText}>
-                  Log In
-                </Text>
-              )}
+              <LinearGradient
+                colors={['#91403E', '#7F1D1D', '#91403E']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.loginButtonGradient}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.loginButtonText}>
+                    Log In
+                  </Text>
+                )}
+              </LinearGradient>
             </TouchableOpacity>
 
             <View style={styles.signupLinkContainer}>
@@ -575,17 +582,19 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     width: '100%',
-    backgroundColor: '#91403E', // cordovan
-    paddingVertical: 16,
     borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 24,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 5,
+  },
+  loginButtonGradient: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   loginButtonText: {
     color: '#FFFFFF',

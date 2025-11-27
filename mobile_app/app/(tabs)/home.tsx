@@ -48,12 +48,12 @@ const HomeScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Base dark background */}
+      {/* Base black background */}
       <View style={styles.backgroundBase} />
       
-      {/* Radial gradient overlay - top center */}
+      {/* Radial gradient overlay - top center - reduced opacity to show black */}
       <LinearGradient
-        colors={['rgba(15,23,42,0.95)', 'rgba(2,6,23,0.95)']}
+        colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0.5)']}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={styles.gradientOverlay1}
@@ -186,7 +186,7 @@ const HomeScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#020617', // slate-950
+    backgroundColor: '#000000', // black
   },
   backgroundBase: {
     position: 'absolute',
@@ -194,7 +194,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#020617',
+    backgroundColor: '#000000', // black
   },
   gradientOverlay1: {
     position: 'absolute',
@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    opacity: 0.7,
+    opacity: 0.4, // Reduced opacity to show more black
   },
   gradientMaroon1: {
     position: 'absolute',
@@ -210,7 +210,7 @@ const styles = StyleSheet.create({
     left: -width * 0.2,
     width: width * 0.8,
     height: height * 0.8,
-    opacity: 0.7,
+    opacity: 0.3, // Reduced opacity to show more black
   },
   gradientYellow1: {
     position: 'absolute',
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
     right: -width * 0.15,
     width: width * 0.7,
     height: height * 0.7,
-    opacity: 0.7,
+    opacity: 0.3, // Reduced opacity to show more black
   },
   gradientBlur1: {
     position: 'absolute',
@@ -226,7 +226,7 @@ const styles = StyleSheet.create({
     right: -width * 0.15,
     width: width * 1.2,
     height: height * 0.8,
-    opacity: 0.8,
+    opacity: 0.4, // Reduced opacity to show more black
   },
   gradientBlur2: {
     position: 'absolute',
@@ -234,11 +234,12 @@ const styles = StyleSheet.create({
     left: -width * 0.2,
     width: width * 1.2,
     height: height * 1.0,
-    opacity: 0.7,
+    opacity: 0.3, // Reduced opacity to show more black
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
+    paddingBottom: 80, // Add padding for tab bar
   },
   content: {
     flex: 1,

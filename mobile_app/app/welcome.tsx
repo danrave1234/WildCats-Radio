@@ -125,9 +125,16 @@ const WelcomeScreen: React.FC = () => {
           style={styles.loginButton}
           activeOpacity={0.8}
         >
-          <Text style={styles.loginButtonText}>
-            Log In
-          </Text>
+          <LinearGradient
+            colors={['#91403E', '#7F1D1D', '#91403E']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.loginButtonGradient}
+          >
+            <Text style={styles.loginButtonText}>
+              Log In
+            </Text>
+          </LinearGradient>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -135,9 +142,16 @@ const WelcomeScreen: React.FC = () => {
           style={styles.signupButton}
           activeOpacity={0.8}
         >
-          <Text style={styles.signupButtonText}>
-            Sign Up
-          </Text>
+          <LinearGradient
+            colors={['#FFC30B', '#FBBF24', '#FFC30B']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.signupButtonGradient}
+          >
+            <Text style={styles.signupButtonText}>
+              Sign Up
+            </Text>
+          </LinearGradient>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -237,17 +251,19 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     width: '100%',
-    backgroundColor: '#91403E', // cordovan
-    paddingVertical: 16,
     borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 16,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 5,
+  },
+  loginButtonGradient: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   loginButtonText: {
     color: '#FFFFFF',
@@ -256,17 +272,19 @@ const styles = StyleSheet.create({
   },
   signupButton: {
     width: '100%',
-    backgroundColor: '#FFC30B', // mikado_yellow
-    paddingVertical: 16,
     borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 16,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 5,
+  },
+  signupButtonGradient: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   signupButtonText: {
     color: '#000000',
