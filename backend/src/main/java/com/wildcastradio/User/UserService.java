@@ -91,7 +91,8 @@ public class UserService implements UserDetailsService {
                 // Ignore invalid values; keep null to avoid bad data
             }
         }
-        user.setRole(UserEntity.UserRole.DJ); // Default role - allows creating broadcasts
+        // Default role for self-registered users should be LISTENER
+        user.setRole(UserEntity.UserRole.LISTENER);
         user.setVerified(false);
         user.setVerificationCode(generateVerificationCode());
 

@@ -41,6 +41,7 @@ import Toast from "../components/Toast"
 import { LockClosedIcon } from "@heroicons/react/24/solid"
 
 const logger = createLogger("DJDashboard")
+const DEFAULT_PANEL_ORDER = ["songRequests", "polls", "liveChat"]
 
 function ProfanityManager() {
   const [words, setWords] = useState([]);
@@ -227,6 +228,64 @@ export default function DJDashboard() {
   const [chatMessage, setChatMessage] = useState("")
   const [isDownloadingChat, setIsDownloadingChat] = useState(false)
   const [showScrollBottom, setShowScrollBottom] = useState(false)
+  const [panelOrder, setPanelOrder] = useState(DEFAULT_PANEL_ORDER)
+  const [draggingPanel, setDraggingPanel] = useState(null)
+  const [dragOverPanel, setDragOverPanel] = useState(null)
+
+  const handlePanelDragStart = (event, panelKey) => {
+    setDraggingPanel(panelKey)
+    try {
+      event.dataTransfer?.setData("text/plain", panelKey)
+      event.dataTransfer?.setDragImage?.(event.currentTarget, 0, 0)
+    } catch (_) {
+      // dataTransfer may not exist in some environments; safe to ignore
+    }
+  }
+
+  const handlePanelDragOver = (event, panelKey) => {
+    event.preventDefault()
+    if (dragOverPanel !== panelKey) {
+      setDragOverPanel(panelKey)
+    }
+  }
+
+  const handlePanelDrop = (event, targetPanel) => {
+    event.preventDefault()
+    if (draggingPanel && draggingPanel !== targetPanel) {
+      setPanelOrder((prevOrder) => {
+        const sourceIndex = prevOrder.indexOf(draggingPanel)
+        const targetIndex = prevOrder.indexOf(targetPanel)
+
+        if (sourceIndex === -1 || targetIndex === -1) {
+          return prevOrder
+        }
+
+        const updated = [...prevOrder]
+        updated.splice(sourceIndex, 1)
+        const newTargetIndex = updated.indexOf(targetPanel)
+        let insertIndex = newTargetIndex
+        if (sourceIndex < targetIndex) {
+          insertIndex = newTargetIndex + 1
+        }
+        if (insertIndex < 0) insertIndex = 0
+        if (insertIndex > updated.length) insertIndex = updated.length
+        updated.splice(insertIndex, 0, draggingPanel)
+        return updated
+      })
+    }
+    setDraggingPanel(null)
+    setDragOverPanel(null)
+  }
+
+  const handlePanelDragEnd = () => {
+    setDraggingPanel(null)
+    setDragOverPanel(null)
+  }
+
+  const getPanelOrderValue = (panelKey) => {
+    const index = panelOrder.indexOf(panelKey)
+    return index === -1 ? panelOrder.length : index
+  }
 
   // Song Requests State
   const [songRequests, setSongRequests] = useState([])
@@ -251,6 +310,7 @@ export default function DJDashboard() {
   const [newPoll, setNewPoll] = useState({
     question: "",
     options: ["", ""],
+    durationSeconds: "",
   })
   const [isCreatingPoll, setIsCreatingPoll] = useState(false)
 
@@ -261,6 +321,15 @@ export default function DJDashboard() {
 
   // Polls Display State
   const [polls, setPolls] = useState([])
+  const pollDurationMapRef = useRef({})
+  const pollCountdownIntervalRef = useRef(null)
+  const pollCountdownRef = useRef(null)
+  const [pollCountdown, setPollCountdown] = useState({ pollId: null, remainingMs: 0 })
+  useEffect(() => {
+    return () => {
+      clearPollCountdown()
+    }
+  }, [])
   const [activePoll, setActivePoll] = useState(null)
   const [showPollCreation, setShowPollCreation] = useState(false)
 
@@ -625,6 +694,8 @@ export default function DJDashboard() {
       setSongRequests([])
       setPolls([])
       setActivePoll(null)
+      clearPollCountdown()
+      pollDurationMapRef.current = {}
       return
     }
 
@@ -646,6 +717,8 @@ export default function DJDashboard() {
         setSongRequests([])
         setPolls([])
         setActivePoll(null)
+        clearPollCountdown()
+        pollDurationMapRef.current = {}
 
         // Fetch chat messages
         const chatResponse = await chatService.getMessages(currentBroadcast.id)
@@ -945,6 +1018,9 @@ export default function DJDashboard() {
                       }
                       return prev
                     })
+                  if (pollUpdate.poll?.active === false) {
+                    clearPollCountdown(pollUpdate.poll.id)
+                  }
                   })
                   .catch((error) => {
                     logger.debug("DJ Dashboard: Could not fetch results for updated poll, using poll data:", error)
@@ -1594,6 +1670,8 @@ export default function DJDashboard() {
       setSongRequests([])
       setPolls([])
       setActivePoll(null)
+      clearPollCountdown()
+      pollDurationMapRef.current = {}
     } catch (error) {
       logger.error("Error ending broadcast:", error)
 
@@ -1839,6 +1917,10 @@ export default function DJDashboard() {
       return
     }
 
+    const parsedDuration = parseInt(newPoll.durationSeconds, 10)
+    const durationSeconds =
+      Number.isFinite(parsedDuration) && parsedDuration > 0 ? parsedDuration : null
+
     try {
       setIsCreatingPoll(true)
 
@@ -1850,6 +1932,10 @@ export default function DJDashboard() {
 
       const response = await pollService.createPoll(pollData)
       const createdPoll = response.data
+      if (durationSeconds) {
+        pollDurationMapRef.current[createdPoll.id] = durationSeconds
+        createdPoll.clientDurationSeconds = durationSeconds
+      }
 
       logger.debug("DJ Dashboard: Poll created successfully (draft):", createdPoll)
 
@@ -1864,7 +1950,7 @@ export default function DJDashboard() {
       setTotalPolls((prev) => prev + 1)
 
       // Reset form and close creation panel
-      setNewPoll({ question: "", options: ["", ""] })
+      setNewPoll({ question: "", options: ["", ""], durationSeconds: "" })
       setShowPollCreation(false)
     } catch (error) {
       logger.error("Error creating poll:", error)
@@ -1890,15 +1976,26 @@ export default function DJDashboard() {
         totalVotes: latestResults.totalVotes || 0
       }
       
-      logger.debug("DJ Dashboard: Poll posted/reposted:", postedWithResults)
-      setPolls((prev) => prev.map((p) => (p.id === postedWithResults.id ? postedWithResults : p)))
-      setActivePoll(postedWithResults)
+      const pollDurationSeconds = pollDurationMapRef.current[postedWithResults.id]
+      const pollWithDuration = pollDurationSeconds
+        ? { ...postedWithResults, clientDurationSeconds: pollDurationSeconds }
+        : postedWithResults
+
+      logger.debug("DJ Dashboard: Poll posted/reposted:", pollWithDuration)
+      setPolls((prev) => prev.map((p) => (p.id === pollWithDuration.id ? pollWithDuration : p)))
+      setActivePoll(pollWithDuration)
+
+      if (pollDurationSeconds) {
+        startPollCountdown(pollWithDuration.id, pollDurationSeconds)
+      } else {
+        clearPollCountdown(pollWithDuration.id)
+      }
     } catch (error) {
       logger.error("DJ Dashboard: Failed to post poll:", error)
     }
   }
 
-  const handleEndPoll = async (pollId) => {
+  async function handleEndPoll(pollId) {
     try {
       // Fetch latest results before ending to preserve them
       const resultsResponse = await pollService.getPollResults(pollId)
@@ -1916,10 +2013,64 @@ export default function DJDashboard() {
       
       logger.debug("DJ Dashboard: Poll ended (results preserved):", endedWithResults)
       setPolls((prev) => prev.map((p) => (p.id === endedWithResults.id ? endedWithResults : p)))
+      if (pollCountdownRef.current?.pollId === pollId) {
+        clearPollCountdown(pollId)
+      }
       // Don't clear activePoll - keep showing results even when ended
     } catch (error) {
       logger.error("DJ Dashboard: Failed to end poll:", error)
     }
+  }
+
+  function formatPollCountdown(ms) {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000))
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    if (minutes > 0) {
+      return `${minutes}:${seconds.toString().padStart(2, "0")}`
+    }
+    return `${seconds}s`
+  }
+
+  function clearPollCountdown(pollId = null) {
+    const active = pollCountdownRef.current
+    if (pollId && active && active.pollId !== pollId) {
+      return
+    }
+    if (pollCountdownIntervalRef.current) {
+      clearInterval(pollCountdownIntervalRef.current)
+      pollCountdownIntervalRef.current = null
+    }
+    pollCountdownRef.current = null
+    setPollCountdown({ pollId: null, remainingMs: 0 })
+  }
+
+  function startPollCountdown(pollId, durationSeconds) {
+    clearPollCountdown()
+    if (!pollId || !durationSeconds || durationSeconds <= 0) {
+      return
+    }
+
+    const expiresAt = Date.now() + durationSeconds * 1000
+    pollCountdownRef.current = { pollId, expiresAt }
+    setPollCountdown({ pollId, remainingMs: durationSeconds * 1000 })
+
+    pollCountdownIntervalRef.current = setInterval(() => {
+      const active = pollCountdownRef.current
+      if (!active) {
+        clearPollCountdown()
+        return
+      }
+
+      const remaining = active.expiresAt - Date.now()
+      if (remaining <= 0) {
+        clearPollCountdown(active.pollId)
+        handleEndPoll(active.pollId)
+        return
+      }
+
+      setPollCountdown({ pollId: active.pollId, remainingMs: remaining })
+    }, 1000)
   }
 
   // Legacy handler - keeping for compatibility but redirects to handleEndPoll
@@ -1932,6 +2083,10 @@ export default function DJDashboard() {
       setPolls((prev) => prev.filter((p) => p.id !== pollId))
       setActivePoll((prev) => (prev && prev.id === pollId ? null : prev))
       setTotalPolls((prev) => (prev > 0 ? prev - 1 : 0))
+      if (pollDurationMapRef.current[pollId]) {
+        delete pollDurationMapRef.current[pollId]
+      }
+      clearPollCountdown(pollId)
     } catch (error) {
       logger.error("DJ Dashboard: Failed to delete poll:", error)
     }
@@ -1996,6 +2151,7 @@ export default function DJDashboard() {
       </div>
     );
   }
+
 
   return (
       <div className="relative min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -2398,10 +2554,29 @@ export default function DJDashboard() {
                 {/* On large screens: three columns; on xl: 3/6/3 layout with wider chat in the center */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-12 gap-6 items-stretch">
                   {/* Left Column: Song Requests */}
-                  <div className="order-2 lg:order-1 lg:col-span-1 xl:col-span-3">
+                  <div
+                    className="lg:col-span-1 xl:col-span-3"
+                    style={{ order: getPanelOrderValue("songRequests") }}
+                    onDragEnter={(event) => handlePanelDragOver(event, "songRequests")}
+                    onDragOver={(event) => handlePanelDragOver(event, "songRequests")}
+                    onDrop={(event) => handlePanelDrop(event, "songRequests")}
+                    aria-label="Song Requests panel"
+                    title="Drag to move Song Requests"
+                  >
                     {/* Song Requests Card */}
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[400px] sm:min-h-[460px] max-h-[90vh] h-full">
-                      <div className="bg-gold-500 text-maroon-900 px-4 py-3 border-b border-gold-400 flex-shrink-0">
+                    <div
+                      className={`bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[420px] h-[520px] sm:h-[560px] max-h-[75vh] ${
+                        draggingPanel === "songRequests" ? "opacity-90 scale-[0.995]" : ""
+                      } ${dragOverPanel === "songRequests" ? "ring-2 ring-maroon-500 ring-offset-2 dark:ring-offset-gray-900" : ""}`}
+                    >
+                      <div
+                        className="bg-gold-500 text-maroon-900 px-4 py-3 border-b border-gold-400 flex-shrink-0 cursor-grab active:cursor-grabbing"
+                        draggable
+                        onDragStart={(event) => handlePanelDragStart(event, "songRequests")}
+                        onDragEnd={handlePanelDragEnd}
+                        role="button"
+                        aria-label="Drag Song Requests panel"
+                      >
                       <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <MusicalNoteIcon className="h-5 w-5" />
@@ -2412,7 +2587,7 @@ export default function DJDashboard() {
                           </span>
                         </div>
                       </div>
-                      <EnhancedScrollArea className="flex-1 min-h-0 flex-shrink-0 max-h-full">
+                      <EnhancedScrollArea autoHide={false} className="flex-1 min-h-0 flex-shrink-0 max-h-full">
                         <div className="p-3 space-y-2.5">
                           {songRequests.length === 0 ? (
                             <div className="text-center text-gray-500 dark:text-gray-400 py-12 px-4">
@@ -2495,10 +2670,29 @@ export default function DJDashboard() {
                   </div>
 
                   {/* Center Column: Live Chat - Main Focus */}
-                  <div className="order-1 lg:order-2 lg:col-span-1 xl:col-span-6 w-full">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[400px] sm:min-h-[460px] max-h-[90vh] h-full">
+                  <div
+                    className="lg:col-span-1 xl:col-span-6 w-full"
+                    style={{ order: getPanelOrderValue("liveChat") }}
+                    onDragEnter={(event) => handlePanelDragOver(event, "liveChat")}
+                    onDragOver={(event) => handlePanelDragOver(event, "liveChat")}
+                    onDrop={(event) => handlePanelDrop(event, "liveChat")}
+                    aria-label="Live Chat panel"
+                    title="Drag to move Live Chat"
+                  >
+                    <div
+                      className={`bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[420px] h-[520px] sm:h-[560px] max-h-[75vh] ${
+                        draggingPanel === "liveChat" ? "opacity-90 scale-[0.995]" : ""
+                      } ${dragOverPanel === "liveChat" ? "ring-2 ring-maroon-500 ring-offset-2 dark:ring-offset-gray-900" : ""}`}
+                    >
                       {/* Header */}
-                      <div className="bg-maroon-600 text-white px-3 sm:px-5 py-3 sm:py-4 border-b border-maroon-700 flex-shrink-0">
+                      <div
+                        className="bg-maroon-600 text-white px-3 sm:px-5 py-3 sm:py-4 border-b border-maroon-700 flex-shrink-0 cursor-grab active:cursor-grabbing"
+                        draggable
+                        onDragStart={(event) => handlePanelDragStart(event, "liveChat")}
+                        onDragEnd={handlePanelDragEnd}
+                        role="button"
+                        aria-label="Drag Live Chat panel"
+                      >
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <div className="flex items-center gap-2">
                             <ChatBubbleLeftRightIcon className="h-5 w-5 sm:h-6 sm:w-6" />
@@ -2684,9 +2878,28 @@ export default function DJDashboard() {
                   </div>
 
                   {/* Right Column: Polls */}
-                  <div className="order-3 lg:order-3 lg:col-span-1 xl:col-span-3">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[400px] sm:min-h-[460px] max-h-[90vh] h-full">
-                      <div className="bg-maroon-700 text-white px-4 py-3 border-b border-maroon-800 flex-shrink-0">
+                  <div
+                    className="lg:col-span-1 xl:col-span-3"
+                    style={{ order: getPanelOrderValue("polls") }}
+                    onDragEnter={(event) => handlePanelDragOver(event, "polls")}
+                    onDragOver={(event) => handlePanelDragOver(event, "polls")}
+                    onDrop={(event) => handlePanelDrop(event, "polls")}
+                    aria-label="Polls panel"
+                    title="Drag to move Polls & Results"
+                  >
+                    <div
+                      className={`bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col transition-all duration-300 ease-in-out min-h-[420px] h-[520px] sm:h-[560px] max-h-[75vh] ${
+                        draggingPanel === "polls" ? "opacity-90 scale-[0.995]" : ""
+                      } ${dragOverPanel === "polls" ? "ring-2 ring-maroon-500 ring-offset-2 dark:ring-offset-gray-900" : ""}`}
+                    >
+                      <div
+                        className="bg-maroon-700 text-white px-4 py-3 border-b border-maroon-800 flex-shrink-0 cursor-grab active:cursor-grabbing"
+                        draggable
+                        onDragStart={(event) => handlePanelDragStart(event, "polls")}
+                        onDragEnd={handlePanelDragEnd}
+                        role="button"
+                        aria-label="Drag Polls panel"
+                      >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <ChartBarIcon className="h-5 w-5" />
@@ -2722,6 +2935,25 @@ export default function DJDashboard() {
                                   className="w-full px-3 py-2 text-sm border-2 border-maroon-300 dark:border-maroon-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                 required
                             />
+                            <div className="space-y-1">
+                              <label className="text-xs font-semibold text-maroon-900 dark:text-maroon-100">
+                                Auto-close timer (seconds)
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="5"
+                                value={newPoll.durationSeconds}
+                                onChange={(e) =>
+                                  setNewPoll((prev) => ({ ...prev, durationSeconds: e.target.value }))
+                                }
+                                placeholder="Optional (leave blank for manual)"
+                                className="w-full px-3 py-2 text-sm border-2 border-maroon-300 dark:border-maroon-600 rounded-lg focus:ring-2 focus:ring-maroon-500 focus:border-maroon-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              />
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Leave empty to keep the poll open until you end it manually.
+                              </p>
+                            </div>
                             <div className="space-y-2">
                               {newPoll.options.map((option, index) => (
                                   <div key={index} className="flex space-x-2">
@@ -2791,6 +3023,15 @@ export default function DJDashboard() {
                                   return 0
                                 }
                               })()
+                              const configuredDuration = poll.clientDurationSeconds ?? pollDurationMapRef.current[poll.id]
+                              const isCountingDown = pollCountdown.pollId === poll.id && pollCountdown.remainingMs > 0
+                              const timerLabel = (() => {
+                                if (!configuredDuration) return null
+                                if (isCountingDown) {
+                                  return `Ends in ${formatPollCountdown(pollCountdown.remainingMs)}`
+                                }
+                                return `Timer: ${configuredDuration}s`
+                              })()
 
                               return (
                                   <div
@@ -2807,19 +3048,26 @@ export default function DJDashboard() {
                                 <span className="text-xs text-gray-500 dark:text-gray-400">
                                   Total votes: {totalVotes}
                                 </span>
-                                        {poll.active ? (
+                                        <div className="flex items-center gap-2">
+                                          {poll.active ? (
                                             <span className="text-xs bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 px-2 py-0.5 rounded-full">
                                     Active
                                   </span>
-                                        ) : totalVotes > 0 ? (
+                                          ) : totalVotes > 0 ? (
                                             <span className="text-xs bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 px-2 py-0.5 rounded-full">
                                               Ended
                                             </span>
-                                        ) : (
+                                          ) : (
                                             <span className="text-xs bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300 px-2 py-0.5 rounded-full">
                                               Draft
                                             </span>
-                                        )}
+                                          )}
+                                          {timerLabel && (
+                                            <span className={`text-xs ${isCountingDown ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400"}`}>
+                                              {timerLabel}
+                                            </span>
+                                          )}
+                                        </div>
                                       </div>
                                     </div>
                                     <div className="space-y-1.5">
