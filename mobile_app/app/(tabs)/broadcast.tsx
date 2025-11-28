@@ -15,6 +15,8 @@ import {
   Animated,
   Easing,
   Pressable,
+  Dimensions,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,7 +29,7 @@ import { pollService, Poll } from '../../services/pollService';
 import { songRequestService, SongRequest } from '../../services/songRequestService';
 import { useAudioStreaming } from '../../hooks/useAudioStreaming';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
-import { getUpcomingBroadcasts } from '../../services/userService';
+import { getUpcomingBroadcasts, getMe, UserData } from '../../services/userService';
 
 // Types
 interface StreamStatus {
@@ -41,6 +43,14 @@ interface TabDefinition {
   name: string;
   icon: keyof typeof Ionicons.glyphMap;
 }
+
+// Helper function to get user initials
+const getInitials = (user: any) => {
+  if (!user) return 'LS';
+  const firstInitial = user.firstname ? user.firstname.charAt(0) : '';
+  const lastInitial = user.lastname ? user.lastname.charAt(0) : '';
+  return `${firstInitial}${lastInitial}`.toUpperCase() || 'LS';
+};
 
 const BroadcastScreen: React.FC = () => {
   const router = useRouter();
@@ -69,6 +79,9 @@ const BroadcastScreen: React.FC = () => {
   const [isStreamReady, setIsStreamReady] = useState(false);
   const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
   const [recoveryNotification, setRecoveryNotification] = useState<{ message: string; timestamp: number } | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const [isLoadingUserData, setIsLoadingUserData] = useState(false);
   
   const chatScrollViewRef = useRef<ScrollView>(null);
   const chatConnectionRef = useRef<any>(null);
@@ -86,6 +99,26 @@ const BroadcastScreen: React.FC = () => {
     { name: 'Requests', icon: 'musical-notes-outline', key: 'requests' },
     { name: 'Polls', icon: 'stats-chart-outline', key: 'polls' },
   ], []);
+
+  // Fetch user data when authenticated
+  useEffect(() => {
+    const fetchUserData = async () => {
+      if (isAuthenticated && showProfileModal) {
+        setIsLoadingUserData(true);
+        try {
+          const data = await getMe();
+          if (!('error' in data)) {
+            setUserData(data);
+          }
+        } catch (error) {
+          console.error('Failed to fetch user data:', error);
+        } finally {
+          setIsLoadingUserData(false);
+        }
+      }
+    };
+    fetchUserData();
+  }, [isAuthenticated, showProfileModal]);
 
   // Keep ref updated
   useEffect(() => {
@@ -279,9 +312,11 @@ const BroadcastScreen: React.FC = () => {
                 if (exists) return prev;
                 
                 const newMessages = [...prev, newMessage];
-                return newMessages.sort((a, b) => 
-                  new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-                );
+                return newMessages.sort((a, b) => {
+                  const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                  const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                  return timeA - timeB;
+                });
               });
             }
           },
@@ -628,6 +663,22 @@ const BroadcastScreen: React.FC = () => {
   const renderTabContent = () => {
     switch (activeTab) {
       case 'chat':
+        // Show message when broadcast is not live, similar to frontend
+        if (!currentBroadcast || currentBroadcast.status !== 'LIVE') {
+          return (
+            <View style={{ flex: 1, backgroundColor: '#0E0E10', justifyContent: 'center', alignItems: 'center' }}>
+              <View style={{ alignItems: 'center', paddingHorizontal: 32 }}>
+                <View style={{ width: 64, height: 64, borderRadius: 16, backgroundColor: '#91403E', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                  <Ionicons name="chatbubbles-outline" size={32} color="#FFFFFF" />
+                </View>
+                <Text style={{ fontSize: 14, color: '#ADADB8', textAlign: 'center', fontWeight: '500' }}>
+                  Live chat is only available during broadcasts
+                </Text>
+              </View>
+            </View>
+          );
+        }
+
         return (
           <View style={{ flex: 1, backgroundColor: '#0E0E10' }}>
             <ScrollView
@@ -635,12 +686,13 @@ const BroadcastScreen: React.FC = () => {
               style={{ flex: 1, backgroundColor: '#0E0E10' }}
               contentContainerStyle={{
                 flexGrow: 1,
-                justifyContent: chatMessages.length === 0 ? 'center' : 'flex-end',
+                justifyContent: chatMessages.length === 0 ? 'center' : 'flex-start',
                 paddingTop: 12,
-                paddingBottom: 12,
+                paddingBottom: 80,
                 paddingHorizontal: 0,
               }}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
               refreshControl={
                 <RefreshControl
                   refreshing={isRefreshingChat}
@@ -683,7 +735,9 @@ const BroadcastScreen: React.FC = () => {
                             'Anonymous'}
                         </Text>
                         <Text style={styles.chatMessageTime}>
-                          {format(parseISO(message.createdAt), 'HH:mm')}
+                          {message.createdAt 
+                            ? format(parseISO(message.createdAt), 'HH:mm')
+                            : format(new Date(), 'HH:mm')}
                         </Text>
                       </View>
                       <Text style={styles.chatMessageContent}>{message.content}</Text>
@@ -693,46 +747,44 @@ const BroadcastScreen: React.FC = () => {
               )}
             </ScrollView>
 
-            {isAuthenticated && currentBroadcast && currentBroadcast.status === 'LIVE' ? (
-              <View style={styles.chatInputContainer}>
-                <TextInput
-                  style={styles.chatInput}
-                  placeholder="Send a message..."
-                  placeholderTextColor="#ADADB8"
-                  value={chatInput}
-                  onChangeText={setChatInput}
-                  onSubmitEditing={handleSendMessage}
-                  multiline={false}
-                  editable={!isSubmitting}
-                />
-                <TouchableOpacity
-                  style={[
-                    styles.sendButton,
-                    (!chatInput.trim() || isSubmitting) && styles.sendButtonDisabled,
-                  ]}
-                  onPress={handleSendMessage}
-                  disabled={!chatInput.trim() || isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Ionicons name="send" size={20} color="#FFFFFF" />
-                  )}
-                </TouchableOpacity>
-              </View>
-            ) : !isAuthenticated ? (
-              <View style={styles.chatLoginPrompt}>
-                <Text style={styles.chatLoginText}>Sign in to join the chat</Text>
-              </View>
-            ) : !currentBroadcast ? (
-              <View style={styles.chatLoginPrompt}>
-                <Text style={styles.chatLoginText}>Chat will be available when a broadcast goes LIVE</Text>
-              </View>
-            ) : (
-              <View style={styles.chatLoginPrompt}>
-                <Text style={styles.chatLoginText}>Chat is only available during live broadcasts</Text>
-              </View>
-            )}
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? (insets.top + 200) : 0}
+              style={[styles.keyboardAvoidingWrapper, { bottom: -insets.bottom }]}
+            >
+              {isAuthenticated ? (
+                <View style={styles.chatInputContainer}>
+                  <TextInput
+                    style={styles.chatInput}
+                    placeholder="Send a message..."
+                    placeholderTextColor="#ADADB8"
+                    value={chatInput}
+                    onChangeText={setChatInput}
+                    onSubmitEditing={handleSendMessage}
+                    multiline={false}
+                    editable={!isSubmitting}
+                  />
+                  <TouchableOpacity
+                    style={[
+                      styles.sendButton,
+                      (!chatInput.trim() || isSubmitting) && styles.sendButtonDisabled,
+                    ]}
+                    onPress={handleSendMessage}
+                    disabled={!chatInput.trim() || isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Ionicons name="send" size={20} color="#FFFFFF" />
+                    )}
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.chatLoginPrompt}>
+                  <Text style={styles.chatLoginText}>Sign in to join the chat</Text>
+                </View>
+              )}
+            </KeyboardAvoidingView>
           </View>
         );
 
@@ -958,6 +1010,38 @@ const BroadcastScreen: React.FC = () => {
         <Ionicons name="chevron-back" size={24} color="#FFC30B" />
       </TouchableOpacity>
 
+      {/* Avatar/Login Buttons - Top right corner */}
+      <View style={[styles.headerRightContainer, { top: insets.top + (Platform.OS === 'ios' ? 8 : 12) }]}>
+        {isAuthenticated && currentUser ? (
+          <TouchableOpacity
+            style={styles.avatarButton}
+            activeOpacity={0.8}
+            onPress={() => setShowProfileModal(true)}
+          >
+            <View style={styles.avatarContainer}>
+              <Text style={styles.avatarText}>{getInitials(currentUser)}</Text>
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.headerAuthButtons}>
+            <TouchableOpacity
+              style={styles.headerLoginButton}
+              onPress={() => router.push('/auth/login' as any)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.headerLoginButtonText}>Log in</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerSignupButton}
+              onPress={() => router.push('/auth/signup' as any)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.headerSignupButtonText}>Sign up</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
       {/* Recovery Notification */}
       {recoveryNotification && (
         <View style={styles.recoveryNotification}>
@@ -967,20 +1051,9 @@ const BroadcastScreen: React.FC = () => {
       )}
 
       {/* Always show tabs, even when no broadcast */}
-      <View style={{ flex: 1, backgroundColor: '#0E0E10', paddingTop: 4 }}>
+      <View style={{ flex: 1, backgroundColor: '#0E0E10', paddingTop: insets.top + 60 }}>
         {renderListenHero()}
-        <View style={styles.tabContainer}>
-          {!currentBroadcast && (
-            <View style={styles.notLiveNotice}>
-              <Text style={styles.notLiveText}>No broadcast currently active. Interactive features will be available when a broadcast goes LIVE.</Text>
-            </View>
-          )}
-          {currentBroadcast && !isBroadcastLive && (
-            <View style={styles.notLiveNotice}>
-              <Text style={styles.notLiveText}>Interactive features unlock when the broadcast goes LIVE.</Text>
-            </View>
-          )}
-
+        <View style={[styles.tabContainer, { flexShrink: 1 }]}>
           <View style={styles.tabBar}>
             {tabDefinitions.map(tab => (
               <Pressable
@@ -1024,15 +1097,109 @@ const BroadcastScreen: React.FC = () => {
             />
           </View>
 
-          <KeyboardAvoidingView
-            style={{ flex: 1 }}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? (insets.bottom + 56) : 0}
-          >
-            {renderTabContent()}
-          </KeyboardAvoidingView>
+          {renderTabContent()}
         </View>
       </View>
+
+      {/* Profile Modal - Personal Information */}
+      <Modal
+        visible={showProfileModal}
+        animationType="slide"
+        presentationStyle="formSheet"
+        onRequestClose={() => setShowProfileModal(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          {/* Background gradients */}
+          <View style={styles.modalBackgroundBase} />
+          <LinearGradient
+            colors={['rgba(15,23,42,0.95)', 'rgba(2,6,23,0.95)']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={styles.modalGradientOverlay1}
+          />
+          <LinearGradient
+            colors={['rgba(127,29,29,0.35)', 'transparent']}
+            start={{ x: 0, y: 1 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.modalGradientMaroon1}
+          />
+          <LinearGradient
+            colors={['rgba(251,191,36,0.18)', 'transparent']}
+            start={{ x: 1, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.modalGradientYellow1}
+          />
+          <LinearGradient
+            colors={['rgba(251,191,36,0.50)', 'rgba(127,29,29,0.45)', 'transparent']}
+            start={{ x: 1, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.modalGradientBlur1}
+          />
+          <LinearGradient
+            colors={['rgba(127,29,29,0.60)', 'rgba(225,29,72,0.45)', 'transparent']}
+            start={{ x: 0, y: 1 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.modalGradientBlur2}
+          />
+
+          <TouchableOpacity 
+            onPress={() => setShowProfileModal(false)}
+            style={styles.modalCloseButton}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="close" size={20} color="#94a3b8" />
+          </TouchableOpacity>
+
+          <ScrollView 
+            style={styles.modalScrollView} 
+            contentContainerStyle={styles.modalScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.modalContent}>
+              <Text style={styles.modalSectionTitle}>Personal Information</Text>
+              <Text style={styles.modalContentSubtitle}>Your account details</Text>
+              
+              {isLoadingUserData ? (
+                <View style={styles.modalLoadingContainer}>
+                  <ActivityIndicator size="large" color="#91403E" />
+                </View>
+              ) : userData ? (
+                <View style={styles.infoSection}>
+                  <View style={styles.infoItem}>
+                    <Text style={styles.infoLabel}>FULL NAME</Text>
+                    <Text style={styles.infoValue}>
+                      {`${userData.firstname || ''} ${userData.lastname || ''}`.trim() || 'N/A'}
+                    </Text>
+                  </View>
+                  <View style={styles.infoItem}>
+                    <Text style={styles.infoLabel}>EMAIL</Text>
+                    <Text style={styles.infoValue}>{userData.email || 'N/A'}</Text>
+                  </View>
+                  {userData.gender && (
+                    <View style={styles.infoItem}>
+                      <Text style={styles.infoLabel}>GENDER</Text>
+                      <Text style={styles.infoValue}>
+                        {userData.gender === 'MALE' ? 'Male' : 
+                         userData.gender === 'FEMALE' ? 'Female' : 
+                         userData.gender === 'OTHER' ? 'Other' : 
+                         userData.gender}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.infoItem}>
+                    <Text style={styles.infoLabel}>ROLE</Text>
+                    <Text style={styles.infoValue}>{userData.role || 'N/A'}</Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.modalErrorContainer}>
+                  <Text style={styles.modalErrorText}>Unable to load personal information</Text>
+                </View>
+              )}
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 };
@@ -1047,6 +1214,67 @@ const styles = StyleSheet.create({
     left: 16,
     padding: 8,
     zIndex: 20,
+  },
+  headerRightContainer: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  avatarButton: {
+    padding: 4,
+  },
+  avatarContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFC30B',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#B5830F',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  avatarText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#000000',
+  },
+  headerAuthButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  headerLoginButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(145, 64, 62, 0.5)',
+  },
+  headerLoginButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#91403E',
+  },
+  headerSignupButton: {
+    backgroundColor: '#91403E',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    shadowColor: '#91403E',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  headerSignupButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   loadingContainer: {
     flex: 1,
@@ -1079,16 +1307,17 @@ const styles = StyleSheet.create({
   },
   listenHeroWrapper: {
     paddingHorizontal: 20,
-    marginBottom: 12,
+    marginBottom: 8,
+    marginTop: 4,
   },
   listenHeroCard: {
-    borderRadius: 28,
-    padding: 16,
+    borderRadius: 24,
+    padding: 14,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.5,
-    shadowRadius: 24,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 8,
   },
   heroHeaderRow: {
     flexDirection: 'row',
@@ -1179,8 +1408,8 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     backgroundColor: '#18181B',
-    flex: 1,
-    minHeight: 300,
+    flex: 0.7,
+    minHeight: 200,
   },
   notLiveNotice: {
     paddingHorizontal: 16,
@@ -1221,6 +1450,13 @@ const styles = StyleSheet.create({
     color: '#4B5563',
   },
   // Chat Styles
+  keyboardAvoidingWrapper: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#0E0E10',
+  },
   chatMessage: {
     marginBottom: 12,
     padding: 12,
@@ -1257,26 +1493,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#26262C',
-    backgroundColor: '#18181B',
+    paddingTop: 6,
+    paddingBottom: 0,
+    backgroundColor: '#0E0E10',
   },
   chatInput: {
     flex: 1,
-    backgroundColor: '#1F1F23',
+    backgroundColor: '#0E0E10',
     color: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
     borderRadius: 20,
     fontSize: 14,
     borderWidth: 1,
     borderColor: '#26262C',
+    minHeight: 36,
+    maxHeight: 36,
   },
   sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#91403E',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1501,6 +1738,129 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     letterSpacing: 0.5,
+  },
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#020617',
+  },
+  modalBackgroundBase: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#020617',
+  },
+  modalGradientOverlay1: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0.7,
+  },
+  modalGradientMaroon1: {
+    position: 'absolute',
+    bottom: -Dimensions.get('window').height * 0.3,
+    left: -Dimensions.get('window').width * 0.2,
+    width: Dimensions.get('window').width * 0.8,
+    height: Dimensions.get('window').height * 0.8,
+    opacity: 0.7,
+  },
+  modalGradientYellow1: {
+    position: 'absolute',
+    top: -Dimensions.get('window').height * 0.2,
+    right: -Dimensions.get('window').width * 0.15,
+    width: Dimensions.get('window').width * 0.7,
+    height: Dimensions.get('window').height * 0.7,
+    opacity: 0.7,
+  },
+  modalGradientBlur1: {
+    position: 'absolute',
+    top: -Dimensions.get('window').height * 0.3,
+    right: -Dimensions.get('window').width * 0.15,
+    width: Dimensions.get('window').width * 1.2,
+    height: Dimensions.get('window').height * 0.8,
+    opacity: 0.8,
+  },
+  modalGradientBlur2: {
+    position: 'absolute',
+    bottom: -Dimensions.get('window').height * 0.4,
+    left: -Dimensions.get('window').width * 0.2,
+    width: Dimensions.get('window').width * 1.2,
+    height: Dimensions.get('window').height * 1.0,
+    opacity: 0.7,
+  },
+  modalCloseButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalScrollView: {
+    flex: 1,
+  },
+  modalScrollContent: {
+    paddingBottom: 40,
+    paddingTop: 16,
+  },
+  modalContent: {
+    padding: 24,
+  },
+  modalSectionTitle: {
+    fontSize: 30,
+    fontWeight: 'bold',
+    color: '#e2e8f0',
+    textAlign: 'left',
+    marginBottom: 8,
+  },
+  modalContentSubtitle: {
+    fontSize: 16,
+    color: '#94a3b8',
+    textAlign: 'left',
+    marginBottom: 32,
+  },
+  modalLoadingContainer: {
+    paddingVertical: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalErrorContainer: {
+    paddingVertical: 48,
+    alignItems: 'center',
+  },
+  modalErrorText: {
+    color: '#94a3b8',
+    fontSize: 16,
+  },
+  infoSection: {
+    gap: 16,
+  },
+  infoItem: {
+    marginBottom: 16,
+  },
+  infoLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#94a3b8',
+    marginBottom: 6,
+    letterSpacing: 0.5,
+  },
+  infoValue: {
+    fontSize: 16,
+    color: '#e2e8f0',
   },
 });
 
