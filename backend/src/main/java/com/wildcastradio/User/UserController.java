@@ -423,9 +423,6 @@ public class UserController {
      * cookies that may have been created without an explicit domain.
      */
     private void clearAuthCookies(HttpServletRequest request, HttpServletResponse response) {
-        // Match SecurityConfig: in production we always force Secure + SameSite=None
-        boolean shouldUseSecureCookies = isProduction || useSecureCookies;
-
         // Derive root domain similarly to SecurityConfig#setCookieDomain/extractRootDomain
         String host = request.getHeader("Host");
         if (host == null || host.isEmpty()) {
@@ -435,7 +432,9 @@ public class UserController {
         String domain = host != null ? host.split(":")[0] : null;
         String rootDomain = null;
 
-        if (domain != null && !domain.contains("localhost") && !domain.contains("127.0.0.1")) {
+        boolean isLocalhost = (domain == null) || domain.contains("localhost") || domain.contains("127.0.0.1");
+
+        if (!isLocalhost) {
             // Handle common two-part TLDs first (e.g., example.co.uk)
             String[] twoPartTlds = {".co.uk", ".com.au", ".co.za", ".co.nz", ".com.br", ".co.jp"};
             boolean matchedTwoPart = false;
@@ -461,6 +460,18 @@ public class UserController {
                     rootDomain = domain;
                 }
             }
+        }
+
+        // For cookie deletion, be strict: on any non-localhost domain, always use
+        // Secure + SameSite=None so that we successfully overwrite OAuth cookies
+        // that were issued with those attributes.
+        boolean shouldUseSecureCookies = !isLocalhost;
+
+        // Small debug header to help diagnose production cookie issues if needed
+        try {
+            response.addHeader("X-Logout-Debug", String.format("domain=%s;root=%s;secure=%s", domain, rootDomain, shouldUseSecureCookies));
+        } catch (Exception ignored) {
+            // avoid breaking logout if headers are already committed
         }
 
         // Helper to add both root-domain and host-only deletion cookies

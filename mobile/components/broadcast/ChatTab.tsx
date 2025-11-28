@@ -30,6 +30,7 @@ interface ChatTabProps {
   setChatInput: (text: string) => void;
   isSubmitting: boolean;
   handleSendChatMessage: () => void;
+  onRequestPress?: () => void;
 }
 
 const ChatTab: React.FC<ChatTabProps> = ({
@@ -50,6 +51,7 @@ const ChatTab: React.FC<ChatTabProps> = ({
   setChatInput,
   isSubmitting,
   handleSendChatMessage,
+  onRequestPress,
 }) => {
   return (
     <View style={{ flex: 1 }} className="bg-gray-50">
@@ -165,7 +167,7 @@ const ChatTab: React.FC<ChatTabProps> = ({
       )}
 
       <View
-        className="bg-white border-t border-gray-200 px-4 py-3"
+        className="bg-white border-t border-gray-200"
         style={{
           // Remove shadow so the composer doesn't appear to float above the navbar
           shadowColor: 'transparent',
@@ -177,56 +179,96 @@ const ChatTab: React.FC<ChatTabProps> = ({
           marginBottom: 0,
         }}
       >
-        <View className="flex-row items-end">
-          <View
-            className="flex-1 bg-gray-100 rounded-2xl px-4 py-2 mr-3"
-            style={{ minHeight: 40, maxHeight: 100 }}
-          >
-            <TextInput
-              placeholder={!authToken
-                ? 'Login to chat'
-                : (isBanned ? 'You are banned from chatting' : 'Type your message...')}
-              placeholderTextColor="#9CA3AF"
-              value={chatInput}
-              onChangeText={setChatInput}
-              editable={!isSubmitting && !!currentBroadcast && !isBanned && !!authToken}
-              className="text-gray-800 text-base py-1"
-              multiline
-              textAlignVertical="top"
-              style={{ fontSize: 16, lineHeight: 20, minHeight: 24 }}
-              onContentSizeChange={() => {
-                setTimeout(() => {
-                  chatScrollViewRef.current?.scrollToEnd({ animated: true });
-                }, 100);
-              }}
-              onFocus={() => {
-                setTimeout(() => {
-                  chatScrollViewRef.current?.scrollToEnd({ animated: true });
-                }, 200);
-              }}
-            />
-          </View>
+        <View className="px-4 pt-3 pb-2">
+          <View className="flex-row items-end">
+            <View
+              className="flex-1 bg-gray-100 rounded-2xl px-4 py-2.5 mr-2"
+              style={{ minHeight: 44, maxHeight: 100 }}
+            >
+              <TextInput
+                placeholder={!authToken
+                  ? 'Login to chat'
+                  : (isBanned ? 'You are banned from chatting' : 'Type your message...')}
+                placeholderTextColor="#9CA3AF"
+                value={chatInput}
+                onChangeText={setChatInput}
+                editable={!isSubmitting && !!currentBroadcast && !isBanned && !!authToken}
+                className="text-gray-800 text-base py-1"
+                multiline
+                textAlignVertical="top"
+                style={{ fontSize: 16, lineHeight: 20, minHeight: 24 }}
+                onContentSizeChange={() => {
+                  setTimeout(() => {
+                    chatScrollViewRef.current?.scrollToEnd({ animated: true });
+                  }, 100);
+                }}
+                onFocus={() => {
+                  setTimeout(() => {
+                    chatScrollViewRef.current?.scrollToEnd({ animated: true });
+                  }, 200);
+                }}
+              />
+            </View>
 
-          <TouchableOpacity
-            onPress={handleSendChatMessage}
-            disabled={!authToken || !currentBroadcast || !chatInput.trim() || isBanned}
-            className={`w-10 h-10 rounded-full items-center justify-center ${
-              authToken && currentBroadcast && chatInput.trim() ? 'bg-cordovan active:bg-cordovan/90' : 'bg-gray-300'
-            }`}
-            style={{
-              shadowColor: authToken && currentBroadcast && chatInput.trim() ? '#91403E' : '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: authToken && currentBroadcast && chatInput.trim() ? 0.25 : 0.1,
-              shadowRadius: 3,
-              elevation: authToken && currentBroadcast && chatInput.trim() ? 4 : 2,
-            }}
-          >
-            <Ionicons
-              name="send"
-              size={18}
-              color={authToken && currentBroadcast && chatInput.trim() ? 'white' : '#6B7280'}
-            />
-          </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleSendChatMessage}
+              disabled={!authToken || !currentBroadcast || !chatInput.trim() || isBanned}
+              className={`rounded-full items-center justify-center mr-2 ${
+                authToken && currentBroadcast && chatInput.trim() ? 'bg-cordovan active:bg-cordovan/90' : 'bg-gray-300'
+              }`}
+              style={{
+                width: 44,
+                height: 44,
+                shadowColor: authToken && currentBroadcast && chatInput.trim() ? '#91403E' : '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: authToken && currentBroadcast && chatInput.trim() ? 0.25 : 0.1,
+                shadowRadius: 3,
+                elevation: authToken && currentBroadcast && chatInput.trim() ? 4 : 2,
+              }}
+            >
+              <Ionicons
+                name="send"
+                size={20}
+                color={authToken && currentBroadcast && chatInput.trim() ? 'white' : '#6B7280'}
+              />
+            </TouchableOpacity>
+
+            {onRequestPress && (
+              <TouchableOpacity
+                onPress={onRequestPress}
+                disabled={!authToken || !currentBroadcast || currentBroadcast.status !== 'LIVE'}
+                className={`flex-row items-center justify-center rounded-xl px-3 py-2.5 flex-shrink-0 ${
+                  authToken && currentBroadcast && currentBroadcast.status === 'LIVE'
+                    ? 'bg-mikado_yellow active:bg-mikado_yellow/90'
+                    : 'bg-gray-300'
+                }`}
+                style={{
+                  minHeight: 44,
+                  shadowColor: authToken && currentBroadcast && currentBroadcast.status === 'LIVE' ? '#FACC15' : '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: authToken && currentBroadcast && currentBroadcast.status === 'LIVE' ? 0.3 : 0.1,
+                  shadowRadius: 4,
+                  elevation: authToken && currentBroadcast && currentBroadcast.status === 'LIVE' ? 5 : 2,
+                }}
+              >
+                <Ionicons
+                  name="musical-notes"
+                  size={18}
+                  color={authToken && currentBroadcast && currentBroadcast.status === 'LIVE' ? '#27272a' : '#6B7280'}
+                  style={{ marginRight: 6 }}
+                />
+                <Text
+                  className={`font-semibold text-sm ${
+                    authToken && currentBroadcast && currentBroadcast.status === 'LIVE'
+                      ? 'text-zinc-900'
+                      : 'text-gray-500'
+                  }`}
+                >
+                  Request
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       </View>
     </View>

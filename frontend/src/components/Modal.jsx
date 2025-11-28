@@ -73,7 +73,7 @@ export default function Modal({
   };
 
   return (
-    <div className={`fixed inset-0 flex items-center justify-center ${zIndex} px-4`}>
+    <div className={`fixed inset-0 flex items-start sm:items-center justify-center ${zIndex} px-4 py-4 sm:py-6 overflow-y-auto`}>
       {/* Backdrop with blur effect */}
       <div 
         className="fixed inset-0 bg-black/40 backdrop-blur-sm" 
@@ -82,17 +82,17 @@ export default function Modal({
       ></div>
       
       {/* Modal content */}
-      <div className={`relative bg-white dark:bg-gray-800 rounded-xl shadow-xl ${getMaxWidthClass()} w-full transform transition-all ${getBorderStyles()}`}>
+      <div className={`relative bg-white dark:bg-gray-800 rounded-xl shadow-xl ${getMaxWidthClass()} w-full max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3rem)] transform transition-all ${getBorderStyles()} flex flex-col my-auto`}>
         {/* Header */}
         {title && (
-          <div className="flex justify-between items-center p-5 border-b border-gray-200 dark:border-gray-700">
-            <h3 className={`text-lg font-semibold ${getTitleStyles()}`}>
+          <div className="flex justify-between items-center p-4 sm:p-5 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+            <h3 className={`text-base sm:text-lg font-semibold ${getTitleStyles()} pr-2`}>
               {title}
             </h3>
             {showCloseButton && (
               <button 
                 onClick={onClose}
-                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 focus:outline-none"
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 focus:outline-none flex-shrink-0"
                 aria-label="Close modal"
               >
                 <XMarkIcon className="h-5 w-5" />
@@ -102,13 +102,13 @@ export default function Modal({
         )}
         
         {/* Body */}
-        <div className="p-5 text-gray-700 dark:text-gray-300">
+        <div className="p-4 sm:p-5 text-gray-700 dark:text-gray-300 overflow-y-auto flex-1 min-h-0">
           {children}
         </div>
         
         {/* Footer */}
         {footer && (
-          <div className="p-5 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
+          <div className="p-4 sm:p-5 border-t border-gray-200 dark:border-gray-700 flex flex-wrap justify-end gap-2 sm:gap-3 flex-shrink-0">
             {footer}
           </div>
         )}

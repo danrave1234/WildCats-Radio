@@ -120,13 +120,13 @@ const SpotifyPlayer = ({ broadcast: propBroadcast, currentDJ }) => {
   if (!isLive) {
     return (
       <div className="rounded-xl shadow-lg overflow-hidden relative bg-maroon-700 dark:bg-maroon-800 border border-maroon-800/50 dark:border-maroon-900/50">
-        <div className="p-5 text-center relative">
+        <div className="p-3 sm:p-5 text-center relative">
           <div className="relative">
-            <div className="w-20 h-20 mx-auto mb-4 rounded-xl flex items-center justify-center bg-maroon-900/40 backdrop-blur-sm border-2 border-maroon-600/30">
-              <MusicalNoteIcon className="h-10 w-10 text-gold-500" />
+            <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-3 sm:mb-4 rounded-xl flex items-center justify-center bg-maroon-900/40 backdrop-blur-sm border-2 border-maroon-600/30">
+              <MusicalNoteIcon className="h-8 w-8 sm:h-10 sm:w-10 text-gold-500" />
             </div>
-            <h3 className="text-xl font-bold mb-2 text-white font-poppins">WildCats Radio</h3>
-            <p className="text-white/80 text-sm">No broadcast currently active</p>
+            <h3 className="text-base sm:text-xl font-bold mb-1.5 sm:mb-2 text-white font-poppins">WildCats Radio</h3>
+            <p className="text-white/80 text-xs sm:text-sm">No broadcast currently active</p>
           </div>
         </div>
       </div>
@@ -135,31 +135,31 @@ const SpotifyPlayer = ({ broadcast: propBroadcast, currentDJ }) => {
 
   return (
     <div className="rounded-xl shadow-lg overflow-hidden relative bg-maroon-700 dark:bg-maroon-800 border border-maroon-800/50 dark:border-maroon-900/50">
-      <div className="p-5 relative">
+      <div className="p-3 sm:p-5 relative">
         <div className="relative">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-2 sm:mb-4">
             <div className="flex items-center space-x-2">
-              <div className="flex items-center bg-red-600 rounded-full px-3 py-1 shadow-md border border-red-500">
-                <span className="h-2 w-2 rounded-full bg-white animate-pulse mr-2"></span>
-                <span className="text-white text-xs font-bold tracking-wide">
+              <div className="flex items-center bg-red-600 rounded-full px-2 sm:px-3 py-0.5 sm:py-1 shadow-md border border-red-500">
+                <span className="h-1.5 sm:h-2 w-1.5 sm:w-2 rounded-full bg-white animate-pulse mr-1.5 sm:mr-2"></span>
+                <span className="text-white text-[10px] sm:text-xs font-bold tracking-wide">
                   LIVE ({listenerCount} listener{listenerCount !== 1 ? 's' : ''})
                 </span>
               </div>
             </div>
             <div className="text-right">
-              <p className="text-white/90 text-[10px] font-semibold tracking-wide uppercase">WildCat Radio</p>
+              <p className="text-white/90 text-[9px] sm:text-[10px] font-semibold tracking-wide uppercase">WildCat Radio</p>
             </div>
           </div>
 
-          <div className="mb-4">
-            <h2 className="text-white text-xl font-bold mb-1.5 truncate font-poppins">
+          <div className="mb-2 sm:mb-4">
+            <h2 className="text-white text-base sm:text-xl font-bold mb-1 sm:mb-1.5 truncate font-poppins">
               {currentBroadcast?.title || 'Live Broadcast'}
             </h2>
 
             {/* Enhanced DJ Display */}
             {currentDJ && (
-              <div className="flex items-center mb-2">
-                <span className="text-gold-400 text-sm font-semibold">
+              <div className="flex items-center mb-1 sm:mb-2">
+                <span className="text-gold-400 text-xs sm:text-sm font-semibold">
                   Hosted by: {(() => {
                     // Priority: firstname + lastname → name → email
                     if (currentDJ.firstname && currentDJ.lastname) {
@@ -175,18 +175,18 @@ const SpotifyPlayer = ({ broadcast: propBroadcast, currentDJ }) => {
             )}
 
             {currentBroadcast?.description && (
-              <p className="text-white/80 text-xs leading-relaxed max-w-2xl line-clamp-2">
+              <p className="text-white/80 text-[10px] sm:text-xs leading-relaxed max-w-2xl line-clamp-2">
                 {currentBroadcast.description}
               </p>
             )}
           </div>
 
-          <div className="flex items-start space-x-3 mb-4">
+          <div className="flex items-start space-x-2 sm:space-x-3 mb-2 sm:mb-4">
             <div
-              className="w-16 h-16 rounded-lg shadow-lg flex items-center justify-center relative overflow-hidden bg-maroon-900/50 border-2 border-maroon-600/30 hover:border-gold-500/50 transition-all duration-300 flex-shrink-0"
+              className="w-12 h-12 sm:w-16 sm:h-16 rounded-lg shadow-lg flex items-center justify-center relative overflow-hidden bg-maroon-900/50 border-2 border-maroon-600/30 hover:border-gold-500/50 transition-all duration-300 flex-shrink-0"
               style={currentTrack.title !== 'No songs played' ? { background: getAlbumCoverGradient() } : {}}
             >
-              <MusicalNoteIcon className="h-8 w-8 text-gold-500" />
+              <MusicalNoteIcon className="h-6 w-6 sm:h-8 sm:w-8 text-gold-500" />
               <button
                 onClick={handlePlayPause}
                 disabled={isLoading || isStreamSyncing}
@@ -194,26 +194,26 @@ const SpotifyPlayer = ({ broadcast: propBroadcast, currentDJ }) => {
               >
                 {isStreamSyncing ? (
                   <div className="flex items-center justify-center">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <div className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                   </div>
                 ) : audioPlaying ? (
-                  <PauseIcon className="h-5 w-5 text-white" />
+                  <PauseIcon className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
                 ) : (
-                  <PlayIcon className="h-5 w-5 text-white ml-0.5" />
+                  <PlayIcon className="h-4 w-4 sm:h-5 sm:w-5 text-white ml-0.5" />
                 )}
               </button>
             </div>
 
             <div className="flex-1 min-w-0">
-              <div className="mb-2">
-                <p className="text-white/80 text-[10px] font-bold uppercase tracking-wider mb-1.5">
+              <div className="mb-1 sm:mb-2">
+                <p className="text-white/80 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider mb-1 sm:mb-1.5">
                   NOW PLAYING
                 </p>
-                <div className="bg-maroon-900/40 backdrop-blur-sm rounded-lg p-2.5 border border-maroon-700/30">
-                  <p className="text-white text-sm font-semibold truncate mb-0.5">
+                <div className="bg-maroon-900/40 backdrop-blur-sm rounded-lg p-2 sm:p-2.5 border border-maroon-700/30">
+                  <p className="text-white text-xs sm:text-sm font-semibold truncate mb-0.5">
                     {currentTrack.title}
                   </p>
-                  <p className="text-white/80 text-xs truncate">
+                  <p className="text-white/80 text-[10px] sm:text-xs truncate">
                     {currentTrack.artist}
                   </p>
                 </div>
@@ -222,54 +222,54 @@ const SpotifyPlayer = ({ broadcast: propBroadcast, currentDJ }) => {
           </div>
 
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2 sm:space-x-3">
               <button
                 onClick={handlePlayPause}
                 disabled={isLoading || isStreamSyncing}
-                className="w-12 h-12 bg-gold-500 hover:bg-gold-600 rounded-full flex items-center justify-center transition-all duration-200 disabled:opacity-50 shadow-lg hover:shadow-xl hover:scale-105 border-2 border-gold-400"
+                className="w-10 h-10 sm:w-12 sm:h-12 bg-gold-500 hover:bg-gold-600 rounded-full flex items-center justify-center transition-all duration-200 disabled:opacity-50 shadow-lg hover:shadow-xl hover:scale-105 border-2 border-gold-400"
               >
                 {isStreamSyncing ? (
-                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-maroon-900 border-t-transparent"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-2 border-maroon-900 border-t-transparent"></div>
                 ) : isLoading ? (
-                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-maroon-900 border-t-transparent"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-2 border-maroon-900 border-t-transparent"></div>
                 ) : audioPlaying ? (
-                  <PauseIcon className="h-6 w-6 text-maroon-900" />
+                  <PauseIcon className="h-5 w-5 sm:h-6 sm:w-6 text-maroon-900" />
                 ) : (
-                  <PlayIcon className="h-6 w-6 text-maroon-900 ml-0.5" />
+                  <PlayIcon className="h-5 w-5 sm:h-6 sm:w-6 text-maroon-900 ml-0.5" />
                 )}
               </button>
 
               <button
                 onClick={handleRefresh}
                 disabled={isLoading}
-                className="w-10 h-10 bg-maroon-800/60 hover:bg-maroon-800/80 rounded-full flex items-center justify-center transition-all duration-200 disabled:opacity-50 hover:scale-105 border border-maroon-700/50"
+                className="w-8 h-8 sm:w-10 sm:h-10 bg-maroon-800/60 hover:bg-maroon-800/80 rounded-full flex items-center justify-center transition-all duration-200 disabled:opacity-50 hover:scale-105 border border-maroon-700/50"
               >
-                <ArrowPathIcon className={`h-4 w-4 text-white ${isLoading ? 'animate-spin' : ''}`} />
+                <ArrowPathIcon className={`h-3.5 w-3.5 sm:h-4 sm:w-4 text-white ${isLoading ? 'animate-spin' : ''}`} />
               </button>
             </div>
 
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2 sm:space-x-3">
               <button
                 onClick={handleMuteToggle}
-                className="w-9 h-9 bg-maroon-800/60 hover:bg-maroon-800/80 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-105 border border-maroon-700/50"
+                className="w-8 h-8 sm:w-9 sm:h-9 bg-maroon-800/60 hover:bg-maroon-800/80 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-105 border border-maroon-700/50"
               >
                 {isMuted ? (
-                  <SpeakerXMarkIcon className="h-4 w-4 text-white" />
+                  <SpeakerXMarkIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-white" />
                 ) : (
-                  <SpeakerWaveIcon className="h-4 w-4 text-white" />
+                  <SpeakerWaveIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-white" />
                 )}
               </button>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-1.5 sm:space-x-2">
                 <input
                   type="range"
                   min="0"
                   max="100"
                   value={isMuted ? 0 : volume}
                   onChange={handleVolumeChange}
-                  className="w-20 h-1.5 bg-maroon-900/50 rounded-lg appearance-none cursor-pointer accent-gold-500"
+                  className="w-16 sm:w-20 h-1 sm:h-1.5 bg-maroon-900/50 rounded-lg appearance-none cursor-pointer accent-gold-500"
                 />
-                <span className="text-white text-xs font-semibold min-w-[2.5rem] text-right">
+                <span className="text-white text-[10px] sm:text-xs font-semibold min-w-[2rem] sm:min-w-[2.5rem] text-right">
                   {isMuted ? '0%' : `${volume}%`}
                 </span>
               </div>
