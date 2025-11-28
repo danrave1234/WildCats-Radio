@@ -34,6 +34,19 @@ export interface VotePayload {
   optionId: number;
 }
 
+export interface PollResult {
+  id: number;
+  question: string;
+  isActive: boolean;
+  totalVotes: number;
+  options: Array<{
+    id: number;
+    text: string;
+    voteCount: number;
+    percentage?: number;
+  }>;
+}
+
 interface PollConnection extends ServiceConnection {}
 
 interface PollUpdateMessage {
@@ -46,7 +59,7 @@ interface PollUpdateMessage {
 class PollService extends BaseService<PollConnection> {
   async getActivePolls(broadcastId: number, authToken: string): Promise<ServiceResult<Poll[]>> {
     try {
-      const response = await fetch(getApiUrl(`/broadcasts/${broadcastId}/polls/active`), {
+      const response = await fetch(getApiUrl(`/polls/broadcast/${broadcastId}/active`), {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -67,13 +80,83 @@ class PollService extends BaseService<PollConnection> {
     }
   }
 
+  async getActivePollsForBroadcast(broadcastId: number, authToken: string): Promise<ServiceResult<Poll[]>> {
+    return this.getActivePolls(broadcastId, authToken);
+  }
+
+  async getPollResults(pollId: number, authToken: string): Promise<{ data: PollResult } | { error: string }> {
+    try {
+      const response = await fetch(getApiUrl(`/polls/${pollId}/results`), {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = 'Failed to fetch poll results';
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        return { error: errorMessage };
+      }
+
+      const data = await response.json();
+      return { data };
+    } catch (error) {
+      const errorMessage = this.handleError(error, 'PollService: Exception fetching poll results');
+      return { error: errorMessage };
+    }
+  }
+
+  async getUserVote(pollId: number, authToken: string): Promise<{ data: number | null } | { error: string }> {
+    try {
+      const response = await fetch(getApiUrl(`/polls/${pollId}/user-vote`), {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        credentials: 'include',
+      });
+
+      if (response.status === 404) {
+        return { data: null };
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = 'Failed to fetch user vote';
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } catch {
+          errorMessage = errorText || errorMessage;
+        }
+        return { error: errorMessage };
+      }
+
+      const data = await response.json();
+      return { data: data || null };
+    } catch (error) {
+      const errorMessage = this.handleError(error, 'PollService: Exception fetching user vote');
+      return { error: errorMessage };
+    }
+  }
+
   async voteOnPoll(pollId: number, voteData: VotePayload, authToken: string): Promise<ServiceResult<any>> {
     try {
       const response = await fetch(getApiUrl(`/polls/${pollId}/vote`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
         credentials: 'include',
         body: JSON.stringify(voteData),
@@ -93,7 +176,7 @@ class PollService extends BaseService<PollConnection> {
 
   async subscribeToPolls(
     broadcastId: number,
-    authToken: string,
+    authToken: string | undefined,
     onPollUpdate: (update: PollUpdateMessage) => void
   ): Promise<PollConnection> {
     this.cleanupSubscription(broadcastId);
@@ -109,7 +192,7 @@ class PollService extends BaseService<PollConnection> {
             logger.error('Error parsing poll update:', error);
           }
         },
-        authToken
+        authToken || ''
       );
 
       const connection: PollConnection = {
