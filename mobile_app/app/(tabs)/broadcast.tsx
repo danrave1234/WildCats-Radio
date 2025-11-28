@@ -61,7 +61,9 @@ const BroadcastScreen: React.FC = () => {
   const [upcomingBroadcasts, setUpcomingBroadcasts] = useState<Broadcast[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [songRequests, setSongRequests] = useState<SongRequest[]>([]);
-  const [activePolls, setActivePolls] = useState<Poll[]>([]);
+  const [activePoll, setActivePoll] = useState<Poll | null>(null);
+  const [selectedPollOption, setSelectedPollOption] = useState<number | null>(null);
+  const [pollLoading, setPollLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('chat');
   const [chatInput, setChatInput] = useState('');
   const [songTitleInput, setSongTitleInput] = useState('');
@@ -70,7 +72,6 @@ const BroadcastScreen: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRefreshingChat, setIsRefreshingChat] = useState(false);
   const [isRefreshingRequests, setIsRefreshingRequests] = useState(false);
-  const [isRefreshingPolls, setIsRefreshingPolls] = useState(false);
   const [streamStatus, setStreamStatus] = useState<StreamStatus>({
     isLive: false,
     listenerCount: 0,
@@ -97,7 +98,6 @@ const BroadcastScreen: React.FC = () => {
   const tabDefinitions: TabDefinition[] = useMemo(() => [
     { name: 'Chat', icon: 'chatbubbles-outline', key: 'chat' },
     { name: 'Requests', icon: 'musical-notes-outline', key: 'requests' },
-    { name: 'Polls', icon: 'stats-chart-outline', key: 'polls' },
   ], []);
 
   // Fetch user data when authenticated
@@ -262,19 +262,39 @@ const BroadcastScreen: React.FC = () => {
     }
   }, [currentBroadcast?.id, isAuthenticated]);
 
-  // Fetch polls
+  // Fetch polls - matching frontend pattern
   const fetchPolls = useCallback(async () => {
-    if (!currentBroadcast?.id || !isAuthenticated) return;
+    if (!currentBroadcast?.id) {
+      setActivePoll(null);
+      return;
+    }
     try {
-      // Note: Need auth token - for now using placeholder
-      // const result = await pollService.getActivePolls(currentBroadcast.id, authToken);
-      // if (!('error' in result)) {
-      //   setActivePolls(result.data || []);
-      // }
+      setPollLoading(true);
+      // Try to get active polls
+      const result = await pollService.getActivePolls(currentBroadcast.id, '');
+      if (!('error' in result) && result.data && result.data.length > 0) {
+        const firstActive = result.data[0];
+        // Fetch results for active poll
+        try {
+          // For now, set the poll directly - we'll enhance with results later
+          setActivePoll({
+            ...firstActive,
+            options: firstActive.options || [],
+          });
+        } catch (error) {
+          console.error('Failed to fetch poll results:', error);
+          setActivePoll(firstActive);
+        }
+      } else {
+        setActivePoll(null);
+      }
     } catch (error) {
       console.error('Failed to fetch polls:', error);
+      setActivePoll(null);
+    } finally {
+      setPollLoading(false);
     }
-  }, [currentBroadcast?.id, isAuthenticated]);
+  }, [currentBroadcast?.id]);
 
   // Setup WebSocket for chat
   useEffect(() => {
@@ -359,6 +379,80 @@ const BroadcastScreen: React.FC = () => {
       }
     };
   }, [currentBroadcast?.id, isAuthenticated]);
+
+  // Setup WebSocket for polls
+  useEffect(() => {
+    if (!currentBroadcast?.id) {
+      if (pollConnectionRef.current) {
+        pollConnectionRef.current.disconnect();
+        pollConnectionRef.current = null;
+      }
+      return;
+    }
+
+    let isMounted = true;
+
+    const setupPollWebSocket = async () => {
+      try {
+        if (pollConnectionRef.current) {
+          try {
+            pollConnectionRef.current.disconnect();
+          } catch (e) {
+            console.warn('Error disconnecting poll:', e);
+          }
+          pollConnectionRef.current = null;
+        }
+        
+        if (!isMounted) return;
+        
+        const connection = await pollService.subscribeToPolls(
+          currentBroadcast.id,
+          '', // authToken - TODO: get from auth context
+          (update: any) => {
+            if (update.type === 'NEW_POLL' && update.poll) {
+              setActivePoll(update.poll);
+            } else if (update.type === 'POLL_UPDATED' && update.poll) {
+              setActivePoll(update.poll);
+            } else if (update.type === 'POLL_RESULTS' && update.results) {
+              setActivePoll((prev) => {
+                if (!prev || prev.id !== update.pollId) return prev;
+                return {
+                  ...prev,
+                  options: update.results.options || prev.options,
+                };
+              });
+            } else if (update.type === 'POLL_DELETED') {
+              if (activePoll?.id === update.pollId) {
+                setActivePoll(null);
+              }
+            }
+          }
+        );
+        
+        if (isMounted) {
+          pollConnectionRef.current = connection;
+        } else {
+          connection.disconnect();
+        }
+      } catch (error) {
+        console.error('❌ Failed to setup poll WebSocket:', error);
+      }
+    };
+
+    setupPollWebSocket();
+
+    return () => {
+      isMounted = false;
+      if (pollConnectionRef.current) {
+        try {
+          pollConnectionRef.current.disconnect();
+        } catch (e) {
+          console.warn('Error cleaning up poll connection:', e);
+        }
+        pollConnectionRef.current = null;
+      }
+    };
+  }, [currentBroadcast?.id, activePoll?.id]);
 
   // Fallback polling for chat
   useEffect(() => {
@@ -494,20 +588,35 @@ const BroadcastScreen: React.FC = () => {
     }
   }, [songTitleInput, currentBroadcast, isAuthenticated, fetchSongRequests]);
 
-  // Vote on poll
-  const handleVoteOnPoll = useCallback(async (pollId: number, optionId: number) => {
-    if (!currentBroadcast || !isAuthenticated) return;
-    setIsSubmitting(true);
+  // Handle poll option selection
+  const handlePollOptionSelect = useCallback((optionId: number) => {
+    if (!isAuthenticated || !activePoll || activePoll.isEnded) return;
+    setSelectedPollOption(optionId);
+  }, [isAuthenticated, activePoll]);
+
+  // Handle poll vote submission - matching frontend pattern
+  const handlePollVote = useCallback(async () => {
+    if (!currentBroadcast || !isAuthenticated || !activePoll || !selectedPollOption || activePoll.isEnded) return;
+    
     try {
-      // TODO: Implement with auth token
-      // const result = await pollService.voteOnPoll(pollId, { optionId }, authToken);
+      setPollLoading(true);
+      const result = await pollService.voteOnPoll(activePoll.id, { optionId: selectedPollOption }, '');
+      
+      if ('error' in result) {
+        Alert.alert('Error', result.error || 'Failed to submit vote.');
+        return;
+      }
+      
+      // Refresh poll to get updated results
       await fetchPolls();
+      setSelectedPollOption(null);
+      Alert.alert('Success', 'Your vote has been recorded!');
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to submit vote.');
     } finally {
-      setIsSubmitting(false);
+      setPollLoading(false);
     }
-  }, [currentBroadcast, isAuthenticated, fetchPolls]);
+  }, [currentBroadcast, isAuthenticated, activePoll, selectedPollOption, fetchPolls]);
 
   // Refresh handlers
   const refreshChatData = useCallback(async () => {
@@ -524,18 +633,104 @@ const BroadcastScreen: React.FC = () => {
     setIsRefreshingRequests(false);
   }, [currentBroadcast?.id, isAuthenticated, fetchSongRequests]);
 
-  const refreshPollsData = useCallback(async () => {
-    if (!currentBroadcast?.id || !isAuthenticated) return;
-    setIsRefreshingPolls(true);
-    await fetchPolls();
-    setIsRefreshingPolls(false);
-  }, [currentBroadcast?.id, isAuthenticated, fetchPolls]);
 
   const refreshBroadcastData = useCallback(async () => {
     setIsRefreshing(true);
     await fetchBroadcast();
     setIsRefreshing(false);
   }, [fetchBroadcast]);
+
+  // Render poll section - matching frontend pattern
+  const renderPoll = () => {
+    if (!currentBroadcast || currentBroadcast.status !== 'LIVE') {
+      return null;
+    }
+
+    if (pollLoading && !activePoll) {
+      return (
+        <View style={styles.pollSection}>
+          <View style={styles.pollCard}>
+            <ActivityIndicator size="small" color="#91403E" />
+            <Text style={{ color: '#ADADB8', marginTop: 8 }}>Loading polls...</Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (!activePoll) {
+      return null; // Don't show anything if no poll
+    }
+
+    const totalVotes = activePoll.options.reduce((sum, opt) => sum + (opt.voteCount || 0), 0);
+    const showResults = activePoll.isEnded || selectedPollOption !== null;
+
+    return (
+      <View style={styles.pollSection}>
+        <View style={styles.pollCard}>
+          <Text style={styles.pollQuestion}>{activePoll.question}</Text>
+          {activePoll.isEnded && (
+            <Text style={{ fontSize: 12, color: '#F59E0B', marginBottom: 12, fontWeight: '600' }}>
+              Poll has ended - View results below
+            </Text>
+          )}
+          {activePoll.options.map((option) => {
+            const percentage = totalVotes > 0 ? ((option.voteCount || 0) / totalVotes) * 100 : 0;
+            const isSelected = selectedPollOption === option.id;
+            
+            return (
+              <TouchableOpacity
+                key={option.id}
+                style={[
+                  styles.pollOption,
+                  isSelected && styles.pollOptionSelected,
+                ]}
+                onPress={() => handlePollOptionSelect(option.id)}
+                disabled={activePoll.isEnded || !isAuthenticated || pollLoading}
+              >
+                <View style={styles.pollOptionContent}>
+                  <Text style={styles.pollOptionText}>{option.text}</Text>
+                  {showResults && (
+                    <Text style={styles.pollOptionCount}>{option.voteCount || 0} votes</Text>
+                  )}
+                </View>
+                {showResults && (
+                  <View style={styles.pollBarContainer}>
+                    <View style={[styles.pollBar, { width: `${percentage}%` }]} />
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+          
+          {!isAuthenticated ? (
+            <View style={{ marginTop: 16, padding: 12, backgroundColor: '#1F1F23', borderRadius: 8 }}>
+              <Text style={{ color: '#ADADB8', fontSize: 12, textAlign: 'center' }}>
+                Login to participate in polls
+              </Text>
+            </View>
+          ) : activePoll.isEnded ? (
+            <View style={{ marginTop: 16, padding: 12, backgroundColor: '#1F1F23', borderRadius: 8 }}>
+              <Text style={{ color: '#ADADB8', fontSize: 12, textAlign: 'center' }}>
+                Total votes: {totalVotes}
+              </Text>
+            </View>
+          ) : selectedPollOption ? (
+            <TouchableOpacity
+              style={[styles.pollVoteButton, pollLoading && styles.pollVoteButtonDisabled]}
+              onPress={handlePollVote}
+              disabled={pollLoading}
+            >
+              {pollLoading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.pollVoteButtonText}>Vote</Text>
+              )}
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
+    );
+  };
 
   // Render hero card
   const renderListenHero = () => {
@@ -880,88 +1075,6 @@ const BroadcastScreen: React.FC = () => {
           </View>
         );
 
-      case 'polls':
-        return (
-          <View style={{ flex: 1, backgroundColor: '#0E0E10' }}>
-            <ScrollView
-              style={{ flex: 1, backgroundColor: '#0E0E10' }}
-              contentContainerStyle={{ paddingBottom: 30, paddingHorizontal: 20, paddingTop: 16 }}
-              refreshControl={
-                <RefreshControl
-                  refreshing={isRefreshingPolls}
-                  onRefresh={refreshPollsData}
-                  colors={['#91403E']}
-                  tintColor="#91403E"
-                />
-              }
-            >
-              {!isAuthenticated ? (
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
-                  <Ionicons name="stats-chart-outline" size={48} color="#91403E" />
-                  <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#91403E', marginTop: 16, marginBottom: 8 }}>
-                    Login to Vote on Polls
-                  </Text>
-                  <Text style={{ fontSize: 14, color: '#ADADB8', textAlign: 'center' }}>
-                    Sign in to participate in polls.
-                  </Text>
-                </View>
-              ) : !currentBroadcast ? (
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
-                  <Ionicons name="stats-chart-outline" size={48} color="#91403E" />
-                  <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#91403E', marginTop: 16, marginBottom: 8 }}>
-                    No Broadcast Active
-                  </Text>
-                  <Text style={{ fontSize: 14, color: '#ADADB8', textAlign: 'center' }}>
-                    Polls will be available when a broadcast goes LIVE.
-                  </Text>
-                </View>
-              ) : currentBroadcast.status !== 'LIVE' ? (
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
-                  <Ionicons name="stats-chart-outline" size={48} color="#91403E" />
-                  <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#91403E', marginTop: 16, marginBottom: 8 }}>
-                    Broadcast Not Live
-                  </Text>
-                  <Text style={{ fontSize: 14, color: '#ADADB8', textAlign: 'center' }}>
-                    Polls are only available during live broadcasts.
-            </Text>
-                </View>
-              ) : activePolls.length === 0 ? (
-                <View style={{ paddingVertical: 32, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 14, color: '#ADADB8' }}>No active polls</Text>
-                </View>
-              ) : (
-                activePolls.map((poll) => {
-                  const totalVotes = poll.options.reduce((sum, opt) => sum + opt.voteCount, 0);
-                  return (
-                    <View key={poll.id} style={styles.pollCard}>
-                      <Text style={styles.pollQuestion}>{poll.question}</Text>
-                      {poll.options.map((option) => {
-                        const percentage = totalVotes > 0 ? (option.voteCount / totalVotes) * 100 : 0;
-                        return (
-                          <TouchableOpacity
-                            key={option.id}
-                            style={styles.pollOption}
-                            onPress={() => handleVoteOnPoll(poll.id, option.id)}
-                            disabled={isSubmitting}
-                          >
-                            <View style={styles.pollOptionContent}>
-                              <Text style={styles.pollOptionText}>{option.text}</Text>
-                              <Text style={styles.pollOptionCount}>{option.voteCount} votes</Text>
-                            </View>
-                            <View style={styles.pollBarContainer}>
-                              <View style={[styles.pollBar, { width: `${percentage}%` }]} />
-                            </View>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  );
-                })
-              )}
-            </ScrollView>
-          </View>
-        );
-
       default:
         return null;
     }
@@ -1053,6 +1166,7 @@ const BroadcastScreen: React.FC = () => {
       {/* Always show tabs, even when no broadcast */}
       <View style={{ flex: 1, backgroundColor: '#0E0E10', paddingTop: insets.top + 60 }}>
         {renderListenHero()}
+        {renderPoll()}
         <View style={[styles.tabContainer, { flexShrink: 1 }]}>
           <View style={styles.tabBar}>
             {tabDefinitions.map(tab => (
@@ -1575,11 +1689,14 @@ const styles = StyleSheet.create({
     borderColor: '#26262C',
   },
   // Polls Styles
+  pollSection: {
+    paddingHorizontal: 20,
+    marginBottom: 12,
+  },
   pollCard: {
     backgroundColor: '#1F1F23',
     borderRadius: 16,
     padding: 20,
-    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#26262C',
   },
@@ -1591,6 +1708,15 @@ const styles = StyleSheet.create({
   },
   pollOption: {
     marginBottom: 12,
+    padding: 12,
+    backgroundColor: '#26262C',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#26262C',
+  },
+  pollOptionSelected: {
+    borderColor: '#91403E',
+    backgroundColor: '#2A1F1F',
   },
   pollOptionContent: {
     flexDirection: 'row',
@@ -1618,6 +1744,22 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#91403E',
     borderRadius: 4,
+  },
+  pollVoteButton: {
+    marginTop: 16,
+    backgroundColor: '#91403E',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pollVoteButtonDisabled: {
+    opacity: 0.5,
+  },
+  pollVoteButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
   // Off Air Styles
   offAirCard: {
