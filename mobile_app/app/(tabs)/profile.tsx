@@ -174,9 +174,11 @@ const ProfileScreen: React.FC = () => {
     outputRange: [0, 1],
   });
   
+  // Calculate dropdown height based on authentication status
+  const settingsDropdownMaxHeight = isAuthenticated ? 120 : 60;
   const settingsDropdownHeight = settingsDropdownAnimation.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, 120],
+    outputRange: [0, settingsDropdownMaxHeight],
   });
   
   const settingsDropdownOpacity = settingsDropdownAnimation.interpolate({
@@ -755,20 +757,24 @@ const ProfileScreen: React.FC = () => {
               }}
             >
               <View style={styles.dropdownMenu}>
-                <View style={styles.dropdownDivider} />
-                <TouchableOpacity
-                  onPress={() => {
-                    savedSettingsDropdownState.current = isSettingsDropdownOpen;
-                    setShowPrivacyModal(true);
-                    setIsSettingsDropdownOpen(false);
-                  }}
-                  style={styles.dropdownItem}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="lock-closed-outline" size={20} color="#91403E" />
-                  <Text style={styles.dropdownItemText}>Security</Text>
-                </TouchableOpacity>
-                <View style={styles.dropdownDivider} />
+                {isAuthenticated && (
+                  <>
+                    <View style={styles.dropdownDivider} />
+                    <TouchableOpacity
+                      onPress={() => {
+                        savedSettingsDropdownState.current = isSettingsDropdownOpen;
+                        setShowPrivacyModal(true);
+                        setIsSettingsDropdownOpen(false);
+                      }}
+                      style={styles.dropdownItem}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="lock-closed-outline" size={20} color="#91403E" />
+                      <Text style={styles.dropdownItemText}>Security</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+                {isAuthenticated && <View style={styles.dropdownDivider} />}
                 <TouchableOpacity
                   onPress={() => {
                     savedSettingsDropdownState.current = isSettingsDropdownOpen;

@@ -182,3 +182,280 @@ export const updateNotificationPreferences = async (preferences: NotificationPre
   }
 };
 
+// Announcements interfaces and API
+export interface AnnouncementDTO {
+  id: number;
+  title: string;
+  content: string;
+  imageUrl?: string;
+  status: 'DRAFT' | 'PUBLISHED' | 'SCHEDULED' | 'ARCHIVED' | 'REJECTED';
+  pinned: boolean;
+  createdAt: string;
+  createdById?: number;
+  createdByName?: string;
+  publishedAt?: string;
+  approvedByName?: string;
+  scheduledFor?: string;
+  expiresAt?: string;
+  rejectedAt?: string;
+  rejectedByName?: string;
+  rejectionReason?: string;
+  archivedAt?: string;
+  archivedByName?: string;
+  error?: string;
+}
+
+export interface AnnouncementPage {
+  content: AnnouncementDTO[];
+  totalPages: number;
+  totalElements: number;
+  size: number;
+  number: number;
+  error?: string;
+}
+
+// Broadcast interfaces and API
+export interface BroadcastDJ {
+  id?: number;
+  name?: string;
+}
+
+export interface Broadcast {
+  id: number;
+  title: string;
+  description?: string;
+  scheduledStart: string; // ISO 8601 date-time string
+  scheduledEnd: string;   // ISO 8601 date-time string
+  actualStart?: string;    // ISO 8601 date-time string, present if started/live/ended
+  actualEnd?: string;      // ISO 8601 date-time string, present if ended
+  dj?: BroadcastDJ;
+  status?: string; // e.g., "SCHEDULED", "LIVE", "ENDED"
+  slowModeEnabled?: boolean; // Slow mode setting
+  slowModeSeconds?: number; // Slow mode delay in seconds
+  error?: string; // For error messages from the service
+}
+
+export const getAllAnnouncements = async (page = 0, size = 10): Promise<AnnouncementPage | { error: string }> => {
+  try {
+    const response = await fetchWithTimeout(getApiUrl(`/api/announcements?page=${page}&size=${size}`), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to fetch announcements. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to fetch announcements. Status: ${response.status}, Response: ${text}` };
+        }
+      } else {
+        return { error: `Failed to fetch announcements. Status: ${response.status}, No response body.` };
+      }
+    }
+
+    const data: AnnouncementPage = await response.json();
+    return data;
+  } catch (error) {
+    console.error('GetAllAnnouncements API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred while fetching announcements.';
+    return { error: errorMessage };
+  }
+};
+
+export const getUpcomingBroadcasts = async (): Promise<Broadcast[] | { error: string }> => {
+  try {
+    const response = await fetchWithTimeout(getApiUrl('/broadcasts/upcoming'), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to fetch upcoming broadcasts. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to fetch upcoming broadcasts. Status: ${response.status}, Response: ${text}` };
+        }
+      } else {
+        return { error: `Failed to fetch upcoming broadcasts. Status: ${response.status}, No response body.` };
+      }
+    }
+
+    const data = await response.json();
+    return data as Broadcast[];
+  } catch (error) {
+    console.error('GetUpcomingBroadcasts API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+// Notification interfaces and API
+export interface NotificationDTO {
+  id: number;
+  message: string;
+  type: string;
+  timestamp: string;
+  read: boolean;
+  error?: string;
+}
+
+export interface NotificationPage {
+  content: NotificationDTO[];
+  totalPages: number;
+  totalElements: number;
+  size: number;
+  number: number;
+  last: boolean;
+  error?: string;
+}
+
+export const getNotifications = async (page = 0, size = 20): Promise<NotificationPage | { error: string }> => {
+  try {
+    const response = await fetchWithTimeout(getApiUrl(`/notifications?page=${page}&size=${size}`), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to fetch notifications. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to fetch notifications. Status: ${response.status}, Response: ${text}` };
+        }
+      } else {
+        return { error: `Failed to fetch notifications. Status: ${response.status}, No response body.` };
+      }
+    }
+
+    const data: NotificationPage = await response.json();
+    return data;
+  } catch (error) {
+    console.error('GetNotifications API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred while fetching notifications.';
+    return { error: errorMessage };
+  }
+};
+
+export const getUnreadCount = async (): Promise<number | { error: string }> => {
+  try {
+    const response = await fetchWithTimeout(getApiUrl('/notifications/count-unread'), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to fetch unread count. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to fetch unread count. Status: ${response.status}, Response: ${text}` };
+        }
+      } else {
+        return { error: `Failed to fetch unread count. Status: ${response.status}, No response body.` };
+      }
+    }
+
+    const data = await response.json();
+    return typeof data === 'number' ? data : (data.count || 0);
+  } catch (error) {
+    console.error('GetUnreadCount API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const markNotificationAsRead = async (notificationId: number): Promise<{ message?: string } | { error: string }> => {
+  try {
+    const response = await fetchWithTimeout(getApiUrl(`/notifications/${notificationId}/read`), {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to mark notification as read. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to mark notification as read. Status: ${response.status}, Response: ${text}` };
+        }
+      } else {
+        return { error: `Failed to mark notification as read. Status: ${response.status}, No response body.` };
+      }
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('MarkNotificationAsRead API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+
+export const markAllNotificationsAsRead = async (): Promise<{ message?: string } | { error: string }> => {
+  try {
+    const response = await fetchWithTimeout(getApiUrl('/notifications/read-all'), {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      if (text) {
+        try {
+          const data = JSON.parse(text);
+          return { error: data.message || data.error || `Failed to mark all notifications as read. Status: ${response.status}` };
+        } catch (e) {
+          return { error: `Failed to mark all notifications as read. Status: ${response.status}, Response: ${text}` };
+        }
+      } else {
+        return { error: `Failed to mark all notifications as read. Status: ${response.status}, No response body.` };
+      }
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('MarkAllNotificationsAsRead API error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    return { error: errorMessage };
+  }
+};
+

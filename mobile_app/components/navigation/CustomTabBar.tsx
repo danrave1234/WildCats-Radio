@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet, Dimensions, Platform, Animated, Easing } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
+import { getUnreadCount } from '../../services/userService';
 
 const { width, height } = Dimensions.get('window');
 const BASE_TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 70 : 60;
@@ -43,8 +44,99 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
   
   // Tab bar hide animation
   const tabBarTranslateY = useRef(new Animated.Value(0)).current;
+  
+  // Notification badge state
+  const [unreadCount, setUnreadCount] = useState(0);
+  
+  // Calculate total tab bar height including safe area (needed for effects)
+  const totalTabBarHeight = BASE_TAB_BAR_HEIGHT + insets.bottom;
+  
+  // Fetch unread notification count
+  const fetchUnreadCount = useCallback(async () => {
+    if (!isAuthenticated) {
+      setUnreadCount(0);
+      return;
+    }
+    
+    try {
+      const result = await getUnreadCount();
+      if (typeof result === 'number') {
+        setUnreadCount(result);
+      } else {
+        setUnreadCount(0);
+      }
+    } catch (error) {
+      console.error('Failed to fetch unread count:', error);
+      setUnreadCount(0);
+    }
+  }, [isAuthenticated]);
+  
+  // Fetch unread count on mount and when authentication changes
+  useEffect(() => {
+    fetchUnreadCount();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, [fetchUnreadCount]);
+  
+  // Refresh count when navigating to inbox tab
+  useEffect(() => {
+    if (!state?.routes || state.index === undefined) return;
+    const currentRoute = state.routes[state.index];
+    if (currentRoute?.name === 'inbox') {
+      fetchUnreadCount();
+    }
+  }, [state?.index, state?.routes, fetchUnreadCount]);
 
-  // Safety check for required props
+  // Effect to position underline based on current tab without animation
+  useEffect(() => {
+    if (!state || state.index === undefined || !state.routes) return;
+    
+    const currentRouteKey = state.routes[state.index]?.key;
+    if (!currentRouteKey) return;
+    
+    // Handle broadcast tab special case
+    const isCurrentBroadcast = state.routes[state.index]?.name === 'broadcast';
+    
+    // Set opacity based on whether broadcast is selected (no animation)
+    underlineOpacity.setValue(isCurrentBroadcast ? 0 : 1); // Hide when broadcast is selected
+    
+    // Only update position if it's not the broadcast tab
+    if (!isCurrentBroadcast) {
+      const currentTabLayout = tabLayouts[currentRouteKey];
+      if (currentTabLayout && currentTabLayout.width > 0) {
+        // Set position directly without animation
+        underlinePosition.setValue(currentTabLayout.x);
+        underlineWidth.setValue(currentTabLayout.width);
+        if (!isInitialLayoutDone) {
+          setIsInitialLayoutDone(true);
+        }
+      }
+    }
+  }, [state?.index, state?.routes, tabLayouts, underlinePosition, underlineWidth, underlineOpacity, isInitialLayoutDone]);
+
+  // Effect to handle tab bar hide/show animation based on notification state
+  useEffect(() => {
+    if (isNotificationOpen) {
+      // Hide tab bar by sliding down for notifications
+      Animated.timing(tabBarTranslateY, {
+        toValue: totalTabBarHeight + 20,
+        duration: 250,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    } else {
+      // Show tab bar by sliding up
+      Animated.timing(tabBarTranslateY, {
+        toValue: 0,
+        duration: 350,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [isNotificationOpen, tabBarTranslateY, totalTabBarHeight]);
+
+  // Safety check for required props (AFTER all hooks)
   if (!state || !state.routes || !descriptors || !navigation) {
     return (
       <View style={styles.container}>
@@ -77,57 +169,6 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
 
   // Check if current tab is the broadcast tab
   const isBroadcastSelected = currentRoute && currentRoute.name === 'broadcast';
-
-  // Effect to position underline based on current tab without animation
-  useEffect(() => {
-    if (!state || state.index === undefined || !state.routes) return;
-    
-    const currentRouteKey = state.routes[state.index]?.key;
-    if (!currentRouteKey) return;
-    
-    // Handle broadcast tab special case
-    const isCurrentBroadcast = state.routes[state.index]?.name === 'broadcast';
-    
-    // Set opacity based on whether broadcast is selected (no animation)
-    underlineOpacity.setValue(isCurrentBroadcast ? 0 : 1); // Hide when broadcast is selected
-    
-    // Only update position if it's not the broadcast tab
-    if (!isCurrentBroadcast) {
-      const currentTabLayout = tabLayouts[currentRouteKey];
-      if (currentTabLayout && currentTabLayout.width > 0) {
-        // Set position directly without animation
-        underlinePosition.setValue(currentTabLayout.x);
-        underlineWidth.setValue(currentTabLayout.width);
-        if (!isInitialLayoutDone) {
-          setIsInitialLayoutDone(true);
-        }
-      }
-    }
-  }, [state?.index, tabLayouts, underlinePosition, underlineWidth, underlineOpacity, isInitialLayoutDone]);
-
-  // Calculate total tab bar height including safe area
-  const totalTabBarHeight = BASE_TAB_BAR_HEIGHT + insets.bottom;
-
-  // Effect to handle tab bar hide/show animation based on notification state
-  useEffect(() => {
-    if (isNotificationOpen) {
-      // Hide tab bar by sliding down for notifications
-      Animated.timing(tabBarTranslateY, {
-        toValue: totalTabBarHeight + 20,
-        duration: 250,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    } else {
-      // Show tab bar by sliding up
-      Animated.timing(tabBarTranslateY, {
-        toValue: 0,
-        duration: 350,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [isNotificationOpen, tabBarTranslateY, totalTabBarHeight]);
 
   return (
     <Animated.View style={[styles.container, animatedStyle, {
@@ -306,6 +347,14 @@ const CustomTabBar: React.FC<CustomTabBarProps> = ({ state, descriptors, navigat
                   color={isFocused ? MIKADO_YELLOW : TEXT_COLOR}
                   size={isFocused ? ICON_SIZE + 3 : ICON_SIZE}
                 />
+                {/* Notification badge for inbox tab */}
+                {route.name === 'inbox' && unreadCount > 0 && (
+                  <View style={styles.notificationBadge}>
+                    <Text style={styles.notificationBadgeText}>
+                      {unreadCount > 99 ? '99+' : unreadCount.toString()}
+                    </Text>
+                  </View>
+                )}
               </View>
               <Text style={[
                 styles.tabLabel, 
@@ -449,6 +498,31 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 3,
     fontWeight: '500',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -8,
+    backgroundColor: MIKADO_YELLOW,
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#020617',
+    shadowColor: MIKADO_YELLOW,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  notificationBadgeText: {
+    color: '#000000',
+    fontSize: 10,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });
 

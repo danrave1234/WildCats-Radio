@@ -26,6 +26,7 @@ export default function TabLayout() {
         name="broadcast"
         options={{
           title: 'Broadcast',
+          tabBarStyle: { display: 'none' },
         }}
       />
       <Tabs.Screen
