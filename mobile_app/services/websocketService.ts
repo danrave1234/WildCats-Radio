@@ -191,10 +191,17 @@ class WebSocketService {
       throw new Error('STOMP libraries not installed. Please run: npm install @stomp/stompjs sockjs-client');
     }
 
+    let subscription: any = null;
+    let subscriptionCreated = false;
+
     try {
       const client = await this.connect(token);
       
-      const subscription = client.subscribe(topic, (message: any) => {
+      if (!client || !client.connected) {
+        throw new Error('STOMP client not connected');
+      }
+
+      subscription = client.subscribe(topic, (message: any) => {
         try {
           callback(message);
         } catch (error) {
@@ -202,21 +209,43 @@ class WebSocketService {
         }
       });
 
+      if (!subscription) {
+        throw new Error(`Failed to create subscription for ${topic}`);
+      }
+
+      subscriptionCreated = true;
       this.subscriptions.set(topic, { callback, token });
 
       return {
         unsubscribe: () => {
           try {
-            subscription.unsubscribe();
+            if (subscriptionCreated && subscription && typeof subscription.unsubscribe === 'function') {
+              subscription.unsubscribe();
+            }
             this.subscriptions.delete(topic);
             logger.debug(`Unsubscribed from ${topic}`);
           } catch (error) {
-            logger.error(`Error unsubscribing from ${topic}:`, error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.error(`Error unsubscribing from ${topic}:`, errorMessage);
+            // Still remove from subscriptions map even if unsubscribe fails
+            this.subscriptions.delete(topic);
           }
         },
       };
     } catch (error) {
-      logger.error(`Failed to subscribe to ${topic}:`, error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to subscribe to ${topic}:`, errorMessage);
+      
+      // Clean up if subscription was partially created
+      if (subscriptionCreated && subscription && typeof subscription.unsubscribe === 'function') {
+        try {
+          subscription.unsubscribe();
+        } catch (cleanupError) {
+          // Ignore cleanup errors
+        }
+      }
+      this.subscriptions.delete(topic);
+      
       throw error;
     }
   }

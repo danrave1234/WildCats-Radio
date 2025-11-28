@@ -11,6 +11,7 @@ import {
   Alert,
   Platform,
   KeyboardAvoidingView,
+  Keyboard,
   RefreshControl,
   Animated,
   Easing,
@@ -64,6 +65,83 @@ const BroadcastScreen: React.FC = () => {
   const [activePoll, setActivePoll] = useState<Poll | null>(null);
   const [selectedPollOption, setSelectedPollOption] = useState<number | null>(null);
   const [pollLoading, setPollLoading] = useState(false);
+  const [pollTimeRemaining, setPollTimeRemaining] = useState<number | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollStartTimeRef = useRef<number | null>(null);
+  
+  // Clear activePoll when poll becomes inactive (matches frontend pattern)
+  useEffect(() => {
+    if (activePoll && activePoll.active === false) {
+      setActivePoll(null);
+      setSelectedPollOption(null);
+      setPollTimeRemaining(null);
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+      pollStartTimeRef.current = null;
+    }
+  }, [activePoll?.active]);
+
+  // Poll timer countdown
+  useEffect(() => {
+    // Clear any existing timer
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+
+    // Only start timer if poll is active and has duration
+    if (!activePoll || !activePoll.active || !activePoll.durationSeconds) {
+      setPollTimeRemaining(null);
+      pollStartTimeRef.current = null;
+      return;
+    }
+
+    // Initialize timer
+    const durationMs = activePoll.durationSeconds * 1000;
+    pollStartTimeRef.current = Date.now();
+    setPollTimeRemaining(durationMs);
+
+    // Update timer every second
+    pollTimerRef.current = setInterval(() => {
+      if (!pollStartTimeRef.current) {
+        return;
+      }
+
+      const elapsed = Date.now() - pollStartTimeRef.current;
+      const remaining = Math.max(0, durationMs - elapsed);
+
+      if (remaining <= 0) {
+        setPollTimeRemaining(0);
+        if (pollTimerRef.current) {
+          clearInterval(pollTimerRef.current);
+          pollTimerRef.current = null;
+        }
+        // Poll will be cleared by the active check effect
+      } else {
+        setPollTimeRemaining(remaining);
+      }
+    }, 1000);
+
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, [activePoll?.id, activePoll?.active, activePoll?.durationSeconds]);
+
+  // Format poll time remaining
+  const formatPollTime = (ms: number): string => {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes > 0) {
+      return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }
+    return `${seconds}s`;
+  };
   const [activeTab, setActiveTab] = useState('chat');
   const [chatInput, setChatInput] = useState('');
   const [songTitleInput, setSongTitleInput] = useState('');
@@ -83,6 +161,7 @@ const BroadcastScreen: React.FC = () => {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [isLoadingUserData, setIsLoadingUserData] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   
   const chatScrollViewRef = useRef<ScrollView>(null);
   const chatConnectionRef = useRef<any>(null);
@@ -124,6 +203,27 @@ const BroadcastScreen: React.FC = () => {
   useEffect(() => {
     currentBroadcastRef.current = currentBroadcast;
   }, [currentBroadcast]);
+
+  // Track keyboard height for proper input positioning
+  useEffect(() => {
+    const keyboardWillShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setKeyboardHeight(e.endCoordinates.height);
+      }
+    );
+    const keyboardWillHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardWillShowListener.remove();
+      keyboardWillHideListener.remove();
+    };
+  }, []);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -270,31 +370,69 @@ const BroadcastScreen: React.FC = () => {
     }
     try {
       setPollLoading(true);
-      // Try to get active polls
-      const result = await pollService.getActivePolls(currentBroadcast.id, '');
-      if (!('error' in result) && result.data && result.data.length > 0) {
-        const firstActive = result.data[0];
+      
+      // First try to get active polls
+      const activeResult = await pollService.getActivePollsForBroadcast(currentBroadcast.id);
+      if (!('error' in activeResult) && activeResult.data && activeResult.data.length > 0) {
+        const firstActive = activeResult.data[0];
         // Fetch results for active poll
         try {
-          // For now, set the poll directly - we'll enhance with results later
+          const resultsResponse = await pollService.getPollResults(firstActive.id);
+          // Check if user has already voted
+          let userVoted = false;
+          let userVotedFor = null;
+          if (currentUser && isAuthenticated) {
+            try {
+              const userVoteResponse = await pollService.getUserVote(firstActive.id);
+              userVoted = !!userVoteResponse.data;
+              userVotedFor = userVoteResponse.data || null;
+            } catch (error) {
+              // If getUserVote fails, assume user hasn't voted
+              console.debug('Could not fetch user vote status:', error);
+            }
+          }
           setActivePoll({
             ...firstActive,
-            options: firstActive.options || [],
+            options: resultsResponse.data?.options || firstActive.options || [],
+            totalVotes: resultsResponse.data?.totalVotes || firstActive.options?.reduce((sum: number, option: any) => sum + (option.votes || option.voteCount || 0), 0) || 0,
+            userVoted,
+            userVotedFor
           });
+          return;
         } catch (error) {
-          console.error('Failed to fetch poll results:', error);
-          setActivePoll(firstActive);
+          // Fallback if results fetch fails
+          // Still check user vote status
+          let userVoted = false;
+          let userVotedFor = null;
+          if (currentUser && isAuthenticated) {
+            try {
+              const userVoteResponse = await pollService.getUserVote(firstActive.id);
+              userVoted = !!userVoteResponse.data;
+              userVotedFor = userVoteResponse.data || null;
+            } catch (error) {
+              console.debug('Could not fetch user vote status:', error);
+            }
+          }
+          setActivePoll({
+            ...firstActive,
+            totalVotes: firstActive.options?.reduce((sum: number, option: any) => sum + (option.votes || option.voteCount || 0), 0) || 0,
+            userVoted,
+            userVotedFor
+          });
+          return;
         }
-      } else {
-        setActivePoll(null);
       }
+      
+      // Don't show ended polls - only show active polls (matches frontend behavior)
+      
+      setActivePoll(null);
     } catch (error) {
       console.error('Failed to fetch polls:', error);
       setActivePoll(null);
     } finally {
       setPollLoading(false);
     }
-  }, [currentBroadcast?.id]);
+  }, [currentBroadcast?.id, currentUser, isAuthenticated]);
 
   // Setup WebSocket for chat
   useEffect(() => {
@@ -407,24 +545,132 @@ const BroadcastScreen: React.FC = () => {
         
         const connection = await pollService.subscribeToPolls(
           currentBroadcast.id,
-          '', // authToken - TODO: get from auth context
+          undefined, // authToken - using cookie-based auth
           (update: any) => {
-            if (update.type === 'NEW_POLL' && update.poll) {
-              setActivePoll(update.poll);
-            } else if (update.type === 'POLL_UPDATED' && update.poll) {
-              setActivePoll(update.poll);
-            } else if (update.type === 'POLL_RESULTS' && update.results) {
-              setActivePoll((prev) => {
-                if (!prev || prev.id !== update.pollId) return prev;
-                return {
-                  ...prev,
-                  options: update.results.options || prev.options,
-                };
-              });
-            } else if (update.type === 'POLL_DELETED') {
-              if (activePoll?.id === update.pollId) {
-                setActivePoll(null);
+            try {
+              switch (update.type) {
+                case 'NEW_POLL': {
+                  const p = update.poll;
+                  if (p && p.active) {
+                    // Reset timer for new poll
+                    pollStartTimeRef.current = Date.now();
+                    
+                    // Set poll immediately for real-time display (optimistic update)
+                    setActivePoll({
+                      ...p,
+                      userVoted: false,
+                      userVotedFor: null
+                    });
+                    
+                    // Check user vote status in background (non-blocking)
+                    if (currentUser && isAuthenticated) {
+                      pollService.getUserVote(p.id)
+                        .then(userVoteResponse => {
+                          setActivePoll((prev: Poll | null) => (
+                            prev && prev.id === p.id
+                              ? {
+                                  ...prev,
+                                  userVoted: !!userVoteResponse.data,
+                                  userVotedFor: userVoteResponse.data || null
+                                }
+                              : prev
+                          ));
+                        })
+                        .catch(error => {
+                          console.debug('Could not fetch user vote status for new poll:', error);
+                          // Keep poll displayed, vote status will remain false
+                        });
+                    }
+                  }
+                  break;
+                }
+                case 'POLL_RESULTS': {
+                  const results = update.results;
+                  const pollId = update.pollId;
+                  if (results && pollId) {
+                    setActivePoll((prev: Poll | null) => (
+                      prev && prev.id === pollId
+                        ? { 
+                            ...prev, 
+                            options: results.options || prev.options, 
+                            totalVotes: results.totalVotes ?? prev.totalVotes 
+                          }
+                        : prev
+                    ));
+                  }
+                  break;
+                }
+                case 'POLL_UPDATED': {
+                  const p = update.poll;
+                  if (p) {
+                    // If poll is no longer active, clear it (finished polls should not be displayed)
+                    if (!p.active) {
+                      setActivePoll(null);
+                      setSelectedPollOption(null);
+                      setPollTimeRemaining(null);
+                      if (pollTimerRef.current) {
+                        clearInterval(pollTimerRef.current);
+                        pollTimerRef.current = null;
+                      }
+                      pollStartTimeRef.current = null;
+                      break;
+                    }
+                    
+                    // Reset timer if poll ID changed or duration changed
+                    const prevPoll = activePoll;
+                    if (!prevPoll || prevPoll.id !== p.id || prevPoll.durationSeconds !== p.durationSeconds) {
+                      pollStartTimeRef.current = Date.now();
+                    }
+                    
+                    // Set poll immediately for real-time display (optimistic update)
+                    setActivePoll((prev: Poll | null) => {
+                      // Preserve existing userVoted status if poll ID matches (prevents flicker)
+                      const existingVoteStatus = prev && prev.id === p.id 
+                        ? { userVoted: prev.userVoted, userVotedFor: prev.userVotedFor }
+                        : { userVoted: false, userVotedFor: null };
+                      
+                      return {
+                        ...p,
+                        ...existingVoteStatus
+                      };
+                    });
+                    
+                    // Check user vote status in background (non-blocking) when poll is reposted
+                    if (currentUser && isAuthenticated) {
+                      pollService.getUserVote(p.id)
+                        .then(userVoteResponse => {
+                          setActivePoll((prev: Poll | null) => (
+                            prev && prev.id === p.id
+                              ? {
+                                  ...prev,
+                                  userVoted: !!userVoteResponse.data,
+                                  userVotedFor: userVoteResponse.data || null
+                                }
+                              : prev
+                          ));
+                        })
+                        .catch(error => {
+                          console.debug('Could not fetch user vote status for updated poll:', error);
+                          // Keep poll displayed, vote status will remain as-is
+                        });
+                    }
+                  }
+                  break;
+                }
+                case 'POLL_DELETED': {
+                  const deletedPollId = update.pollId || update.id || null;
+                  if (!deletedPollId || !activePoll) break;
+                  if (activePoll.id === deletedPollId) {
+                    setActivePoll(null);
+                  }
+                  break;
+                }
+                default:
+                  // ignore
+                  break;
               }
+            } catch (e) {
+              console.error('Error handling poll update:', e);
             }
           }
         );
@@ -452,7 +698,7 @@ const BroadcastScreen: React.FC = () => {
         pollConnectionRef.current = null;
       }
     };
-  }, [currentBroadcast?.id, activePoll?.id]);
+  }, [currentBroadcast?.id, currentUser, isAuthenticated]);
 
   // Fallback polling for chat
   useEffect(() => {
@@ -590,33 +836,64 @@ const BroadcastScreen: React.FC = () => {
 
   // Handle poll option selection
   const handlePollOptionSelect = useCallback((optionId: number) => {
-    if (!isAuthenticated || !activePoll || activePoll.isEnded) return;
+    if (!currentUser || !activePoll || activePoll.userVoted || !activePoll.active || currentBroadcast?.status !== 'LIVE') return;
     setSelectedPollOption(optionId);
-  }, [isAuthenticated, activePoll]);
+  }, [currentUser, activePoll, currentBroadcast?.status]);
 
   // Handle poll vote submission - matching frontend pattern
   const handlePollVote = useCallback(async () => {
-    if (!currentBroadcast || !isAuthenticated || !activePoll || !selectedPollOption || activePoll.isEnded) return;
+    if (!currentBroadcast || !isAuthenticated || !activePoll || !selectedPollOption) return;
+    // Allow voting only if poll is active
+    if (activePoll.userVoted || !activePoll.active || currentBroadcast.status !== 'LIVE') return;
     
     try {
       setPollLoading(true);
-      const result = await pollService.voteOnPoll(activePoll.id, { optionId: selectedPollOption }, '');
+
+      // Send vote to backend
+      const voteData = {
+        pollId: activePoll.id,
+        optionId: selectedPollOption
+      };
+
+      const result = await pollService.voteOnPoll(activePoll.id, voteData);
       
       if ('error' in result) {
         Alert.alert('Error', result.error || 'Failed to submit vote.');
         return;
       }
+
+      // Get updated poll results
+      const resultsResponse = await pollService.getPollResults(activePoll.id);
       
-      // Refresh poll to get updated results
-      await fetchPolls();
+      if ('error' in resultsResponse) {
+        Alert.alert('Error', 'Failed to fetch updated poll results.');
+        return;
+      }
+
+      // Get user vote status
+      const userVoteResponse = await pollService.getUserVote(activePoll.id);
+
+      // Update current poll with results
+      setActivePoll((prev: Poll | null) => {
+        if (!prev || prev.id !== activePoll.id) return prev;
+        return {
+          ...prev,
+          options: resultsResponse.data?.options || prev.options,
+          totalVotes: resultsResponse.data?.totalVotes || prev.totalVotes,
+          userVoted: true,
+          userVotedFor: selectedPollOption
+        };
+      });
+
+      // Reset selection
       setSelectedPollOption(null);
-      Alert.alert('Success', 'Your vote has been recorded!');
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to submit vote.');
+      console.error("Error submitting vote:", error);
+      Alert.alert('Error', error.message || 'Failed to submit vote. Please try again.');
     } finally {
       setPollLoading(false);
     }
-  }, [currentBroadcast, isAuthenticated, activePoll, selectedPollOption, fetchPolls]);
+  }, [currentBroadcast, isAuthenticated, activePoll, selectedPollOption]);
 
   // Refresh handlers
   const refreshChatData = useCallback(async () => {
@@ -657,76 +934,114 @@ const BroadcastScreen: React.FC = () => {
       );
     }
 
-    if (!activePoll) {
-      return null; // Don't show anything if no poll
+    // Don't show poll if it doesn't exist or is not active (finished polls should not be displayed)
+    if (!activePoll || !activePoll.active) {
+      return null;
     }
 
-    const totalVotes = activePoll.options.reduce((sum, opt) => sum + (opt.voteCount || 0), 0);
-    const showResults = activePoll.isEnded || selectedPollOption !== null;
+    const canVote =
+      currentUser &&
+      activePoll &&
+      activePoll.active &&
+      !activePoll.userVoted &&
+      currentBroadcast.status === 'LIVE' &&
+      !pollLoading;
+
+    const showResults =
+      activePoll && (!activePoll.active || (activePoll.userVoted && currentUser));
+
+    const totalVotes = activePoll.totalVotes || activePoll.options.reduce((sum, opt) => sum + (opt.votes || opt.voteCount || 0), 0);
+    const optionList = activePoll.options || [];
 
     return (
       <View style={styles.pollSection}>
         <View style={styles.pollCard}>
-          <Text style={styles.pollQuestion}>{activePoll.question}</Text>
-          {activePoll.isEnded && (
-            <Text style={{ fontSize: 12, color: '#F59E0B', marginBottom: 12, fontWeight: '600' }}>
-              Poll has ended - View results below
-            </Text>
-          )}
-          {activePoll.options.map((option) => {
-            const percentage = totalVotes > 0 ? ((option.voteCount || 0) / totalVotes) * 100 : 0;
+          <View style={styles.pollHeader}>
+            <Text style={styles.pollQuestion}>{activePoll.question || activePoll.title}</Text>
+            {pollTimeRemaining !== null && pollTimeRemaining > 0 && (
+              <View style={styles.pollTimerContainer}>
+                <Ionicons name="time-outline" size={14} color="#F59E0B" />
+                <Text style={styles.pollTimerText}>Ends in {formatPollTime(pollTimeRemaining)}</Text>
+              </View>
+            )}
+          </View>
+          {optionList.map((option) => {
+            const votes = option.votes || option.voteCount || 0;
+            const percentage =
+              totalVotes && showResults
+                ? Math.round((votes / totalVotes) * 100) || 0
+                : 0;
             const isSelected = selectedPollOption === option.id;
-            
+            const isUserChoice = activePoll.userVotedFor === option.id;
+            const canInteract =
+              currentUser && activePoll.active && !activePoll.userVoted && currentBroadcast.status === 'LIVE';
+
             return (
               <TouchableOpacity
                 key={option.id}
                 style={[
                   styles.pollOption,
-                  isSelected && styles.pollOptionSelected,
+                  !currentUser
+                    ? styles.pollOptionDisabled
+                    : showResults
+                      ? isUserChoice
+                        ? styles.pollOptionUserChoice
+                        : styles.pollOptionDefault
+                      : isSelected
+                        ? styles.pollOptionSelected
+                        : styles.pollOptionDefault,
                 ]}
-                onPress={() => handlePollOptionSelect(option.id)}
-                disabled={activePoll.isEnded || !isAuthenticated || pollLoading}
+                onPress={() => canInteract && handlePollOptionSelect(option.id)}
+                disabled={!canInteract}
               >
                 <View style={styles.pollOptionContent}>
-                  <Text style={styles.pollOptionText}>{option.text}</Text>
-                  {showResults && (
-                    <Text style={styles.pollOptionCount}>{option.voteCount || 0} votes</Text>
+                  <Text style={styles.pollOptionText}>{option.optionText || option.text}</Text>
+                  {showResults ? (
+                    <Text style={styles.pollOptionCount}>{percentage}%</Text>
+                  ) : (
+                    canInteract && (
+                      <View
+                        style={[
+                          styles.pollRadioButton,
+                          isSelected && styles.pollRadioButtonSelected,
+                        ]}
+                      />
+                    )
                   )}
                 </View>
                 {showResults && (
                   <View style={styles.pollBarContainer}>
-                    <View style={[styles.pollBar, { width: `${percentage}%` }]} />
+                    <View
+                      style={[
+                        styles.pollBar,
+                        { width: `${percentage}%` },
+                        isUserChoice && styles.pollBarUserChoice,
+                      ]}
+                    />
                   </View>
+                )}
+                {showResults && (
+                  <Text style={styles.pollVoteCount}>
+                    {votes} {votes === 1 ? 'vote' : 'votes'}
+                  </Text>
                 )}
               </TouchableOpacity>
             );
           })}
-          
-          {!isAuthenticated ? (
-            <View style={{ marginTop: 16, padding: 12, backgroundColor: '#1F1F23', borderRadius: 8 }}>
-              <Text style={{ color: '#ADADB8', fontSize: 12, textAlign: 'center' }}>
-                Login to participate in polls
-              </Text>
-            </View>
-          ) : activePoll.isEnded ? (
-            <View style={{ marginTop: 16, padding: 12, backgroundColor: '#1F1F23', borderRadius: 8 }}>
-              <Text style={{ color: '#ADADB8', fontSize: 12, textAlign: 'center' }}>
-                Total votes: {totalVotes}
-              </Text>
-            </View>
-          ) : selectedPollOption ? (
+
+          {currentUser && activePoll.active && !activePoll.userVoted && (
             <TouchableOpacity
-              style={[styles.pollVoteButton, pollLoading && styles.pollVoteButtonDisabled]}
+              style={[styles.pollVoteButton, (!canVote || !selectedPollOption || pollLoading) && styles.pollVoteButtonDisabled]}
               onPress={handlePollVote}
-              disabled={pollLoading}
+              disabled={!canVote || !selectedPollOption || pollLoading}
             >
               {pollLoading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text style={styles.pollVoteButtonText}>Vote</Text>
+                <Text style={styles.pollVoteButtonText}>Vote now</Text>
               )}
             </TouchableOpacity>
-          ) : null}
+          )}
         </View>
       </View>
     );
@@ -812,12 +1127,11 @@ const BroadcastScreen: React.FC = () => {
             >
               <View style={styles.liveStatusDot} />
               <Text style={styles.liveStatusText}>
-                {isBroadcastLive ? 'LIVE RADIO' : 'STANDBY'}
+                {isBroadcastLive 
+                  ? `LIVE (${listenerDisplay.toLocaleString()} listener${listenerDisplay !== 1 ? 's' : ''})`
+                  : 'STANDBY'}
               </Text>
             </View>
-            <Text style={styles.listenerTicker}>
-              {listenerDisplay.toLocaleString()} listening
-            </Text>
           </View>
 
           <TouchableOpacity
@@ -883,7 +1197,7 @@ const BroadcastScreen: React.FC = () => {
                 flexGrow: 1,
                 justifyContent: chatMessages.length === 0 ? 'center' : 'flex-start',
                 paddingTop: 12,
-                paddingBottom: 80,
+                paddingBottom: keyboardHeight > 0 ? keyboardHeight + 60 : 80,
                 paddingHorizontal: 0,
               }}
               showsVerticalScrollIndicator={false}
@@ -942,10 +1256,11 @@ const BroadcastScreen: React.FC = () => {
               )}
             </ScrollView>
 
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? (insets.top + 200) : 0}
-              style={[styles.keyboardAvoidingWrapper, { bottom: -insets.bottom }]}
+            <View
+              style={[
+                styles.keyboardAvoidingWrapper,
+                { paddingBottom: keyboardHeight > 0 ? keyboardHeight - insets.bottom : 0 }
+              ]}
             >
               {isAuthenticated ? (
                 <View style={styles.chatInputContainer}>
@@ -979,7 +1294,7 @@ const BroadcastScreen: React.FC = () => {
                   <Text style={styles.chatLoginText}>Sign in to join the chat</Text>
                 </View>
               )}
-            </KeyboardAvoidingView>
+            </View>
           </View>
         );
 
@@ -1456,8 +1771,8 @@ const styles = StyleSheet.create({
   liveStatusText: {
     color: '#FFFFFF',
     fontWeight: '700',
-    letterSpacing: 1,
-    fontSize: 11,
+    letterSpacing: 0.5,
+    fontSize: 10,
   },
   listenerTicker: {
     color: '#FDE68A',
@@ -1570,6 +1885,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: '#0E0E10',
+    borderTopWidth: 1,
+    borderTopColor: '#26262C',
   },
   chatMessage: {
     marginBottom: 12,
@@ -1700,11 +2017,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#26262C',
   },
+  pollHeader: {
+    marginBottom: 16,
+  },
   pollQuestion: {
     fontSize: 18,
     fontWeight: '700',
     color: '#FFFFFF',
-    marginBottom: 16,
+    marginBottom: 8,
+  },
+  pollTimerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  pollTimerText: {
+    fontSize: 12,
+    color: '#F59E0B',
+    fontWeight: '600',
+    marginLeft: 4,
   },
   pollOption: {
     marginBottom: 12,
@@ -1714,9 +2045,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#26262C',
   },
+  pollOptionDefault: {
+    borderColor: '#26262C',
+    backgroundColor: '#26262C',
+  },
   pollOptionSelected: {
     borderColor: '#91403E',
     backgroundColor: '#2A1F1F',
+  },
+  pollOptionDisabled: {
+    borderColor: '#26262C',
+    backgroundColor: '#1F1F23',
+    opacity: 0.75,
+  },
+  pollOptionUserChoice: {
+    borderColor: '#10B981',
+    backgroundColor: '#064E3B',
   },
   pollOptionContent: {
     flexDirection: 'row',
@@ -1744,6 +2088,25 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#91403E',
     borderRadius: 4,
+  },
+  pollBarUserChoice: {
+    backgroundColor: '#10B981',
+  },
+  pollRadioButton: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#ADADB8',
+  },
+  pollRadioButtonSelected: {
+    backgroundColor: '#91403E',
+    borderColor: '#91403E',
+  },
+  pollVoteCount: {
+    fontSize: 11,
+    color: '#ADADB8',
+    marginTop: 4,
   },
   pollVoteButton: {
     marginTop: 16,
