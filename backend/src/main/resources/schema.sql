@@ -108,11 +108,15 @@ END $$;
 ALTER TABLE IF EXISTS broadcasts
     ADD COLUMN IF NOT EXISTS current_active_dj_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
 
+-- MODERATION & COMPLIANCE SYSTEM UPGRADE (December 2025)
 ALTER TABLE IF EXISTS broadcasts
     ADD COLUMN IF NOT EXISTS active_session_id VARCHAR(255) NULL;
 
 CREATE INDEX IF NOT EXISTS idx_broadcast_current_dj ON broadcasts(current_active_dj_id);
+
 CREATE INDEX IF NOT EXISTS idx_broadcast_active_session_id ON broadcasts(active_session_id);
+
+-- END OF MODERATION & COMPLIANCE SYSTEM UPGRADE (December 2025)
 
 -- Migrate existing data: set current_active_dj_id to started_by_id for LIVE broadcasts
 UPDATE broadcasts 
@@ -155,3 +159,68 @@ UPDATE dj_handovers
 SET auth_method = 'STANDARD' 
 WHERE auth_method IS NULL;
 
+
+-- ==================================================================================
+-- MODERATION & COMPLIANCE SYSTEM UPGRADE (December 2025)
+-- ==================================================================================
+
+-- 1. Strike Events
+-- Logs every strike issued to a user.
+CREATE TABLE IF NOT EXISTS strike_events (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    broadcast_id BIGINT REFERENCES broadcasts(id),
+    message_id BIGINT REFERENCES chat_messages(id) ON DELETE SET NULL,
+    strike_level INTEGER NOT NULL, -- 1, 2, or 3
+    reason TEXT,
+    created_by_id BIGINT REFERENCES users(id), -- System or Moderator
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_strike_user ON strike_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_strike_broadcast ON strike_events(broadcast_id);
+CREATE INDEX IF NOT EXISTS idx_strike_created_at ON strike_events(created_at);
+
+-- 2. Moderator Actions
+-- Detailed audit log for all moderation actions (warn, ban, delete, censor, appeal_decision)
+CREATE TABLE IF NOT EXISTS moderator_actions (
+    id BIGSERIAL PRIMARY KEY,
+    moderator_id BIGINT REFERENCES users(id),
+    action_type VARCHAR(50) NOT NULL, -- DELETE, WARN, BAN, UNBAN, CENSOR, APPEAL_DECISION
+    target_user_id BIGINT REFERENCES users(id),
+    message_id BIGINT REFERENCES chat_messages(id) ON DELETE SET NULL,
+    details TEXT, -- JSON or description
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_mod_action_moderator ON moderator_actions(moderator_id);
+CREATE INDEX IF NOT EXISTS idx_mod_action_target ON moderator_actions(target_user_id);
+CREATE INDEX IF NOT EXISTS idx_mod_action_type ON moderator_actions(action_type);
+CREATE INDEX IF NOT EXISTS idx_mod_action_created_at ON moderator_actions(created_at);
+
+-- 3. Banlist Words (DB Backed)
+-- Stores tiered words for dynamic management.
+CREATE TABLE IF NOT EXISTS banlist_words (
+    id BIGSERIAL PRIMARY KEY,
+    word VARCHAR(255) NOT NULL UNIQUE,
+    tier INTEGER NOT NULL DEFAULT 1, -- 1=Soft(Censor), 2=Harsh(Strike 1), 3=Slur(Strike 2/3)
+    added_by_id BIGINT REFERENCES users(id),
+    date_added TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    version BIGINT NOT NULL DEFAULT 1, -- Incremented on changes
+    is_active BOOLEAN DEFAULT TRUE
+);
+CREATE INDEX IF NOT EXISTS idx_banlist_word ON banlist_words(word);
+CREATE INDEX IF NOT EXISTS idx_banlist_tier ON banlist_words(tier);
+
+-- 4. Appeals
+-- Tracks user appeals against bans.
+CREATE TABLE IF NOT EXISTS appeals (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id),
+    strike_history TEXT, -- Snapshot of strikes/reason at time of appeal
+    reason TEXT, -- User's explanation
+    status VARCHAR(50) NOT NULL DEFAULT 'PENDING', -- PENDING, APPROVED, DENIED
+    reviewed_by_id BIGINT REFERENCES users(id),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    decided_at TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_appeal_user ON appeals(user_id);
+CREATE INDEX IF NOT EXISTS idx_appeal_status ON appeals(status);

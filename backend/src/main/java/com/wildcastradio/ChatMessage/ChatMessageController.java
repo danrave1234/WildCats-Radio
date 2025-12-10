@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.Broadcast.BroadcastRepository;
 import com.wildcastradio.ChatMessage.DTO.ChatMessageDTO;
+import com.wildcastradio.Moderation.ModeratorActionService;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserService;
 
@@ -39,6 +40,12 @@ public class ChatMessageController {
 
     @Autowired
     private BroadcastRepository broadcastRepository;
+    
+    @Autowired
+    private ModeratorActionService moderatorActionService;
+    
+    @Autowired
+    private ChatMessageRepository chatMessageRepository; // Needed to fetch message for logging before deletion
 
     // In-memory per-user per-broadcast cooldown tracking for slow mode
     private final ConcurrentHashMap<String, Long> lastMessageTimestamps = new ConcurrentHashMap<>();
@@ -258,6 +265,21 @@ public class ChatMessageController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
         try {
+            // Fetch message for logging before deletion
+            ChatMessageEntity message = chatMessageRepository.findById(messageId).orElse(null);
+            UserEntity moderator = userService.getUserByEmail(authentication.getName()).orElse(null);
+            
+            if (message != null && moderator != null) {
+                // Log action
+                moderatorActionService.logAction(
+                    moderator, 
+                    "DELETE", 
+                    message.getSender(), 
+                    message, 
+                    "Manual deletion by moderator"
+                );
+            }
+            
             chatMessageService.deleteMessageById(messageId);
             return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException e) {
@@ -279,6 +301,4 @@ public class ChatMessageController {
             this.content = content;
         }
     }
-
-    // no-op
 }

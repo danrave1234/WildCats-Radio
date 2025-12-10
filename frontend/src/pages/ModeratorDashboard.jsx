@@ -29,6 +29,7 @@ const ModeratorDashboardContent = () => {
   // Profanity management state
   const [profanityWords, setProfanityWords] = useState([]);
   const [newProfanity, setNewProfanity] = useState('');
+  const [newTier, setNewTier] = useState(1);
   const [profLoading, setProfLoading] = useState(false);
   const [profMsg, setProfMsg] = useState(null);
 
@@ -62,7 +63,6 @@ const ModeratorDashboardContent = () => {
       
       setUsers(filteredContent);
       setTotalPages(typeof data.totalPages === 'number' ? data.totalPages : 0);
-      // Adjust total elements count based on filtering if necessary, though for UI it might be fine to show total
       setTotalElements(typeof data.totalElements === 'number' ? data.totalElements : content.length);
     } catch (err) {
       console.error('Error fetching users:', err);
@@ -93,9 +93,6 @@ const ModeratorDashboardContent = () => {
     if (!broadcastId) return;
     navigate(`/broadcast/${broadcastId}`);
   };
-
-
-
 
   const handleNewUserChange = (e) => {
     const { name, value } = e.target;
@@ -162,14 +159,29 @@ const ModeratorDashboardContent = () => {
     if (!w) return;
     try {
       setProfLoading(true);
-      const res = await profanityService.addWord(w);
-      setProfanityWords((prev) => prev.includes(w.toLowerCase()) ? prev : [...prev, w.toLowerCase()]);
+      const res = await profanityService.addWord(w, parseInt(newTier));
+      // res is the DTO
+      setProfanityWords((prev) => {
+        // If it was inactive, remove old one first or update it
+        const filtered = prev.filter(pw => pw.word !== w.toLowerCase());
+        return [...filtered, res];
+      });
       setNewProfanity('');
-      setProfMsg(res?.message || 'Added');
+      setProfMsg('Added ' + w);
     } catch (err) {
       setProfMsg(err?.response?.data?.message || 'Failed to add');
     } finally {
       setProfLoading(false);
+    }
+  };
+  
+  const handleDeleteWord = async (id) => {
+    if (!window.confirm('Remove this word?')) return;
+    try {
+      await profanityService.deleteWord(id);
+      setProfanityWords(prev => prev.filter(w => w.id !== id));
+    } catch (err) {
+      alert('Failed to delete word');
     }
   };
 
@@ -258,6 +270,7 @@ const ModeratorDashboardContent = () => {
 
               {activeTab === 'moderation' && (
                 <div className="p-6">
+                  {/* ... User Management Section ... */}
                   <div className="mb-8">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Create User</h3>
                     <form onSubmit={handleCreateUser} className="space-y-3">
@@ -387,41 +400,72 @@ const ModeratorDashboardContent = () => {
 
                   <div className="mt-8">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Profanity Dictionary</h3>
-                    <form onSubmit={handleAddProfanity} className="flex gap-2 mb-3">
-                      <input
-                        value={newProfanity}
-                        onChange={(e)=>setNewProfanity(e.target.value)}
-                        placeholder="Add new word or phrase"
-                        className="flex-1 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                      />
-                      <button type="submit" disabled={profLoading} className={`px-4 py-2 rounded-md text-white ${profLoading?'bg-gray-400':'bg-maroon-600 hover:bg-maroon-700'}`}>{profLoading?'Adding...':'Add'}</button>
+                    <form onSubmit={handleAddProfanity} className="flex gap-2 mb-3 items-end">
+                      <div className="flex-1">
+                        <label className="text-xs text-gray-500 dark:text-gray-400">Word</label>
+                        <input
+                          value={newProfanity}
+                          onChange={(e)=>setNewProfanity(e.target.value)}
+                          placeholder="Add new word or phrase"
+                          className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        />
+                      </div>
+                      <div className="w-32">
+                        <label className="text-xs text-gray-500 dark:text-gray-400">Tier</label>
+                        <select 
+                          value={newTier} 
+                          onChange={(e)=>setNewTier(e.target.value)}
+                          className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        >
+                          <option value={1}>1 (Soft)</option>
+                          <option value={2}>2 (Harsh)</option>
+                          <option value={3}>3 (Slur)</option>
+                        </select>
+                      </div>
+                      <button type="submit" disabled={profLoading} className={`px-4 py-2 rounded-md text-white h-10 ${profLoading?'bg-gray-400':'bg-maroon-600 hover:bg-maroon-700'}`}>{profLoading?'Adding...':'Add'}</button>
                     </form>
                     {profMsg && <div className="text-sm mb-2 text-gray-700 dark:text-gray-300">{profMsg}</div>}
-                    <div className="max-h-40 overflow-auto border rounded p-2 bg-gray-50 dark:bg-gray-800">
-                      {profLoading ? (
-                        <div>Loading...</div>
-                      ) : profanityWords.length === 0 ? (
-                        <div className="text-sm text-gray-500">No custom words yet.</div>
-                      ) : (
-                        <ul className="list-disc list-inside text-sm space-y-1">
-                          {profanityWords.sort().map((w) => (
-                            <li key={w}>{w}</li>
-                          ))}
-                        </ul>
-                      )}
+                    <div className="max-h-60 overflow-auto border rounded p-2 bg-gray-50 dark:bg-gray-800">
+                      {profanityWords.map((pw, i) => (
+                        <span key={pw.id || i} className={`inline-block px-2 py-1 m-1 rounded text-sm ${
+                          pw.tier===3 ? 'bg-red-200 text-red-900' : 
+                          pw.tier===2 ? 'bg-orange-200 text-orange-900' : 
+                          'bg-yellow-200 text-yellow-900'
+                        }`}>
+                          {pw.word} <span className="text-xs opacity-75">(T{pw.tier})</span>
+                          {pw.id && (
+                            <button 
+                              onClick={() => handleDeleteWord(pw.id)} 
+                              className="ml-2 text-xs font-bold text-gray-700 hover:text-red-600"
+                              title="Delete"
+                            >×</button>
+                          )}
+                        </span>
+                      ))}
+                      {profanityWords.length === 0 && <span className="text-gray-500 italic">No custom words found.</span>}
                     </div>
                   </div>
 
                   <div className="mt-8">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Send System Notification</h3>
-                    <form onSubmit={handleSendNotification} className="flex gap-2">
-                      <select value={notifyType} onChange={(e)=>setNotifyType(e.target.value)} className="p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                        <option value="INFO">INFO</option>
-                        <option value="ALERT">ALERT</option>
-                        <option value="REMINDER">REMINDER</option>
-                      </select>
-                      <input value={notifyText} onChange={(e)=>setNotifyText(e.target.value)} placeholder="Message to all users" className="flex-1 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-                      <button type="submit" disabled={notifyLoading} className={`px-4 py-2 rounded-md text-white ${notifyLoading?'bg-gray-400':'bg-blue-600 hover:bg-blue-700'}`}>{notifyLoading?'Sending...':'Send'}</button>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Broadcast Notification</h3>
+                    <form onSubmit={handleSendNotification} className="space-y-3">
+                      <div>
+                        <select value={notifyType} onChange={(e)=>setNotifyType(e.target.value)} className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white mb-2">
+                          <option value="INFO">Info</option>
+                          <option value="WARNING">Warning</option>
+                          <option value="ALERT">Alert</option>
+                        </select>
+                        <textarea
+                          value={notifyText}
+                          onChange={(e)=>setNotifyText(e.target.value)}
+                          placeholder="Type notification message..."
+                          className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                          rows="3"
+                        />
+                      </div>
+                      <div className="text-right">
+                        <button type="submit" disabled={notifyLoading} className={`px-4 py-2 rounded-md text-white ${notifyLoading?'bg-gray-400':'bg-red-600 hover:bg-red-700'}`}>{notifyLoading?'Sending...':'Send Broadcast'}</button>
+                      </div>
                     </form>
                   </div>
                 </div>
@@ -432,29 +476,6 @@ const ModeratorDashboardContent = () => {
       </div>
     </div>
   );
-}
-
-const ModeratorDashboard = () => {
-  const { currentUser } = useAuth();
-
-  if (!currentUser || !['ADMIN', 'MODERATOR'].includes(currentUser.role)) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center">
-          <ExclamationTriangleIcon className="mx-auto h-12 w-12 text-red-500 mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h2>
-          <p className="text-gray-600 dark:text-gray-300 mb-4">
-            You must be a Moderator or Administrator to access this page.
-          </p>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Your current role is: <span className="font-semibold">{currentUser?.role || 'Not Authenticated'}</span>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  return <ModeratorDashboardContent />;
 };
 
-export default ModeratorDashboard;
+export default ModeratorDashboardContent;
