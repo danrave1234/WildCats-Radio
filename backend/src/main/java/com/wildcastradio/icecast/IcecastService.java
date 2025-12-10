@@ -71,7 +71,8 @@ public class IcecastService {
     private boolean allowDegradedStart;
 
     // Fallback stream URL used when Icecast server is not reachable
-    @Value("${icecast.fallbackStreamUrl:https://icecast.software/live.ogg}")
+    // Use MP3 by default so any public fallback stream is Safari-compatible
+    @Value("${icecast.fallbackStreamUrl:https://icecast.software/live.mp3}")
     private String fallbackStreamUrl;
 
     private final NetworkConfig networkConfig;

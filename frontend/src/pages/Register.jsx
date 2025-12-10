@@ -116,48 +116,48 @@ export default function Register() {
   }
 
   return (
-    <AuthBackground contentClassName="px-4 sm:px-6 py-6 sm:py-10">
-      <div className="w-full flex flex-col items-center justify-center relative">
-        <div className="w-full max-w-sm sm:max-w-md lg:max-w-xl">
+    <AuthBackground contentClassName="px-3 sm:px-4 md:px-6">
+      <div className="w-full flex flex-col items-center justify-center relative max-w-full">
+        <div className="w-full max-w-full sm:max-w-md lg:max-w-xl my-auto">
           {/* Back to Home */}
-          <div className="w-full mb-2">
-            <Link to="/" className="inline-flex items-center gap-2 text-sm font-medium text-wildcats-yellow hover:text-wildcats-yellow/90 transition-colors">
-              <ArrowLeft className="h-4 w-4" />
+          <div className="w-full mb-2 sm:mb-3">
+            <Link to="/" className="inline-flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium text-wildcats-yellow hover:text-wildcats-yellow/90 transition-colors">
+              <ArrowLeft className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               Back to Home
             </Link>
           </div>
           {/* Logo Section */}
-          <div className="flex justify-center mb-2">
+          <div className="flex justify-center mb-2 sm:mb-3">
             <img 
               src={wildcatRadioLogo} 
               alt="WildCat Radio Logo" 
-              className="h-40 w-auto"
+              className="h-24 sm:h-32 md:h-40 w-auto max-w-[90vw]"
             />
           </div>
 
           {/* Title Section */}
-          <div className="text-center mb-3 sm:mb-4 px-4">
-            <p className="text-xs uppercase tracking-[0.4em] text-slate-200/90 max-w-sm mx-auto font-semibold">
+          <div className="text-center mb-2 sm:mb-3 md:mb-4 px-2 sm:px-4">
+            <p className="text-[10px] xs:text-xs uppercase tracking-[0.3em] sm:tracking-[0.4em] text-slate-200/90 max-w-sm mx-auto font-semibold">
               Join the WildCat Radio community
             </p>
           </div>
 
-          <Card className="border border-white/20 dark:border-white/10 shadow-2xl bg-white/95 dark:bg-slate-800/90 backdrop-blur-xl text-card-foreground overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out">
-            <div className="h-3 bg-wildcats-maroon" />
-            <CardHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-2 sm:pb-3">
+          <Card className="border border-white/20 dark:border-white/10 shadow-2xl bg-white/95 dark:bg-slate-800/90 backdrop-blur-xl text-card-foreground overflow-hidden !rounded-none animate-in fade-in-0 slide-in-from-bottom-4 duration-700 ease-out w-full">
+            <div className="h-2 sm:h-3 bg-wildcats-maroon" />
+            <CardHeader className="px-3 sm:px-4 md:px-6 pt-3 sm:pt-4 md:pt-6 pb-2 sm:pb-2 md:pb-3">
               <div>
                 <CardTitle className="text-lg sm:text-xl font-bold">Create your account</CardTitle>
-                <CardDescription className="text-sm mt-1">
+                <CardDescription className="text-xs sm:text-sm mt-0.5 sm:mt-1">
                   Enter your details below to create your account
                 </CardDescription>
               </div>
             </CardHeader>
-            <div className="px-4 sm:px-6">
+            <div className="px-3 sm:px-4 md:px-6">
               <Separator className="bg-border" />
             </div>
-            <CardContent className="px-4 sm:px-6 py-4 sm:py-6 pt-3">
+            <CardContent className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 md:py-6 pt-2 sm:pt-3">
               {/* OAuth Register Buttons */}
-              <div className="mb-4">
+              <div className="mb-3 sm:mb-4">
                 <Button
                   type="button"
                   onClick={() => {
@@ -168,28 +168,28 @@ export default function Register() {
                       : `${config.apiBaseUrl || window.location.origin}/oauth2/authorization/google`;
                     window.location.href = oauthUrl;
                   }}
-                  className="w-full h-11 bg-white dark:bg-slate-600 hover:bg-gray-50 dark:hover:bg-slate-500 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-slate-500 font-semibold shadow-sm hover:shadow-md transition-all duration-300 !rounded-none focus:outline-none focus-visible:ring-0"
+                  className="w-full h-10 sm:h-11 bg-white dark:bg-slate-600 hover:bg-gray-50 dark:hover:bg-slate-500 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-slate-500 font-semibold text-sm sm:text-base shadow-sm hover:shadow-md transition-all duration-300 !rounded-none focus:outline-none focus-visible:ring-0"
                 >
-                  <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 sm:w-5 sm:h-5 mr-1.5 sm:mr-2 flex-shrink-0" viewBox="0 0 24 24">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                     <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                     <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                   </svg>
-                  Sign up with Google
+                  <span className="truncate">Sign up with Google</span>
                 </Button>
               </div>
 
-              <div className="relative my-4">
+              <div className="relative my-3 sm:my-4">
                 <div className="absolute inset-0 flex items-center">
                   <Separator className="w-full" />
                 </div>
-                <div className="relative flex justify-center text-xs uppercase">
+                <div className="relative flex justify-center text-[10px] sm:text-xs uppercase">
                   <span className="bg-white dark:bg-slate-700 px-2 text-muted-foreground">Or continue with email</span>
                 </div>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-3">
+              <form onSubmit={handleSubmit} className="space-y-2.5 sm:space-y-3">
                 {/* Name Fields Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
@@ -205,7 +205,7 @@ export default function Register() {
                       value={formData.firstname}
                       onChange={handleChange}
                       placeholder="First name"
-                      className="h-10 !rounded-none"
+                      className="h-9 sm:h-10 !rounded-none text-sm sm:text-base"
                     />
                   </div>
 
@@ -222,7 +222,7 @@ export default function Register() {
                       value={formData.lastname}
                       onChange={handleChange}
                       placeholder="Last name"
-                      className="h-10 !rounded-none"
+                      className="h-9 sm:h-10 !rounded-none text-sm sm:text-base"
                     />
                   </div>
                 </div>
@@ -241,7 +241,7 @@ export default function Register() {
                     value={formData.email}
                     onChange={handleChange}
                     placeholder="your.email@example.com"
-                    className="h-10 !rounded-none"
+                    className="h-9 sm:h-10 !rounded-none text-sm sm:text-base"
                   />
                 </div>
 
@@ -257,9 +257,9 @@ export default function Register() {
                     required
                     value={formData.birthdate}
                     onChange={handleChange}
-                    className="h-10 !rounded-none"
+                    className="h-9 sm:h-10 !rounded-none text-sm sm:text-base"
                   />
-                  <p className="text-xs text-muted-foreground pt-1">
+                  <p className="text-[10px] sm:text-xs text-muted-foreground pt-0.5 sm:pt-1">
                     Used for analytics and age-appropriate content
                   </p>
                 </div>
@@ -274,7 +274,7 @@ export default function Register() {
                     name="gender"
                     value={formData.gender}
                     onChange={handleChange}
-                    className="h-10 !rounded-none w-full border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    className="h-9 sm:h-10 !rounded-none w-full border border-input bg-background px-3 py-2 text-sm sm:text-base ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                   >
                     <option value="">Prefer not to say</option>
                     <option value="MALE">Male</option>
@@ -301,20 +301,20 @@ export default function Register() {
                       value={formData.password}
                       onChange={handleChange}
                       placeholder="Create a secure password"
-                      className="h-10 pr-10 !rounded-none"
+                      className="h-9 sm:h-10 pr-9 sm:pr-10 !rounded-none text-sm sm:text-base"
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="group absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 !rounded-none focus:outline-none hover:bg-transparent"
+                      className="group absolute right-0.5 sm:right-1 top-1/2 -translate-y-1/2 h-7 w-7 sm:h-8 sm:w-8 !rounded-none focus:outline-none hover:bg-transparent"
                       onClick={togglePasswordsVisibility}
                       tabIndex={-1}
                     >
                       {showPasswords ? (
-                        <EyeOff className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                        <EyeOff className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
                       ) : (
-                        <Eye className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                        <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
                       )}
                     </Button>
                   </div>
@@ -335,20 +335,20 @@ export default function Register() {
                       value={formData.confirmPassword}
                       onChange={handleChange}
                       placeholder="Confirm your password"
-                      className="h-10 pr-10 !rounded-none"
+                      className="h-9 sm:h-10 pr-9 sm:pr-10 !rounded-none text-sm sm:text-base"
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="group absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 !rounded-none focus:outline-none hover:bg-transparent"
+                      className="group absolute right-0.5 sm:right-1 top-1/2 -translate-y-1/2 h-7 w-7 sm:h-8 sm:w-8 !rounded-none focus:outline-none hover:bg-transparent"
                       onClick={togglePasswordsVisibility}
                       tabIndex={-1}
                     >
                       {showPasswords ? (
-                        <EyeOff className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                        <EyeOff className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
                       ) : (
-                        <Eye className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                        <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground transition-colors group-hover:text-foreground" />
                       )}
                     </Button>
                   </div>
@@ -394,11 +394,11 @@ export default function Register() {
                 <Button
                   type="submit"
                   disabled={loading || !agreedToTerms}
-                  className="w-full h-11 bg-gradient-to-r from-wildcats-yellow to-wildcats-yellow/90 hover:from-wildcats-yellow/90 hover:to-wildcats-yellow/80 text-black font-semibold shadow-lg hover:shadow-xl transition-all duration-300 disabled:transform-none disabled:opacity-70 !rounded-none mt-4 focus:outline-none focus-visible:ring-0"
+                  className="w-full h-10 sm:h-11 bg-gradient-to-r from-wildcats-yellow to-wildcats-yellow/90 hover:from-wildcats-yellow/90 hover:to-wildcats-yellow/80 text-black font-semibold text-sm sm:text-base shadow-lg hover:shadow-xl transition-all duration-300 disabled:transform-none disabled:opacity-70 !rounded-none mt-3 sm:mt-4 focus:outline-none focus-visible:ring-0"
                 >
                   {loading ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className="mr-1.5 sm:mr-2 h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
                       Creating Account...
                     </>
                   ) : (
@@ -410,8 +410,8 @@ export default function Register() {
               </form>
 
               {/* Sign In Link */}
-              <div className="text-center pt-3">
-                <p className="text-sm text-muted-foreground">
+              <div className="text-center pt-2 sm:pt-3">
+                <p className="text-xs sm:text-sm text-muted-foreground">
                   Already have an account?{' '}
                   <Link 
                     to="/login" 

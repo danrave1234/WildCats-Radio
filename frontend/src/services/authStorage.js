@@ -142,12 +142,17 @@ class AuthStorage {
   async clear() {
     const db = await this.ensureDB();
 
-    if (!db || this.fallbackStorage) {
+    // Always clear legacy OAuth/localStorage-based auth data, regardless of storage backend
+    try {
       localStorage.removeItem('auth_session');
-      // Also clear legacy oauth storage
       localStorage.removeItem('oauth_token');
       localStorage.removeItem('oauth_userId');
       localStorage.removeItem('oauth_userRole');
+    } catch (e) {
+      console.warn('Error clearing localStorage auth data:', e);
+    }
+
+    if (!db || this.fallbackStorage) {
       return;
     }
 

@@ -6,6 +6,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { websocketService } from '../services/websocketService';
+import { useFonts } from 'expo-font';
+import { Manrope_200ExtraLight, Manrope_300Light, Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold } from '@expo-google-fonts/manrope';
+import { Poppins_100Thin, Poppins_200ExtraLight, Poppins_300Light, Poppins_400Regular, Poppins_500Medium, Poppins_600SemiBold, Poppins_700Bold, Poppins_800ExtraBold, Poppins_900Black, Poppins_100Thin_Italic, Poppins_200ExtraLight_Italic, Poppins_300Light_Italic, Poppins_400Regular_Italic, Poppins_500Medium_Italic, Poppins_600SemiBold_Italic, Poppins_700Bold_Italic, Poppins_800ExtraBold_Italic, Poppins_900Black_Italic } from '@expo-google-fonts/poppins';
 
 const InitialLayout = () => {
   const { authToken, isLoading } = useAuth();
@@ -72,6 +75,42 @@ const InitialLayout = () => {
 };
 
 const RootLayout = () => {
+  const [fontsLoaded] = useFonts({
+    Manrope_200ExtraLight,
+    Manrope_300Light,
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+    Manrope_800ExtraBold,
+    Poppins_100Thin,
+    Poppins_200ExtraLight,
+    Poppins_300Light,
+    Poppins_400Regular,
+    Poppins_500Medium,
+    Poppins_600SemiBold,
+    Poppins_700Bold,
+    Poppins_800ExtraBold,
+    Poppins_900Black,
+    Poppins_100Thin_Italic,
+    Poppins_200ExtraLight_Italic,
+    Poppins_300Light_Italic,
+    Poppins_400Regular_Italic,
+    Poppins_500Medium_Italic,
+    Poppins_600SemiBold_Italic,
+    Poppins_700Bold_Italic,
+    Poppins_800ExtraBold_Italic,
+    Poppins_900Black_Italic,
+  });
+
+  if (!fontsLoaded) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5' }}>
+        <ActivityIndicator size="large" color="#8C1D18" />
+      </View>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <ErrorBoundary>

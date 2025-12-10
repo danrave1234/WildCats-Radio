@@ -105,7 +105,8 @@ export const config = {
   sockJsBaseUrl: currentEnvConfig.sockJsBaseUrl,
 
   // Icecast URL (external service, configured via environment variables)
-  icecastUrl: `https://${getEnvVar('VITE_ICECAST_URL', 'icecast.software/live.ogg')}`,
+  // Use MP3 by default for maximum browser compatibility (including iOS Safari)
+  icecastUrl: `https://${getEnvVar('VITE_ICECAST_URL', 'icecast.software/live.mp3')}`,
 
   // API Configuration
   apiTimeout: isLocalEnvironment ? 10000 : 30000, // 10s local, 30s deployed

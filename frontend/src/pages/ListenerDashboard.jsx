@@ -1897,8 +1897,13 @@ export default function ListenerDashboard() {
   // scroll position correctly in both.
   const renderChatMessages = (variant) => (
     <div
-      className="h-full overflow-y-auto p-3 sm:p-4 space-y-3 custom-scrollbar chat-messages-container"
+      className="h-full max-h-full overflow-y-auto overflow-x-hidden p-3 sm:p-4 space-y-3 custom-scrollbar chat-messages-container"
       ref={variant === 'mobile' ? mobileChatContainerRef : desktopChatContainerRef}
+      style={{
+        touchAction: 'pan-y',
+        WebkitOverflowScrolling: 'touch',
+        overscrollBehavior: 'contain',
+      }}
     >
       {chatMessages.length === 0 ? (
         <div className="text-center text-gray-500 dark:text-gray-400 py-8 sm:py-12">
@@ -2006,7 +2011,7 @@ export default function ListenerDashboard() {
               type="button"
               onClick={handleSongRequest}
               disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id) || !songRequestText.trim()}
-              className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap w-full sm:w-auto ${
+              className={`flex-shrink-0 px-3 sm:px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-1.5 shadow-sm whitespace-nowrap ${
                 currentBroadcast?.status === 'LIVE' && songRequestText.trim() 
                   ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
                   : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
@@ -2014,13 +2019,14 @@ export default function ListenerDashboard() {
               aria-label="Send song request"
             >
               <MusicalNoteIcon className="h-4 w-4" />
-              Send Request
+              <span className="hidden sm:inline">Send Request</span>
+              <span className="sm:hidden">Send</span>
             </button>
             <button
               type="button"
               onClick={handleCancelSongRequest}
               disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id)}
-              className="flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap w-full sm:w-auto"
+              className="flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap"
               aria-label="Cancel song request"
             >
               Cancel
@@ -2036,7 +2042,7 @@ export default function ListenerDashboard() {
                 !chatMessage.trim() ||
                 (typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
               }
-              className={`flex-shrink-0 p-2 rounded-lg transition-all w-full sm:w-auto flex items-center justify-center ${
+              className={`flex-shrink-0 p-2 rounded-lg transition-all flex items-center justify-center min-w-[44px] ${
                 currentBroadcast?.status === 'LIVE' && chatMessage.trim() && !(typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
                   ? "bg-maroon-600 hover:bg-maroon-700 active:bg-maroon-800 text-white shadow-sm hover:shadow-md"
                   : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
@@ -2050,7 +2056,7 @@ export default function ListenerDashboard() {
               type="button"
               onClick={handleSongRequest}
               disabled={currentBroadcast?.status !== 'LIVE' || !(currentBroadcastId || currentBroadcast?.id)}
-              className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap w-full sm:w-auto ${
+              className={`flex-shrink-0 px-3 sm:px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-1.5 shadow-sm whitespace-nowrap ${
                 isLive 
                   ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
                   : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
@@ -2334,10 +2340,10 @@ export default function ListenerDashboard() {
           : 'wildcat radio, campus radio, live streaming, online radio'
         }
       />
-      <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8 mb-8 space-y-6">
-        <div className="pt-2 sm:pt-3">
-          <h2 className="text-xl sm:text-2xl font-semibold text-maroon-700 dark:text-maroon-400 mb-1">Broadcast Stream</h2>
-          <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm">Tune in to live broadcasts and connect with listeners</p>
+      <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-6 lg:py-8 mb-4 sm:mb-8 space-y-4 sm:space-y-6">
+        <div className="pt-1 sm:pt-2 lg:pt-3">
+          <h2 className="text-base sm:text-xl lg:text-2xl font-semibold text-maroon-700 dark:text-maroon-400 mb-0.5 sm:mb-1">Broadcast Stream</h2>
+          <p className="text-slate-600 dark:text-slate-400 text-[10px] sm:text-xs lg:text-sm">Tune in to live broadcasts and connect with listeners</p>
         </div>
 
         {/* Recovery Notification Banner */}
@@ -2364,12 +2370,12 @@ export default function ListenerDashboard() {
         {/* Desktop Right Column - Live Chat */}
         <div className="lg:col-span-1 flex flex-col">
           <div className="bg-maroon-700 dark:bg-maroon-800 text-white p-4 rounded-t-xl shadow-md border-b border-maroon-800 dark:border-maroon-900">
-            <h3 className="font-bold text-lg mb-1 font-montserrat">Live Chat</h3>
+            <h3 className="font-bold text-lg mb-1 font-poppins">Live Chat</h3>
             <p className="text-xs opacity-90 font-medium">{Math.max(listenerCount, localListenerCount)} listeners online</p>
           </div>
 
           <div className="bg-white dark:bg-slate-800 border border-t-0 border-slate-200 dark:border-slate-700 rounded-b-xl flex flex-col min-h-[420px] h-[520px] sm:h-[560px] max-h-[75vh] shadow-lg">
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col h-full min-h-0">
               <div className="flex-shrink-0">
                 {renderPollBanner()}
               </div>
@@ -2444,7 +2450,7 @@ export default function ListenerDashboard() {
                           )}
                         </p>
                       )}
-                    <form onSubmit={handleChatSubmit} className="flex flex-wrap md:flex-nowrap items-center gap-2 w-full min-w-0 overflow-hidden p-4">
+                    <form onSubmit={handleChatSubmit} className="flex flex-row items-center gap-2 w-full min-w-0 overflow-hidden p-3 sm:p-4">
                       <input
                         type="text"
                         value={isSongRequestMode ? songRequestText : chatMessage}
@@ -2475,7 +2481,7 @@ export default function ListenerDashboard() {
                             type="button"
                             onClick={handleSongRequest}
                             disabled={currentBroadcast?.status !== 'LIVE' || !songRequestText.trim()}
-                            className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-md whitespace-nowrap w-full sm:w-auto ${
+                            className={`flex-shrink-0 px-3 sm:px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-1.5 shadow-md whitespace-nowrap ${
                               currentBroadcast?.status === 'LIVE' && songRequestText.trim() 
                                 ? 'bg-gold-500 hover:bg-gold-600 text-maroon-900 hover:shadow-lg hover:scale-105' 
                                 : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed'
@@ -2483,13 +2489,14 @@ export default function ListenerDashboard() {
                             aria-label="Send song request"
                           >
                             <MusicalNoteIcon className="h-4 w-4" />
-                            Send Request
+                            <span className="hidden sm:inline">Send Request</span>
+                            <span className="sm:hidden">Send</span>
                           </button>
                           <button
                             type="button"
                             onClick={handleCancelSongRequest}
                             disabled={currentBroadcast?.status !== 'LIVE'}
-                            className="flex-shrink-0 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap w-full sm:w-auto"
+                            className="flex-shrink-0 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 whitespace-nowrap"
                             aria-label="Cancel song request"
                           >
                             Cancel
@@ -2504,7 +2511,7 @@ export default function ListenerDashboard() {
                               !chatMessage.trim() ||
                               (typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
                             }
-                            className={`flex-shrink-0 p-2.5 rounded-lg transition-all w-full sm:w-auto flex items-center justify-center ${
+                            className={`flex-shrink-0 p-2.5 sm:p-2 rounded-lg transition-all flex items-center justify-center min-w-[44px] ${
                               currentBroadcast?.status === "LIVE" &&
                               chatMessage.trim() &&
                               !(typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
@@ -2523,7 +2530,7 @@ export default function ListenerDashboard() {
                               currentBroadcast?.status !== "LIVE" ||
                               (typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
                             }
-                            className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap w-full sm:w-auto ${
+                            className={`flex-shrink-0 px-3 sm:px-4 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-1.5 shadow-sm whitespace-nowrap ${
                               isLive && !(typeof slowModeWaitSeconds === "number" && slowModeWaitSeconds > 0)
                                 ? 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700 text-white hover:shadow-md' 
                                 : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-slate-500 cursor-not-allowed'
@@ -2579,26 +2586,23 @@ export default function ListenerDashboard() {
           </div>
         )}
 
-        <div className="card-modern overflow-hidden">
-          <div className="bg-maroon-700 dark:bg-maroon-800 text-white p-4">
+        <div className="card-modern overflow-hidden flex flex-col min-h-0">
+          <div className="bg-maroon-700 dark:bg-maroon-800 text-white p-2 sm:p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[11px] uppercase tracking-[0.2em] text-white/70 font-semibold">Community</p>
-                <h3 className="font-bold text-lg font-montserrat">Live Chat</h3>
+                <h3 className="font-bold text-sm sm:text-lg font-poppins">Live Chat</h3>
               </div>
-              <span className="text-xs font-medium">{Math.max(listenerCount, localListenerCount)} online</span>
+              <span className="text-[10px] sm:text-xs font-medium">{Math.max(listenerCount, localListenerCount)} online</span>
             </div>
           </div>
 
           <div className="bg-white dark:bg-slate-800 flex flex-col min-h-[420px] h-[500px] max-h-[75vh]">
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col h-full min-h-0">
               <div className="flex-shrink-0">{renderPollBanner()}</div>
               {currentBroadcast?.status === 'LIVE' ? (
                 <>
                   <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
-                    <div className="flex-1 min-h-0">
-                      {renderChatMessages('mobile')}
-                    </div>
+                    {renderChatMessages('mobile')}
                     {showScrollBottom && (
                       <div className="absolute bottom-4 right-4 z-10">
                         <button
