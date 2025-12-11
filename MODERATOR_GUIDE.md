@@ -19,7 +19,7 @@ Access the **Moderator Dashboard** to:
 - **Monitor Chat**: Watch live broadcasts.
 - **Delete Messages**: Click delete on offensive messages. This action is logged.
 - **Manage Users**: Change roles (Listener -> DJ). *Note: Admins manage Moderators.*
-- **Banlist**: View the list of banned words. Admins can add/remove words and set tiers.
+- **Profanity Dictionary tab**: View the list of banned words. Admins can add/remove words and set tiers; moderators/DJs can view. Tiers drive auto-actions (Tier 1 censor, Tier 2 warn, Tier 3 strike/ban).
 
 ## 4. Handling Appeals
 (Coming Soon to UI)

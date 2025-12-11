@@ -50,6 +50,19 @@ const ModeratorDashboardContent = () => {
     }
   };
 
+  const fetchProfanity = async () => {
+    setProfMsg(null);
+    setProfLoading(true);
+    try {
+      const data = await profanityService.listWords();
+      setProfanityWords(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setProfanityWords([]);
+    } finally {
+      setProfLoading(false);
+    }
+  };
+
   const fetchUsers = async () => {
     setRolesLoading(true);
     setError(null);
@@ -78,14 +91,10 @@ const ModeratorDashboardContent = () => {
     }
     if (activeTab === 'moderation') {
       fetchLive(); // Also fetch live broadcasts for moderator controls
-      setProfMsg(null);
-      setProfLoading(true);
-      profanityService.listWords()
-        .then((data) => setProfanityWords(Array.isArray(data) ? data : []))
-        .catch(() => {})
-        .finally(() => setProfLoading(false));
-
       fetchUsers();
+    }
+    if (activeTab === 'profanity') {
+      fetchProfanity();
     }
   }, [activeTab, page]);
 
@@ -218,6 +227,10 @@ const ModeratorDashboardContent = () => {
                   onClick={() => setActiveTab('moderation')}
                   className={`w-full text-left px-4 py-2 rounded-md text-sm font-medium ${activeTab==='moderation' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'}`}
                 >Moderator Controls</button>
+                <button
+                  onClick={() => setActiveTab('profanity')}
+                  className={`w-full text-left px-4 py-2 rounded-md text-sm font-medium ${activeTab==='profanity' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'}`}
+                >Profanity Dictionary</button>
                 <button
                   onClick={() => setActiveTab('live')}
                   className={`w-full text-left px-4 py-2 rounded-md text-sm font-medium ${activeTab==='live' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'}`}
@@ -399,54 +412,6 @@ const ModeratorDashboardContent = () => {
                   </div>
 
                   <div className="mt-8">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Profanity Dictionary</h3>
-                    <form onSubmit={handleAddProfanity} className="flex gap-2 mb-3 items-end">
-                      <div className="flex-1">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">Word</label>
-                        <input
-                          value={newProfanity}
-                          onChange={(e)=>setNewProfanity(e.target.value)}
-                          placeholder="Add new word or phrase"
-                          className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                        />
-                      </div>
-                      <div className="w-32">
-                        <label className="text-xs text-gray-500 dark:text-gray-400">Tier</label>
-                        <select 
-                          value={newTier} 
-                          onChange={(e)=>setNewTier(e.target.value)}
-                          className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                        >
-                          <option value={1}>1 (Soft)</option>
-                          <option value={2}>2 (Harsh)</option>
-                          <option value={3}>3 (Slur)</option>
-                        </select>
-                      </div>
-                      <button type="submit" disabled={profLoading} className={`px-4 py-2 rounded-md text-white h-10 ${profLoading?'bg-gray-400':'bg-maroon-600 hover:bg-maroon-700'}`}>{profLoading?'Adding...':'Add'}</button>
-                    </form>
-                    {profMsg && <div className="text-sm mb-2 text-gray-700 dark:text-gray-300">{profMsg}</div>}
-                    <div className="max-h-60 overflow-auto border rounded p-2 bg-gray-50 dark:bg-gray-800">
-                      {profanityWords.map((pw, i) => (
-                        <span key={pw.id || i} className={`inline-block px-2 py-1 m-1 rounded text-sm ${
-                          pw.tier===3 ? 'bg-red-200 text-red-900' : 
-                          pw.tier===2 ? 'bg-orange-200 text-orange-900' : 
-                          'bg-yellow-200 text-yellow-900'
-                        }`}>
-                          {pw.word} <span className="text-xs opacity-75">(T{pw.tier})</span>
-                          {pw.id && (
-                            <button 
-                              onClick={() => handleDeleteWord(pw.id)} 
-                              className="ml-2 text-xs font-bold text-gray-700 hover:text-red-600"
-                              title="Delete"
-                            >×</button>
-                          )}
-                        </span>
-                      ))}
-                      {profanityWords.length === 0 && <span className="text-gray-500 italic">No custom words found.</span>}
-                    </div>
-                  </div>
-
-                  <div className="mt-8">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Broadcast Notification</h3>
                     <form onSubmit={handleSendNotification} className="space-y-3">
                       <div>
@@ -467,6 +432,98 @@ const ModeratorDashboardContent = () => {
                         <button type="submit" disabled={notifyLoading} className={`px-4 py-2 rounded-md text-white ${notifyLoading?'bg-gray-400':'bg-red-600 hover:bg-red-700'}`}>{notifyLoading?'Sending...':'Send Broadcast'}</button>
                       </div>
                     </form>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'profanity' && (
+                <div className="p-6">
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Profanity Dictionary</h2>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                    Manage keyword tiers used by automated moderation. Tier 1 = censor only, Tier 2 = warn (Strike 1), Tier 3 = escalate to Strike 2/3.
+                  </p>
+                  <form onSubmit={handleAddProfanity} className="flex gap-2 mb-4 items-end">
+                    <div className="flex-1">
+                      <label className="text-xs text-gray-500 dark:text-gray-400">Word or phrase</label>
+                      <input
+                        value={newProfanity}
+                        onChange={(e)=>setNewProfanity(e.target.value)}
+                        placeholder="Add new word or phrase"
+                        className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      />
+                    </div>
+                    <div className="w-32">
+                      <label className="text-xs text-gray-500 dark:text-gray-400">Tier</label>
+                      <select 
+                        value={newTier} 
+                        onChange={(e)=>setNewTier(e.target.value)}
+                        className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      >
+                        <option value={1}>1 (Soft)</option>
+                        <option value={2}>2 (Harsh)</option>
+                        <option value={3}>3 (Slur)</option>
+                      </select>
+                    </div>
+                    <button type="submit" disabled={profLoading} className={`px-4 py-2 rounded-md text-white h-10 ${profLoading?'bg-gray-400':'bg-maroon-600 hover:bg-maroon-700'}`}>{profLoading?'Adding...':'Add'}</button>
+                  </form>
+                  {profMsg && <div className="text-sm mb-2 text-gray-700 dark:text-gray-300">{profMsg}</div>}
+                  <div className="max-h-80 overflow-auto border rounded p-2 bg-gray-50 dark:bg-gray-800">
+                    {profanityWords.map((pw, i) => (
+                      <span key={pw.id || i} className={`inline-block px-2 py-1 m-1 rounded text-sm ${
+                        pw.tier===3 ? 'bg-red-200 text-red-900' : 
+                        pw.tier===2 ? 'bg-orange-200 text-orange-900' : 
+                        'bg-yellow-200 text-yellow-900'
+                      }`}>
+                        {pw.word} <span className="text-xs opacity-75">(T{pw.tier})</span>
+                        {pw.id && (
+                          <button 
+                            onClick={() => handleDeleteWord(pw.id)} 
+                            className="ml-2 text-xs font-bold text-gray-700 hover:text-red-600"
+                            title="Delete"
+                          >×</button>
+                        )}
+                      </span>
+                    ))}
+                    {profanityWords.length === 0 && <span className="text-gray-500 italic">No custom words found.</span>}
+                  </div>
+
+                  {/* Friendly rules helper (kept concise, responsive) */}
+                  <div className="mt-6 p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 space-y-3">
+                    <h4 className="text-md font-semibold text-gray-900 dark:text-white">How tiers work</h4>
+                    <div className="grid md:grid-cols-2 gap-3 text-sm text-gray-700 dark:text-gray-300">
+                      <div className="flex items-start gap-3">
+                        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-yellow-200 text-yellow-900 text-xs font-bold">1</span>
+                        <div>
+                          <div className="font-semibold">Tier 1 — Soft</div>
+                          <div>Censor only (replacement text). Logged for audit; no strike or mute.</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-orange-200 text-orange-900 text-xs font-bold">2</span>
+                        <div>
+                          <div className="font-semibold">Tier 2 — Harsh</div>
+                          <div>Censor + Strike 1 (warning). User gets a notice; shows in strike logs.</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-200 text-red-900 text-xs font-bold">3</span>
+                        <div>
+                          <div className="font-semibold">Tier 3 — Slurs/Hate</div>
+                          <div>Censor + Strike 2 (24h ban). Repeat escalates to Strike 3 (7-day ban + appeal option).</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-200 text-blue-900 text-xs font-bold">i</span>
+                        <div>
+                          <div className="font-semibold">Good practice</div>
+                          <ul className="list-disc list-inside space-y-1">
+                            <li>Keep entries specific to avoid over-censoring.</li>
+                            <li>Reserve Tier 3 for slurs/hate; use Tier 2 for harsh profanity.</li>
+                            <li>Review high-severity entries regularly and trim false positives.</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

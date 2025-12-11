@@ -69,7 +69,7 @@ Scope: Full implementation of moderation controls for WildCats Radio (Spring Boo
 - **Moderator Dashboard**:
   - Live Broadcasts list.
   - User management (Role assignment).
-  - Profanity Dictionary (View/Edit for Admin).
+  - Profanity Dictionary tab: view (Moderator/DJ) and edit tiers (Admin-only).
   - (Future) Appeals handling UI.
 - **Chat Interface**:
   - Shows "Message censored" if replaced.
