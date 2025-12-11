@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { motion } from "framer-motion"
 import {
   MicrophoneIcon,
@@ -172,7 +172,8 @@ export default function DJDashboard() {
     getAudioStream,
     streamStatusCircuitBreakerOpen,
     isBroadcastingDevice,
-    updateCurrentBroadcast
+    updateCurrentBroadcast,
+    forceClearBroadcastState
   } = useStreaming()
 
   // Core workflow state
@@ -360,6 +361,43 @@ export default function DJDashboard() {
   const [totalPolls, setTotalPolls] = useState(0)
 
   const [durationTick, setDurationTick] = useState(0)
+
+  const resetInteractionState = useCallback((options = {}) => {
+    const { disconnectSockets = true, abortRequests = true } = options
+
+    if (abortRequests && abortControllerRef.current) {
+      try { abortControllerRef.current.abort() } catch (_) {}
+      abortControllerRef.current = null
+    }
+
+    if (disconnectSockets) {
+      if (chatWsRef.current) {
+        chatWsRef.current.disconnect?.()
+        chatWsRef.current = null
+      }
+      if (songRequestWsRef.current) {
+        songRequestWsRef.current.disconnect?.()
+        songRequestWsRef.current = null
+      }
+      if (pollWsRef.current) {
+        pollWsRef.current.disconnect?.()
+        pollWsRef.current = null
+      }
+      if (reconnectionWsRef.current) {
+        reconnectionWsRef.current.connection?.disconnect?.()
+        reconnectionWsRef.current.globalConnection?.unsubscribe?.()
+        reconnectionWsRef.current.checkpointConnection?.unsubscribe?.()
+        reconnectionWsRef.current = null
+      }
+    }
+
+    setChatMessages([])
+    setSongRequests([])
+    setPolls([])
+    setActivePoll(null)
+    clearPollCountdown()
+    pollDurationMapRef.current = {}
+  }, [])
 
   // Chat timestamp update state
   const [chatTimestampTick, setChatTimestampTick] = useState(0)
@@ -690,12 +728,7 @@ export default function DJDashboard() {
     // Guard: Only fetch if we have a valid broadcast and are in streaming state
     if (workflowState !== WORKFLOW_STATES.STREAMING_LIVE || !currentBroadcast || !currentBroadcast.id) {
       // Clear interaction data when not live or no valid broadcast
-      setChatMessages([])
-      setSongRequests([])
-      setPolls([])
-      setActivePoll(null)
-      clearPollCountdown()
-      pollDurationMapRef.current = {}
+      resetInteractionState({ disconnectSockets: true, abortRequests: true })
       return
     }
 
@@ -799,6 +832,68 @@ export default function DJDashboard() {
       }
     }
   }, [workflowState, currentBroadcast?.id]) // Use currentBroadcast?.id to avoid running when currentBroadcast is null
+
+  // Silent chat refresh every 30s to avoid stale websocket sessions on Vercel/Cloud Run
+  useEffect(() => {
+    if (workflowState !== WORKFLOW_STATES.STREAMING_LIVE || !currentBroadcast?.id) {
+      return
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await chatService.getMessages(currentBroadcast.id)
+        const incoming = res.data || []
+        setChatMessages((prev) => {
+          const byId = new Map(prev.map((m) => [m.id, m]))
+          incoming.forEach((m) => {
+            if (!byId.has(m.id)) {
+              byId.set(m.id, m)
+            }
+          })
+          return Array.from(byId.values()).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+        })
+      } catch (err) {
+        logger.debug("DJ Dashboard: chat refresh failed (ignored)", err)
+      }
+    }, 30000)
+
+    return () => clearInterval(interval)
+  }, [workflowState, currentBroadcast?.id])
+
+  // Guard against stale live state caused by backend/websocket drift
+  useEffect(() => {
+    if (workflowState !== WORKFLOW_STATES.STREAMING_LIVE || !currentBroadcast?.id) {
+      return
+    }
+
+    let cancelled = false
+
+    const verifyLive = async () => {
+      try {
+        const res = await broadcastService.getLive()
+        const liveList = Array.isArray(res.data) ? res.data : []
+        const stillLive = liveList.some((b) => b.id === currentBroadcast.id)
+        if (!stillLive && !cancelled) {
+          logger.warn("DJ Dashboard: Detected stale live state, forcing clear")
+          forceClearBroadcastState("live-mismatch-health-check")
+        }
+      } catch (e) {
+        logger.debug("DJ Dashboard: live verification failed (ignored)", e)
+      }
+    }
+
+    const interval = setInterval(verifyLive, 60000)
+    verifyLive()
+
+    const handleFocus = () => verifyLive()
+    window.addEventListener("focus", handleFocus)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+      window.removeEventListener("focus", handleFocus)
+    }
+  }, [workflowState, currentBroadcast?.id, forceClearBroadcastState])
 
   // Setup interaction WebSockets after initial data is loaded
   useEffect(() => {
@@ -1666,12 +1761,7 @@ export default function DJDashboard() {
       setPeakListeners(0)
       setTotalSongRequests(0)
       setTotalPolls(0)
-      setChatMessages([])
-      setSongRequests([])
-      setPolls([])
-      setActivePoll(null)
-      clearPollCountdown()
-      pollDurationMapRef.current = {}
+      resetInteractionState({ disconnectSockets: true, abortRequests: true })
     } catch (error) {
       logger.error("Error ending broadcast:", error)
 

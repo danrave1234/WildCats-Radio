@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.Broadcast.BroadcastRepository;
+import com.wildcastradio.Broadcast.BroadcastService;
 import com.wildcastradio.DJHandover.DJHandoverEntity;
 import com.wildcastradio.DJHandover.DJHandoverRepository;
 import com.wildcastradio.DJHandover.DTO.DJHandoverDTO;
@@ -82,6 +83,9 @@ public class UserController {
 
     @Autowired
     private DJHandoverRepository handoverRepository;
+
+    @Autowired
+    private BroadcastService broadcastService;
 
     @Value("${app.security.cookie.secure:false}")
     private boolean useSecureCookies;
@@ -385,17 +389,26 @@ public class UserController {
                 .findByCurrentActiveDJAndStatus(user, BroadcastEntity.BroadcastStatus.LIVE);
             
             if (activeBroadcast.isPresent()) {
-                BroadcastEntity broadcast = activeBroadcast.get();
-                logger.warn("Logout blocked: User {} (ID: {}) attempted to logout while actively broadcasting broadcast {} (ID: {})", 
-                    user.getEmail(), user.getId(), broadcast.getTitle(), broadcast.getId());
-                
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("success", false);
-                errorResponse.put("error", "Cannot logout while actively broadcasting. Please hand over the broadcast first.");
-                errorResponse.put("code", "LOGOUT_FORBIDDEN_ACTIVE_DJ");
-                errorResponse.put("broadcastId", broadcast.getId());
-                errorResponse.put("broadcastTitle", broadcast.getTitle());
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+                // Double-check live broadcasts list in case status was already cleared elsewhere
+                try {
+                    if (broadcastService.getLiveBroadcasts().isEmpty()) {
+                        logger.info("Logout allowed after live re-check; no live broadcasts currently active");
+                    } else {
+                        BroadcastEntity broadcast = activeBroadcast.get();
+                        logger.warn("Logout blocked: User {} (ID: {}) attempted to logout while actively broadcasting broadcast {} (ID: {})", 
+                            user.getEmail(), user.getId(), broadcast.getTitle(), broadcast.getId());
+                        
+                        Map<String, Object> errorResponse = new HashMap<>();
+                        errorResponse.put("success", false);
+                        errorResponse.put("error", "Cannot logout while actively broadcasting. Please hand over the broadcast first.");
+                        errorResponse.put("code", "LOGOUT_FORBIDDEN_ACTIVE_DJ");
+                        errorResponse.put("broadcastId", broadcast.getId());
+                        errorResponse.put("broadcastTitle", broadcast.getTitle());
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+                    }
+                } catch (Exception e) {
+                    logger.warn("Logout live re-check failed, falling back to allow logout", e);
+                }
             }
 
             logger.info("User {} (ID: {}) logged out successfully", user.getEmail(), user.getId());
