@@ -21,7 +21,7 @@ import {
   ArrowDownTrayIcon,
   SpeakerWaveIcon,
 } from "@heroicons/react/24/outline"
-import { broadcastService, songRequestService, pollService, authService, chatService, radioService } from "../services/api/index.js"
+import { broadcastService, songRequestService, pollService, chatService, radioService } from "../services/api/index.js"
 import stompClientManager from "../services/stompClientManager"
 import { useAuth } from "../context/AuthContext"
 import { useStreaming } from "../context/StreamingContext"
@@ -1793,24 +1793,28 @@ export default function DJDashboard() {
   }
 
   // Interaction Panel Handlers
-  const handleBanUser = async (userId, displayName) => {
-    try {
-      if (!userId) return;
-      // Only allow DJs, Moderators, and Admins to ban from the DJ dashboard
-      if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR')) {
-        showToast('You do not have permission to ban users.', 'error');
-        return;
-      }
-      const confirmed = window.confirm(`Ban ${displayName || 'this user'} from chat permanently?`);
-      if (!confirmed) return;
-      await authService.banUser(userId, { unit: 'PERMANENT', reason: `Banned by ${currentUser.firstname || ''} ${currentUser.lastname || ''}`.trim() });
-      showToast(`${displayName || 'User'} has been banned.`, 'success');
-    } catch (error) {
-      logger.error('Failed to ban user from chat:', error);
-      const msg = (error && (error.response?.data?.message || error.message)) || 'Unknown error';
-      showToast(`Failed to ban user: ${msg}`, 'error');
+  const handleCensorMessage = async (message, displayName) => {
+    if (!message?.id) return
+    // Allow only DJ/Moderator/Admin to censor messages
+    if (!currentUser || (currentUser.role !== 'DJ' && currentUser.role !== 'ADMIN' && currentUser.role !== 'MODERATOR')) {
+      showToast('You do not have permission to censor messages.', 'error')
+      return
     }
-  };
+
+    const confirmLabel = displayName ? ` from ${displayName}` : ''
+    const confirmed = window.confirm(`Censor this message${confirmLabel}? This removes it from chat and logs the action.`)
+    if (!confirmed) return
+
+    try {
+      await chatService.deleteMessage(message.id)
+      setChatMessages((prev) => prev.filter((msg) => msg.id !== message.id))
+      showToast('Message censored and logged.', 'success')
+    } catch (error) {
+      logger.error('Failed to censor message:', error)
+      const msg = (error && (error.response?.data?.message || error.message)) || 'Unknown error'
+      showToast(`Failed to censor message: ${msg}`, 'error')
+    }
+  }
 
   const handleChatSubmit = async (e) => {
     e.preventDefault()
@@ -2796,16 +2800,16 @@ export default function DJDashboard() {
                                             {formattedTime}
                                           </span>
                                         )}
-                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
-                                                                                          <button
-                                                                                            type="button"
-                                                                                            onClick={() => handleBanUser(msg.sender.id, senderName)}
-                                            className="text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800 flex-shrink-0"
-                                                                                            title="Ban this user from chat"
-                                                                                          >
-                                                                                            Ban
-                                                                                          </button>
-                                                                                        )}
+                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR') && msg.sender?.role !== 'ADMIN' && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCensorMessage(msg, senderName)}
+                                            className="text-xs px-2 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800 flex-shrink-0"
+                                            title="Censor this message (removes it from chat and logs the action)"
+                                          >
+                                            Censor
+                                          </button>
+                                        )}
                                           </div>
                                       <p className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 break-words">
                                             {msg.content || "No content"}

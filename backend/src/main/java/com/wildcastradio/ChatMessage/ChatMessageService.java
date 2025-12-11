@@ -59,8 +59,6 @@ public class ChatMessageService {
     @Autowired
     private ModeratorActionService moderatorActionService;
 
-    // ... existing methods ...
-    
     public List<ChatMessageDTO> getMessagesForBroadcast(Long broadcastId) {
         List<ChatMessageEntity> messages = chatMessageRepository.findByBroadcast_IdOrderByCreatedAtAsc(broadcastId);
         return messages.stream()
@@ -173,6 +171,7 @@ public class ChatMessageService {
         int pageSize = 5000;
         Page<ChatMessageEntity> pageResult;
         String replacement = ProfanityFilter.getReplacementPhrase();
+        String manualCensor = "[Censored by Moderator]";
 
         // Aggregation for Analytics sheet
         java.util.Map<String, Integer> senderCounts = new java.util.HashMap<>();
@@ -187,7 +186,7 @@ public class ChatMessageService {
 				Row row = sheet.createRow(rowNum++);
 				row.createCell(0).setCellValue(message.getSender().getDisplayNameOrFullName());
 				row.createCell(1).setCellValue(message.getSender().getEmail());
-				boolean isCensored = message.getContent() != null && message.getContent().equals(replacement);
+				boolean isCensored = message.getContent() != null && (message.getContent().equals(replacement) || message.getContent().equals(manualCensor));
 				String original = message.getOriginalContent();
 				String valueToWrite = (isCensored && original != null && !original.isBlank()) ? original : message.getContent();
 				Cell messageCell = row.createCell(2);
@@ -266,7 +265,7 @@ public class ChatMessageService {
         try {
             Sheet modSheet = workbook.createSheet("Moderator Actions");
             Row mHdr = modSheet.createRow(0);
-            String[] mHeaders = {"Time", "Moderator", "Action", "Target User", "Details"};
+            String[] mHeaders = {"Time", "Moderator", "Role", "Action", "Target User", "Details"};
             for(int i=0; i<mHeaders.length; i++) {
                 Cell c = mHdr.createCell(i); c.setCellValue(mHeaders[i]); c.setCellStyle(headerStyle);
             }
@@ -277,9 +276,10 @@ public class ChatMessageService {
                 Row r = modSheet.createRow(mRow++);
                 r.createCell(0).setCellValue(a.getCreatedAt().format(formatter));
                 r.createCell(1).setCellValue(a.getModerator() != null ? a.getModerator().getDisplayNameOrFullName() : "System");
-                r.createCell(2).setCellValue(a.getActionType());
-                r.createCell(3).setCellValue(a.getTargetUser() != null ? a.getTargetUser().getDisplayNameOrFullName() : "N/A");
-                r.createCell(4).setCellValue(a.getDetails());
+                r.createCell(2).setCellValue(a.getModerator() != null && a.getModerator().getRole() != null ? a.getModerator().getRole().toString() : "SYSTEM");
+                r.createCell(3).setCellValue(a.getActionType());
+                r.createCell(4).setCellValue(a.getTargetUser() != null ? a.getTargetUser().getDisplayNameOrFullName() : "N/A");
+                r.createCell(5).setCellValue(a.getDetails());
             }
             if (modSheet instanceof SXSSFSheet) ((SXSSFSheet) modSheet).trackAllColumnsForAutoSizing();
             for(int i=0; i<mHeaders.length; i++) modSheet.autoSizeColumn(i);
@@ -321,9 +321,6 @@ public class ChatMessageService {
         Row a3 = analyticsSheet.createRow(aRow++);
         a3.createCell(0).setCellValue("Duration (minutes):");
         a3.createCell(1).setCellValue(durationMinutes != null ? durationMinutes : 0);
-        
-        // ... (rest of analytics logic preserved conceptually, just simplified call structure) ...
-        // I will copy the rest of logic here to ensure it works
         
         Row a4 = analyticsSheet.createRow(aRow++);
         a4.createCell(0).setCellValue("Messages per minute:");
@@ -418,5 +415,24 @@ public class ChatMessageService {
             throw new IllegalArgumentException("Chat message not found with ID: " + messageId);
         }
         chatMessageRepository.deleteById(messageId);
+    }
+
+    @Transactional
+    public void censorMessageById(Long messageId) {
+        if (messageId == null) {
+            throw new IllegalArgumentException("messageId cannot be null");
+        }
+        ChatMessageEntity message = chatMessageRepository.findById(messageId)
+            .orElseThrow(() -> new IllegalArgumentException("Chat message not found with ID: " + messageId));
+        
+        message.setContent("[Censored by Moderator]");
+        chatMessageRepository.save(message);
+        
+        // Notify clients about the update via WS
+        ChatMessageDTO dto = ChatMessageDTO.fromEntity(message);
+        messagingTemplate.convertAndSend(
+            "/topic/broadcast/" + message.getBroadcast().getId() + "/chat",
+            dto
+        );
     }
 }

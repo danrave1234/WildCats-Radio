@@ -32,9 +32,8 @@ Scope: Full implementation of moderation controls for WildCats Radio (Spring Boo
 - **Sync**: Backend refreshes in-memory filter on changes.
 
 ### 2.4 Manual Moderator Actions
-- **Delete**: Moderator deletes message -> Logged to `moderator_actions`.
-- **Ban/Warn**: Manual actions via Dashboard -> Logged.
-- **Censor**: Manual censor tool (delete) available.
+- **Delete/Censor**: Moderator/DJ/Admin can censor a chat message from the live dashboard; message is removed and action is logged to `moderator_actions`.
+- **Ban/Warn**: Manual actions via Dashboard (not from chat row) -> Logged.
 
 ### 2.5 Appeals
 - **Flow**: Banned user creates appeal -> Status PENDING -> Moderator reviews -> Status APPROVED/DENIED.
@@ -70,7 +69,15 @@ Scope: Full implementation of moderation controls for WildCats Radio (Spring Boo
   - Live Broadcasts list.
   - User management (Role assignment).
   - Profanity Dictionary tab: view (Moderator/DJ) and edit tiers (Admin-only).
-  - (Future) Appeals handling UI.
+  - Appeals tab: Pending list with Approve/Deny actions + notes.
+- **Admin Dashboard**:
+  - Full system overview.
+  - User Management.
+  - Broadcast Management.
+  - Profanity Dictionary tab (CRUD).
+  - Appeals tab (Review/Override).
+- **User Settings**:
+  - "My Appeals" section: View history and submit new appeals if banned.
 - **Chat Interface**:
   - Shows "Message censored" if replaced.
   - Shows Strike/Ban notifications via WebSocket/Toast.

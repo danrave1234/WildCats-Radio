@@ -22,11 +22,12 @@ Access the **Moderator Dashboard** to:
 - **Profanity Dictionary tab**: View the list of banned words. Admins can add/remove words and set tiers; moderators/DJs can view. Tiers drive auto-actions (Tier 1 censor, Tier 2 warn, Tier 3 strike/ban).
 
 ## 4. Handling Appeals
-(Coming Soon to UI)
-Banned users may submit an appeal.
-1. Review the "Strike History" in the appeal.
-2. Approve (Unban) or Deny.
-3. Your decision is logged.
+Go to the **Appeals** tab in your dashboard.
+1. View the list of **Pending Appeals**.
+2. Expand "Strike History Snapshot" to see why they were banned.
+3. Click **Approve** (lifts ban) or **Deny** (keeps ban).
+4. Add internal notes if needed.
+5. Your decision is logged in the system for audit.
 
 ## 5. Exports
 When exporting a broadcast chat log, you will now see additional sheets:

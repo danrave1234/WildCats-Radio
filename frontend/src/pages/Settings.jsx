@@ -3,11 +3,13 @@ import {
   KeyIcon,
   BellIcon,
   ShieldCheckIcon,
-  XMarkIcon
+  XMarkIcon,
+  DocumentMagnifyingGlassIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext.jsx';
 import { createLogger } from '../services/logger';
+import { appealService } from '../services/api/index.js';
 
 const logger = createLogger('Settings');
 
@@ -22,6 +24,11 @@ export default function Settings() {
   const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
   const [showModal, setShowModal] = useState(false);
 
+  const [myAppeals, setMyAppeals] = useState([]);
+  const [appealsLoading, setAppealsLoading] = useState(false);
+  const [newAppealReason, setNewAppealReason] = useState('');
+  const [appealSubmitting, setAppealSubmitting] = useState(false);
+
   const [notifications, setNotifications] = useState({
     broadcastStart: true,
     broadcastReminders: true,
@@ -35,6 +42,45 @@ export default function Settings() {
       setNotifications(prev => ({ ...prev, ...preferences }));
     }
   }, [preferences]);
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchMyAppeals();
+    }
+  }, [currentUser]);
+
+  const fetchMyAppeals = async () => {
+    setAppealsLoading(true);
+    try {
+      const data = await appealService.getMyAppeals();
+      setMyAppeals(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error('Error fetching appeals:', e);
+    } finally {
+      setAppealsLoading(false);
+    }
+  };
+
+  const handleAppealSubmit = async (e) => {
+    e.preventDefault();
+    if (!newAppealReason.trim()) return;
+    setAppealSubmitting(true);
+    try {
+      await appealService.createAppeal(newAppealReason);
+      setNewAppealReason('');
+      setPasswordMessage({ type: 'success', text: 'Appeal submitted successfully!' });
+      setShowModal(true);
+      fetchMyAppeals();
+    } catch (error) {
+      setPasswordMessage({ 
+        type: 'error', 
+        text: error.response?.data?.message || 'Failed to submit appeal. You may already have a pending appeal.'
+      });
+      setShowModal(true);
+    } finally {
+      setAppealSubmitting(false);
+    }
+  };
 
   // Auto-dismiss modal after 2 seconds
   useEffect(() => {
@@ -363,6 +409,75 @@ export default function Settings() {
             </form>
           </div>
         </div>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden mb-8">
+          <div className="p-6">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4 border-b pb-2 border-gray-200 dark:border-gray-700 flex items-center">
+              <DocumentMagnifyingGlassIcon className="h-5 w-5 mr-2 text-gray-500 dark:text-gray-400" />
+              My Appeals
+            </h3>
+            
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2">Submit New Appeal</h4>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                If you have been banned or received a strike you believe is unfair, you can submit an appeal here.
+              </p>
+              <form onSubmit={handleAppealSubmit}>
+                <textarea
+                  value={newAppealReason}
+                  onChange={(e) => setNewAppealReason(e.target.value)}
+                  placeholder="Explain why the strike/ban should be removed..."
+                  className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white mb-2"
+                  rows="3"
+                  required
+                />
+                <div className="text-right">
+                  <button 
+                    type="submit" 
+                    disabled={appealSubmitting}
+                    className={`px-4 py-2 rounded text-white text-sm ${appealSubmitting ? 'bg-gray-400' : 'bg-maroon-700 hover:bg-maroon-800'}`}
+                  >
+                    {appealSubmitting ? 'Submitting...' : 'Submit Appeal'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Appeal History</h4>
+              {appealsLoading ? (
+                <div className="text-sm text-gray-500">Loading appeals...</div>
+              ) : myAppeals.length === 0 ? (
+                <div className="text-sm text-gray-500 italic">No appeals found.</div>
+              ) : (
+                <div className="space-y-3">
+                  {myAppeals.map(appeal => (
+                    <div key={appeal.id} className="border dark:border-gray-700 rounded p-3 bg-gray-50 dark:bg-gray-900/50">
+                      <div className="flex justify-between items-start mb-1">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                          appeal.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
+                          appeal.status === 'DENIED' ? 'bg-red-100 text-red-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {appeal.status}
+                        </span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          {new Date(appeal.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-800 dark:text-gray-200 mt-2">{appeal.reason}</p>
+                      {appeal.decidedAt && (
+                        <div className="mt-2 text-xs text-gray-500 border-t pt-2 dark:border-gray-700">
+                          Decided on {new Date(appeal.decidedAt).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   );

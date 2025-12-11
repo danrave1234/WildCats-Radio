@@ -12,6 +12,7 @@ import {
   streamApi 
 } from './otherApis';
 import { radioApi } from './radioApi';
+import { appealsApi } from './appealsApi';
 
 // Export all domain-specific API modules
 export { authApi } from './authApi';
@@ -19,6 +20,7 @@ export { broadcastApi } from './broadcastApi';
 export { chatApi } from './chatApi';
 export { analyticsApi } from './analyticsApi';
 export { profanityApi } from './profanityApi';
+export { appealsApi } from './appealsApi';
 export { 
   notificationApi, 
   activityLogApi, 
@@ -50,6 +52,7 @@ export const streamService = streamApi;
 export const radioService = radioApi;
 export const analyticsService = analyticsApi;
 export const profanityService = profanityApi;
+export const appealService = appealsApi;
 
 // Default export for backward compatibility
 export { api as default } from './apiBase';

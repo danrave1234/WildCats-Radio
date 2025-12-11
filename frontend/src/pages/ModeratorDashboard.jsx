@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { broadcastService, authService, profanityService, notificationService } from '../services/api/index.js';
+import { broadcastService, authService, profanityService, notificationService, appealService } from '../services/api/index.js';
 import { Spinner } from '../components/ui/spinner';
 import { useAuth } from '../context/AuthContext';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/solid';
@@ -38,6 +38,12 @@ const ModeratorDashboardContent = () => {
   const [notifyType, setNotifyType] = useState('INFO');
   const [notifyLoading, setNotifyLoading] = useState(false);
 
+  // Appeals state
+  const [appeals, setAppeals] = useState([]);
+  const [appealsLoading, setAppealsLoading] = useState(false);
+  const [appealAction, setAppealAction] = useState({ id: null, type: null }); // type: 'APPROVE' | 'DENY'
+  const [appealNotes, setAppealNotes] = useState('');
+
   const fetchLive = async () => {
     setLoadingLive(true);
     try {
@@ -60,6 +66,34 @@ const ModeratorDashboardContent = () => {
       setProfanityWords([]);
     } finally {
       setProfLoading(false);
+    }
+  };
+
+  const fetchAppeals = async () => {
+    setAppealsLoading(true);
+    try {
+      const data = await appealService.getPendingAppeals();
+      setAppeals(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error('Error fetching appeals:', e);
+      setAppeals([]);
+    } finally {
+      setAppealsLoading(false);
+    }
+  };
+
+  const handleResolveAppeal = async () => {
+    if (!appealAction.id || !appealAction.type) return;
+    try {
+      const decision = appealAction.type === 'APPROVE' ? 'APPROVED' : 'DENIED';
+      await appealService.resolveAppeal(appealAction.id, decision, appealNotes);
+      await fetchAppeals();
+      setAppealAction({ id: null, type: null });
+      setAppealNotes('');
+      alert(`Appeal ${decision.toLowerCase()} successfully.`);
+    } catch (e) {
+      console.error('Error resolving appeal:', e);
+      alert('Failed to resolve appeal.');
     }
   };
 
@@ -95,6 +129,9 @@ const ModeratorDashboardContent = () => {
     }
     if (activeTab === 'profanity') {
       fetchProfanity();
+    }
+    if (activeTab === 'appeals') {
+      fetchAppeals();
     }
   }, [activeTab, page]);
 
@@ -231,6 +268,10 @@ const ModeratorDashboardContent = () => {
                   onClick={() => setActiveTab('profanity')}
                   className={`w-full text-left px-4 py-2 rounded-md text-sm font-medium ${activeTab==='profanity' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'}`}
                 >Profanity Dictionary</button>
+                <button
+                  onClick={() => setActiveTab('appeals')}
+                  className={`w-full text-left px-4 py-2 rounded-md text-sm font-medium ${activeTab==='appeals' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'}`}
+                >Appeals</button>
                 <button
                   onClick={() => setActiveTab('live')}
                   className={`w-full text-left px-4 py-2 rounded-md text-sm font-medium ${activeTab==='live' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'}`}
@@ -438,6 +479,7 @@ const ModeratorDashboardContent = () => {
 
               {activeTab === 'profanity' && (
                 <div className="p-6">
+                  {/* ... same content ... */}
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Profanity Dictionary</h2>
                   <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
                     Manage keyword tiers used by automated moderation. Tier 1 = censor only, Tier 2 = warn (Strike 1), Tier 3 = escalate to Strike 2/3.
@@ -527,10 +569,115 @@ const ModeratorDashboardContent = () => {
                   </div>
                 </div>
               )}
+
+              {activeTab === 'appeals' && (
+                <div className="p-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">Pending Appeals</h2>
+                    <button onClick={fetchAppeals} className="text-blue-600 dark:text-blue-400 hover:underline text-sm">Refresh</button>
+                  </div>
+                  
+                  {appealsLoading ? (
+                    <div className="flex justify-center p-8"><Spinner /></div>
+                  ) : appeals.length === 0 ? (
+                    <div className="text-center p-8 bg-gray-50 dark:bg-gray-700 rounded-lg text-gray-500 dark:text-gray-400">
+                      No pending appeals.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {appeals.map(appeal => (
+                        <div key={appeal.id} className="border dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800 shadow-sm">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <div className="font-medium text-gray-900 dark:text-white">
+                                Appeal from User #{appeal.userId}
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                {new Date(appeal.createdAt).toLocaleString()}
+                              </div>
+                            </div>
+                            <span className="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                              {appeal.status}
+                            </span>
+                          </div>
+                          
+                          <div className="mb-4">
+                            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Reason:</h4>
+                            <p className="text-sm text-gray-600 dark:text-gray-300 mt-1 p-2 bg-gray-50 dark:bg-gray-700/50 rounded">
+                              {appeal.reason}
+                            </p>
+                          </div>
+
+                          <div className="mb-4">
+                            <details className="text-sm text-gray-500 cursor-pointer">
+                              <summary className="hover:text-gray-700 dark:hover:text-gray-300">View Strike History Snapshot</summary>
+                              <pre className="mt-2 p-2 bg-gray-100 dark:bg-gray-900 text-xs overflow-auto rounded max-h-40">
+                                {appeal.strikeHistory || 'No history recorded'}
+                              </pre>
+                            </details>
+                          </div>
+
+                          <div className="flex gap-2 justify-end pt-2 border-t dark:border-gray-700">
+                            <button
+                              onClick={() => setAppealAction({ id: appeal.id, type: 'DENY' })}
+                              className="px-3 py-1 text-sm rounded border border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
+                            >
+                              Deny
+                            </button>
+                            <button
+                              onClick={() => setAppealAction({ id: appeal.id, type: 'APPROVE' })}
+                              className="px-3 py-1 text-sm rounded bg-green-600 text-white hover:bg-green-700"
+                            >
+                              Approve
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
       </div>
+
+      {/* Appeal Action Modal */}
+      {appealAction.id && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50">
+          <div className="relative mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
+              {appealAction.type === 'APPROVE' ? 'Approve Appeal' : 'Deny Appeal'}
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">
+              {appealAction.type === 'APPROVE' 
+                ? 'This will unban the user and resolve the appeal. Add optional notes below.'
+                : 'This will keep the ban active. Add optional notes below.'}
+            </p>
+            <textarea
+              className="w-full p-2 border rounded mb-4 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              rows="3"
+              placeholder="Internal notes/reason..."
+              value={appealNotes}
+              onChange={(e) => setAppealNotes(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => { setAppealAction({ id: null, type: null }); setAppealNotes(''); }}
+                className="px-4 py-2 rounded text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResolveAppeal}
+                className={`px-4 py-2 rounded text-white ${appealAction.type === 'APPROVE' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
+              >
+                Confirm {appealAction.type === 'APPROVE' ? 'Approve' : 'Deny'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

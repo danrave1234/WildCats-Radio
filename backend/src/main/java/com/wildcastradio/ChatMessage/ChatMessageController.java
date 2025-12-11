@@ -254,7 +254,8 @@ public class ChatMessageController {
     }
 
     /**
-     * Delete a specific chat message by ID (moderation)
+     * Censor (Soft Delete) a specific chat message by ID (moderation)
+     * Effectively replaces content with "[Censored by Moderator]"
      */
     @DeleteMapping("/messages/{messageId}")
     @PreAuthorize("hasAnyRole('ADMIN','MODERATOR','DJ')")
@@ -265,22 +266,23 @@ public class ChatMessageController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
         try {
-            // Fetch message for logging before deletion
+            // Fetch message for logging before censorship
             ChatMessageEntity message = chatMessageRepository.findById(messageId).orElse(null);
             UserEntity moderator = userService.getUserByEmail(authentication.getName()).orElse(null);
             
             if (message != null && moderator != null) {
-                // Log action
+                // Log action as CENSOR instead of DELETE
                 moderatorActionService.logAction(
                     moderator, 
-                    "DELETE", 
+                    "CENSOR", 
                     message.getSender(), 
                     message, 
-                    "Manual deletion by moderator"
+                    "Manual censorship by moderator"
                 );
             }
             
-            chatMessageService.deleteMessageById(messageId);
+            // Perform censor (soft delete logic)
+            chatMessageService.censorMessageById(messageId);
             return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException e) {
             return ResponseEntity.notFound().build();
