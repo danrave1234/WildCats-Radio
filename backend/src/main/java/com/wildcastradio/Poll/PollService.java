@@ -312,4 +312,13 @@ public class PollService {
                 message
         );
     }
+
+    public void broadcastPollsCleared(Long broadcastId) {
+        try {
+            PollWebSocketMessage clearMessage = new PollWebSocketMessage("POLL_CLEARED", null, null);
+            messagingTemplate.convertAndSend("/topic/broadcast/" + broadcastId + "/polls", clearMessage);
+        } catch (Exception e) {
+            // Non-blocking notification
+        }
+    }
 }

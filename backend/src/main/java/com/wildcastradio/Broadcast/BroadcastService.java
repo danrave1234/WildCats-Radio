@@ -19,6 +19,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,10 +30,13 @@ import com.wildcastradio.ActivityLog.ActivityLogService;
 import com.wildcastradio.Analytics.ListenerTrackingService;
 import com.wildcastradio.Broadcast.DTO.BroadcastDTO;
 import com.wildcastradio.Broadcast.DTO.CreateBroadcastRequest;
+import com.wildcastradio.ChatMessage.ChatMessageService;
 import com.wildcastradio.ChatMessage.ChatMessageRepository;
 import com.wildcastradio.Notification.NotificationService;
 import com.wildcastradio.Notification.NotificationType;
+import com.wildcastradio.Poll.PollService;
 import com.wildcastradio.SongRequest.SongRequestRepository;
+import com.wildcastradio.SongRequest.SongRequestService;
 import com.wildcastradio.User.UserEntity;
 import com.wildcastradio.User.UserRepository;
 import com.wildcastradio.icecast.IcecastService;
@@ -63,7 +68,19 @@ public class BroadcastService {
     private ChatMessageRepository chatMessageRepository;
 
     @Autowired
+    private ChatMessageService chatMessageService;
+
+    @Autowired
     private SongRequestRepository songRequestRepository;
+
+    @Autowired
+    private SongRequestService songRequestService;
+
+    @Autowired
+    private PollService pollService;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Autowired(required = false)
     private com.wildcastradio.radio.RadioAgentClient radioAgentClient;
@@ -117,6 +134,9 @@ public class BroadcastService {
 
     @Value("${broadcast.cleanup.intervalMinutes:30}")
     private long cleanupIntervalMinutes; // How often to run cleanup check
+
+    @Value("${broadcast.healthGuard.intervalMs:120000}")
+    private long healthGuardIntervalMs; // Guard interval to auto-fix stale LIVE states
 
     // In-memory tracking for consecutive unhealthy checks
     private int consecutiveUnhealthyChecks = 0;
@@ -258,6 +278,34 @@ public class BroadcastService {
         for (UserEntity user : allUsers) {
             notificationService.sendNotification(user, message, type);
         }
+    }
+
+    private void publishBroadcastEndedEvent(BroadcastEntity broadcast) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                String notificationMessage = "Broadcast ended: " + broadcast.getTitle();
+                sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_ENDED);
+            } catch (Exception e) {
+                logger.error("Error sending broadcast end notifications", e);
+            }
+        });
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                Map<String, Object> broadcastEndedMessage = new java.util.HashMap<>();
+                broadcastEndedMessage.put("type", "BROADCAST_ENDED");
+                broadcastEndedMessage.put("broadcast", BroadcastDTO.fromEntity(broadcast));
+                messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastEndedMessage);
+
+                // Also clear per-broadcast interaction channels so clients drop stale caches
+                Long broadcastId = broadcast.getId();
+                chatMessageService.broadcastChatCleared(broadcastId);
+                songRequestService.broadcastSongRequestsCleared(broadcastId);
+                pollService.broadcastPollsCleared(broadcastId);
+            } catch (Exception e) {
+                logger.error("Error publishing broadcast end websocket events", e);
+            }
+        });
     }
 
     public BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj) {
@@ -479,6 +527,7 @@ public class BroadcastService {
                     BroadcastEntity existingBroadcast = existing.get();
                     existingBroadcast.setEndResultType(BroadcastEntity.BroadcastEndResultType.IDEMPOTENT_DUPLICATE);
                     existingBroadcast.setVerificationRetried(false);
+                    publishBroadcastEndedEvent(existingBroadcast);
                     return existingBroadcast;
                 }
             }
@@ -495,6 +544,7 @@ public class BroadcastService {
                 }
                 broadcast.setEndResultType(BroadcastEntity.BroadcastEndResultType.NO_OP_ALREADY_ENDED);
                 broadcast.setVerificationRetried(false);
+                publishBroadcastEndedEvent(broadcast);
                 return broadcast;
             }
             if (!currentStatus.canTransitionTo(BroadcastEntity.BroadcastStatus.ENDED)) {
@@ -564,22 +614,7 @@ public class BroadcastService {
                 reconnectionManager.cancelReconnection(broadcastId);
             }
 
-            // Send notifications asynchronously (non-blocking)
-            CompletableFuture.runAsync(() -> {
-                try {
-                    // Send notification to all users that the broadcast has ended
-                    String notificationMessage = "Broadcast ended: " + finalBroadcast.getTitle();
-                    sendNotificationToAllUsers(notificationMessage, NotificationType.BROADCAST_ENDED);
-
-                    // Send WebSocket message for immediate UI updates
-                    Map<String, Object> broadcastEndedMessage = new java.util.HashMap<>();
-                    broadcastEndedMessage.put("type", "BROADCAST_ENDED");
-                    broadcastEndedMessage.put("broadcast", BroadcastDTO.fromEntity(finalBroadcast));
-                    messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastEndedMessage);
-                } catch (Exception e) {
-                    logger.error("Error sending broadcast end notifications", e);
-                }
-            });
+            publishBroadcastEndedEvent(finalBroadcast);
 
             return finalBroadcast;
         } catch (IllegalStateException e) {
@@ -620,6 +655,7 @@ public class BroadcastService {
                 }
                 broadcast.setEndResultType(BroadcastEntity.BroadcastEndResultType.NO_OP_ALREADY_ENDED);
                 broadcast.setVerificationRetried(false);
+                publishBroadcastEndedEvent(broadcast);
                 return broadcast;
             }
             if (!currentStatus.canTransitionTo(BroadcastEntity.BroadcastStatus.ENDED)) {
@@ -666,17 +702,7 @@ public class BroadcastService {
                 reconnectionManager.cancelReconnection(broadcastId);
             }
 
-            // Send WebSocket notification asynchronously
-            CompletableFuture.runAsync(() -> {
-                try {
-                    Map<String, Object> broadcastEndedMessage = new java.util.HashMap<>();
-                    broadcastEndedMessage.put("type", "BROADCAST_ENDED");
-                    broadcastEndedMessage.put("broadcast", BroadcastDTO.fromEntity(finalBroadcast));
-                    messagingTemplate.convertAndSend("/topic/broadcast/status", broadcastEndedMessage);
-                } catch (Exception e) {
-                    logger.error("Error sending broadcast end notification", e);
-                }
-            });
+            publishBroadcastEndedEvent(finalBroadcast);
 
             return finalBroadcast;
         } catch (IllegalStateException e) {
@@ -1532,6 +1558,40 @@ public class BroadcastService {
             }
         } catch (Exception e) {
             logger.error("Error during broadcast checkpointing: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Short-interval guard to end stale LIVE broadcasts when the radio server is not running.
+     * Complements the longer cleanup task by reacting within minutes.
+     */
+    @Scheduled(fixedRateString = "${broadcast.healthGuard.intervalMs:120000}")
+    public void enforceLiveHealthGuard() {
+        try {
+            List<BroadcastEntity> liveBroadcasts = getLiveBroadcasts();
+            if (liveBroadcasts.isEmpty()) {
+                return;
+            }
+
+            boolean radioRunning = isRadioServerRunning();
+            if (radioRunning) {
+                return;
+            }
+
+            logger.warn("Radio server reported down; ending {} live broadcast(s) to prevent stale LIVE state", liveBroadcasts.size());
+            TransactionTemplate template = new TransactionTemplate(transactionManager);
+            for (BroadcastEntity broadcast : liveBroadcasts) {
+                try {
+                    template.execute(status -> {
+                        endBroadcast(broadcast.getId());
+                        return null;
+                    });
+                } catch (Exception e) {
+                    logger.error("Failed to force-end broadcast {} during health guard: {}", broadcast.getId(), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Health guard failed to evaluate live broadcasts: {}", e.getMessage());
         }
     }
 

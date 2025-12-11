@@ -185,10 +185,31 @@ export default function ListenerDashboard() {
   const isFetchingRadioStatusRef = useRef(false); // Prevent concurrent API calls
   const isFetchingBroadcastInfoRef = useRef(false); // Prevent concurrent broadcast API calls
 
+  const isBroadcastLive = currentBroadcast?.status === 'LIVE';
   // Compute actual "isLive" state: requires BOTH broadcast to be live AND radio server to be running
   // This prevents showing "live" UI when Liquidsoap is stopped
   // Allow 'unknown' state to be treated as potentially live (don't block on uncertainty)
-  const isLive = streamContextIsLive && radioServerState !== 'stopped';
+  const isLive = isBroadcastLive && streamContextIsLive && radioServerState !== 'stopped';
+  const liveBroadcast = isBroadcastLive ? currentBroadcast : null;
+
+  // When the streaming context reports not live, re-verify with backend and clear stale broadcast state
+  useEffect(() => {
+    const verifyNotLive = async () => {
+      if (streamContextIsLive) return;
+      try {
+        const res = await broadcastService.getLive();
+        const liveList = Array.isArray(res.data) ? res.data : [];
+        if (!liveList.length) {
+          resetForNewBroadcast(null);
+          setCurrentBroadcast(null);
+          setCurrentBroadcastId(null);
+        }
+      } catch (e) {
+        logger.debug('ListenerDashboard: verifyNotLive check failed (ignored)', e);
+      }
+    };
+    verifyNotLive();
+  }, [streamContextIsLive]);
 
   // Radio Server Status Check (fallback only - WebSocket provides real-time updates)
   const fetchRadioStatus = async () => {
@@ -352,6 +373,15 @@ export default function ListenerDashboard() {
     const interval = setInterval(fetchCurrentActiveDJ, 30000);
     return () => clearInterval(interval);
   }, [currentBroadcast?.id, currentBroadcast?.status]);
+
+  // If broadcast status is no longer LIVE and streaming context also shows not live, clear stale state
+  useEffect(() => {
+    if (currentBroadcast && !isBroadcastLive && !streamContextIsLive) {
+      resetForNewBroadcast(null);
+      setCurrentBroadcast(null);
+      setCurrentBroadcastId(null);
+    }
+  }, [currentBroadcast, isBroadcastLive, streamContextIsLive]);
 
   // Clear current active DJ when broadcast ends (real-time via WebSocket)
   useEffect(() => {
@@ -833,10 +863,18 @@ export default function ListenerDashboard() {
               }
               case 'POLL_DELETED': {
                 const deletedPollId = pollUpdate.pollId || pollUpdate.id || null;
-                if (!deletedPollId || !activePoll) break;
-                if (activePoll.id === deletedPollId) {
-                  setActivePoll(null);
-                }
+                if (!deletedPollId) break;
+                setActivePoll((prev) => (prev && prev.id === deletedPollId ? null : prev));
+                setSelectedPollOption((prev) => (prev && deletedPollId ? null : prev));
+                setEndedPollSnapshot((prev) => (prev && prev.id === deletedPollId ? null : prev));
+                setShowEndedPoll(false);
+                break;
+              }
+              case 'POLL_CLEARED': {
+                setActivePoll(null);
+                setSelectedPollOption(null);
+                setEndedPollSnapshot(null);
+                setShowEndedPoll(false);
                 break;
               }
               default:
@@ -2364,7 +2402,7 @@ export default function ListenerDashboard() {
       <div className="hidden lg:grid lg:grid-cols-3 gap-6 lg:gap-8">
         {/* Desktop Left Column - Broadcast */}
         <div className="lg:col-span-2 space-y-6">
-          <SpotifyPlayer broadcast={currentBroadcast} currentDJ={currentActiveDJ} />
+          <SpotifyPlayer broadcast={liveBroadcast} currentDJ={currentActiveDJ} isLive={isLive} />
         </div>
 
         {/* Desktop Right Column - Live Chat */}
@@ -2379,7 +2417,7 @@ export default function ListenerDashboard() {
               <div className="flex-shrink-0">
                 {renderPollBanner()}
               </div>
-              {currentBroadcast?.status === 'LIVE' ? (
+              {isBroadcastLive ? (
                 <>
                   <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
                     {renderChatMessages('desktop')}
@@ -2570,7 +2608,7 @@ export default function ListenerDashboard() {
       {/* Mobile & Tablet layout */}
       <div className="lg:hidden space-y-6">
         {/* Mobile Spotify-style Music Player */}
-        <SpotifyPlayer broadcast={currentBroadcast} />
+        <SpotifyPlayer broadcast={liveBroadcast} isLive={isLive} />
 
         {/* Mobile Recovery Notification Banner */}
         {recoveryNotification && (
@@ -2599,7 +2637,7 @@ export default function ListenerDashboard() {
           <div className="bg-white dark:bg-slate-800 flex flex-col min-h-[420px] h-[500px] max-h-[75vh]">
             <div className="flex flex-col h-full min-h-0">
               <div className="flex-shrink-0">{renderPollBanner()}</div>
-              {currentBroadcast?.status === 'LIVE' ? (
+              {isBroadcastLive ? (
                 <>
                   <div className="flex-1 overflow-hidden flex-shrink-0 min-h-0 relative">
                     {renderChatMessages('mobile')}

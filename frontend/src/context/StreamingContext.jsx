@@ -23,7 +23,7 @@ const STORAGE_KEYS = {
   DJ_BROADCASTING_STATE: 'wildcats_dj_broadcasting_state',
   LISTENER_STATE: 'wildcats_listener_state',
   CURRENT_BROADCAST: 'wildcats_current_broadcast',
-  STREAM_CONFIG: 'wildcats_stream_config'
+    STREAM_CONFIG: 'wildcats_stream_config'
 };
 
 export function StreamingProvider({ children }) {
@@ -76,6 +76,11 @@ export function StreamingProvider({ children }) {
   const updateActiveSessionId = (sessionId) => {
     setActiveSessionId(sessionId);
     localStorage.setItem('wildcats_active_session_id', sessionId);
+  };
+
+  const clearActiveSessionId = () => {
+    setActiveSessionId(null);
+    localStorage.removeItem('wildcats_active_session_id');
   };
 
   // Server Config
@@ -288,6 +293,12 @@ export function StreamingProvider({ children }) {
       if (broadcast && !currentBroadcast) {
         try {
           const parsed = JSON.parse(broadcast);
+          // If we already have an actualEnd, consider it stale and drop it
+          if (parsed.actualEnd) {
+            logger.info('Ignoring ended broadcast from localStorage');
+            localStorage.removeItem(STORAGE_KEYS.CURRENT_BROADCAST);
+            return;
+          }
           // Check if broadcast data is recent (has actualStart and within reasonable time)
           if (parsed.actualStart) {
             const startTime = new Date(parsed.actualStart);
@@ -1226,13 +1237,28 @@ export function StreamingProvider({ children }) {
 
       if (activeBroadcast) {
         console.log('Found active broadcast on server, restoring state:', activeBroadcast);
+
+        // If local state is for a different broadcast, clear it before adopting server state
+        const djState = localStorage.getItem(STORAGE_KEYS.DJ_BROADCASTING_STATE);
+        if (djState) {
+          try {
+            const parsed = JSON.parse(djState);
+            if (parsed.currentBroadcast && parsed.currentBroadcast.id !== activeBroadcast.id) {
+              logger.warn('Stale local broadcast differs from server active broadcast, clearing local cache');
+              forceClearBroadcastState('stale-local-broadcast');
+            }
+          } catch (e) {
+            logger.debug('Failed parsing cached DJ state during restore', e);
+          }
+        }
+
         setCurrentBroadcast(activeBroadcast);
         setIsLive(true);
 
         // Check local storage to see if this user was the one broadcasting
-        const djState = localStorage.getItem(STORAGE_KEYS.DJ_BROADCASTING_STATE);
-        if (djState) {
-          const parsed = JSON.parse(djState);
+        const djStateLocal = localStorage.getItem(STORAGE_KEYS.DJ_BROADCASTING_STATE);
+        if (djStateLocal) {
+          const parsed = JSON.parse(djStateLocal);
           // If local state shows this user was broadcasting and the broadcast matches
           if (parsed.isLive && parsed.currentBroadcast?.id === activeBroadcast.id) {
             console.log('Restoring DJ streaming connection for active broadcast');
@@ -1256,20 +1282,12 @@ export function StreamingProvider({ children }) {
       } else {
         console.log('No active broadcast found on server');
         // No active broadcast on server, clear local state
-        setIsLive(false);
-        setCurrentBroadcast(null);
-        setWebsocketConnected(false);
-        localStorage.removeItem(STORAGE_KEYS.DJ_BROADCASTING_STATE);
-        localStorage.removeItem(STORAGE_KEYS.CURRENT_BROADCAST);
+        forceClearBroadcastState('no-active-broadcast');
       }
     } catch (error) {
       console.error('Error checking DJ state:', error);
       // Clear potentially stale state
-      setIsLive(false);
-      setCurrentBroadcast(null);
-      setWebsocketConnected(false);
-      localStorage.removeItem(STORAGE_KEYS.DJ_BROADCASTING_STATE);
-      localStorage.removeItem(STORAGE_KEYS.CURRENT_BROADCAST);
+      forceClearBroadcastState('error-restore-state');
     }
   };
 
@@ -1661,17 +1679,7 @@ export function StreamingProvider({ children }) {
 
         case 'BROADCAST_ENDED':
           logger.info('Broadcast ended via StreamingContext WebSocket');
-          // Clear broadcast state for DJs immediately
-          setCurrentBroadcast(null);
-          setIsLive(false);
-          setWebsocketConnected(false);
-          // Clear ALL persisted state to prevent any stale data
-          localStorage.removeItem(STORAGE_KEYS.CURRENT_BROADCAST);
-          localStorage.removeItem(STORAGE_KEYS.DJ_BROADCASTING_STATE);
-          localStorage.removeItem(STORAGE_KEYS.LISTENER_STATE);
-          // Also clear any streaming-related persisted data
-          localStorage.removeItem('wildcats_volume');
-          localStorage.removeItem('wildcats_muted');
+          forceClearBroadcastState('broadcast-ended-event');
           break;
 
         default:
@@ -2284,6 +2292,29 @@ export function StreamingProvider({ children }) {
     console.log('All connections closed and state reset');
   };
 
+  const forceClearBroadcastState = useCallback((reason = 'manual') => {
+    logger.info('Force clearing broadcast state', { reason });
+
+    try {
+      disconnectAll();
+    } catch (e) {
+      logger.debug('forceClearBroadcastState disconnectAll failed softly', e);
+    }
+
+    setIsLive(false);
+    setCurrentBroadcast(null);
+    setWebsocketConnected(false);
+    clearActiveSessionId();
+
+    // Drop persisted data to avoid stale resurrection across deploys/auto-scaling
+    localStorage.removeItem(STORAGE_KEYS.DJ_BROADCASTING_STATE);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_BROADCAST);
+    localStorage.removeItem(STORAGE_KEYS.LISTENER_STATE);
+    localStorage.removeItem(STORAGE_KEYS.STREAM_CONFIG);
+    localStorage.removeItem('wildcats_volume');
+    localStorage.removeItem('wildcats_muted');
+  }, [disconnectAll]);
+
   // Get streaming URLs
   const getStreamUrl = () => serverConfig?.streamUrl;
   const getWebSocketUrl = (type = 'listener') => {
@@ -2297,6 +2328,14 @@ export function StreamingProvider({ children }) {
       disconnectAll();
     };
   }, []);
+
+  // Safety: if local isLive but backend-reported status is not LIVE, clear stale state
+  useEffect(() => {
+    if (isLive && currentBroadcast?.status && currentBroadcast.status !== 'LIVE') {
+      logger.warn('StreamingContext: detected non-LIVE status while isLive=true, forcing clear');
+      forceClearBroadcastState('status-mismatch');
+    }
+  }, [isLive, currentBroadcast?.status, forceClearBroadcastState]);
 
   // Add page visibility handling to prevent disconnections when tab becomes inactive
   useEffect(() => {
@@ -2460,6 +2499,7 @@ export function StreamingProvider({ children }) {
 
     // Shared Functions
     disconnectAll,
+    forceClearBroadcastState,
     getStreamUrl,
     getWebSocketUrl,
     refreshStreamStatus,
