@@ -152,4 +152,18 @@ public class SongRequestService {
                 message
         );
     }
+
+    public void broadcastSongRequestsCleared(Long broadcastId) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("type", "SONG_REQUESTS_CLEARED");
+        payload.put("broadcastId", broadcastId);
+        try {
+            messagingTemplate.convertAndSend(
+                    "/topic/broadcast/" + broadcastId + "/song-requests",
+                    payload
+            );
+        } catch (Exception e) {
+            // Do not fail broadcast end on notification issues
+        }
+    }
 }

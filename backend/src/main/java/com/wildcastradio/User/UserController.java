@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.wildcastradio.Broadcast.BroadcastEntity;
 import com.wildcastradio.Broadcast.BroadcastRepository;
+import com.wildcastradio.Broadcast.BroadcastService;
 import com.wildcastradio.DJHandover.DJHandoverEntity;
 import com.wildcastradio.DJHandover.DJHandoverRepository;
 import com.wildcastradio.DJHandover.DTO.DJHandoverDTO;
@@ -82,6 +83,9 @@ public class UserController {
 
     @Autowired
     private DJHandoverRepository handoverRepository;
+
+    @Autowired
+    private BroadcastService broadcastService;
 
     @Value("${app.security.cookie.secure:false}")
     private boolean useSecureCookies;
@@ -385,17 +389,26 @@ public class UserController {
                 .findByCurrentActiveDJAndStatus(user, BroadcastEntity.BroadcastStatus.LIVE);
             
             if (activeBroadcast.isPresent()) {
-                BroadcastEntity broadcast = activeBroadcast.get();
-                logger.warn("Logout blocked: User {} (ID: {}) attempted to logout while actively broadcasting broadcast {} (ID: {})", 
-                    user.getEmail(), user.getId(), broadcast.getTitle(), broadcast.getId());
-                
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("success", false);
-                errorResponse.put("error", "Cannot logout while actively broadcasting. Please hand over the broadcast first.");
-                errorResponse.put("code", "LOGOUT_FORBIDDEN_ACTIVE_DJ");
-                errorResponse.put("broadcastId", broadcast.getId());
-                errorResponse.put("broadcastTitle", broadcast.getTitle());
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+                // Double-check live broadcasts list in case status was already cleared elsewhere
+                try {
+                    if (broadcastService.getLiveBroadcasts().isEmpty()) {
+                        logger.info("Logout allowed after live re-check; no live broadcasts currently active");
+                    } else {
+                        BroadcastEntity broadcast = activeBroadcast.get();
+                        logger.warn("Logout blocked: User {} (ID: {}) attempted to logout while actively broadcasting broadcast {} (ID: {})", 
+                            user.getEmail(), user.getId(), broadcast.getTitle(), broadcast.getId());
+                        
+                        Map<String, Object> errorResponse = new HashMap<>();
+                        errorResponse.put("success", false);
+                        errorResponse.put("error", "Cannot logout while actively broadcasting. Please hand over the broadcast first.");
+                        errorResponse.put("code", "LOGOUT_FORBIDDEN_ACTIVE_DJ");
+                        errorResponse.put("broadcastId", broadcast.getId());
+                        errorResponse.put("broadcastTitle", broadcast.getTitle());
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+                    }
+                } catch (Exception e) {
+                    logger.warn("Logout live re-check failed, falling back to allow logout", e);
+                }
             }
 
             logger.info("User {} (ID: {}) logged out successfully", user.getEmail(), user.getId());
@@ -423,9 +436,6 @@ public class UserController {
      * cookies that may have been created without an explicit domain.
      */
     private void clearAuthCookies(HttpServletRequest request, HttpServletResponse response) {
-        // Match SecurityConfig: in production we always force Secure + SameSite=None
-        boolean shouldUseSecureCookies = isProduction || useSecureCookies;
-
         // Derive root domain similarly to SecurityConfig#setCookieDomain/extractRootDomain
         String host = request.getHeader("Host");
         if (host == null || host.isEmpty()) {
@@ -435,7 +445,9 @@ public class UserController {
         String domain = host != null ? host.split(":")[0] : null;
         String rootDomain = null;
 
-        if (domain != null && !domain.contains("localhost") && !domain.contains("127.0.0.1")) {
+        boolean isLocalhost = (domain == null) || domain.contains("localhost") || domain.contains("127.0.0.1");
+
+        if (!isLocalhost) {
             // Handle common two-part TLDs first (e.g., example.co.uk)
             String[] twoPartTlds = {".co.uk", ".com.au", ".co.za", ".co.nz", ".com.br", ".co.jp"};
             boolean matchedTwoPart = false;
@@ -461,6 +473,18 @@ public class UserController {
                     rootDomain = domain;
                 }
             }
+        }
+
+        // For cookie deletion, be strict: on any non-localhost domain, always use
+        // Secure + SameSite=None so that we successfully overwrite OAuth cookies
+        // that were issued with those attributes.
+        boolean shouldUseSecureCookies = !isLocalhost;
+
+        // Small debug header to help diagnose production cookie issues if needed
+        try {
+            response.addHeader("X-Logout-Debug", String.format("domain=%s;root=%s;secure=%s", domain, rootDomain, shouldUseSecureCookies));
+        } catch (Exception ignored) {
+            // avoid breaking logout if headers are already committed
         }
 
         // Helper to add both root-domain and host-only deletion cookies

@@ -1803,6 +1803,7 @@ const BroadcastScreen: React.FC = () => {
             setChatInput={setChatInput}
             isSubmitting={isSubmitting}
             handleSendChatMessage={handleSendChatMessage}
+            onRequestPress={() => setActiveTab('requests')}
           />
         );
       case 'requests':

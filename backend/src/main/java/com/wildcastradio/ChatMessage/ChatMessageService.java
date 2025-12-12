@@ -5,7 +5,9 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.apache.poi.ss.usermodel.Cell;
@@ -171,6 +173,20 @@ public class ChatMessageService {
     public long getOldMessagesCount() {
         LocalDateTime cutoffDate = LocalDateTime.now().minusDays(7);
         return chatMessageRepository.countByCreatedAtBefore(cutoffDate);
+    }
+
+    /**
+     * Notify clients to clear cached chat state for a broadcast (used on broadcast end)
+     */
+    public void broadcastChatCleared(Long broadcastId) {
+        try {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("type", "CHAT_CLEARED");
+            payload.put("broadcastId", broadcastId);
+            messagingTemplate.convertAndSend("/topic/broadcast/" + broadcastId + "/chat", payload);
+        } catch (Exception e) {
+            logger.warn("Failed to publish CHAT_CLEARED for broadcast {}", broadcastId, e);
+        }
     }
 
     /**
