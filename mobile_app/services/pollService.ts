@@ -31,6 +31,7 @@ export interface Poll {
 }
 
 export interface VotePayload {
+  pollId: number;
   optionId: number;
 }
 

@@ -877,6 +877,7 @@ const BroadcastScreen: React.FC = () => {
 
       // Send vote to backend
       const voteData = {
+        pollId: activePoll.id,
         optionId: selectedPollOption
       };
 

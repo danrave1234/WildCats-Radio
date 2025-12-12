@@ -6,10 +6,6 @@ import { AuthProvider } from '../context/AuthContext';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-export const unstable_settings = {
-  anchor: 'welcome',
-};
-
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
@@ -20,12 +16,14 @@ export default function RootLayout() {
           screenOptions={{
             animation: 'slide_from_right',
             animationDuration: 300,
+            headerShown: false,
           }}
         >
-          <Stack.Screen name="welcome" options={{ headerShown: false, animation: 'fade' }} />
-          <Stack.Screen name="(tabs)" options={{ headerShown: false, animation: 'fade' }} />
-          <Stack.Screen name="auth/login" options={{ headerShown: false, animation: 'none' }} />
-          <Stack.Screen name="auth/signup" options={{ headerShown: false, animation: 'none' }} />
+          <Stack.Screen name="index" options={{ animation: 'fade' }} />
+          <Stack.Screen name="welcome" options={{ animation: 'fade' }} />
+          <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+          <Stack.Screen name="auth/login" options={{ animation: 'none' }} />
+          <Stack.Screen name="auth/signup" options={{ animation: 'none' }} />
         </Stack>
         <StatusBar style="auto" />
       </ThemeProvider>
