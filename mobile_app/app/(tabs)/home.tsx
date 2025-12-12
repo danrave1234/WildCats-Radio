@@ -215,7 +215,7 @@ const HomeScreen: React.FC = () => {
                 <Ionicons name="radio" size={26} color="#FFC30B" />
               </LinearGradient>
               <View style={styles.titleTextContainer}>
-                <Text style={styles.title}>Welcome to WildCats Radio</Text>
+                <Text style={styles.title}>Welcome to WildCat Radio</Text>
                 <View style={styles.titleUnderline} />
               </View>
             </View>
