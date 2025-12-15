@@ -181,45 +181,7 @@ const SpotifyPlayer = ({ broadcast: propBroadcast, currentDJ }) => {
             )}
           </div>
 
-          <div className="flex items-start space-x-2 sm:space-x-3 mb-2 sm:mb-4">
-            <div
-              className="w-12 h-12 sm:w-16 sm:h-16 rounded-lg shadow-lg flex items-center justify-center relative overflow-hidden bg-maroon-900/50 border-2 border-maroon-600/30 hover:border-gold-500/50 transition-all duration-300 flex-shrink-0"
-              style={currentTrack.title !== 'No songs played' ? { background: getAlbumCoverGradient() } : {}}
-            >
-              <MusicalNoteIcon className="h-6 w-6 sm:h-8 sm:w-8 text-gold-500" />
-              <button
-                onClick={handlePlayPause}
-                disabled={isLoading || isStreamSyncing}
-                className="absolute inset-0 bg-black/40 hover:bg-black/50 flex items-center justify-center transition-all duration-200 opacity-0 hover:opacity-100"
-              >
-                {isStreamSyncing ? (
-                  <div className="flex items-center justify-center">
-                    <div className="w-3 h-3 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  </div>
-                ) : audioPlaying ? (
-                  <PauseIcon className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
-                ) : (
-                  <PlayIcon className="h-4 w-4 sm:h-5 sm:w-5 text-white ml-0.5" />
-                )}
-              </button>
-            </div>
 
-            <div className="flex-1 min-w-0">
-              <div className="mb-1 sm:mb-2">
-                <p className="text-white/80 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider mb-1 sm:mb-1.5">
-                  NOW PLAYING
-                </p>
-                <div className="bg-maroon-900/40 backdrop-blur-sm rounded-lg p-2 sm:p-2.5 border border-maroon-700/30">
-                  <p className="text-white text-xs sm:text-sm font-semibold truncate mb-0.5">
-                    {currentTrack.title}
-                  </p>
-                  <p className="text-white/80 text-[10px] sm:text-xs truncate">
-                    {currentTrack.artist}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
 
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 sm:space-x-3">

@@ -2497,6 +2497,17 @@ export default function ListenerDashboard() {
                         </button>
                       </div>
                     </div>
+                  ) : currentUser.banned ? (
+                    <div className="p-4 bg-red-50 dark:bg-red-900/20">
+                      <div className="text-center text-red-600 dark:text-red-400 text-sm font-medium">
+                        <p>You have been banned from chat.</p>
+                        {currentUser.bannedUntil && (
+                          <p className="text-xs mt-1 opacity-80">
+                            Ban expires: {new Date(currentUser.bannedUntil).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   ) : (
                     <>
                       {slowModeEnabled && slowModeSeconds > 0 && (
