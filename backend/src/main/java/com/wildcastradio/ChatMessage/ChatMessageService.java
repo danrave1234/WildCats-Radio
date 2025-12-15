@@ -702,10 +702,24 @@ public class ChatMessageService {
         if (messageId == null) {
             throw new IllegalArgumentException("messageId cannot be null");
         }
-        boolean exists = chatMessageRepository.existsById(messageId);
-        if (!exists) {
-            throw new IllegalArgumentException("Chat message not found with ID: " + messageId);
-        }
+        
+        ChatMessageEntity message = chatMessageRepository.findById(messageId)
+            .orElseThrow(() -> new IllegalArgumentException("Chat message not found with ID: " + messageId));
+            
+        Long broadcastId = message.getBroadcast().getId();
+        
         chatMessageRepository.deleteById(messageId);
+        
+        // Broadcast deletion event
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("type", "MESSAGE_DELETED");
+        payload.put("id", messageId);
+        payload.put("broadcastId", broadcastId);
+        
+        try {
+            messagingTemplate.convertAndSend("/topic/broadcast/" + broadcastId + "/chat", payload);
+        } catch (Exception e) {
+            logger.error("Failed to broadcast message deletion for message {}", messageId, e);
+        }
     }
 }

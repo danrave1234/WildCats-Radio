@@ -34,7 +34,7 @@ export default function ListenerDashboard() {
   const { id: broadcastIdParam } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, checkAuthStatus } = useAuth();
   const isSpecificBroadcast = location.pathname.startsWith('/broadcast/');
 
   // Get streaming context
@@ -656,8 +656,16 @@ export default function ListenerDashboard() {
               chatWsBroadcastId: chatWsBroadcastIdRef.current,
               stateBroadcastId: currentBroadcastId,
               subscribedBroadcastId,
+              type: newMessage.type
             });
           } catch(_) { /* no-op: debug logging only */ }
+
+          // Handle message deletion
+          if (newMessage.type === "MESSAGE_DELETED") {
+            setChatMessages(prev => prev.filter(msg => msg.id !== newMessage.id));
+            return;
+          }
+
           // Set connection status to true on first message - this confirms WebSocket is working
           if (!wsConnected) {
             setWsConnected(true);
@@ -1254,7 +1262,7 @@ export default function ListenerDashboard() {
           logger.error('Failed to resolve current broadcast before sending message:', e2);
         }
         if (!broadcastIdToUse) {
-          alert('Chat is not connected to an active broadcast yet. Please wait a moment and try again.');
+          setToast({ visible: true, message: 'Chat is not connected to an active broadcast yet. Please wait a moment and try again.', type: 'warning' });
           setChatMessage(messageToSend);
           return;
         }
@@ -1263,7 +1271,7 @@ export default function ListenerDashboard() {
 
     // Validate message length
     if (chatMessage.length > 1500) {
-      alert("Message cannot exceed 1500 characters");
+      setToast({ visible: true, message: "Message cannot exceed 1500 characters", type: "warning" });
       return;
     }
 
@@ -1296,20 +1304,24 @@ export default function ListenerDashboard() {
     } catch (error) {
       logger.error("Error sending chat message:", error);
       if (error.response?.data?.message?.includes("1500 characters")) {
-        alert("Message cannot exceed 1500 characters");
+        setToast({ visible: true, message: "Message cannot exceed 1500 characters", type: "warning" });
       } else {
         const apiStatus = error.response?.status;
         if (apiStatus === 401) {
-          alert('Your session expired. Please log in again.');
+          setToast({ visible: true, message: 'Your session expired. Please log in again.', type: 'error' });
           handleLoginRedirect();
+        } else if (apiStatus === 403) {
+          // Forbidden: likely banned. Refresh auth status to update UI.
+          checkAuthStatus();
+          setToast({ visible: true, message: 'You are banned from sending messages.', type: 'error' });
         } else if (apiStatus === 429) {
           // When slow mode is active, use the configured interval for a clearer UX
           // and let the backend remain the source of truth for actual enforcement.
           const waitSec = slowModeSeconds || null;
           setSlowModeWaitSeconds(waitSec);
-          // No alert popup – inline text will inform the user
+          setToast({ visible: true, message: `Slow mode enabled. Please wait ${waitSec || 'a few'} seconds.`, type: 'warning' });
         } else {
-          alert("Failed to send message. Please try again.");
+          setToast({ visible: true, message: "Failed to send message. Please try again.", type: 'error' });
         }
       }
       setChatMessage(messageToSend); // Restore the message if sending failed
@@ -1784,7 +1796,7 @@ export default function ListenerDashboard() {
 
     } catch (error) {
       logger.error("Error submitting vote:", error);
-      alert("Failed to submit vote. Please try again.");
+      setToast({ visible: true, message: "Failed to submit vote. Please try again.", type: "error" });
     } finally {
       setPollLoading(false);
     }
@@ -1798,18 +1810,18 @@ export default function ListenerDashboard() {
       const canModerate = role === 'ADMIN' || role === 'MODERATOR';
       if (!canModerate) return;
       if (targetUser.id === currentUser.id) {
-        alert('You cannot ban yourself.');
+        setToast({ visible: true, message: 'You cannot ban yourself.', type: 'warning' });
         return;
       }
       if (targetUser.role === 'ADMIN') {
-        alert('You cannot ban an ADMIN.');
+        setToast({ visible: true, message: 'You cannot ban an ADMIN.', type: 'error' });
         return;
       }
 
       const unitInput = (window.prompt('Enter ban duration unit (DAYS, WEEKS, YEARS, PERMANENT):', 'DAYS') || '').toUpperCase().trim();
       if (!unitInput) return;
       if (!['DAYS', 'WEEKS', 'YEARS', 'PERMANENT'].includes(unitInput)) {
-        alert('Invalid unit. Use DAYS, WEEKS, YEARS, or PERMANENT.');
+        setToast({ visible: true, message: 'Invalid unit. Use DAYS, WEEKS, YEARS, or PERMANENT.', type: 'warning' });
         return;
       }
       let amount = null;
@@ -1818,7 +1830,7 @@ export default function ListenerDashboard() {
         if (amtStr == null) return; // cancelled
         const parsed = parseInt(amtStr, 10);
         if (!(parsed > 0)) {
-          alert('Amount must be a positive integer.');
+          setToast({ visible: true, message: 'Amount must be a positive integer.', type: 'warning' });
           return;
         }
         amount = parsed;
@@ -1827,11 +1839,11 @@ export default function ListenerDashboard() {
 
       const payload = { unit: unitInput, amount, reason };
       await authService.banUser(targetUser.id, payload);
-      alert(`User ${targetUser.firstname || ''} ${targetUser.lastname || ''} has been banned${unitInput === 'PERMANENT' ? ' permanently' : ` for ${amount} ${unitInput.toLowerCase()}`}.`);
+      setToast({ visible: true, message: `User ${targetUser.firstname || ''} ${targetUser.lastname || ''} has been banned${unitInput === 'PERMANENT' ? ' permanently' : ` for ${amount} ${unitInput.toLowerCase()}`}.`, type: 'success' });
     } catch (err) {
       console.error('Failed to ban user:', err);
       const msg = err?.response?.status === 403 ? 'Forbidden: You do not have permission.' : 'Failed to ban user.';
-      alert(msg);
+      setToast({ visible: true, message: msg, type: 'error' });
     }
   };
 
@@ -1986,6 +1998,21 @@ export default function ListenerDashboard() {
                         </div>
                       </div>
                     </div>
+      );
+    }
+
+    if (currentUser.banned) {
+      return (
+        <div className="p-4 bg-red-50 dark:bg-red-900/20 border-t border-red-200 dark:border-red-800 rounded-b-lg">
+          <div className="text-center text-red-600 dark:text-red-400 text-sm font-medium">
+            <p>You have been banned from chat.</p>
+            {currentUser.bannedUntil && (
+              <p className="text-xs mt-1 opacity-80">
+                Ban expires: {new Date(currentUser.bannedUntil).toLocaleString()}
+              </p>
+            )}
+          </div>
+        </div>
       );
     }
 
@@ -2468,6 +2495,17 @@ export default function ListenerDashboard() {
                           <UserPlusIcon className="h-4 w-4 mr-2" />
                           Register
                         </button>
+                      </div>
+                    </div>
+                  ) : currentUser.banned ? (
+                    <div className="p-4 bg-red-50 dark:bg-red-900/20">
+                      <div className="text-center text-red-600 dark:text-red-400 text-sm font-medium">
+                        <p>You have been banned from chat.</p>
+                        {currentUser.bannedUntil && (
+                          <p className="text-xs mt-1 opacity-80">
+                            Ban expires: {new Date(currentUser.bannedUntil).toLocaleString()}
+                          </p>
+                        )}
                       </div>
                     </div>
                   ) : (
