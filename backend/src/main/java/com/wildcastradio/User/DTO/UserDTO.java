@@ -9,6 +9,7 @@ public class UserDTO {
     private String email;
     private String role;
     private String gender; // MALE, FEMALE, OTHER or null
+    private Boolean banned;
     // Notification preferences
     private Boolean notifyBroadcastStart;
     private Boolean notifyBroadcastReminders;
@@ -19,7 +20,7 @@ public class UserDTO {
     public UserDTO() {
     }
     
-    public UserDTO(Long id, String firstname, String lastname, String email, String role, String gender,
+    public UserDTO(Long id, String firstname, String lastname, String email, String role, String gender, Boolean banned,
                    Boolean notifyBroadcastStart, Boolean notifyBroadcastReminders,
                    Boolean notifyNewSchedule, Boolean notifySystemUpdates) {
         this.id = id;
@@ -28,6 +29,7 @@ public class UserDTO {
         this.email = email;
         this.role = role;
         this.gender = gender;
+        this.banned = banned;
         this.notifyBroadcastStart = notifyBroadcastStart;
         this.notifyBroadcastReminders = notifyBroadcastReminders;
         this.notifyNewSchedule = notifyNewSchedule;
@@ -47,6 +49,7 @@ public class UserDTO {
             user.getEmail(),
             user.getRole().toString(),
             user.getGender() != null ? user.getGender().toString() : null,
+            user.isBanned(),
             user.isNotifyBroadcastStart(),
             user.isNotifyBroadcastReminders(),
             user.isNotifyNewSchedule(),
@@ -97,6 +100,9 @@ public class UserDTO {
 
     public String getGender() { return gender; }
     public void setGender(String gender) { this.gender = gender; }
+
+    public Boolean getBanned() { return banned; }
+    public void setBanned(Boolean banned) { this.banned = banned; }
 
     public Boolean getNotifyBroadcastStart() { return notifyBroadcastStart; }
     public void setNotifyBroadcastStart(Boolean v) { this.notifyBroadcastStart = v; }
