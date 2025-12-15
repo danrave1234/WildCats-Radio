@@ -917,6 +917,13 @@ export default function DJDashboard() {
         logger.debug("DJ Dashboard: Setting up chat WebSocket for broadcast:", currentBroadcast.id)
 
         const connection = await chatService.subscribeToChatMessages(currentBroadcast.id, (newMessage) => {
+          // Handle message deletion
+          if (newMessage.type === "MESSAGE_DELETED") {
+            logger.debug("DJ Dashboard: Received message deletion:", newMessage.id)
+            setChatMessages((prev) => prev.filter((msg) => msg.id !== newMessage.id))
+            return
+          }
+
           // Double-check the message is for the current broadcast
           if (newMessage.broadcastId === currentBroadcast.id) {
             logger.debug("DJ Dashboard: Received new chat message:", newMessage)
@@ -1883,7 +1890,7 @@ export default function DJDashboard() {
   }
 
   // Interaction Panel Handlers
-  const handleBanUser = async (userId, displayName) => {
+  const handleBanUser = async (userId, displayName, messageId) => {
     try {
       if (!userId) return;
       // Only allow DJs, Moderators, and Admins to ban from the DJ dashboard
@@ -1891,10 +1898,22 @@ export default function DJDashboard() {
         showToast('You do not have permission to ban users.', 'error');
         return;
       }
-      const confirmed = window.confirm(`Ban ${displayName || 'this user'} from chat permanently?`);
+      const confirmed = window.confirm(`Ban ${displayName || 'this user'} for 1 day and remove message?`);
       if (!confirmed) return;
-      await authService.banUser(userId, { unit: 'PERMANENT', reason: `Banned by ${currentUser.firstname || ''} ${currentUser.lastname || ''}`.trim() });
-      showToast(`${displayName || 'User'} has been banned.`, 'success');
+      
+      // 1. Ban user for 1 day
+      await authService.banUser(userId, { unit: 'DAYS', amount: 1, reason: `Chat ban by ${currentUser.firstname || ''} ${currentUser.lastname || ''}`.trim() });
+      
+      // 2. Censor (delete) the message if provided
+      if (messageId) {
+        try {
+          await chatService.deleteMessage(messageId);
+        } catch (msgError) {
+          logger.error('Failed to delete message during ban:', msgError);
+        }
+      }
+      
+      showToast(`${displayName || 'User'} has been banned for 1 day.`, 'success');
     } catch (error) {
       logger.error('Failed to ban user from chat:', error);
       const msg = (error && (error.response?.data?.message || error.message)) || 'Unknown error';
@@ -2886,15 +2905,20 @@ export default function DJDashboard() {
                                             {formattedTime}
                                           </span>
                                         )}
-                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && (
+                                                                                        {(currentUser?.role === 'DJ' || currentUser?.role === 'ADMIN' || currentUser?.role === 'MODERATOR') && msg.sender?.id !== currentUser?.id && msg.sender?.role !== 'ADMIN' && !msg.sender?.banned && (
                                                                                           <button
                                                                                             type="button"
-                                                                                            onClick={() => handleBanUser(msg.sender.id, senderName)}
+                                                                                            onClick={() => handleBanUser(msg.sender.id, senderName, msg.id)}
                                             className="text-xs px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800 flex-shrink-0"
                                                                                             title="Ban this user from chat"
                                                                                           >
                                                                                             Ban
                                                                                           </button>
+                                                                                        )}
+                                                                                        {msg.sender?.banned && (
+                                                                                          <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-500 border border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700 flex-shrink-0 cursor-not-allowed">
+                                                                                            Banned
+                                                                                          </span>
                                                                                         )}
                                           </div>
                                       <p className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 break-words">
