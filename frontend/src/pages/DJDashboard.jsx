@@ -1169,7 +1169,25 @@ export default function DJDashboard() {
                         : prev,
                 )
               }
-              break
+              break;
+
+            case "POLL_DELETED": {
+              const deletedPollId = pollUpdate.pollId || pollUpdate.id || null;
+              if (!deletedPollId) break;
+              logger.debug("DJ Dashboard: Processing poll deletion:", deletedPollId);
+              setPolls((prev) => prev.filter((p) => p.id !== deletedPollId));
+              setActivePoll((prev) => (prev && prev.id === deletedPollId ? null : prev));
+              clearPollCountdown(deletedPollId);
+              break;
+            }
+
+            case "POLL_CLEARED": {
+              logger.debug("DJ Dashboard: Processing poll clear");
+              setPolls([]);
+              setActivePoll(null);
+              clearPollCountdown();
+              break;
+            }
 
             default:
               logger.debug("DJ Dashboard: Unknown poll update type:", pollUpdate.type)
