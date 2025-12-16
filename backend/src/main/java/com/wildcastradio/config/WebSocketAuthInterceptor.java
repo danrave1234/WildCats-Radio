@@ -13,12 +13,17 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
 import com.wildcastradio.User.UserService;
+import io.jsonwebtoken.ExpiredJwtException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * WebSocket interceptor to handle JWT authentication
  */
 @Component
 public class WebSocketAuthInterceptor implements ChannelInterceptor {
+
+    private static final Logger logger = LoggerFactory.getLogger(WebSocketAuthInterceptor.class);
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -63,19 +68,26 @@ public class WebSocketAuthInterceptor implements ChannelInterceptor {
                             SecurityContextHolder.getContext().setAuthentication(authentication);
                             accessor.setUser(authentication);
                         } else {
-                            // Token is invalid - reject the connection
-                            System.err.println("WebSocket authentication failed: Invalid token for user " + username);
-                            return null; // Block the connection
+                            // Token is invalid - allow anonymous connection (user can reconnect after getting new token)
+                            logger.debug("WebSocket: Invalid token for user {}, allowing anonymous connection", username);
+                            return message; // Allow connection but without authentication
                         }
                     } else {
-                        // Could not extract username - reject the connection
-                        System.err.println("WebSocket authentication failed: Could not extract username from token");
-                        return null; // Block the connection
+                        // Could not extract username (likely expired token) - allow anonymous connection
+                        // This is expected during OAuth login transitions
+                        logger.debug("WebSocket: Could not extract username from token (likely expired), allowing anonymous connection");
+                        return message; // Allow connection but without authentication
                     }
+                } catch (ExpiredJwtException e) {
+                    // Expired tokens are expected during OAuth login transitions
+                    // Allow anonymous connection instead of blocking
+                    logger.debug("WebSocket: Expired token detected, allowing anonymous connection: {}", e.getMessage());
+                    return message; // Allow connection but without authentication
                 } catch (Exception e) {
-                    // Token is invalid - reject the connection for security
-                    System.err.println("WebSocket authentication failed: " + e.getMessage());
-                    return null; // Block the connection
+                    // For other token errors, log but still allow anonymous connection
+                    // This prevents blocking legitimate users during token refresh
+                    logger.debug("WebSocket: Token validation error, allowing anonymous connection: {}", e.getMessage());
+                    return message; // Allow connection but without authentication
                 }
             } else {
                 // No Authorization header provided. Allow anonymous connection so public topics work.

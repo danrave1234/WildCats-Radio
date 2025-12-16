@@ -27,6 +27,7 @@ import { StreamingProvider } from './context/StreamingContext';
 import './styles/custom-scrollbar.css';
 import {NotificationProvider} from "./context/NotificationContext.jsx";
 import { ThemeProvider } from './context/ThemeContext.jsx';
+import authStorage from './services/authStorage.js';
 
 import { Spinner } from './components/ui/spinner';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -123,6 +124,17 @@ const OAuthCallback = () => {
         const oauthStatus = urlParams.get('oauth');
         const oauthError = urlParams.get('oauth_error');
         const errorReason = urlParams.get('reason');
+        
+        // IMPORTANT: Clear old expired tokens before processing OAuth callback
+        // This prevents expired tokens from being sent with requests
+        if (window.location.hostname === 'localhost') {
+          // Clear old localStorage tokens for localhost
+          localStorage.removeItem('oauth_token');
+          localStorage.removeItem('oauth_userId');
+          localStorage.removeItem('oauth_userRole');
+        }
+        // Also clear auth storage (works for both localhost and production)
+        await authStorage.clear();
         
         // Handle OAuth errors
         if (oauthError) {
