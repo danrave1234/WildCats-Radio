@@ -1,13 +1,13 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Home, 
-  BarChart3, 
-  Calendar, 
-  Music, 
-  Users, 
-  Settings, 
-  Radio, 
+import {
+  Home,
+  BarChart3,
+  Calendar,
+  Music,
+  Users,
+  Settings,
+  Radio,
   PanelRight,
   Inbox as InboxIcon,
   History as HistoryIcon,
@@ -252,7 +252,7 @@ const navigationSections = {
 // Mobile close button component
 const MobileCloseButton = () => {
   const { setOpen } = useSidebar();
-  
+
   return (
     <div className="absolute right-4 top-4 z-50 md:hidden">
       <button
@@ -284,7 +284,7 @@ const SectionHeader = ({ title }) => {
           animate={{
             opacity: open ? 1 : 0,
           }}
-          transition={{ 
+          transition={{
             duration: 0.15,
             delay: open ? 0.1 : 0 // Delay fade in when opening, immediate fade out when closing
           }}
@@ -299,7 +299,7 @@ const SectionHeader = ({ title }) => {
             opacity: open ? 0 : 1,
             scaleX: open ? 0 : 1,
           }}
-          transition={{ 
+          transition={{
             duration: 0.15,
             delay: open ? 0 : 0.1 // Delay appearance when minimizing, immediate hide when opening
           }}
@@ -320,11 +320,11 @@ const NewSidebar = ({ userRole }) => {
   // 1. System reports live status
   // 2. Broadcast object exists and is LIVE
   // 3. Current user is the creator/owner/active DJ of the broadcast
-  const isActiveDJ = isLive && 
-                     currentBroadcast?.status === 'LIVE' && 
-                     (currentBroadcast?.currentActiveDJ?.id === currentUser?.id || 
-                      currentBroadcast?.startedBy?.id === currentUser?.id ||
-                      currentBroadcast?.createdBy?.id === currentUser?.id);
+  const isActiveDJ = isLive &&
+    currentBroadcast?.status === 'LIVE' &&
+    (currentBroadcast?.currentActiveDJ?.id === currentUser?.id ||
+      currentBroadcast?.startedBy?.id === currentUser?.id ||
+      currentBroadcast?.createdBy?.id === currentUser?.id);
 
   // Get the appropriate navigation sections based on authentication and role
   const getNavigationSections = () => {
@@ -335,7 +335,7 @@ const NewSidebar = ({ userRole }) => {
     // Use currentUser.role directly for reliability, fallback to prop
     const role = currentUser?.role || userRole;
     const roleKey = (role || 'LISTENER').toUpperCase();
-    
+
     // Ensure role key exists in navigationSections
     return navigationSections[roleKey] || navigationSections.LISTENER;
   };
@@ -348,10 +348,10 @@ const NewSidebar = ({ userRole }) => {
         {/* Logo section follows theme */}
         <div className="bg-card text-card-foreground border-b border-border relative">
           <MobileCloseButton />
-          
+
           {/* Premium background effect for mobile */}
           <div className="absolute inset-0 md:hidden pointer-events-none"></div>
-          
+
           <div className="relative flex items-center justify-center h-48 md:h-28 overflow-hidden py-4 md:py-0">
             {/* Show panel-right icon when closed with fade animation */}
             <motion.div
@@ -362,30 +362,30 @@ const NewSidebar = ({ userRole }) => {
                 x: !open ? 0 : -30,
                 scale: !open ? 1 : 0.8,
               }}
-              transition={{ 
+              transition={{
                 duration: 0.4,
                 ease: [0.25, 0.46, 0.45, 0.94],
-                opacity: { 
+                opacity: {
                   duration: 0.3,
                   ease: "easeOut",
                   delay: !open ? 0.1 : 0
                 },
-                x: { 
+                x: {
                   duration: 0.4,
                   ease: [0.34, 1.26, 0.64, 1],
                   delay: !open ? 0.05 : 0
                 },
-                scale: { 
+                scale: {
                   duration: 0.3,
                   ease: "easeOut",
                   delay: !open ? 0.08 : 0
                 }
               }}
-              style={{ 
+              style={{
                 pointerEvents: !open ? 'auto' : 'none'
               }}
             >
-              <PanelRight 
+              <PanelRight
                 className="w-6 h-6"
                 style={{ color: '#800000' }}
               />
@@ -401,20 +401,20 @@ const NewSidebar = ({ userRole }) => {
                 scale: open ? 1 : 0.7,
                 rotateY: open ? 0 : -15,
               }}
-              transition={{ 
+              transition={{
                 duration: 0.5,
                 ease: [0.25, 0.46, 0.45, 0.94],
-                opacity: { 
+                opacity: {
                   duration: 0.4,
                   ease: "easeOut",
                   delay: open ? 0.15 : 0
                 },
-                x: { 
+                x: {
                   duration: 0.5,
                   ease: [0.34, 1.26, 0.64, 1], // Smooth bounce effect
                   delay: open ? 0.1 : 0
                 },
-                scale: { 
+                scale: {
                   duration: 0.4,
                   ease: "easeOut",
                   delay: open ? 0.12 : 0
@@ -425,21 +425,21 @@ const NewSidebar = ({ userRole }) => {
                   delay: open ? 0.08 : 0
                 }
               }}
-              style={{ 
+              style={{
                 transformOrigin: "center center",
                 perspective: "1000px",
                 pointerEvents: open ? 'auto' : 'none'
               }}
             >
-              <motion.img 
-                src={wildcatradioLogo} 
-                alt="WildCat Radio Logo" 
+              <motion.img
+                src={wildcatradioLogo}
+                alt="WildCat Radio Logo"
                 className="w-32 h-32 md:w-24 md:h-24 flex-shrink-0"
                 animate={{
                   y: open ? 0 : 10,
                   filter: open ? "brightness(1)" : "brightness(0.8)"
                 }}
-                transition={{ 
+                transition={{
                   duration: 0.3,
                   ease: "easeOut",
                   delay: open ? 0.2 : 0,
@@ -451,7 +451,7 @@ const NewSidebar = ({ userRole }) => {
               />
             </motion.div>
           </div>
-          
+
 
         </div>
 
@@ -472,7 +472,7 @@ const NewSidebar = ({ userRole }) => {
                     // Active DJ can navigate anywhere EXCEPT Listener Dashboard
                     const isListenerDashboard = link.href === '/dashboard';
                     const isRestricted = isActiveDJ && isListenerDashboard;
-                    
+
                     const linkProps = isRestricted ? {
                       onClick: (e) => {
                         e.preventDefault();
@@ -497,8 +497,8 @@ const NewSidebar = ({ userRole }) => {
                     } : link;
 
                     return (
-                      <SidebarLink 
-                        key={link.label} 
+                      <SidebarLink
+                        key={link.label}
                         link={displayLink}
                         {...linkProps}
                       />
@@ -521,7 +521,7 @@ const NewSidebar = ({ userRole }) => {
             }
           )}>
             {/* Expanded Footer */}
-            <motion.div 
+            <motion.div
               className="border-t border-maroon-600/30"
               initial={false}
               animate={{
@@ -529,37 +529,37 @@ const NewSidebar = ({ userRole }) => {
                 y: open ? 0 : 25,
                 scale: open ? 1 : 0.92,
               }}
-              transition={{ 
+              transition={{
                 duration: 0.5,
                 ease: [0.25, 0.46, 0.45, 0.94], // Custom cubic-bezier for smooth motion
-                opacity: { 
+                opacity: {
                   duration: open ? 0.4 : 0.2,
                   ease: "easeOut",
                   delay: open ? 0.1 : 0
                 },
-                y: { 
+                y: {
                   duration: 0.5,
                   ease: [0.34, 1.56, 0.64, 1], // Slight bounce for natural feel
                   delay: open ? 0.05 : 0
                 },
-                scale: { 
+                scale: {
                   duration: 0.4,
                   ease: "easeOut",
                   delay: open ? 0.08 : 0
                 }
               }}
-              style={{ 
+              style={{
                 transformOrigin: "bottom center",
                 display: open ? "block" : "none"
               }}
             >
-              <motion.div 
+              <motion.div
                 className="pt-5 pb-4 px-4"
                 animate={{
                   y: open ? 0 : 15,
                   opacity: open ? 1 : 0.7,
                 }}
-                transition={{ 
+                transition={{
                   duration: 0.45,
                   ease: [0.16, 1, 0.3, 1], // Smooth easing curve
                   delay: open ? 0.15 : 0,
@@ -575,26 +575,26 @@ const NewSidebar = ({ userRole }) => {
                     WildCat Radio
                   </h4>
                   <p className="text-muted-foreground text-xs">
-                    © 2025 All Rights Reserved
+                    © 2026 All Rights Reserved
                   </p>
                 </div>
 
                 {/* Links Section */}
                 <div className="space-y-2.5 mb-4">
-                  <a 
-                    href="/privacy-policy" 
+                  <a
+                    href="/privacy-policy"
                     className="block text-muted-foreground hover:text-gold-400 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
                   >
                     Privacy Policy
                   </a>
-                  <a 
-                    href="/terms-of-service" 
+                  <a
+                    href="/terms-of-service"
                     className="block text-muted-foreground hover:text-gold-400 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
                   >
                     Terms of Service
                   </a>
-                  <a 
-                    href="/contact" 
+                  <a
+                    href="/contact"
                     className="block text-muted-foreground hover:text-gold-400 text-xs transition-colors duration-200 hover:translate-x-0.5 transform"
                   >
                     Contact
@@ -614,7 +614,7 @@ const NewSidebar = ({ userRole }) => {
             </motion.div>
 
             {/* Minimized Footer - Version */}
-            <motion.div 
+            <motion.div
               className="absolute bottom-0 left-0 right-0 flex justify-center items-center"
               initial={false}
               animate={{
@@ -622,40 +622,40 @@ const NewSidebar = ({ userRole }) => {
                 y: open ? 30 : 0,
                 scale: open ? 0.75 : 1,
               }}
-              transition={{ 
+              transition={{
                 duration: 0.5,
                 ease: [0.25, 0.46, 0.45, 0.94], // Matching the expanded footer curve
-                opacity: { 
+                opacity: {
                   duration: open ? 0.2 : 0.4,
                   ease: "easeOut",
                   delay: open ? 0 : 0.1
                 },
-                y: { 
+                y: {
                   duration: 0.5,
                   ease: [0.34, 1.26, 0.64, 1], // Subtle bounce
                   delay: open ? 0 : 0.08
                 },
-                scale: { 
+                scale: {
                   duration: 0.4,
                   ease: "easeOut",
                   delay: open ? 0 : 0.12
                 }
               }}
-              style={{ 
+              style={{
                 transformOrigin: "center",
                 display: open ? "none" : "flex"
               }}
             >
               <motion.div
                 className="bg-gold-500 text-maroon-900 w-full py-1 text-xs font-bold tracking-tight uppercase select-none shadow-md hover:bg-gold-600 hover:shadow-lg transition-all duration-200 text-center"
-                whileHover={{ 
+                whileHover={{
                   scale: 1.02,
                   y: -1
                 }}
-                transition={{ 
-                  type: "spring", 
-                  stiffness: 300, 
-                  damping: 20 
+                transition={{
+                  type: "spring",
+                  stiffness: 300,
+                  damping: 20
                 }}
               >
                 v1.0
@@ -668,6 +668,6 @@ const NewSidebar = ({ userRole }) => {
   );
 };
 
-export default NewSidebar; 
+export default NewSidebar;
 
 // Bare-bones note: Sidebar component kept as-is for stability.

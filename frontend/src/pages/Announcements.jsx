@@ -51,7 +51,7 @@ const Announcements = () => {
   const [deletingDraft, setDeletingDraft] = useState(null); // { id, title }
   const [showDeleteArchivedModal, setShowDeleteArchivedModal] = useState(false);
   const [deletingArchived, setDeletingArchived] = useState(null); // { id, title }
-  
+
   // Confirmation modals for moderator actions
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishingAnnouncement, setPublishingAnnouncement] = useState(null);
@@ -63,7 +63,7 @@ const Announcements = () => {
   // Tabs/Filters
   // Default to published for everyone; moderators will be switched to "all" via effect
   const [activeTab, setActiveTab] = useState('published');
-  
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
@@ -100,7 +100,7 @@ const Announcements = () => {
     if (!currentUser || isListener) {
       return [{ id: 'published', label: 'Announcements' }];
     }
-    
+
     // DJs: Can see published + their own drafts + rejected + my published
     if (isDJ) {
       return [
@@ -110,7 +110,7 @@ const Announcements = () => {
         { id: 'rejected', label: 'Rejected' }
       ];
     }
-    
+
     // MODERATORS & ADMINS: Full access to all statuses
     if (isModerator) {
       return [
@@ -121,7 +121,7 @@ const Announcements = () => {
         { id: 'archived', label: 'Archived' }
       ];
     }
-    
+
     // Fallback: only published
     return [{ id: 'published', label: 'Announcements' }];
   };
@@ -371,7 +371,7 @@ const Announcements = () => {
   // Handle schedule submit
   const handleScheduleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!scheduleData.scheduledFor) {
       setError('Please select a scheduled date/time');
       return;
@@ -511,7 +511,7 @@ const Announcements = () => {
         keywords="wildcat radio announcements, CITU news, campus radio news, CIT radio updates, university announcements, campus events"
       />
       <div className="min-h-screen bg-background text-foreground py-10">
-        <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+        <div className="w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="text-sm text-muted-foreground">
               Manage campus updates, drafts, schedules, and archived notices in one place.
@@ -527,7 +527,7 @@ const Announcements = () => {
             )}
           </div>
 
-          <div className="rounded-3xl border border-border bg-card/50 dark:bg-slate-900/50 p-6 space-y-6 shadow-lg dark:shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
+          <div className="w-full space-y-6">
             {tabs.length > 1 && (
               <div className="flex flex-wrap items-center gap-3">
                 {tabs.map((tab) => {
@@ -539,11 +539,10 @@ const Announcements = () => {
                         setActiveTab(tab.id);
                         setCurrentPage(0);
                       }}
-                      className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${
-                        active 
-                          ? 'bg-primary text-primary-foreground shadow-lg' 
-                          : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                      }`}
+                      className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${active
+                        ? 'bg-primary text-primary-foreground shadow-lg'
+                        : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                        }`}
                     >
                       {tab.label}
                     </button>
@@ -652,7 +651,7 @@ const Announcements = () => {
                 )}
               </div>
             ) : announcements.length === 0 ? (
-              <div className="rounded-3xl border border-border bg-card/40 dark:bg-slate-900/40 p-10 text-center shadow-inner">
+              <div className="rounded-3xl border border-border bg-card/40 dark:bg-slate-900/40 p-6 sm:p-10 text-center shadow-inner">
                 <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-muted dark:bg-slate-800 flex items-center justify-center">
                   <Megaphone className="h-8 w-8 text-muted-foreground" />
                 </div>
@@ -680,8 +679,8 @@ const Announcements = () => {
                   <div className="space-y-10">
                     {featuredAnnouncement && (
                       <article className="relative flex flex-col rounded-2xl border border-wildcats-yellow/30 bg-card dark:bg-slate-900/90 shadow-lg dark:shadow-[0_30px_80px_rgba(0,0,0,0.5)] overflow-hidden">
-                        <div className="px-6 pt-6 pb-4 border-b border-border dark:border-slate-800/50 bg-gradient-to-r from-background/80 to-card/60 dark:from-slate-950/80 dark:to-slate-900/60">
-                          <div className="flex items-center justify-between gap-4 mb-3">
+                        <div className="px-5 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-border dark:border-slate-800/50 bg-gradient-to-r from-background/80 to-card/60 dark:from-slate-950/80 dark:to-slate-900/60">
+                          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 sm:gap-4 mb-3">
                             <div className="flex flex-wrap items-center gap-2">
                               {featuredAnnouncement.pinned && (
                                 <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-wildcats-yellow/20 border border-wildcats-yellow/40 text-wildcats-maroon dark:text-wildcats-yellow text-[11px] font-bold uppercase tracking-widest">
@@ -702,7 +701,7 @@ const Announcements = () => {
                               <span>{format(new Date(featuredAnnouncement.createdAt), 'MMM d, yyyy')}</span>
                             </div>
                           </div>
-                          <h2 className="text-3xl font-bold text-foreground leading-tight mb-3">
+                          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-foreground leading-tight mb-3">
                             {featuredAnnouncement.title}
                           </h2>
                         </div>
@@ -718,7 +717,7 @@ const Announcements = () => {
                             />
                           </div>
                         )}
-                        <div className="px-6 py-8">
+                        <div className="px-5 sm:px-6 py-6 sm:py-8">
                           <div className="prose prose-invert dark:prose-invert max-w-none">
                             <p className="text-foreground/90 dark:text-slate-200 text-lg leading-relaxed whitespace-pre-line">
                               {getTruncatedContent(featuredAnnouncement.content, featuredAnnouncement.id, 900)}
@@ -804,8 +803,8 @@ const Announcements = () => {
                         className="relative flex flex-col rounded-2xl border border-border dark:border-slate-800/60 bg-card/80 dark:bg-slate-900/80 shadow-xl backdrop-blur-md transition-all hover:border-wildcats-yellow/30 overflow-hidden"
                       >
                         {/* Header with Category and Meta */}
-                        <div className="px-6 pt-6 pb-4 border-b border-border dark:border-slate-800/50 bg-background/20 dark:bg-slate-950/20">
-                          <div className="flex items-center justify-between gap-4 mb-3">
+                        <div className="px-5 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-border dark:border-slate-800/50 bg-background/20 dark:bg-slate-950/20">
+                          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 sm:gap-4 mb-3">
                             <span className="inline-flex items-center px-3 py-1 rounded-full bg-wildcats-maroon/20 border border-wildcats-maroon/30 text-wildcats-maroon dark:text-wildcats-yellow text-xs font-bold uppercase tracking-wider">
                               {announcement.category || 'News / Announcement'}
                             </span>
@@ -819,7 +818,7 @@ const Announcements = () => {
                             </div>
                           </div>
 
-                          <h2 className="text-3xl font-bold text-foreground leading-tight tracking-tight mb-3">
+                          <h2 className="text-2xl sm:text-3xl font-bold text-foreground leading-tight tracking-tight mb-3">
                             {announcement.title}
                           </h2>
 
@@ -859,8 +858,8 @@ const Announcements = () => {
                           </div>
                         )}
 
-                    {/* Content */}
-                        <div className="px-6 py-6">
+                        {/* Content */}
+                        <div className="px-5 sm:px-6 py-5 sm:py-6">
                           <div className="prose prose-invert dark:prose-invert max-w-none">
                             <p className="text-foreground/80 dark:text-slate-300 text-lg leading-relaxed whitespace-pre-line">
                               {(announcement.content || '').trim()}
@@ -870,25 +869,25 @@ const Announcements = () => {
 
                         {/* Footer / Actions */}
                         {(isDJ || isModerator) && (
-                          <div className="mt-auto px-6 py-4 bg-background/30 dark:bg-slate-950/30 border-t border-border dark:border-slate-800/50 flex flex-wrap items-center justify-between gap-4">
+                          <div className="mt-auto px-5 sm:px-6 py-4 bg-background/30 dark:bg-slate-950/30 border-t border-border dark:border-slate-800/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                             <div className="flex flex-col gap-1 text-xs">
-                               {isModerator && announcement.status === 'PUBLISHED' && announcement.approvedByName && (
-                                  <div className="flex items-center gap-1.5 text-emerald-400">
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>Approved by {announcement.approvedByName}</span>
-                                  </div>
-                               )}
-                               {announcement.status === 'REJECTED' && announcement.rejectionReason && (
-                                  <div className="text-red-300">
-                                    <span className="font-bold">Reason:</span> {announcement.rejectionReason}
-                                  </div>
-                               )}
-                               {announcement.expiresAt && announcement.status !== 'ARCHIVED' && (
-                                  <div className="text-amber-200/80 flex items-center gap-1.5">
-                                    <AlertCircle className="w-3.5 h-3.5" />
-                                    <span>Expires {format(new Date(announcement.expiresAt), 'PPp')}</span>
-                                  </div>
-                               )}
+                              {isModerator && announcement.status === 'PUBLISHED' && announcement.approvedByName && (
+                                <div className="flex items-center gap-1.5 text-emerald-400">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Approved by {announcement.approvedByName}</span>
+                                </div>
+                              )}
+                              {announcement.status === 'REJECTED' && announcement.rejectionReason && (
+                                <div className="text-red-300">
+                                  <span className="font-bold">Reason:</span> {announcement.rejectionReason}
+                                </div>
+                              )}
+                              {announcement.expiresAt && announcement.status !== 'ARCHIVED' && (
+                                <div className="text-amber-200/80 flex items-center gap-1.5">
+                                  <AlertCircle className="w-3.5 h-3.5" />
+                                  <span>Expires {format(new Date(announcement.expiresAt), 'PPp')}</span>
+                                </div>
+                              )}
                             </div>
 
                             <div className="flex flex-wrap gap-2 ml-auto">
@@ -911,7 +910,7 @@ const Announcements = () => {
                                   </button>
                                 </>
                               )}
-                              
+
                               {isDJ && announcement.createdById === currentUser?.id && announcement.status === 'REJECTED' && (
                                 <>
                                   <button
@@ -1013,247 +1012,247 @@ const Announcements = () => {
             )}
           </div>
 
-        {/* Schedule Modal (Moderators only) */}
-        {showScheduleModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
-              <div className="border-b dark:border-gray-700 px-6 py-4 flex items-center justify-between">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                  Schedule Announcement
-                </h2>
-                <button
-                  onClick={() => setShowScheduleModal(false)}
-                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                >
-                  <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-                </button>
-              </div>
-
-              <form onSubmit={handleScheduleSubmit} className="p-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Publish At *
-                  </label>
-                  <input
-                    type="datetime-local"
-                    required
-                    value={scheduleData.scheduledFor}
-                    onChange={(e) => setScheduleData({ ...scheduleData, scheduledFor: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-maroon-500 focus:border-transparent"
-                  />
+          {/* Schedule Modal (Moderators only) */}
+          {showScheduleModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+                <div className="border-b dark:border-gray-700 px-6 py-4 flex items-center justify-between">
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                    Schedule Announcement
+                  </h2>
+                  <button
+                    onClick={() => setShowScheduleModal(false)}
+                    className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Auto-Archive At (optional)
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={scheduleData.expiresAt}
-                    onChange={(e) => setScheduleData({ ...scheduleData, expiresAt: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-maroon-500 focus:border-transparent"
-                  />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Leave empty for permanent post
+                <form onSubmit={handleScheduleSubmit} className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Publish At *
+                    </label>
+                    <input
+                      type="datetime-local"
+                      required
+                      value={scheduleData.scheduledFor}
+                      onChange={(e) => setScheduleData({ ...scheduleData, scheduledFor: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-maroon-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Auto-Archive At (optional)
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={scheduleData.expiresAt}
+                      onChange={(e) => setScheduleData({ ...scheduleData, expiresAt: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-maroon-500 focus:border-transparent"
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Leave empty for permanent post
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <button
+                      type="submit"
+                      className="flex-1 px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white rounded-lg transition-colors font-medium"
+                    >
+                      Schedule
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowScheduleModal(false)}
+                      className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Delete Draft Confirmation Modal */}
+          {showDeleteDraftModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+                <div className="border-b dark:border-gray-700 px-6 py-4">
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Delete Draft</h2>
+                </div>
+                <div className="px-6 py-5 space-y-3">
+                  <p className="text-gray-800 dark:text-gray-200">
+                    Are you sure you want to delete this draft post?
+                  </p>
+                  {deletingDraft?.title && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      "{deletingDraft.title}"
+                    </p>
+                  )}
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    This action cannot be undone.
                   </p>
                 </div>
-
-                <div className="flex gap-3 pt-4">
-                  <button
-                    type="submit"
-                    className="flex-1 px-4 py-2 bg-maroon-600 hover:bg-maroon-700 text-white rounded-lg transition-colors font-medium"
-                  >
-                    Schedule
-                  </button>
+                <div className="px-6 py-4 flex gap-3 justify-end border-t dark:border-gray-700">
                   <button
                     type="button"
-                    onClick={() => setShowScheduleModal(false)}
+                    onClick={() => { setShowDeleteDraftModal(false); setDeletingDraft(null); }}
                     className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-colors"
                   >
                     Cancel
                   </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Delete Draft Confirmation Modal */}
-        {showDeleteDraftModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
-              <div className="border-b dark:border-gray-700 px-6 py-4">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Delete Draft</h2>
-              </div>
-              <div className="px-6 py-5 space-y-3">
-                <p className="text-gray-800 dark:text-gray-200">
-                  Are you sure you want to delete this draft post?
-                </p>
-                {deletingDraft?.title && (
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    "{deletingDraft.title}"
-                  </p>
-                )}
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  This action cannot be undone.
-                </p>
-              </div>
-              <div className="px-6 py-4 flex gap-3 justify-end border-t dark:border-gray-700">
-                <button
-                  type="button"
-                  onClick={() => { setShowDeleteDraftModal(false); setDeletingDraft(null); }}
-                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmDeleteDraft}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
-                >
-                  Delete Draft
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Publish Confirmation Modal */}
-        {showPublishModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
-              <div className="border-b dark:border-gray-700 px-6 py-4">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Publish Announcement</h2>
-              </div>
-              <div className="px-6 py-5 space-y-3">
-                <p className="text-gray-800 dark:text-gray-200">
-                  Are you sure you want to publish this announcement?
-                </p>
-                {publishingAnnouncement?.title && (
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    "{publishingAnnouncement.title}"
-                  </p>
-                )}
-                <p className="text-sm text-green-700 dark:text-green-400">
-                  ✓ This will make it visible to everyone immediately.
-                </p>
-              </div>
-              <div className="px-6 py-4 flex gap-3 justify-end border-t dark:border-gray-700">
-                <button
-                  type="button"
-                  onClick={() => { if (!publishLoading) { setShowPublishModal(false); setPublishingAnnouncement(null); } }}
-                  disabled={publishLoading}
-                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmPublish}
-                  disabled={publishLoading}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:opacity-70 disabled:cursor-wait"
-                >
-                  {publishLoading ? 'Publishing…' : 'Publish Now'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Reject Confirmation Modal */}
-        {showRejectModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full">
-              <div className="border-b dark:border-gray-700 px-6 py-4">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Reject Announcement</h2>
-              </div>
-              <div className="px-6 py-5 space-y-4">
-                <p className="text-gray-800 dark:text-gray-200">
-                  Please provide feedback for the DJ on why this announcement is being rejected.
-                </p>
-                {rejectingAnnouncement?.title && (
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    "{rejectingAnnouncement.title}"
-                  </p>
-                )}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Rejection Reason *
-                  </label>
-                  <textarea
-                    value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                    rows={4}
-                    maxLength={500}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
-                    placeholder="e.g., Content needs more details, image is inappropriate, etc."
-                    required
-                  />
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    {rejectionReason.length} / 500 characters
-                  </p>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteDraft}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                  >
+                    Delete Draft
+                  </button>
                 </div>
               </div>
-              <div className="px-6 py-4 flex gap-3 justify-end border-t dark:border-gray-700">
-                <button
-                  type="button"
-                  onClick={() => { setShowRejectModal(false); setRejectingAnnouncement(null); setRejectionReason(''); }}
-                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmReject}
-                  disabled={!rejectionReason.trim()}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg transition-colors"
-                >
-                  Reject with Feedback
-                </button>
-              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Delete Archived Confirmation Modal */}
-        {showDeleteArchivedModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
-              <div className="border-b dark:border-gray-700 px-6 py-4">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Delete Archived Announcement</h2>
-              </div>
-              <div className="px-6 py-5 space-y-3">
-                <p className="text-gray-800 dark:text-gray-200">
-                  Are you sure you want to permanently delete this archived announcement?
-                </p>
-                {deletingArchived?.title && (
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    "{deletingArchived.title}"
+          {/* Publish Confirmation Modal */}
+          {showPublishModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+                <div className="border-b dark:border-gray-700 px-6 py-4">
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Publish Announcement</h2>
+                </div>
+                <div className="px-6 py-5 space-y-3">
+                  <p className="text-gray-800 dark:text-gray-200">
+                    Are you sure you want to publish this announcement?
                   </p>
-                )}
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  This action cannot be undone.
-                </p>
-              </div>
-              <div className="px-6 py-4 flex gap-3 justify-end border-t dark:border-gray-700">
-                <button
-                  type="button"
-                  onClick={() => { setShowDeleteArchivedModal(false); setDeletingArchived(null); }}
-                  className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmDeleteArchived}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
-                >
-                  Delete Permanently
-                </button>
+                  {publishingAnnouncement?.title && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      "{publishingAnnouncement.title}"
+                    </p>
+                  )}
+                  <p className="text-sm text-green-700 dark:text-green-400">
+                    ✓ This will make it visible to everyone immediately.
+                  </p>
+                </div>
+                <div className="px-6 py-4 flex gap-3 justify-end border-t dark:border-gray-700">
+                  <button
+                    type="button"
+                    onClick={() => { if (!publishLoading) { setShowPublishModal(false); setPublishingAnnouncement(null); } }}
+                    disabled={publishLoading}
+                    className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmPublish}
+                    disabled={publishLoading}
+                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:opacity-70 disabled:cursor-wait"
+                  >
+                    {publishLoading ? 'Publishing…' : 'Publish Now'}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+
+          {/* Reject Confirmation Modal */}
+          {showRejectModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full">
+                <div className="border-b dark:border-gray-700 px-6 py-4">
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Reject Announcement</h2>
+                </div>
+                <div className="px-6 py-5 space-y-4">
+                  <p className="text-gray-800 dark:text-gray-200">
+                    Please provide feedback for the DJ on why this announcement is being rejected.
+                  </p>
+                  {rejectingAnnouncement?.title && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      "{rejectingAnnouncement.title}"
+                    </p>
+                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Rejection Reason *
+                    </label>
+                    <textarea
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      rows={4}
+                      maxLength={500}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
+                      placeholder="e.g., Content needs more details, image is inappropriate, etc."
+                      required
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {rejectionReason.length} / 500 characters
+                    </p>
+                  </div>
+                </div>
+                <div className="px-6 py-4 flex gap-3 justify-end border-t dark:border-gray-700">
+                  <button
+                    type="button"
+                    onClick={() => { setShowRejectModal(false); setRejectingAnnouncement(null); setRejectionReason(''); }}
+                    className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmReject}
+                    disabled={!rejectionReason.trim()}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg transition-colors"
+                  >
+                    Reject with Feedback
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Delete Archived Confirmation Modal */}
+          {showDeleteArchivedModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+                <div className="border-b dark:border-gray-700 px-6 py-4">
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">Delete Archived Announcement</h2>
+                </div>
+                <div className="px-6 py-5 space-y-3">
+                  <p className="text-gray-800 dark:text-gray-200">
+                    Are you sure you want to permanently delete this archived announcement?
+                  </p>
+                  {deletingArchived?.title && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      "{deletingArchived.title}"
+                    </p>
+                  )}
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    This action cannot be undone.
+                  </p>
+                </div>
+                <div className="px-6 py-4 flex gap-3 justify-end border-t dark:border-gray-700">
+                  <button
+                    type="button"
+                    onClick={() => { setShowDeleteArchivedModal(false); setDeletingArchived(null); }}
+                    className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteArchived}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                  >
+                    Delete Permanently
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </>
