@@ -24,6 +24,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 
 import com.wildcastradio.ActivityLog.ActivityLogEntity;
 import com.wildcastradio.ActivityLog.ActivityLogService;
@@ -156,6 +158,7 @@ public class BroadcastService {
 
 
     // Unified method that handles both scheduled and immediate broadcasts
+    @CacheEvict(value = "upcomingBroadcasts", allEntries = true)
     public BroadcastDTO createBroadcast(CreateBroadcastRequest request, UserEntity user) {
         logger.info("Creating broadcast: {} for user: {}", request.getTitle(), user.getEmail());
 
@@ -215,6 +218,7 @@ public class BroadcastService {
         return BroadcastDTO.fromEntity(savedBroadcast);
     }
 
+    @CacheEvict(value = "upcomingBroadcasts", allEntries = true)
     public BroadcastDTO updateBroadcast(Long id, CreateBroadcastRequest request) {
         logger.info("Updating broadcast: {}", id);
 
@@ -308,20 +312,25 @@ public class BroadcastService {
         });
     }
 
+    @Transactional
+    @CacheEvict(value = "upcomingBroadcasts", allEntries = true)
     public BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj) {
         return startBroadcast(broadcastId, dj, false, null);
     }
 
+    @Transactional
+    @CacheEvict(value = "upcomingBroadcasts", allEntries = true)
     public BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj, String idempotencyKey) {
         return startBroadcast(broadcastId, dj, false, idempotencyKey);
     }
 
+    @Transactional
     public BroadcastEntity startBroadcastTestMode(Long broadcastId, UserEntity dj) {
         return startBroadcast(broadcastId, dj, true, null);
     }
 
     @Transactional
-    private BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj, boolean testMode, String idempotencyKey) {
+    protected BroadcastEntity startBroadcast(Long broadcastId, UserEntity dj, boolean testMode, String idempotencyKey) {
         // Check circuit breaker
         if (circuitBreaker != null && !circuitBreaker.allowRequest()) {
             logger.warn("Circuit breaker is OPEN - blocking broadcast start request");
@@ -492,6 +501,8 @@ public class BroadcastService {
         }
     }
 
+    @Transactional
+    @CacheEvict(value = "upcomingBroadcasts", allEntries = true)
     public BroadcastEntity endBroadcast(Long broadcastId, UserEntity dj) {
         return endBroadcast(broadcastId, dj, null);
     }
@@ -635,6 +646,7 @@ public class BroadcastService {
      * This is used for API calls that don't have user authentication (e.g., auto-end on health check failure)
      */
     @Transactional
+    @CacheEvict(value = "upcomingBroadcasts", allEntries = true)
     public BroadcastEntity endBroadcast(Long broadcastId) {
         // Check circuit breaker
         if (circuitBreaker != null && !circuitBreaker.allowRequest()) {
@@ -779,6 +791,7 @@ public class BroadcastService {
         return liveBroadcasts.isEmpty() ? Optional.empty() : Optional.of(liveBroadcasts.get(0));
     }
 
+    @Cacheable(value = "upcomingBroadcasts")
     public List<BroadcastEntity> getUpcomingBroadcasts() {
         return broadcastRepository.findByStatusAndScheduledStartAfter(
             BroadcastEntity.BroadcastStatus.SCHEDULED, 
@@ -793,6 +806,7 @@ public class BroadcastService {
      * 
      * @return List of UpcomingBroadcastDTO sorted by scheduled start time
      */
+    @Cacheable(value = "upcomingBroadcasts")
     public List<com.wildcastradio.Broadcast.DTO.UpcomingBroadcastDTO> getUpcomingBroadcastsDTO() {
         // Limit to a reasonable number to keep payload small
         Pageable pageable = PageRequest.of(0, 100);

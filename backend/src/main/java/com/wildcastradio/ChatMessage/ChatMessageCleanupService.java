@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.stereotype.Service;
 
 /**
@@ -23,6 +24,7 @@ public class ChatMessageCleanupService {
      * Runs daily at 2:00 AM to delete messages older than 7 days
      */
     @Scheduled(cron = "0 0 2 * * ?")
+    @SchedulerLock(name = "cleanupOldMessages", lockAtMostFor = "1h", lockAtLeastFor = "5m")
     public void cleanupOldMessages() {
         logger.info("Starting scheduled cleanup of old chat messages");
         
