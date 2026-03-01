@@ -6,6 +6,7 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.stereotype.Controller;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,7 +21,10 @@ import com.wildcastradio.Analytics.ListenerTrackingService;
 
 import java.util.Map;
 import java.util.HashMap;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import org.springframework.data.redis.core.RedisTemplate;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * STOMP WebSocket controller for listener status updates
@@ -47,8 +51,14 @@ public class ListenerStatusWebSocketController {
     @Autowired
     private UserService userService;
 
-    // Track active listener sessions (sessionId -> session info)
-    private final Map<String, ListenerSession> activeSessions = new ConcurrentHashMap<>();
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    private static final String REDIS_SESSION_PREFIX = "wildcats:session:";
+    private static final long SESSION_TTL_SECONDS = 60;
 
     /**
      * Handle listener status messages via STOMP
@@ -104,8 +114,9 @@ public class ListenerStatusWebSocketController {
             }
         }
 
-        // Track session
-        activeSessions.put(sessionId, new ListenerSession(username, message.getBroadcastId(), true));
+        // Track session in Redis
+        ListenerSession sessionObj = new ListenerSession(username, message.getBroadcastId(), true);
+        redisTemplate.opsForValue().set(REDIS_SESSION_PREFIX + sessionId, sessionObj, SESSION_TTL_SECONDS, TimeUnit.SECONDS);
         
         logger.info("Listener started: session {} (user: {}, broadcast: {})", 
                    sessionId, username != null ? username : "anonymous", broadcastId);
@@ -115,7 +126,13 @@ public class ListenerStatusWebSocketController {
     }
 
     private void handleListenerStop(String sessionId, String username) {
-        ListenerSession session = activeSessions.remove(sessionId);
+        String key = REDIS_SESSION_PREFIX + sessionId;
+        Object obj = redisTemplate.opsForValue().get(key);
+        ListenerSession session = null;
+        if (obj != null) {
+            session = objectMapper.convertValue(obj, ListenerSession.class);
+        }
+        
         if (session != null && session.getBroadcastId() != null) {
             try {
                 UserEntity user = null;
@@ -129,21 +146,29 @@ public class ListenerStatusWebSocketController {
             }
         }
         
+        redisTemplate.delete(key);
+        
         logger.info("Listener stopped: session {} (user: {})", 
                    sessionId, username != null ? username : "anonymous");
     }
 
     private void handlePlayerStatus(String sessionId, String username, ListenerStatusMessage message) {
-        ListenerSession session = activeSessions.get(sessionId);
-        if (session != null) {
+        String key = REDIS_SESSION_PREFIX + sessionId;
+        Object obj = redisTemplate.opsForValue().get(key);
+        if (obj != null) {
+            ListenerSession session = objectMapper.convertValue(obj, ListenerSession.class);
             session.setPlaying(message.isPlaying() != null ? message.isPlaying() : false);
+            redisTemplate.opsForValue().set(key, session, SESSION_TTL_SECONDS, TimeUnit.SECONDS);
             logger.debug("Player status updated for session {}: playing={}", sessionId, session.isPlaying());
         }
     }
 
     private void handleHeartbeat(String sessionId, String username) {
-        // Just confirm the listener is still active
-        if (activeSessions.containsKey(sessionId)) {
+        String key = REDIS_SESSION_PREFIX + sessionId;
+        Boolean exists = redisTemplate.hasKey(key);
+        if (Boolean.TRUE.equals(exists)) {
+            // Refresh TTL
+            redisTemplate.expire(key, SESSION_TTL_SECONDS, TimeUnit.SECONDS);
             logger.debug("Heartbeat from active listener: session {} (user: {})", 
                         sessionId, username != null ? username : "anonymous");
         }
@@ -166,8 +191,12 @@ public class ListenerStatusWebSocketController {
      * Runs every 5 seconds (matches previous ListenerStatusHandler behavior)
      */
     @Scheduled(fixedRate = 5000)
+    @SchedulerLock(name = "broadcastListenerStatus", lockAtMostFor = "4s", lockAtLeastFor = "1s")
     public void broadcastStatus() {
-        if (activeSessions.isEmpty()) {
+        Set<String> keys = redisTemplate.keys(REDIS_SESSION_PREFIX + "*");
+        boolean hasListeners = keys != null && !keys.isEmpty();
+        
+        if (!hasListeners) {
             // Skip if no listeners connected and no active broadcasts
             if (!icecastService.isAnyBroadcastActive()) {
                 return;
@@ -258,26 +287,40 @@ public class ListenerStatusWebSocketController {
      * Get number of connected listeners
      */
     public int getConnectedListenersCount() {
-        return activeSessions.size();
+        Set<String> keys = redisTemplate.keys(REDIS_SESSION_PREFIX + "*");
+        return keys != null ? keys.size() : 0;
     }
 
     /**
      * Get number of active listeners (those who are actually playing the stream)
      */
     public int getActiveListenersCount() {
-        return (int) activeSessions.values().stream()
-                .filter(ListenerSession::isPlaying)
-                .count();
+        Set<String> keys = redisTemplate.keys(REDIS_SESSION_PREFIX + "*");
+        if (keys == null || keys.isEmpty()) return 0;
+        
+        int count = 0;
+        for (String key : keys) {
+            Object obj = redisTemplate.opsForValue().get(key);
+            if (obj != null) {
+                ListenerSession session = objectMapper.convertValue(obj, ListenerSession.class);
+                if (session.isPlaying()) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     /**
      * Inner class to track listener sessions
      */
-    private static class ListenerSession {
-        private final String username;
-        private final Long broadcastId;
+    public static class ListenerSession {
+        private String username;
+        private Long broadcastId;
         private boolean playing;
 
+        public ListenerSession() {} // Default for Jackson
+        
         public ListenerSession(String username, Long broadcastId, boolean playing) {
             this.username = username;
             this.broadcastId = broadcastId;
@@ -285,7 +328,9 @@ public class ListenerStatusWebSocketController {
         }
 
         public String getUsername() { return username; }
+        public void setUsername(String username) { this.username = username; }
         public Long getBroadcastId() { return broadcastId; }
+        public void setBroadcastId(Long broadcastId) { this.broadcastId = broadcastId; }
         public boolean isPlaying() { return playing; }
         public void setPlaying(boolean playing) { this.playing = playing; }
     }

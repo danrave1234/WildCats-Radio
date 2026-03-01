@@ -40,8 +40,13 @@ public class JwtUtil {
     public String extractUsername(String token) {
         try {
             return extractClaim(token, Claims::getSubject);
+        } catch (ExpiredJwtException e) {
+            // Expired tokens are expected during OAuth login transitions
+            // Don't log as error to reduce noise
+            logger.debug("Cannot extract username from expired token: {}", e.getMessage());
+            return null;
         } catch (Exception e) {
-            logger.error("Error extracting username from token: {}", e.getMessage());
+            logger.debug("Error extracting username from token: {}", e.getMessage());
             return null;
         }
     }
@@ -59,8 +64,13 @@ public class JwtUtil {
         try {
             final Claims claims = extractAllClaims(token);
             return claimsResolver.apply(claims);
+        } catch (ExpiredJwtException e) {
+            // Expired tokens are expected during OAuth login transitions
+            // Don't log as error to reduce noise
+            logger.debug("Cannot extract claim from expired token: {}", e.getMessage());
+            return null;
         } catch (Exception e) {
-            logger.error("Error extracting claim from token: {}", e.getMessage());
+            logger.debug("Error extracting claim from token: {}", e.getMessage());
             return null;
         }
     }
@@ -73,22 +83,24 @@ public class JwtUtil {
                     .parseClaimsJws(token)
                     .getBody();
         } catch (ExpiredJwtException e) {
-            logger.error("JWT token is expired: {}", e.getMessage());
+            // Expired tokens are expected during OAuth login transitions
+            // Log at debug level instead of error to reduce noise
+            logger.debug("JWT token is expired: {}", e.getMessage());
             throw e;
         } catch (UnsupportedJwtException e) {
-            logger.error("JWT token is unsupported: {}", e.getMessage());
+            logger.warn("JWT token is unsupported: {}", e.getMessage());
             throw e;
         } catch (MalformedJwtException e) {
-            logger.error("JWT token is malformed: {}", e.getMessage());
+            logger.warn("JWT token is malformed: {}", e.getMessage());
             throw e;
         } catch (SignatureException e) {
-            logger.error("JWT signature validation failed: {}", e.getMessage());
+            logger.warn("JWT signature validation failed: {}", e.getMessage());
             throw e;
         } catch (JwtException e) {
-            logger.error("JWT token error: {}", e.getMessage());
+            logger.warn("JWT token error: {}", e.getMessage());
             throw e;
         } catch (Exception e) {
-            logger.error("Error in JWT token processing: {}", e.getMessage());
+            logger.warn("Error in JWT token processing: {}", e.getMessage());
             throw new JwtException("Error processing JWT token", e);
         }
     }

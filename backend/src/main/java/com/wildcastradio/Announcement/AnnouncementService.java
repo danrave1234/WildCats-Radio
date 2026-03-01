@@ -7,6 +7,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 
 import com.wildcastradio.Announcement.DTO.AnnouncementDTO;
 import com.wildcastradio.Announcement.DTO.CreateAnnouncementRequest;
@@ -39,6 +41,7 @@ public class AnnouncementService {
      * Get published announcements for public view (pinned first, then by date)
      */
     @Transactional(readOnly = true)
+    @Cacheable(value = "announcements", key = "'published_page_' + #page + '_size_' + #size")
     public Page<AnnouncementDTO> getPublishedAnnouncements(int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
         Page<AnnouncementEntity> announcements = announcementRepository.findPublishedAnnouncements(pageable);
@@ -71,6 +74,7 @@ public class AnnouncementService {
      * Get a single announcement by ID
      */
     @Transactional(readOnly = true)
+    @Cacheable(value = "announcement", key = "#id")
     public AnnouncementDTO getAnnouncementById(Long id) {
         AnnouncementEntity announcement = announcementRepository.findById(id)
             .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
@@ -107,6 +111,7 @@ public class AnnouncementService {
      * - Moderators/Admins: Can edit any announcement at any status
      */
     @Transactional
+    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
     public AnnouncementDTO updateAnnouncement(Long id, CreateAnnouncementRequest request, UserEntity updater) {
         AnnouncementEntity announcement = announcementRepository.findById(id)
             .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
@@ -158,6 +163,7 @@ public class AnnouncementService {
      * Publish a draft announcement (Moderators/Admins only)
      */
     @Transactional
+    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
     public AnnouncementDTO publishAnnouncement(Long id, UserEntity publisher) {
         if (publisher.getRole() != UserRole.MODERATOR && publisher.getRole() != UserRole.ADMIN) {
             throw new RuntimeException("Only moderators and admins can publish announcements");
@@ -188,6 +194,7 @@ public class AnnouncementService {
      * Schedule an announcement for future publication (Moderators/Admins only)
      */
     @Transactional
+    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
     public AnnouncementDTO scheduleAnnouncement(Long id, ScheduleAnnouncementRequest request, UserEntity scheduler) {
         if (scheduler.getRole() != UserRole.MODERATOR && scheduler.getRole() != UserRole.ADMIN) {
             throw new RuntimeException("Only moderators and admins can schedule announcements");
@@ -218,6 +225,7 @@ public class AnnouncementService {
      * Pin an announcement (Moderators/Admins only, max 2 pinned)
      */
     @Transactional
+    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
     public AnnouncementDTO pinAnnouncement(Long id, UserEntity pinner) {
         if (pinner.getRole() != UserRole.MODERATOR && pinner.getRole() != UserRole.ADMIN) {
             throw new RuntimeException("Only moderators and admins can pin announcements");
@@ -252,6 +260,7 @@ public class AnnouncementService {
      * Unpin an announcement (Moderators/Admins only)
      */
     @Transactional
+    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
     public AnnouncementDTO unpinAnnouncement(Long id, UserEntity unpinner) {
         if (unpinner.getRole() != UserRole.MODERATOR && unpinner.getRole() != UserRole.ADMIN) {
             throw new RuntimeException("Only moderators and admins can unpin announcements");
@@ -276,6 +285,7 @@ public class AnnouncementService {
      * Archive an announcement (Moderators/Admins only)
      */
     @Transactional
+    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
     public AnnouncementDTO archiveAnnouncement(Long id, UserEntity archiver) {
         if (archiver.getRole() != UserRole.MODERATOR && archiver.getRole() != UserRole.ADMIN) {
             throw new RuntimeException("Only moderators and admins can archive announcements");
@@ -307,6 +317,7 @@ public class AnnouncementService {
      * Unarchive an announcement (Moderators/Admins only)
      */
     @Transactional
+    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
     public AnnouncementDTO unarchiveAnnouncement(Long id, UserEntity unarchiver) {
         if (unarchiver.getRole() != UserRole.MODERATOR && unarchiver.getRole() != UserRole.ADMIN) {
             throw new RuntimeException("Only moderators and admins can unarchive announcements");
@@ -391,6 +402,7 @@ public class AnnouncementService {
      * - Moderators/Admins: Can delete any announcement at any status
      */
     @Transactional
+    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
     public void deleteAnnouncement(Long id, UserEntity deleter) {
         AnnouncementEntity announcement = announcementRepository.findById(id)
             .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));

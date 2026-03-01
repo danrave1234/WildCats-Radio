@@ -69,8 +69,13 @@ public class JwtRequestFilter extends OncePerRequestFilter {
         if (jwt != null) {
             try {
                 username = jwtUtil.extractUsername(jwt);
+            } catch (io.jsonwebtoken.ExpiredJwtException e) {
+                // Expired tokens are expected during OAuth login transitions
+                // Silently ignore - don't log as error to reduce noise
+                logger.debug("Expired JWT token detected (expected during auth transitions): {}", e.getMessage());
             } catch (Exception e) {
-                logger.error("Invalid JWT token: {}", e.getMessage());
+                // Only log non-expired token errors
+                logger.debug("Invalid JWT token: {}", e.getMessage());
             }
         }
 

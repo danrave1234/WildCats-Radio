@@ -6,6 +6,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,6 +40,7 @@ public class AnnouncementScheduler {
      * Auto-publish scheduled announcements every minute
      */
     @Scheduled(cron = "0 * * * * *") // Every minute at :00 seconds
+    @SchedulerLock(name = "publishScheduledAnnouncements", lockAtMostFor = "50s", lockAtLeastFor = "10s")
     @Transactional
     public void publishScheduledAnnouncements() {
         try {
@@ -80,6 +82,7 @@ public class AnnouncementScheduler {
      * Auto-archive expired announcements every 5 minutes
      */
     @Scheduled(cron = "0 */5 * * * *") // Every 5 minutes
+    @SchedulerLock(name = "archiveExpiredAnnouncements", lockAtMostFor = "4m", lockAtLeastFor = "1m")
     @Transactional
     public void archiveExpiredAnnouncements() {
         try {

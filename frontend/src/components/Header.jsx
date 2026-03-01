@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { 
-  Bell, 
-  Menu, 
-  Calendar, 
-  User, 
-  ChevronDown, 
+import {
+  Bell,
+  Menu,
+  Calendar,
+  User,
+  ChevronDown,
   LogOut,
   Settings,
   UserRound,
@@ -244,7 +244,7 @@ const Header = ({ onMobileMenuToggle }) => {
   };
 
   return (
-    <motion.nav 
+    <motion.nav
       initial={{ y: -20, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
@@ -254,35 +254,35 @@ const Header = ({ onMobileMenuToggle }) => {
       <div className="absolute inset-0 pointer-events-none"></div>
 
 
-              {/* Temporarily disabled "Reconnecting to stream..." banner
+      {/* Temporarily disabled "Reconnecting to stream..." banner
                   TODO: Investigate why this shows even when Liquidsoap/Icecast are running properly
                   The banner appears when recovering=true && healthBroadcastLive=true && healthy=false
                   but the health monitoring may be too sensitive or have timing issues
                   Re-enable once the health check logic is refined for BUTT workflow
               */}
-              {false && showRecovering && healthBroadcastLive && !healthy && (
-                <div className="w-full bg-yellow-50 border-b border-yellow-200 text-yellow-800 text-sm py-2 px-4 flex items-center justify-center">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span>
-                    <span>Reconnecting to stream…</span>
-                  </div>
-                </div>
-              )}
-              <div className="relative w-full z-10">
-          <div className="flex items-center justify-between h-16">
+      {false && showRecovering && healthBroadcastLive && !healthy && (
+        <div className="w-full bg-yellow-50 border-b border-yellow-200 text-yellow-800 text-sm py-2 px-4 flex items-center justify-center">
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span>
+            <span>Reconnecting to stream…</span>
+          </div>
+        </div>
+      )}
+      <div className="relative w-full z-10">
+        <div className="flex items-center justify-between h-16">
           {/* Left Section - Mobile Menu Button + Desktop Time Display */}
           <div className="flex items-center space-x-4 px-2 sm:px-4 lg:px-6 py-3 h-full">
             {/* Mobile Sidebar Menu Button */}
             <Button
               variant="ghost"
               size="sm"
-              className="sm:hidden p-2 rounded-xl hover:bg-muted text-foreground transition-all duration-300 hover:scale-105 active:scale-95"
+              className="md:hidden p-2 rounded-xl hover:bg-muted text-foreground transition-all duration-300 hover:scale-105 active:scale-95"
               onClick={onMobileMenuToggle}
             >
               <Menu className="h-5 w-5" />
             </Button>
 
-                        {/* Desktop Time Display */}
+            {/* Desktop Time Display */}
             <motion.div
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -291,14 +291,14 @@ const Header = ({ onMobileMenuToggle }) => {
             >
               {/* Live Indicator */}
               <div className="flex items-center space-x-3">
-                <motion.div 
+                <motion.div
                   className="relative w-3 h-3"
                   animate={isLive ? { scale: [1, 1.1, 1] } : {}}
                   transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                 >
                   <div className={`absolute inset-0 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-slate-400'}`}></div>
                   {isLive && (
-                    <motion.div 
+                    <motion.div
                       className="absolute inset-0 bg-emerald-400 rounded-full"
                       animate={{ opacity: [0.5, 1, 0.5] }}
                       transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
@@ -318,7 +318,7 @@ const Header = ({ onMobileMenuToggle }) => {
                 <span className="text-base font-medium text-muted-foreground leading-tight">
                   {currentDate}
                 </span>
-                <motion.span 
+                <motion.span
                   className="text-2xl font-bold text-foreground tabular-nums leading-tight"
                   key={currentTime}
                   initial={{ opacity: 0.8 }}
@@ -341,7 +341,7 @@ const Header = ({ onMobileMenuToggle }) => {
             {/* Ultra Premium Maroon Background Container */}
             <div className="bg-transparent px-4 py-3 flex items-center justify-end space-x-4 h-16 relative overflow-hidden">
               {/* Animated accent line - desktop only */}
-              <motion.div 
+              <motion.div
                 className="absolute left-0 top-0 bottom-0 w-1 bg-gold-500 sm:block hidden"
                 initial={{ scaleY: 0, opacity: 0 }}
                 animate={{ scaleY: 1, opacity: 1 }}
@@ -371,51 +371,8 @@ const Header = ({ onMobileMenuToggle }) => {
                 </Button>
               </motion.div>
 
-              {/* Mobile Download with QR Code */}
-              <motion.div 
-                className="relative z-20"
-                whileHover={{ scale: 1.05 }}
-                transition={{ type: "spring", stiffness: 400, damping: 17 }}
-              >
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      className={cn(
-                        "transition-colors duration-200",
-                        "flex items-center p-2 rounded-md",
-                        "bg-transparent text-foreground",
-                        "hover:bg-muted"
-                      )}
-                      aria-label="Download mobile app"
-                    >
-                      <Smartphone className="h-4 w-4" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-6" align="end" sideOffset={8}>
-                    <div className="flex flex-col items-center space-y-4">
-                      <div className="text-center">
-                        <h3 className="text-lg font-semibold text-foreground mb-1">Download Mobile App</h3>
-                        <p className="text-sm text-muted-foreground">Scan QR code to download</p>
-                      </div>
-                      <div className="bg-white p-4 rounded-lg border-2 border-border">
-                        <QRCode
-                          value={typeof window !== 'undefined' ? window.location.origin : 'https://wildcatsradio.com'}
-                          size={200}
-                          style={{ height: "auto", maxWidth: "100%", width: "100%" }}
-                          viewBox={`0 0 200 200`}
-                        />
-                      </div>
-                      <p className="text-xs text-muted-foreground text-center max-w-[200px]">
-                        Scan with your mobile device to open WildCats Radio
-                      </p>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </motion.div>
-
               {/* Notifications with enhanced styling */}
-              <motion.div 
+              <motion.div
                 className="relative z-20"
                 whileHover={{ scale: 1.05 }}
                 transition={{ type: "spring", stiffness: 400, damping: 17 }}
@@ -425,7 +382,7 @@ const Header = ({ onMobileMenuToggle }) => {
 
               {/* User Dropdown - only show if authenticated and not loading */}
               {!authLoading && isAuthenticated && currentUser && (
-                <motion.div 
+                <motion.div
                   className="relative z-20"
                   whileHover={{ scale: 1.02 }}
                   transition={{ type: "spring", stiffness: 400, damping: 17 }}
@@ -523,7 +480,7 @@ const Header = ({ onMobileMenuToggle }) => {
                           </div>
                         </DropdownMenuItem>
 
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           className="flex items-center space-x-3 px-3 py-3 cursor-pointer transition-all duration-200 !rounded-none group
                                      hover:bg-muted focus:bg-muted"
                           onClick={() => {
@@ -565,7 +522,7 @@ const Header = ({ onMobileMenuToggle }) => {
 
               {/* Login/Sign Up Buttons - only show if not authenticated and not loading */}
               {!authLoading && !isAuthenticated && (
-                <motion.div 
+                <motion.div
                   className="relative z-20 flex items-center space-x-3"
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -658,7 +615,7 @@ const Header = ({ onMobileMenuToggle }) => {
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleLogoutCancel} className="rounded-none">Cancel</AlertDialogCancel>
             {!authError || !authError.includes('Cannot logout') ? (
-              <AlertDialogAction 
+              <AlertDialogAction
                 onClick={handleLogoutConfirm}
                 className="bg-maroon-700 hover:bg-maroon-800 text-white rounded-lg"
                 disabled={authLoading}

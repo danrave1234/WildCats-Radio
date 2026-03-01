@@ -70,10 +70,10 @@ export default function DJHandoverModal({
         authApi.getUsersByRole('DJ'),
         authApi.getUsersByRole('MODERATOR')
       ]);
-      
+
       const djsList = djsResponse.data || [];
       const moderatorsList = moderatorsResponse.data || [];
-      
+
       // Combine and deduplicate by ID (in case a user has multiple roles or API oddities)
       const allUsers = [...djsList, ...moderatorsList];
       const uniqueUsers = Array.from(new Map(allUsers.map(item => [item.id, item])).values());
@@ -99,13 +99,13 @@ export default function DJHandoverModal({
   });
 
   // Calculate dropdown size - show as list when searching
-  const dropdownSize = searchQuery && filteredDJs.length > 0 
+  const dropdownSize = searchQuery && filteredDJs.length > 0
     ? Math.min(filteredDJs.length + 1, 8) // Show up to 8 items when searching
     : 1; // Normal dropdown when not searching
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!selectedDJId) {
       setError('Please select a DJ');
       return;
@@ -173,12 +173,12 @@ export default function DJHandoverModal({
             });
             break; // Found updated state, exit loop
           }
-          
+
           console.warn(`DJHandoverModal: Broadcast state not yet updated. Retrying... (Attempt ${i + 1}/${maxRetries})`, {
             expectedDJId: parseInt(selectedDJId),
             currentDJId: fetchedBroadcast?.currentActiveDJ?.id
           });
-          
+
           // Only wait if not the last attempt
           if (i < maxRetries - 1) {
             await new Promise(resolve => setTimeout(resolve, retryDelayMs));
@@ -196,7 +196,7 @@ export default function DJHandoverModal({
       // we should still proceed but warn the user
       if (!updatedBroadcast) {
         console.warn('DJHandoverModal: Could not verify broadcast state update, but handover API succeeded. Using last fetched broadcast or proceeding anyway.');
-        
+
         // Use the last fetched broadcast if available, or create a synthetic update
         if (lastFetchedBroadcast) {
           updatedBroadcast = lastFetchedBroadcast;
@@ -225,25 +225,25 @@ export default function DJHandoverModal({
           newDJ: updatedBroadcast.currentActiveDJ
         });
         updateCurrentBroadcast(updatedBroadcast);
-        
+
         // Also update active session ID if provided
         if (responseData?.activeSessionId) {
           updateActiveSessionId(responseData.activeSessionId);
         }
       }
-      
+
       // Show success message before closing
-      const newDJName = responseData?.user?.name || 
+      const newDJName = responseData?.user?.name ||
         (responseData?.user?.firstname && responseData?.user?.lastname
           ? `${responseData.user.firstname} ${responseData.user.lastname}`
           : responseData?.user?.email || 'the selected DJ');
-      
+
       setSuccess(`Successfully handed over to ${newDJName}`);
       console.log('DJHandoverModal: Handover completed successfully', {
         newDJ: responseData?.user?.email,
         broadcastId
       });
-      
+
       // Call success callback
       if (onHandoverSuccess) {
         try {
@@ -253,7 +253,7 @@ export default function DJHandoverModal({
           // Don't fail the handover if callback has issues
         }
       }
-      
+
       // Close modal after a brief delay to show success message
       setTimeout(() => {
         onClose();
@@ -261,17 +261,17 @@ export default function DJHandoverModal({
     } catch (err) {
       // Extract error message from AxiosError or regular Error
       let errorMessage = 'Failed to switch accounts. Please verify password and try again.';
-      
+
       if (err?.response?.data) {
         // Backend returns error in { error: "...", code: "..." } format
-        errorMessage = err.response.data.error || 
-                      err.response.data.message || 
-                      errorMessage;
+        errorMessage = err.response.data.error ||
+          err.response.data.message ||
+          errorMessage;
       } else if (err?.message) {
         // Regular Error object
         errorMessage = err.message;
       }
-      
+
       // Log full error for debugging
       console.error('DJHandoverModal: Error initiating handover:', {
         message: errorMessage,
@@ -280,7 +280,7 @@ export default function DJHandoverModal({
         data: err?.response?.data,
         error: err
       });
-      
+
       setError(errorMessage);
       setSuccess(null);
     } finally {
@@ -336,6 +336,10 @@ export default function DJHandoverModal({
           <input
             type="text"
             id="dj-search"
+            name="dj-search-prevent-autofill"
+            autoComplete="off"
+            data-lpignore="true"
+            data-1p-ignore="true"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             disabled={loadingDJs || loading}
@@ -347,7 +351,17 @@ export default function DJHandoverModal({
             id="dj-select"
             size={dropdownSize}
             value={selectedDJId}
-            onChange={(e) => setSelectedDJId(e.target.value)}
+            onChange={(e) => {
+              setSelectedDJId(e.target.value);
+              setSearchQuery(''); // Clear the search query so the dropdown collapses back to 1 line
+            }}
+            onClick={(e) => {
+              // If the user clicks on an option that is ALREADY the selected value,
+              // the onChange event will NOT fire. We need this to clear the search query.
+              if (e.target.tagName === 'OPTION' && e.target.value === selectedDJId) {
+                setSearchQuery('');
+              }
+            }}
             disabled={loadingDJs || loading}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-maroon-500 disabled:opacity-50"
             style={dropdownSize > 1 ? { maxHeight: '200px', overflowY: 'auto' } : {}}
@@ -384,6 +398,10 @@ export default function DJHandoverModal({
             <input
               type="password"
               id="password"
+              name="handover-password"
+              autoComplete="new-password"
+              data-lpignore="true"
+              data-1p-ignore="true"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading || isSwitchingAccounts}

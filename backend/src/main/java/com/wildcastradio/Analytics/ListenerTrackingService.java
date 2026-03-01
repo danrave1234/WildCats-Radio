@@ -2,12 +2,15 @@ package com.wildcastradio.Analytics;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.data.redis.core.RedisTemplate;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.stereotype.Service;
 
 import com.wildcastradio.icecast.IcecastService;
@@ -23,6 +26,9 @@ public class ListenerTrackingService {
 
     @Autowired
     private IcecastService icecastService;
+
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
 
     // Cache for real-time metrics to avoid frequent Icecast API calls
     private final Map<String, Object> realtimeMetricsCache = new ConcurrentHashMap<>();
@@ -87,8 +93,14 @@ public class ListenerTrackingService {
             logger.debug("Refreshing real-time metrics from Icecast...");
 
             // Get listener count from Icecast (suppress warnings for frequent calls)
-            Integer listenerCount = icecastService.getCurrentListenerCount(false);
-            int currentCount = listenerCount != null ? listenerCount : 0;
+            Integer icecastCount = icecastService.getCurrentListenerCount(false);
+            int currentIceCount = icecastCount != null ? icecastCount : 0;
+            
+            // Get listener count from WebSocket Sessions via Redis
+            Set<String> wsKeys = redisTemplate.keys("wildcats:session:*");
+            int wsCount = wsKeys != null ? wsKeys.size() : 0;
+            
+            int currentCount = currentIceCount + wsCount;
 
             // Check if stream is live
             boolean isLive = icecastService.isStreamLive(false);
@@ -148,6 +160,7 @@ public class ListenerTrackingService {
      * Runs every 15 seconds to keep data fresh
      */
     @Scheduled(fixedRate = 15000)
+    @SchedulerLock(name = "scheduledMetricsRefresh", lockAtMostFor = "10s", lockAtLeastFor = "2s")
     public void scheduledMetricsRefresh() {
         refreshMetrics();
     }
