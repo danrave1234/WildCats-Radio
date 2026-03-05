@@ -30,7 +30,7 @@ public class AnnouncementService {
     private final UserService userService;
 
     public AnnouncementService(AnnouncementRepository announcementRepository, GcsStorageService gcsStorageService,
-                               NotificationService notificationService, UserService userService) {
+            NotificationService notificationService, UserService userService) {
         this.announcementRepository = announcementRepository;
         this.gcsStorageService = gcsStorageService;
         this.notificationService = notificationService;
@@ -54,8 +54,8 @@ public class AnnouncementService {
     @Transactional(readOnly = true)
     public Page<AnnouncementDTO> getAnnouncementsByStatus(AnnouncementStatus status, int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
-        Page<AnnouncementEntity> announcements = 
-            announcementRepository.findByStatusOrderByCreatedAtDesc(status, pageable);
+        Page<AnnouncementEntity> announcements = announcementRepository.findByStatusOrderByCreatedAtDesc(status,
+                pageable);
         return announcements.map(AnnouncementDTO::fromEntity);
     }
 
@@ -65,8 +65,8 @@ public class AnnouncementService {
     @Transactional(readOnly = true)
     public Page<AnnouncementDTO> getUserAnnouncements(Long userId, int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
-        Page<AnnouncementEntity> announcements = 
-            announcementRepository.findByCreatedByIdOrderByCreatedAtDesc(userId, pageable);
+        Page<AnnouncementEntity> announcements = announcementRepository.findByCreatedByIdOrderByCreatedAtDesc(userId,
+                pageable);
         return announcements.map(AnnouncementDTO::fromEntity);
     }
 
@@ -77,7 +77,7 @@ public class AnnouncementService {
     @Cacheable(value = "announcement", key = "#id")
     public AnnouncementDTO getAnnouncementById(Long id) {
         AnnouncementEntity announcement = announcementRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
+                .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
         return AnnouncementDTO.fromEntity(announcement);
     }
 
@@ -88,7 +88,8 @@ public class AnnouncementService {
     @Transactional
     public AnnouncementDTO createAnnouncement(CreateAnnouncementRequest request, UserEntity creator) {
         AnnouncementEntity announcement = new AnnouncementEntity();
-        // Sanitize inputs: trim title, imageUrl; remove trailing whitespace/newlines for content
+        // Sanitize inputs: trim title, imageUrl; remove trailing whitespace/newlines
+        // for content
         String title = request.getTitle() != null ? request.getTitle().trim() : null;
         String imageUrl = request.getImageUrl() != null ? request.getImageUrl().trim() : null;
         String content = request.getContent() != null ? request.getContent().replaceAll("\\s+$", "") : null;
@@ -98,7 +99,8 @@ public class AnnouncementService {
         announcement.setImageUrl(imageUrl);
         announcement.setCreatedBy(creator);
         announcement.setCreatedAt(LocalDateTime.now());
-        // Always start as DRAFT; further state changes happen via publish/schedule endpoints
+        // Always start as DRAFT; further state changes happen via publish/schedule
+        // endpoints
         announcement.setStatus(AnnouncementStatus.DRAFT);
 
         AnnouncementEntity saved = announcementRepository.save(announcement);
@@ -111,10 +113,10 @@ public class AnnouncementService {
      * - Moderators/Admins: Can edit any announcement at any status
      */
     @Transactional
-    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
+    @CacheEvict(value = { "announcements", "announcement" }, allEntries = true)
     public AnnouncementDTO updateAnnouncement(Long id, CreateAnnouncementRequest request, UserEntity updater) {
         AnnouncementEntity announcement = announcementRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
+                .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
 
         boolean isCreator = announcement.getCreatedBy().getId().equals(updater.getId());
         boolean isModerator = updater.getRole() == UserRole.MODERATOR || updater.getRole() == UserRole.ADMIN;
@@ -124,8 +126,10 @@ public class AnnouncementService {
             if (!isCreator) {
                 throw new RuntimeException("DJs can only edit their own announcements");
             }
-            if (announcement.getStatus() != AnnouncementStatus.DRAFT && announcement.getStatus() != AnnouncementStatus.REJECTED) {
-                throw new RuntimeException("DJs can only edit draft or rejected announcements. This announcement is " + announcement.getStatus());
+            if (announcement.getStatus() != AnnouncementStatus.DRAFT
+                    && announcement.getStatus() != AnnouncementStatus.REJECTED) {
+                throw new RuntimeException("DJs can only edit draft or rejected announcements. This announcement is "
+                        + announcement.getStatus());
             }
         }
 
@@ -138,7 +142,8 @@ public class AnnouncementService {
         String newImageUrl = request.getImageUrl() != null ? request.getImageUrl().trim() : null;
         String content = request.getContent() != null ? request.getContent().replaceAll("\\s+$", "") : null;
 
-        // If the user explicitly removed the image (clicked X), newImageUrl will be blank.
+        // If the user explicitly removed the image (clicked X), newImageUrl will be
+        // blank.
         String oldImageUrl = announcement.getImageUrl();
         boolean oldHasImage = oldImageUrl != null && !oldImageUrl.trim().isEmpty();
         boolean removedNow = (newImageUrl == null || newImageUrl.isEmpty()) && oldHasImage;
@@ -163,14 +168,14 @@ public class AnnouncementService {
      * Publish a draft announcement (Moderators/Admins only)
      */
     @Transactional
-    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
+    @CacheEvict(value = { "announcements", "announcement" }, allEntries = true)
     public AnnouncementDTO publishAnnouncement(Long id, UserEntity publisher) {
         if (publisher.getRole() != UserRole.MODERATOR && publisher.getRole() != UserRole.ADMIN) {
             throw new RuntimeException("Only moderators and admins can publish announcements");
         }
 
         AnnouncementEntity announcement = announcementRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
+                .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
 
         if (announcement.getStatus() != AnnouncementStatus.DRAFT) {
             throw new RuntimeException("Only draft announcements can be published");
@@ -185,7 +190,8 @@ public class AnnouncementService {
 
         // Broadcast notification for published announcement
         broadcastAnnouncementPublished(published);
-        notificationService.sendPublicAnnouncementToast(published, "New announcement: " + (published.getTitle() != null ? published.getTitle() : "View details"));
+        notificationService.sendPublicAnnouncementToast(published,
+                "New announcement: " + (published.getTitle() != null ? published.getTitle() : "View details"));
 
         return AnnouncementDTO.fromEntity(published);
     }
@@ -194,14 +200,14 @@ public class AnnouncementService {
      * Schedule an announcement for future publication (Moderators/Admins only)
      */
     @Transactional
-    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
+    @CacheEvict(value = { "announcements", "announcement" }, allEntries = true)
     public AnnouncementDTO scheduleAnnouncement(Long id, ScheduleAnnouncementRequest request, UserEntity scheduler) {
         if (scheduler.getRole() != UserRole.MODERATOR && scheduler.getRole() != UserRole.ADMIN) {
             throw new RuntimeException("Only moderators and admins can schedule announcements");
         }
 
         AnnouncementEntity announcement = announcementRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
+                .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
 
         if (announcement.getStatus() != AnnouncementStatus.DRAFT) {
             throw new RuntimeException("Only draft announcements can be scheduled");
@@ -225,14 +231,14 @@ public class AnnouncementService {
      * Pin an announcement (Moderators/Admins only, max 2 pinned)
      */
     @Transactional
-    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
+    @CacheEvict(value = { "announcements", "announcement" }, allEntries = true)
     public AnnouncementDTO pinAnnouncement(Long id, UserEntity pinner) {
         if (pinner.getRole() != UserRole.MODERATOR && pinner.getRole() != UserRole.ADMIN) {
             throw new RuntimeException("Only moderators and admins can pin announcements");
         }
 
         AnnouncementEntity announcement = announcementRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
+                .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
 
         if (announcement.getStatus() != AnnouncementStatus.PUBLISHED) {
             throw new RuntimeException("Only published announcements can be pinned");
@@ -245,7 +251,8 @@ public class AnnouncementService {
         // Check pinned count limit
         long pinnedCount = announcementRepository.countByPinnedTrue();
         if (pinnedCount >= MAX_PINNED_ANNOUNCEMENTS) {
-            throw new RuntimeException("Maximum " + MAX_PINNED_ANNOUNCEMENTS + " announcements can be pinned. Unpin one first.");
+            throw new RuntimeException(
+                    "Maximum " + MAX_PINNED_ANNOUNCEMENTS + " announcements can be pinned. Unpin one first.");
         }
 
         announcement.setPinned(true);
@@ -260,14 +267,14 @@ public class AnnouncementService {
      * Unpin an announcement (Moderators/Admins only)
      */
     @Transactional
-    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
+    @CacheEvict(value = { "announcements", "announcement" }, allEntries = true)
     public AnnouncementDTO unpinAnnouncement(Long id, UserEntity unpinner) {
         if (unpinner.getRole() != UserRole.MODERATOR && unpinner.getRole() != UserRole.ADMIN) {
             throw new RuntimeException("Only moderators and admins can unpin announcements");
         }
 
         AnnouncementEntity announcement = announcementRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
+                .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
 
         if (!announcement.isPinned()) {
             throw new RuntimeException("Announcement is not pinned");
@@ -285,14 +292,14 @@ public class AnnouncementService {
      * Archive an announcement (Moderators/Admins only)
      */
     @Transactional
-    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
+    @CacheEvict(value = { "announcements", "announcement" }, allEntries = true)
     public AnnouncementDTO archiveAnnouncement(Long id, UserEntity archiver) {
         if (archiver.getRole() != UserRole.MODERATOR && archiver.getRole() != UserRole.ADMIN) {
             throw new RuntimeException("Only moderators and admins can archive announcements");
         }
 
         AnnouncementEntity announcement = announcementRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
+                .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
 
         if (announcement.getStatus() == AnnouncementStatus.ARCHIVED) {
             throw new RuntimeException("Announcement is already archived");
@@ -317,14 +324,14 @@ public class AnnouncementService {
      * Unarchive an announcement (Moderators/Admins only)
      */
     @Transactional
-    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
+    @CacheEvict(value = { "announcements", "announcement" }, allEntries = true)
     public AnnouncementDTO unarchiveAnnouncement(Long id, UserEntity unarchiver) {
         if (unarchiver.getRole() != UserRole.MODERATOR && unarchiver.getRole() != UserRole.ADMIN) {
             throw new RuntimeException("Only moderators and admins can unarchive announcements");
         }
 
         AnnouncementEntity announcement = announcementRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
+                .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
 
         if (announcement.getStatus() != AnnouncementStatus.ARCHIVED) {
             throw new RuntimeException("Only archived announcements can be unarchived");
@@ -351,7 +358,7 @@ public class AnnouncementService {
         }
 
         AnnouncementEntity announcement = announcementRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
+                .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
 
         if (announcement.getStatus() != AnnouncementStatus.DRAFT) {
             throw new RuntimeException("Only draft announcements can be rejected");
@@ -374,7 +381,7 @@ public class AnnouncementService {
     @Transactional
     public AnnouncementDTO resubmitAnnouncement(Long id, UserEntity submitter) {
         AnnouncementEntity announcement = announcementRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
+                .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
 
         if (announcement.getStatus() != AnnouncementStatus.REJECTED) {
             throw new RuntimeException("Only rejected announcements can be resubmitted");
@@ -402,10 +409,10 @@ public class AnnouncementService {
      * - Moderators/Admins: Can delete any announcement at any status
      */
     @Transactional
-    @CacheEvict(value = {"announcements", "announcement"}, allEntries = true)
+    @CacheEvict(value = { "announcements", "announcement" }, allEntries = true)
     public void deleteAnnouncement(Long id, UserEntity deleter) {
         AnnouncementEntity announcement = announcementRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
+                .orElseThrow(() -> new RuntimeException("Announcement not found with id: " + id));
 
         boolean isCreator = announcement.getCreatedBy().getId().equals(deleter.getId());
         boolean isModerator = deleter.getRole() == UserRole.MODERATOR || deleter.getRole() == UserRole.ADMIN;
@@ -416,7 +423,8 @@ public class AnnouncementService {
                 throw new RuntimeException("DJs can only delete their own announcements");
             }
             if (announcement.getStatus() != AnnouncementStatus.DRAFT) {
-                throw new RuntimeException("DJs can only delete draft announcements. This announcement is " + announcement.getStatus());
+                throw new RuntimeException(
+                        "DJs can only delete draft announcements. This announcement is " + announcement.getStatus());
             }
         }
 
@@ -440,14 +448,14 @@ public class AnnouncementService {
 
     private void broadcastAnnouncementPublished(AnnouncementEntity announcement) {
         try {
-            String message = "New announcement: " + (announcement.getTitle() != null ? announcement.getTitle() : "View details");
+            String message = "New announcement: "
+                    + (announcement.getTitle() != null ? announcement.getTitle() : "View details");
             userService.findAllUsers().forEach(user -> {
                 notificationService.sendNotificationWithAnnouncement(
-                    user,
-                    message,
-                    NotificationType.ANNOUNCEMENT_PUBLISHED,
-                    announcement
-                );
+                        user,
+                        message,
+                        NotificationType.ANNOUNCEMENT_PUBLISHED,
+                        announcement);
             });
         } catch (Exception _e) {
             // Fail-soft: do not interrupt publish flow

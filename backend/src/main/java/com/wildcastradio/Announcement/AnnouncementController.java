@@ -44,7 +44,7 @@ public class AnnouncementController {
     public ResponseEntity<Page<PublicAnnouncementDTO>> getPublishedAnnouncements(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
-        
+
         Page<AnnouncementDTO> announcements = announcementService.getPublishedAnnouncements(page, size);
         Page<PublicAnnouncementDTO> publicPage = announcements.map(PublicAnnouncementDTO::fromDTO);
         return ResponseEntity.ok(publicPage);
@@ -59,10 +59,11 @@ public class AnnouncementController {
             @PathVariable String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
-        
+
         try {
             AnnouncementStatus announcementStatus = AnnouncementStatus.valueOf(status.toUpperCase());
-            Page<AnnouncementDTO> announcements = announcementService.getAnnouncementsByStatus(announcementStatus, page, size);
+            Page<AnnouncementDTO> announcements = announcementService.getAnnouncementsByStatus(announcementStatus, page,
+                    size);
             return ResponseEntity.ok(announcements);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().build();
@@ -78,9 +79,9 @@ public class AnnouncementController {
             Authentication authentication,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
-        
+
         UserEntity user = userService.getUserByEmail(authentication.getName())
-            .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
         Page<AnnouncementDTO> announcements = announcementService.getUserAnnouncements(user.getId(), page, size);
         return ResponseEntity.ok(announcements);
@@ -93,7 +94,8 @@ public class AnnouncementController {
     public ResponseEntity<?> getAnnouncementById(@PathVariable Long id) {
         try {
             AnnouncementDTO announcement = announcementService.getAnnouncementById(id);
-            // If announcement is PUBLISHED, return public-safe DTO; otherwise return full DTO
+            // If announcement is PUBLISHED, return public-safe DTO; otherwise return full
+            // DTO
             if (announcement.getStatus() == com.wildcastradio.Announcement.AnnouncementStatus.PUBLISHED) {
                 return ResponseEntity.ok(PublicAnnouncementDTO.fromDTO(announcement));
             }
@@ -112,9 +114,9 @@ public class AnnouncementController {
     public ResponseEntity<AnnouncementDTO> createAnnouncement(
             @Valid @RequestBody CreateAnnouncementRequest request,
             Authentication authentication) {
-        
+
         UserEntity creator = userService.getUserByEmail(authentication.getName())
-            .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
         AnnouncementDTO created = announcementService.createAnnouncement(request, creator);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -129,10 +131,10 @@ public class AnnouncementController {
             @PathVariable Long id,
             @Valid @RequestBody CreateAnnouncementRequest request,
             Authentication authentication) {
-        
+
         try {
             UserEntity updater = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
             AnnouncementDTO updated = announcementService.updateAnnouncement(id, request, updater);
             return ResponseEntity.ok(updated);
@@ -149,10 +151,10 @@ public class AnnouncementController {
     public ResponseEntity<?> publishAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {
-        
+
         try {
             UserEntity publisher = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
             AnnouncementDTO published = announcementService.publishAnnouncement(id, publisher);
             return ResponseEntity.ok(published);
@@ -170,10 +172,10 @@ public class AnnouncementController {
             @PathVariable Long id,
             @Valid @RequestBody ScheduleAnnouncementRequest request,
             Authentication authentication) {
-        
+
         try {
             UserEntity scheduler = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
             AnnouncementDTO scheduled = announcementService.scheduleAnnouncement(id, request, scheduler);
             return ResponseEntity.ok(scheduled);
@@ -190,10 +192,10 @@ public class AnnouncementController {
     public ResponseEntity<?> pinAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {
-        
+
         try {
             UserEntity pinner = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
             AnnouncementDTO pinned = announcementService.pinAnnouncement(id, pinner);
             return ResponseEntity.ok(pinned);
@@ -210,10 +212,10 @@ public class AnnouncementController {
     public ResponseEntity<?> unpinAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {
-        
+
         try {
             UserEntity unpinner = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
             AnnouncementDTO unpinned = announcementService.unpinAnnouncement(id, unpinner);
             return ResponseEntity.ok(unpinned);
@@ -230,10 +232,10 @@ public class AnnouncementController {
     public ResponseEntity<?> archiveAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {
-        
+
         try {
             UserEntity archiver = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
             AnnouncementDTO archived = announcementService.archiveAnnouncement(id, archiver);
             return ResponseEntity.ok(archived);
@@ -250,10 +252,10 @@ public class AnnouncementController {
     public ResponseEntity<?> unarchiveAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {
-        
+
         try {
             UserEntity unarchiver = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
             AnnouncementDTO unarchived = announcementService.unarchiveAnnouncement(id, unarchiver);
             return ResponseEntity.ok(unarchived);
@@ -271,16 +273,15 @@ public class AnnouncementController {
             @PathVariable Long id,
             @Valid @RequestBody RejectAnnouncementRequest request,
             Authentication authentication) {
-        
+
         try {
             UserEntity rejecter = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
             AnnouncementDTO rejected = announcementService.rejectAnnouncement(
-                id, 
-                request.getRejectionReason(), 
-                rejecter
-            );
+                    id,
+                    request.getRejectionReason(),
+                    rejecter);
             return ResponseEntity.ok(rejected);
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
@@ -295,10 +296,10 @@ public class AnnouncementController {
     public ResponseEntity<?> resubmitAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {
-        
+
         try {
             UserEntity submitter = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
             AnnouncementDTO resubmitted = announcementService.resubmitAnnouncement(id, submitter);
             return ResponseEntity.ok(resubmitted);
@@ -315,10 +316,10 @@ public class AnnouncementController {
     public ResponseEntity<?> deleteAnnouncement(
             @PathVariable Long id,
             Authentication authentication) {
-        
+
         try {
             UserEntity deleter = userService.getUserByEmail(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
             announcementService.deleteAnnouncement(id, deleter);
             return ResponseEntity.noContent().build();

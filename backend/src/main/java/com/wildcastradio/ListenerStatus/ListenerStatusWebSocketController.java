@@ -114,11 +114,15 @@ public class ListenerStatusWebSocketController {
             }
         }
 
-        // Track session in Redis
+        // Track session in Redis (fail-safe: if Redis is down, allow listener but skip persistence)
         ListenerSession sessionObj = new ListenerSession(username, message.getBroadcastId(), true);
-        redisTemplate.opsForValue().set(REDIS_SESSION_PREFIX + sessionId, sessionObj, SESSION_TTL_SECONDS, TimeUnit.SECONDS);
-        
-        logger.info("Listener started: session {} (user: {}, broadcast: {})", 
+        try {
+            redisTemplate.opsForValue().set(REDIS_SESSION_PREFIX + sessionId, sessionObj, SESSION_TTL_SECONDS, TimeUnit.SECONDS);
+        } catch (Exception redisEx) {
+            logger.warn("Redis unavailable - listener session {} not persisted (in-memory only): {}", sessionId, redisEx.getMessage());
+        }
+
+        logger.info("Listener started: session {} (user: {}, broadcast: {})",
                    sessionId, username != null ? username : "anonymous", broadcastId);
         
         // Send current status to this listener immediately
@@ -127,12 +131,16 @@ public class ListenerStatusWebSocketController {
 
     private void handleListenerStop(String sessionId, String username) {
         String key = REDIS_SESSION_PREFIX + sessionId;
-        Object obj = redisTemplate.opsForValue().get(key);
         ListenerSession session = null;
-        if (obj != null) {
-            session = objectMapper.convertValue(obj, ListenerSession.class);
+        try {
+            Object obj = redisTemplate.opsForValue().get(key);
+            if (obj != null) {
+                session = objectMapper.convertValue(obj, ListenerSession.class);
+            }
+        } catch (Exception redisEx) {
+            logger.warn("Redis unavailable - could not retrieve session {} on stop: {}", sessionId, redisEx.getMessage());
         }
-        
+
         if (session != null && session.getBroadcastId() != null) {
             try {
                 UserEntity user = null;
@@ -141,36 +149,48 @@ public class ListenerStatusWebSocketController {
                 }
                 broadcastService.recordListenerLeave(session.getBroadcastId(), user);
             } catch (Exception e) {
-                logger.warn("Error recording listener leave for broadcast {}: {}", 
+                logger.warn("Error recording listener leave for broadcast {}: {}",
                            session.getBroadcastId(), e.getMessage());
             }
         }
-        
-        redisTemplate.delete(key);
-        
-        logger.info("Listener stopped: session {} (user: {})", 
+
+        try {
+            redisTemplate.delete(key);
+        } catch (Exception redisEx) {
+            logger.warn("Redis unavailable - could not delete session key {}: {}", key, redisEx.getMessage());
+        }
+
+        logger.info("Listener stopped: session {} (user: {})",
                    sessionId, username != null ? username : "anonymous");
     }
 
     private void handlePlayerStatus(String sessionId, String username, ListenerStatusMessage message) {
         String key = REDIS_SESSION_PREFIX + sessionId;
-        Object obj = redisTemplate.opsForValue().get(key);
-        if (obj != null) {
-            ListenerSession session = objectMapper.convertValue(obj, ListenerSession.class);
-            session.setPlaying(message.isPlaying() != null ? message.isPlaying() : false);
-            redisTemplate.opsForValue().set(key, session, SESSION_TTL_SECONDS, TimeUnit.SECONDS);
-            logger.debug("Player status updated for session {}: playing={}", sessionId, session.isPlaying());
+        try {
+            Object obj = redisTemplate.opsForValue().get(key);
+            if (obj != null) {
+                ListenerSession session = objectMapper.convertValue(obj, ListenerSession.class);
+                session.setPlaying(message.isPlaying() != null ? message.isPlaying() : false);
+                redisTemplate.opsForValue().set(key, session, SESSION_TTL_SECONDS, TimeUnit.SECONDS);
+                logger.debug("Player status updated for session {}: playing={}", sessionId, session.isPlaying());
+            }
+        } catch (Exception redisEx) {
+            logger.warn("Redis unavailable - could not update player status for session {}: {}", sessionId, redisEx.getMessage());
         }
     }
 
     private void handleHeartbeat(String sessionId, String username) {
         String key = REDIS_SESSION_PREFIX + sessionId;
-        Boolean exists = redisTemplate.hasKey(key);
-        if (Boolean.TRUE.equals(exists)) {
-            // Refresh TTL
-            redisTemplate.expire(key, SESSION_TTL_SECONDS, TimeUnit.SECONDS);
-            logger.debug("Heartbeat from active listener: session {} (user: {})", 
-                        sessionId, username != null ? username : "anonymous");
+        try {
+            Boolean exists = redisTemplate.hasKey(key);
+            if (Boolean.TRUE.equals(exists)) {
+                // Refresh TTL
+                redisTemplate.expire(key, SESSION_TTL_SECONDS, TimeUnit.SECONDS);
+                logger.debug("Heartbeat from active listener: session {} (user: {})",
+                            sessionId, username != null ? username : "anonymous");
+            }
+        } catch (Exception redisEx) {
+            logger.warn("Redis unavailable - heartbeat skipped for session {}: {}", sessionId, redisEx.getMessage());
         }
     }
 
@@ -193,9 +213,16 @@ public class ListenerStatusWebSocketController {
     @Scheduled(fixedRate = 5000)
     @SchedulerLock(name = "broadcastListenerStatus", lockAtMostFor = "4s", lockAtLeastFor = "1s")
     public void broadcastStatus() {
-        Set<String> keys = redisTemplate.keys(REDIS_SESSION_PREFIX + "*");
-        boolean hasListeners = keys != null && !keys.isEmpty();
-        
+        boolean hasListeners = false;
+        try {
+            Set<String> keys = redisTemplate.keys(REDIS_SESSION_PREFIX + "*");
+            hasListeners = keys != null && !keys.isEmpty();
+        } catch (Exception redisEx) {
+            // Redis unavailable — broadcast anyway so the stream status UI stays live
+            logger.warn("Redis unavailable checking listener sessions, broadcasting status anyway: {}", redisEx.getMessage());
+            hasListeners = true;
+        }
+
         if (!hasListeners) {
             // Skip if no listeners connected and no active broadcasts
             if (!icecastService.isAnyBroadcastActive()) {
@@ -287,28 +314,42 @@ public class ListenerStatusWebSocketController {
      * Get number of connected listeners
      */
     public int getConnectedListenersCount() {
-        Set<String> keys = redisTemplate.keys(REDIS_SESSION_PREFIX + "*");
-        return keys != null ? keys.size() : 0;
+        try {
+            Set<String> keys = redisTemplate.keys(REDIS_SESSION_PREFIX + "*");
+            return keys != null ? keys.size() : 0;
+        } catch (Exception redisEx) {
+            logger.warn("Redis unavailable - returning 0 for connected listener count: {}", redisEx.getMessage());
+            return 0;
+        }
     }
 
     /**
      * Get number of active listeners (those who are actually playing the stream)
      */
     public int getActiveListenersCount() {
-        Set<String> keys = redisTemplate.keys(REDIS_SESSION_PREFIX + "*");
-        if (keys == null || keys.isEmpty()) return 0;
-        
-        int count = 0;
-        for (String key : keys) {
-            Object obj = redisTemplate.opsForValue().get(key);
-            if (obj != null) {
-                ListenerSession session = objectMapper.convertValue(obj, ListenerSession.class);
-                if (session.isPlaying()) {
-                    count++;
+        try {
+            Set<String> keys = redisTemplate.keys(REDIS_SESSION_PREFIX + "*");
+            if (keys == null || keys.isEmpty()) return 0;
+
+            int count = 0;
+            for (String key : keys) {
+                try {
+                    Object obj = redisTemplate.opsForValue().get(key);
+                    if (obj != null) {
+                        ListenerSession session = objectMapper.convertValue(obj, ListenerSession.class);
+                        if (session.isPlaying()) {
+                            count++;
+                        }
+                    }
+                } catch (Exception innerEx) {
+                    logger.warn("Could not read session key {}: {}", key, innerEx.getMessage());
                 }
             }
+            return count;
+        } catch (Exception redisEx) {
+            logger.warn("Redis unavailable - returning 0 for active listener count: {}", redisEx.getMessage());
+            return 0;
         }
-        return count;
     }
 
     /**

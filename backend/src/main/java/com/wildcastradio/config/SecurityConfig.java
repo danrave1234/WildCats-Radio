@@ -63,7 +63,7 @@ public class SecurityConfig {
 
     @Value("${app.production:false}")
     private boolean isProduction;
-    
+
     @PostConstruct
     public void init() {
         // Log configuration for debugging
@@ -76,199 +76,209 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            .csrf(csrf -> csrf.disable())
-            .oauth2Login(oauth2 -> oauth2
-                .successHandler((request, response, authentication) -> {
-                    try {
-                        logger.info("OAuth2 success handler invoked. Host: {}, Origin: {}", 
-                            request.getHeader("Host"), request.getHeader("Origin"));
-                        
-                        String frontendDomain = getFrontendDomain(request);
-                        logger.debug("Detected frontend domain: {}", frontendDomain);
-                        
-                        if (authentication == null || !(authentication instanceof OAuth2AuthenticationToken)) {
-                            logger.warn("OAuth2 authentication is null or wrong type: {}", 
-                                authentication != null ? authentication.getClass().getName() : "null");
-                            response.sendRedirect(frontendDomain + "/login?oauth_error=auth_failed");
-                            return;
-                        }
-                        
-                        OAuth2AuthenticationToken token = (OAuth2AuthenticationToken) authentication;
-                        String registrationId = token.getAuthorizedClientRegistrationId();
-                        logger.debug("OAuth2 registration ID: {}", registrationId);
-                        
-                        if (registrationId == null || registrationId.isEmpty()) {
-                            logger.warn("OAuth2 registration ID is null or empty");
-                            response.sendRedirect(frontendDomain + "/login?oauth_error=auth_failed");
-                            return;
-                        }
-                        
-                        OAuth2User oauth2User = token.getPrincipal();
-                        if (oauth2User == null) {
-                            logger.warn("OAuth2User principal is null");
-                            response.sendRedirect(frontendDomain + "/login?oauth_error=auth_failed");
-                            return;
-                        }
-                        
-                        Map<String, Object> attributes = oauth2User.getAttributes();
-                        logger.debug("OAuth2 attributes received: {}", attributes.keySet());
-                        
-                        LoginResponse loginResponse;
-                        try {
-                            loginResponse = userService.oauth2Login(attributes, registrationId);
-                            logger.info("OAuth2 login successful for user: {}", loginResponse.getUser().getEmail());
-                        } catch (Exception e) {
-                            logger.error("OAuth2 login failed: {}", e.getMessage(), e);
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .csrf(csrf -> csrf.disable())
+                .oauth2Login(oauth2 -> oauth2
+                        .successHandler((request, response, authentication) -> {
+                            try {
+                                logger.info("OAuth2 success handler invoked. Host: {}, Origin: {}",
+                                        request.getHeader("Host"), request.getHeader("Origin"));
+
+                                String frontendDomain = getFrontendDomain(request);
+                                logger.debug("Detected frontend domain: {}", frontendDomain);
+
+                                if (authentication == null || !(authentication instanceof OAuth2AuthenticationToken)) {
+                                    logger.warn("OAuth2 authentication is null or wrong type: {}",
+                                            authentication != null ? authentication.getClass().getName() : "null");
+                                    response.sendRedirect(frontendDomain + "/login?oauth_error=auth_failed");
+                                    return;
+                                }
+
+                                OAuth2AuthenticationToken token = (OAuth2AuthenticationToken) authentication;
+                                String registrationId = token.getAuthorizedClientRegistrationId();
+                                logger.debug("OAuth2 registration ID: {}", registrationId);
+
+                                if (registrationId == null || registrationId.isEmpty()) {
+                                    logger.warn("OAuth2 registration ID is null or empty");
+                                    response.sendRedirect(frontendDomain + "/login?oauth_error=auth_failed");
+                                    return;
+                                }
+
+                                OAuth2User oauth2User = token.getPrincipal();
+                                if (oauth2User == null) {
+                                    logger.warn("OAuth2User principal is null");
+                                    response.sendRedirect(frontendDomain + "/login?oauth_error=auth_failed");
+                                    return;
+                                }
+
+                                Map<String, Object> attributes = oauth2User.getAttributes();
+                                logger.debug("OAuth2 attributes received: {}", attributes.keySet());
+
+                                LoginResponse loginResponse;
+                                try {
+                                    loginResponse = userService.oauth2Login(attributes, registrationId);
+                                    logger.info("OAuth2 login successful for user: {}",
+                                            loginResponse.getUser().getEmail());
+                                } catch (Exception e) {
+                                    logger.error("OAuth2 login failed: {}", e.getMessage(), e);
+                                    response.sendRedirect(frontendDomain + "/login?oauth_error=login_failed");
+                                    return;
+                                }
+
+                                if (loginResponse.getToken() == null || loginResponse.getToken().isEmpty()) {
+                                    response.sendRedirect(frontendDomain + "/login?oauth_error=token_failed");
+                                    return;
+                                }
+
+                                // Determine cookie security settings based on production flag
+                                // In production: Secure=true, SameSite=None (required for cross-subdomain
+                                // cookies)
+                                // In localhost: Secure=false, SameSite=Lax (works for same-origin)
+                                boolean shouldUseSecureCookies = isProduction || useSecureCookies;
+
+                                // Create secure HttpOnly cookies for token and user information
+                                Cookie tokenCookie = new Cookie("token", loginResponse.getToken());
+                                tokenCookie.setHttpOnly(true);
+                                tokenCookie.setSecure(shouldUseSecureCookies);
+                                setCookieDomain(tokenCookie, request);
+                                tokenCookie.setPath("/");
+                                tokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+                                tokenCookie.setAttribute("SameSite", shouldUseSecureCookies ? "None" : "Lax");
+                                response.addCookie(tokenCookie);
+
+                                Cookie userIdCookie = new Cookie("userId",
+                                        String.valueOf(loginResponse.getUser().getId()));
+                                userIdCookie.setHttpOnly(true);
+                                userIdCookie.setSecure(shouldUseSecureCookies);
+                                setCookieDomain(userIdCookie, request);
+                                userIdCookie.setPath("/");
+                                userIdCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+                                userIdCookie.setAttribute("SameSite", shouldUseSecureCookies ? "None" : "Lax");
+                                response.addCookie(userIdCookie);
+
+                                Cookie userRoleCookie = new Cookie("userRole",
+                                        String.valueOf(loginResponse.getUser().getRole()));
+                                userRoleCookie.setHttpOnly(true);
+                                userRoleCookie.setSecure(shouldUseSecureCookies);
+                                setCookieDomain(userRoleCookie, request);
+                                userRoleCookie.setPath("/");
+                                userRoleCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+                                userRoleCookie.setAttribute("SameSite", shouldUseSecureCookies ? "None" : "Lax");
+                                response.addCookie(userRoleCookie);
+
+                                logger.debug("OAuth cookies set: Secure={}, SameSite={}, Domain={}",
+                                        shouldUseSecureCookies,
+                                        shouldUseSecureCookies ? "None" : "Lax",
+                                        tokenCookie.getDomain());
+
+                                // Redirect to frontend
+                                // For localhost: include token in URL since cookies don't work across ports
+                                // For production: cookies work, so just redirect with success flag
+                                String redirectUrl;
+                                if (frontendDomain.contains("localhost")) {
+                                    redirectUrl = frontendDomain + "/?oauth=success&token=" +
+                                            java.net.URLEncoder.encode(loginResponse.getToken(),
+                                                    java.nio.charset.StandardCharsets.UTF_8)
+                                            +
+                                            "&userId=" + loginResponse.getUser().getId() +
+                                            "&userRole=" + loginResponse.getUser().getRole();
+                                } else {
+                                    redirectUrl = frontendDomain + "/?oauth=success";
+                                }
+                                response.sendRedirect(redirectUrl);
+
+                            } catch (Exception e) {
+                                logger.error("OAuth2 success handler error: {}", e.getMessage(), e);
+                                String frontendDomain = getFrontendDomain(request);
+                                response.sendRedirect(frontendDomain + "/login?oauth_error=handler_error");
+                            }
+                        })
+                        .failureHandler((request, response, exception) -> {
+                            logger.error("OAuth2 login failure: {}", exception.getMessage());
+                            String frontendDomain = getFrontendDomain(request);
                             response.sendRedirect(frontendDomain + "/login?oauth_error=login_failed");
-                            return;
-                        }
-                        
-                        if (loginResponse.getToken() == null || loginResponse.getToken().isEmpty()) {
-                            response.sendRedirect(frontendDomain + "/login?oauth_error=token_failed");
-                            return;
-                        }
-                        
-                        // Determine cookie security settings based on production flag
-                        // In production: Secure=true, SameSite=None (required for cross-subdomain cookies)
-                        // In localhost: Secure=false, SameSite=Lax (works for same-origin)
-                        boolean shouldUseSecureCookies = isProduction || useSecureCookies;
-                        
-                        // Create secure HttpOnly cookies for token and user information
-                        Cookie tokenCookie = new Cookie("token", loginResponse.getToken());
-                        tokenCookie.setHttpOnly(true);
-                        tokenCookie.setSecure(shouldUseSecureCookies);
-                        setCookieDomain(tokenCookie, request);
-                        tokenCookie.setPath("/");
-                        tokenCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-                        tokenCookie.setAttribute("SameSite", shouldUseSecureCookies ? "None" : "Lax");
-                        response.addCookie(tokenCookie);
-                        
-                        Cookie userIdCookie = new Cookie("userId", String.valueOf(loginResponse.getUser().getId()));
-                        userIdCookie.setHttpOnly(true);
-                        userIdCookie.setSecure(shouldUseSecureCookies);
-                        setCookieDomain(userIdCookie, request);
-                        userIdCookie.setPath("/");
-                        userIdCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-                        userIdCookie.setAttribute("SameSite", shouldUseSecureCookies ? "None" : "Lax");
-                        response.addCookie(userIdCookie);
-                        
-                        Cookie userRoleCookie = new Cookie("userRole", String.valueOf(loginResponse.getUser().getRole()));
-                        userRoleCookie.setHttpOnly(true);
-                        userRoleCookie.setSecure(shouldUseSecureCookies);
-                        setCookieDomain(userRoleCookie, request);
-                        userRoleCookie.setPath("/");
-                        userRoleCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
-                        userRoleCookie.setAttribute("SameSite", shouldUseSecureCookies ? "None" : "Lax");
-                        response.addCookie(userRoleCookie);
-                        
-                        logger.debug("OAuth cookies set: Secure={}, SameSite={}, Domain={}", 
-                            shouldUseSecureCookies, 
-                            shouldUseSecureCookies ? "None" : "Lax",
-                            tokenCookie.getDomain());
-                        
-                        // Redirect to frontend
-                        // For localhost: include token in URL since cookies don't work across ports
-                        // For production: cookies work, so just redirect with success flag
-                        String redirectUrl;
-                        if (frontendDomain.contains("localhost")) {
-                            redirectUrl = frontendDomain + "/?oauth=success&token=" + 
-                                java.net.URLEncoder.encode(loginResponse.getToken(), java.nio.charset.StandardCharsets.UTF_8) +
-                                "&userId=" + loginResponse.getUser().getId() +
-                                "&userRole=" + loginResponse.getUser().getRole();
-                        } else {
-                            redirectUrl = frontendDomain + "/?oauth=success";
-                        }
-                        response.sendRedirect(redirectUrl);
-                        
-                    } catch (Exception e) {
-                        logger.error("OAuth2 success handler error: {}", e.getMessage(), e);
-                        String frontendDomain = getFrontendDomain(request);
-                        response.sendRedirect(frontendDomain + "/login?oauth_error=handler_error");
-                    }
-                })
-                .failureHandler((request, response, exception) -> {
-                    logger.error("OAuth2 login failure: {}", exception.getMessage());
-                    String frontendDomain = getFrontendDomain(request);
-                    response.sendRedirect(frontendDomain + "/login?oauth_error=login_failed");
-                }))
-            .exceptionHandling(ex -> ex
-                .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
-            .authorizeHttpRequests(auth -> auth
-                // Allow OPTIONS requests for CORS preflight
-                .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
-                // Allow frontend root and static assets so SPA can load without auth
-                .requestMatchers(
-                    "/", 
-                    "/index.html",
-                    "/assets/**",
-                    "/static/**",
-                    "/favicon.ico",
-                    "/manifest.json",
-                    "/robots.txt",
-                    "/*.css",
-                    "/*.js"
-                ).permitAll()
-                // Public endpoints that don't require authentication
-                .requestMatchers("/api/auth/login").permitAll()
-                .requestMatchers("/api/auth/register").permitAll()
-                .requestMatchers("/api/auth/verify").permitAll()
-                .requestMatchers("/api/auth/send-code").permitAll()
-                // OAuth2 endpoints
-                .requestMatchers("/api/auth/oauth2/**").permitAll()
-                .requestMatchers("/oauth2/**").permitAll()
-                .requestMatchers("/login/oauth2/**").permitAll()
-                .requestMatchers("/oauth2/authorization/**").permitAll()
-                .requestMatchers("/api/user/register").permitAll()
-                .requestMatchers("/api/user/verify").permitAll()
-                .requestMatchers("/api/stream/status").permitAll()
-                .requestMatchers("/api/stream/config").permitAll()
-                .requestMatchers("/api/stream/health").permitAll()
-                // Allow all stream-related endpoints
-                .requestMatchers("/api/stream/**").permitAll()
-                // Radio status endpoint - public for checking radio state
-                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/radio/status").permitAll()
-                // Websocket endpoints
-                .requestMatchers("/ws/live").permitAll()
-                // /ws/listener removed - listener status now via STOMP /topic/listener-status
-                .requestMatchers("/stream").permitAll()
-                .requestMatchers("/ws-radio/**").permitAll()
-                .requestMatchers("/ws-radio/info/**").permitAll()
-                .requestMatchers("/ws-radio/info").permitAll()
-                // Public read-only API for listening experience
-                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/broadcasts/**").permitAll()
-                
-                // Require authentication for actions that modify broadcasts
-                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/broadcasts/**").authenticated()
-                .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/broadcasts/**").authenticated()
-                .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/broadcasts/**").authenticated()
-                
-                // Announcements - public GET, authenticated POST/PUT/DELETE
-                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/announcements").permitAll()
-                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/announcements/*").permitAll()
-                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/announcements/**").authenticated()
-                .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/announcements/**").authenticated()
-                .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/announcements/**").authenticated()
-                
-                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/chats/*").permitAll()
-                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/broadcast/**").permitAll()
-                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/*/results").permitAll()
-                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/*").permitAll()
-                // Swagger UI endpoints if you use it
-                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                // Health check endpoints
-                .requestMatchers("/actuator/**").permitAll()
-                // Require authentication for all other endpoints
-                .anyRequest().authenticated())
-            .sessionManagement(session -> session
-                .sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+                        }))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                .authorizeHttpRequests(auth -> auth
+                        // Allow OPTIONS requests for CORS preflight
+                        .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
+                        // Allow frontend root and static assets so SPA can load without auth
+                        .requestMatchers(
+                                "/",
+                                "/index.html",
+                                "/assets/**",
+                                "/static/**",
+                                "/favicon.ico",
+                                "/manifest.json",
+                                "/robots.txt",
+                                "/*.css",
+                                "/*.js")
+                        .permitAll()
+                        // Public endpoints that don't require authentication
+                        .requestMatchers("/api/auth/login").permitAll()
+                        .requestMatchers("/api/auth/register").permitAll()
+                        .requestMatchers("/api/auth/verify").permitAll()
+                        .requestMatchers("/api/auth/send-code").permitAll()
+                        // OAuth2 endpoints
+                        .requestMatchers("/api/auth/oauth2/**").permitAll()
+                        .requestMatchers("/oauth2/**").permitAll()
+                        .requestMatchers("/login/oauth2/**").permitAll()
+                        .requestMatchers("/oauth2/authorization/**").permitAll()
+                        .requestMatchers("/api/user/register").permitAll()
+                        .requestMatchers("/api/user/verify").permitAll()
+                        .requestMatchers("/api/stream/status").permitAll()
+                        .requestMatchers("/api/stream/config").permitAll()
+                        .requestMatchers("/api/stream/health").permitAll()
+                        // Allow all stream-related endpoints
+                        .requestMatchers("/api/stream/**").permitAll()
+                        // Radio status endpoint - public for checking radio state
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/radio/status").permitAll()
+                        // Websocket endpoints
+                        .requestMatchers("/ws/live").permitAll()
+                        // /ws/listener removed - listener status now via STOMP /topic/listener-status
+                        .requestMatchers("/stream").permitAll()
+                        .requestMatchers("/ws-radio/**").permitAll()
+                        .requestMatchers("/ws-radio/info/**").permitAll()
+                        .requestMatchers("/ws-radio/info").permitAll()
+                        // Public read-only API for listening experience
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/broadcasts/**").permitAll()
+
+                        // Require authentication for actions that modify broadcasts
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/broadcasts/**").authenticated()
+                        .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/broadcasts/**").authenticated()
+                        .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/broadcasts/**")
+                        .authenticated()
+
+                        // Announcements - public GET, authenticated POST/PUT/DELETE
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/announcements").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/announcements/**").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/announcements/**")
+                        .authenticated()
+                        .requestMatchers(org.springframework.http.HttpMethod.PUT, "/api/announcements/**")
+                        .authenticated()
+                        .requestMatchers(org.springframework.http.HttpMethod.DELETE, "/api/announcements/**")
+                        .authenticated()
+
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/chats/*").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/broadcast/**").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/*/results").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/polls/*").permitAll()
+                        // Swagger UI endpoints if you use it
+                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                        // Health check endpoints
+                        .requestMatchers("/actuator/**").permitAll()
+                        // Require authentication for all other endpoints
+                        .anyRequest().authenticated())
+                .sessionManagement(session -> session
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS));
 
         // Add security headers filter first to ensure headers are set on all responses
         http.addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class);
 
         // Add Rate limiting filter before JWT processing
         http.addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class);
-        
+
         // Add JWT filter before processing requests
         http.addFilterBefore(jwtRequestFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -283,23 +293,22 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(corsConfig.getAllowedOrigins());
 
         // Allow all methods required for REST and WebSocket/SockJS
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "CONNECT"));
+        configuration.setAllowedMethods(
+                Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH", "CONNECT"));
 
         // Allow all headers including those needed for SockJS
         configuration.setAllowedHeaders(Arrays.asList(
-            "*"
-        ));
+                "*"));
 
         // Expose headers needed for authentication and SockJS
         configuration.setExposedHeaders(Arrays.asList(
-            "x-auth-token", 
-            "Authorization", 
-            "Content-Type", 
-            "Content-Length",
-            "Access-Control-Allow-Origin",
-            "Access-Control-Allow-Credentials",
-            "X-SockJS-Transport"
-        ));
+                "x-auth-token",
+                "Authorization",
+                "Content-Type",
+                "Content-Length",
+                "Access-Control-Allow-Origin",
+                "Access-Control-Allow-Credentials",
+                "X-SockJS-Transport"));
 
         configuration.setAllowCredentials(true); // Enable credentials for JWT tokens
         configuration.setMaxAge(3600L); // Cache preflight for 1 hour
@@ -313,15 +322,14 @@ public class SecurityConfig {
         sockJsConfig.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"));
         sockJsConfig.setAllowedHeaders(Arrays.asList("*"));
         sockJsConfig.setExposedHeaders(Arrays.asList(
-            "Content-Type", 
-            "Content-Length",
-            "X-SockJS-Transport",
-            "Access-Control-Allow-Origin",
-            "Access-Control-Allow-Credentials"
-        ));
+                "Content-Type",
+                "Content-Length",
+                "X-SockJS-Transport",
+                "Access-Control-Allow-Origin",
+                "Access-Control-Allow-Credentials"));
         sockJsConfig.setAllowCredentials(true);
         sockJsConfig.setMaxAge(3600L);
-        
+
         // Register specific configurations for SockJS endpoints
         source.registerCorsConfiguration("/ws-radio/**", sockJsConfig);
         source.registerCorsConfiguration("/ws-radio/info/**", sockJsConfig);
@@ -343,7 +351,8 @@ public class SecurityConfig {
 
     /**
      * Auto-detect frontend domain from request headers
-     * Tries Origin header first, otherwise falls back to configured environment defaults.
+     * Tries Origin header first, otherwise falls back to configured environment
+     * defaults.
      */
     private String getFrontendDomain(HttpServletRequest request) {
         // 1. Try Origin header first (most reliable for CORS requests from frontend)
@@ -354,7 +363,7 @@ public class SecurityConfig {
                 return origin;
             }
         }
-        
+
         // 2. Use explicit Environment Flag
         // This simplifies everything: no guessing based on Host or Referer headers.
         if (isProduction) {
@@ -363,11 +372,12 @@ public class SecurityConfig {
             return "http://localhost:5173";
         }
     }
-    
+
     /**
      * Set cookie domain for cross-subdomain sharing
      * Only sets domain for production (not localhost)
-     * Note: Tomcat 10+ (RFC 6265) doesn't allow leading dot, but browsers still support
+     * Note: Tomcat 10+ (RFC 6265) doesn't allow leading dot, but browsers still
+     * support
      * cross-subdomain cookies without it for same root domain
      */
     private void setCookieDomain(Cookie cookie, HttpServletRequest request) {
@@ -375,22 +385,24 @@ public class SecurityConfig {
         if (host == null || host.isEmpty()) {
             host = request.getServerName();
         }
-        
+
         // Remove port if present
         String domain = host.split(":")[0];
-        
+
         // Only set domain for production (not localhost)
         if (domain != null && !domain.contains("localhost") && !domain.contains("127.0.0.1")) {
             String rootDomain = extractRootDomain(domain);
             if (rootDomain != null && !rootDomain.isEmpty()) {
                 // Set domain WITHOUT leading dot - Tomcat 10+ doesn't allow it
-                // Modern browsers still share cookies across subdomains (api.wildcat-radio.live <-> wildcat-radio.live)
+                // Modern browsers still share cookies across subdomains (api.wildcat-radio.live
+                // <-> wildcat-radio.live)
                 cookie.setDomain(rootDomain);
-                logger.debug("Setting cookie domain to: {} (without leading dot for Tomcat 10+ compatibility)", rootDomain);
+                logger.debug("Setting cookie domain to: {} (without leading dot for Tomcat 10+ compatibility)",
+                        rootDomain);
             }
         }
     }
-    
+
     /**
      * Extract root domain from a subdomain
      * e.g., api.wildcat-radio.live -> wildcat-radio.live
@@ -403,8 +415,8 @@ public class SecurityConfig {
         }
 
         // Common TLDs that have two parts (e.g., .co.uk, .com.au)
-        String[] twoPartTlds = {".co.uk", ".com.au", ".co.za", ".co.nz", ".com.br", ".co.jp"};
-        
+        String[] twoPartTlds = { ".co.uk", ".com.au", ".co.za", ".co.nz", ".com.br", ".co.jp" };
+
         // Check for two-part TLDs first
         for (String tld : twoPartTlds) {
             if (domain.endsWith(tld)) {
@@ -427,4 +439,4 @@ public class SecurityConfig {
 
         return domain; // Fallback to original domain
     }
-} 
+}
