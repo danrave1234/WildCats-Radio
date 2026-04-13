@@ -139,3 +139,5 @@ backend/target/classes/static/
 .env.test.local
 .env.production.local
 .eslintcache
+
+/antigravity-awesome-skills/
