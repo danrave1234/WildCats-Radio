@@ -5,7 +5,9 @@ import java.net.NetworkInterface;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Enumeration;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,17 +27,36 @@ public class CorsConfig {
     @Value("${CORS_ALLOWED_ORIGINS:}")
     private String customAllowedOrigins;
 
+    @Value("${app.production:false}")
+    private boolean isProduction;
+
     private List<String> allowedOrigins;
 
     @PostConstruct
     public void init() {
         allowedOrigins = generateAllowedOrigins();
-        logger.info("Generated {} allowed CORS origins", allowedOrigins.size());
-        logger.debug("CORS origins: {}", allowedOrigins);
+        logger.info("CORS initialized: mode={}, totalOrigins={}, origins={}",
+                isProduction ? "production" : "development",
+                allowedOrigins.size(),
+                allowedOrigins);
     }
 
     private List<String> generateAllowedOrigins() {
-        List<String> origins = new ArrayList<>();
+        Set<String> origins = new LinkedHashSet<>();
+
+        // Always allow first-party production domains.
+        origins.addAll(Arrays.asList(
+            "https://wildcat-radio.vercel.app",
+            "https://api.wildcat-radio.live",
+            "https://wildcat-radio.live",
+            "https://www.wildcat-radio.live"
+        ));
+
+        // In production, keep the allowlist strict and explicit.
+        if (isProduction) {
+            addCustomOrigins(origins);
+            return new ArrayList<>(origins);
+        }
 
         // Add standard localhost origins
         origins.addAll(Arrays.asList(
@@ -47,13 +68,6 @@ public class CorsConfig {
             "http://127.0.0.1:5174"
         ));
 
-        // Add production domains
-        origins.addAll(Arrays.asList(
-            "https://wildcat-radio.vercel.app",
-            "https://api.wildcat-radio.live",
-            "https://wildcat-radio.live"
-        ));
-
         // Add mobile app origins (React Native/Expo)
         origins.addAll(Arrays.asList(
             "exp://192.168.1.2:8081",  // Expo development server
@@ -61,8 +75,7 @@ public class CorsConfig {
             "exp://localhost:8081",   // Localhost Expo
             "exp://localhost:8083",   // Alternative localhost port
             "exp://127.0.0.1:8081",   // Localhost alternative
-            "exp://127.0.0.1:8083",   // Localhost alternative
-            "null"                     // Allow null origin for mobile apps
+            "exp://127.0.0.1:8083"    // Localhost alternative
         ));
 
         // Dynamically detect local network IPs
@@ -108,15 +121,23 @@ public class CorsConfig {
             origins.add("http://10.0.0." + i + ":5173");
         }
 
-        // Add custom origins from environment variable if provided
-        if (customAllowedOrigins != null && !customAllowedOrigins.trim().isEmpty()) {
-            String[] customOrigins = customAllowedOrigins.split(",");
-            for (String origin : customOrigins) {
-                origins.add(origin.trim());
-            }
+        addCustomOrigins(origins);
+
+        return new ArrayList<>(origins);
+    }
+
+    private void addCustomOrigins(Set<String> origins) {
+        if (customAllowedOrigins == null || customAllowedOrigins.trim().isEmpty()) {
+            return;
         }
 
-        return origins;
+        String[] customOrigins = customAllowedOrigins.split(",");
+        for (String origin : customOrigins) {
+            String normalized = origin.trim();
+            if (!normalized.isEmpty()) {
+                origins.add(normalized);
+            }
+        }
     }
 
     public List<String> getAllowedOrigins() {
